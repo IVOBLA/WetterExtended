@@ -1,0 +1,14 @@
+*.pyc
+*.png
+/train_data
+/__pycache__
+/__pycache__
+/plots
+*.kmz
+/data
+/__pycache__
+/data
+/data
+/__pycache__
+/train_data
+/train_data

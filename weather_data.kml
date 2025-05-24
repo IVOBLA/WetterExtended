@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">    
+   <GroundOverlay>
+      <name>si0zm</name>
+      <description>10.04.2025 20:10 CEST (2025-04-10T18:10:00Z)</description>
+      <ExtendedData>
+         <Data name="WMS request parameters">
+            <value>CRS=EPSG:4326;BBOX=44.67,12.1,47.42,17.44;WIDTH=800;HEIGHT=600</value>
+         </Data>
+      </ExtendedData>
+      <Icon>
+         <href>inca_si0zm_20250410-1810+0000.png</href>
+      </Icon>
+      <TimeStamp>
+         <when>2025-04-10T18:10:00Z</when>
+      </TimeStamp>
+      <altitude>3000</altitude>
+      <altitudeMode>absolute</altitudeMode>
+      <LatLonBox>
+         <north>47.42</north>
+         <south>44.67</south>
+         <east>17.44</east>
+         <west>12.1</west>
+      </LatLonBox>
+   </GroundOverlay>
+</kml>

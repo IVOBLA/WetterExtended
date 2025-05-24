@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stormtracker — Interaktive Karte</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+
+    <style>
+        html, body, #map {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="map"></div>
+
+    <script>
+        const map = L.map('map').setView([46.05, 14.51], 7);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        // Overlay laden (Overlay.png im selben Verzeichnis)
+        const overlayBounds = [[44.67, 12.1], [47.42, 17.44]];
+        L.imageOverlay('overlay.png', overlayBounds, { opacity: 0.7 }).addTo(map);
+
+        // Objektdaten laden (latest_objects.json im selben Verzeichnis)
+        fetch('latest_objects.json')
+            .then(response => response.json())
+            .then(data => {
+                data.forEach(obj => {
+                    if ('lat' in obj && 'lon' in obj) {
+                        L.circleMarker([obj.lat, obj.lon], {
+                            radius: 5,
+                            color: 'red',
+                            fillColor: 'red',
+                            fillOpacity: 0.8
+                        }).bindPopup(`ID: ${obj.id}`).addTo(map);
+                    }
+                });
+            });
+    </script>
+</body>
+</html>
