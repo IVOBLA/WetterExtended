@@ -20,12 +20,12 @@ from debug_utils import debug_log
 from utils import find_nearest_station, calculate_velocity
 
 sequence_length = 3
-num_features = 22
+num_features = 23
 
-def train_or_load_model():
+def train_or_load_model(train_from_scratch: bool = False):
     model_path = "weather_lstm_model.keras"
 
-    if os.path.exists(model_path):
+    if not train_from_scratch and os.path.exists(model_path):
         debug_log("Lade bestehendes Modell...")
         model = load_model(model_path, compile=False)
         model.compile(loss=MeanSquaredError(), optimizer=Adam(learning_rate=0.001))
@@ -37,10 +37,18 @@ def train_or_load_model():
         LSTM(64),
         Dense(32, activation="relu"),
         Dense(16, activation="relu"),
-        Dense(2)
+        Dense(6)
     ])
     model.compile(loss=MeanSquaredError(), optimizer=Adam(learning_rate=0.001))
-    return model
+
+    from model_training import train_with_historical_and_live_data
+    result = train_with_historical_and_live_data(model, live_objects=[], timestamp=None, stations=[])
+    if result is None:
+        debug_log("Training fehlgeschlagen – verwende untrainiertes Modell.")
+        return model
+    else:
+        model, _ = result
+        return model
 
 
 def train_with_historical_and_live_data(model, live_objects, timestamp=None, stations=[]):
@@ -53,8 +61,13 @@ def train_with_historical_and_live_data(model, live_objects, timestamp=None, sta
     for i in range(sequence_length, len(object_files)):
         try:
             ts_now = os.path.splitext(os.path.basename(object_files[i]))[0]
-            if not ts_now:
+            ts_now_dt = datetime.strptime(ts_now, "%Y-%m-%d_%H-%M-%S")
+            ts_prev = os.path.splitext(os.path.basename(object_files[i - 1]))[0]
+            ts_prev_dt = datetime.strptime(ts_prev, "%Y-%m-%d_%H-%M-%S")
+            delta_minutes = (ts_now_dt - ts_prev_dt).total_seconds() / 60.0
+            if delta_minutes == 0:
                 continue
+
             with open(object_files[i]) as f_now, open(weather_files[i]) as wf:
                 now_objs = json.load(f_now)
                 weather = json.load(wf)
@@ -72,7 +85,7 @@ def train_with_historical_and_live_data(model, live_objects, timestamp=None, sta
                 delta_angle = atan2(vy, vx)
                 station = find_nearest_station(*pixel_to_geo(obj["x"], obj["y"]), weather)
                 weather_vals = [station.get(k, 0) for k in ["RR", "DD", "FF", "FFX", "GLOW", "P", "RF", "TL", "TP"]] if station else [0] * 9
-                hour_angle = 2 * pi * (datetime.strptime(ts_now, "%Y-%m-%d_%H-%M-%S").hour * 60 + datetime.strptime(ts_now, "%Y-%m-%d_%H-%M-%S").minute) / (24 * 60)
+                hour_angle = 2 * pi * (ts_now_dt.hour * 60 + ts_now_dt.minute) / (24 * 60)
 
                 sequence = []
                 for j in range(i - sequence_length, i):
@@ -89,19 +102,34 @@ def train_with_historical_and_live_data(model, live_objects, timestamp=None, sta
                         hist_match.get("core_ratio", 0), hist_match.get("intensity_trend", 0)
                     ] + weather_vals + [
                         sin(hour_angle), cos(hour_angle),
-                        cos(delta_angle), sin(delta_angle)
+                        cos(delta_angle), sin(delta_angle),
+                        delta_minutes / 10.0
                     ]
                     if len(inp) == num_features:
                         sequence.append(inp)
 
                 if len(sequence) == sequence_length:
+                    factors = [10 / delta_minutes, 20 / delta_minutes, 30 / delta_minutes]
+                    preds = []
+                    for f in factors:
+                        preds.extend([obj["x"] + f * vx, obj["y"] + f * vy])
+                    y_train.append(preds)
                     X_train.append(sequence)
-                    y_train.append([obj["x"] + 10 * vx, obj["y"] + 10 * vy])
         except Exception as e:
             debug_log(f"Fehler bei Trainingsdaten: {e}")
 
     for obj in live_objects:
         sequence = []
+        try:
+            ts_now_dt = datetime.strptime(timestamp, "%Y-%m-%d_%H-%M-%S")
+            ts_prev = os.path.splitext(os.path.basename(object_files[-2]))[0]
+            ts_prev_dt = datetime.strptime(ts_prev, "%Y-%m-%d_%H-%M-%S")
+            delta_minutes = (ts_now_dt - ts_prev_dt).total_seconds() / 60.0
+            if delta_minutes == 0:
+                continue
+        except:
+            continue
+
         for j in range(-sequence_length, 0):
             idx = j + len(object_files)
             if idx < 0:
@@ -123,7 +151,7 @@ def train_with_historical_and_live_data(model, live_objects, timestamp=None, sta
                     datetime.strptime(timestamp, "%Y-%m-%d_%H-%M-%S").hour * 60 +
                     datetime.strptime(timestamp, "%Y-%m-%d_%H-%M-%S").minute
                 ) / (24 * 60)
-            except Exception:
+            except:
                 hour_angle = 0
 
             inp = [
@@ -133,15 +161,20 @@ def train_with_historical_and_live_data(model, live_objects, timestamp=None, sta
                 hist_match.get("core_ratio", 0), hist_match.get("intensity_trend", 0)
             ] + weather_vals + [
                 sin(hour_angle), cos(hour_angle),
-                cos(delta_hist), sin(delta_hist)
+                cos(delta_hist), sin(delta_hist),
+                delta_minutes / 10.0
             ]
 
             if len(inp) == num_features:
                 sequence.append(inp)
 
         if len(sequence) == sequence_length:
+            factors = [10 / delta_minutes, 20 / delta_minutes, 30 / delta_minutes]
+            preds = []
+            for f in factors:
+                preds.extend([obj["x"] + f * obj["vx"], obj["y"] + f * obj["vy"]])
+            y_train.append(preds)
             X_train.append(sequence)
-            y_train.append([obj["x"] + 10 * obj["vx"], obj["y"] + 10 * obj["vy"]])
 
     if not X_train:
         debug_log("Keine Trainingsdaten vorhanden.")
@@ -159,16 +192,16 @@ def train_with_historical_and_live_data(model, live_objects, timestamp=None, sta
     early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
 
     history = model.fit(X_train, y_train,
-                    validation_data=(X_val, y_val),
-                    epochs=100,
-                    batch_size=32,
-                    callbacks=[early_stop],
-                    verbose=1)
+                        validation_data=(X_val, y_val),
+                        epochs=100,
+                        batch_size=32,
+                        callbacks=[early_stop],
+                        verbose=1)
+
     model.save("weather_lstm_model.keras")
     debug_log("Modell gespeichert.")
     print(f"[INFO] Finaler Trainingsfehler (MSE): {history.history['loss'][-1]:.6f}")
 
-    # Lernkurve
     plt.figure(figsize=(8, 4))
     plt.plot(history.history['loss'], label="Train Loss")
     plt.plot(history.history['val_loss'], label="Validation Loss")
@@ -187,4 +220,4 @@ def train_with_historical_and_live_data(model, live_objects, timestamp=None, sta
         f.write(f"Neue Objekte: {new_ids}\n")
     debug_log("Trainingsstatistik gespeichert.")
 
-    return model, history  # <- HIER HINZUFÜGEN
+    return model, history

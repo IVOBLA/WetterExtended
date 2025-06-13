@@ -19,10 +19,10 @@ BBOX_KAERNTEN_EXTENDEDx = {
 }
 
 BBOX_KAERNTEN_EXTENDED = {
-    "north": 47.37,
-    "south": 44.75,
-    "east": 17.29,
-    "west": 12.30
+    "north": 47.18,
+    "south": 46.36,
+    "east": 15.20,
+    "west": 12.60
 }
 
 
@@ -101,3 +101,21 @@ SAVE_PATHS = {
 MIN_CONTOUR_OVERLAP = 10
 
 MIN_CONTOUR_TOUCH = 5
+
+# Ausgabeauflösung in Pixeln (z. B. für GeoTIFF via WMS)
+WIDTH = 1600
+HEIGHT = 600
+
+# Layer-Konfiguration für EUMETView
+LAYER = "msg_fes:ir108"
+FORMAT = "image/geotiff"
+CRS = "EPSG:4326"
+
+# Dateispeicherpfad
+SAVE_DIR = "train_data/cloud/"
+
+# Temperaturgradient für Wolkenhöhenberechnung
+LAPSE_RATE = 6.5  # K/km
+
+DEFAULT_SURFACE_TEMP_K = 290.0
+DEFAULT_ALTITUDE_M = 600.0

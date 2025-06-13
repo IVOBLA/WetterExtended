@@ -7,16 +7,17 @@ import matplotlib.pyplot as plt
 from collections import Counter
 from object_tracking import detect_and_track_objects
 from model_training import train_or_load_model, train_with_historical_and_live_data
+from pathlib import Path
 
 # Schalter: Nur wenn True, werden vorhandene Objektdateien überschrieben
-RECREATE_OBJECTS = False
+RECREATE_OBJECTS = True
 
 def reprocess_all_objects():
     radar_files = sorted(glob.glob("train_data/radar/*.png"))
     print(f"[INFO] {len(radar_files)} Radar-Bilder gefunden.")
 
     for radar_path in radar_files:
-        filename = os.path.basename(radar_path).replace("radar_", "").replace(".png", "")
+        filename = Path(radar_path).stem.replace("radar_", "")
         print(f"[INFO] Verarbeite: {filename}")
 
         weather_path = f"train_data/weather/{filename}.json"
@@ -33,7 +34,7 @@ def reprocess_all_objects():
             continue
 
         # Objekte erkennen und speichern
-        objects, _, _ = detect_and_track_objects(radar_path, weather_data)
+        objects, _ = detect_and_track_objects(radar_path, weather_data)
         if not objects:
             print(f"[INFO] Keine Objekte erkannt in {filename}")
             continue
@@ -78,7 +79,7 @@ def reprocess_all_objects():
             timestamps.append(timestamp)
 
     print(f"[INFO] Starte LSTM-Training mit {len(timestamps)} Zeitpunkten und {len(all_objects)} Objekten...")
-    model = train_or_load_model()
+    model = train_or_load_model(train_from_scratch=False)
     result = train_with_historical_and_live_data(model, all_objects, timestamps, weather_data)
     if result is None:
         print("[WARNUNG] Training fehlgeschlagen oder keine gültigen Sequenzen gefunden.")

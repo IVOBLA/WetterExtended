@@ -1,0 +1,13 @@
+[Unit]
+Description=Wetterprojekt Autostart
+After=network.target
+
+[Service]
+Type=simple
+User=ki-pi
+WorkingDirectory=/home/ki-pi/wetterprojekt
+ExecStart=/home/ki-pi/wetterprojekt/venv/bin/python3 /home/ki-pi/wetterprojekt/main.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

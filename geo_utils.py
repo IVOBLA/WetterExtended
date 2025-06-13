@@ -89,13 +89,12 @@ def get_roi_from_bbox(bbox, image_width=800, image_height=600):
         "y2": max(y1, y2)
     }
 
-def crop_and_upscale_to_bbox(image_path, bbox, upscale=3.0):
+def crop_and_upscale_to_bbox(image_path, bbox, upscale=3.0, save_path=None):
     """
     Schneidet das Bild basierend auf der geografischen BBOX zu und skaliert es anschließend.
-    Speichert das Ergebnis in data/radar/ mit gleichem Namen.
+    Optional: Speichert das Ergebnis, wenn save_path übergeben wird.
     """
     global kml_bounds
-
     parse_kml_bounds()
 
     img = cv2.imread(image_path)
@@ -111,13 +110,13 @@ def crop_and_upscale_to_bbox(image_path, bbox, upscale=3.0):
     cropped = img[y1:y2, x1:x2]
     scaled = cv2.resize(cropped, (0, 0), fx=upscale, fy=upscale, interpolation=cv2.INTER_NEAREST)
 
-    # Speichern in data/radar mit gleichem Dateinamen
-    os.makedirs("data/radar", exist_ok=True)
-    filename = os.path.basename(image_path)
-    save_path = os.path.join("data/radar", filename)
-    cv2.imwrite(save_path, scaled)
+    # Optional speichern
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        cv2.imwrite(save_path, scaled)
+        debug_log(f"[DEBUG] Hochskaliertes Bild gespeichert: {save_path}")
 
-    # Update für spätere Geo-Referenzierung
+    # Update für Geo-Referenzierung
     kml_bounds["img_width"] = scaled.shape[1]
     kml_bounds["img_height"] = scaled.shape[0]
     kml_bounds["pixel_offset_x"] = x1

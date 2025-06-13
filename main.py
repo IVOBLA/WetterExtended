@@ -21,6 +21,7 @@ from fetch_700hpa_wind_per_object_slim import fetch_and_assign_700hpa_wind
 from assign_cape_from_forecast import assign_cape
 from geo_utils import get_roi_from_bbox, kml_bounds
 from config import BBOX_KAERNTEN_EXTENDED
+from cloud_height_from_eumetview import assign_cloud_top_height
 
 ROI = get_roi_from_bbox(BBOX_KAERNTEN_EXTENDED)
 
@@ -48,6 +49,7 @@ def main_loop():
             objects,  timestamp = detect_and_track_objects(image_path, weather_data)
             objects = fetch_and_assign_700hpa_wind(objects, timestamp)
             objects = assign_cape(objects, timestamp)
+            objects = assign_cloud_top_height(objects)
         
         if radar_ok and image is not None and objects and weather_data:
             debug_log("Radarbild, Objekte und Wetterdaten vorhanden → Speichern & Verarbeiten")
@@ -68,7 +70,7 @@ def main_loop():
             debug_log(f"Wetterdaten gespeichert als {weather_file}")
 
             # Training
-            # train_with_historical_and_live_data(model, objects, timestamp, weather_data)
+            train_with_historical_and_live_data(model, objects, timestamp, weather_data)
 
             # Forecast
             forecast_10, forecast_20, forecast_30 = predict_positions(objects, model, timestamp, weather_data)

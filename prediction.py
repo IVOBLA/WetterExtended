@@ -15,6 +15,18 @@ sequence_length = 3
 num_features = 22
 
 def predict_positions(objects, model, timestamp, stations):
+    from math import sin, cos, pi, atan2
+    import numpy as np
+    import glob
+    import json
+    from datetime import datetime
+    from geo_utils import pixel_to_geo
+    from debug_utils import debug_log
+    from utils import find_nearest_station, calculate_velocity
+
+    sequence_length = 3
+    num_features = 22
+
     forecast_10, forecast_20, forecast_30 = [], [], []
 
     object_files = sorted(glob.glob("train_data/objects/*.json"))
@@ -63,19 +75,16 @@ def predict_positions(objects, model, timestamp, stations):
 
         sequence = np.array(sequence).reshape(1, sequence_length, num_features)
         prediction = model.predict(sequence, verbose=0)[0]
-        
-        obj["lstm_vx"] = float(prediction[0])
-        obj["lstm_vy"] = float(prediction[1])
-        
-        for t in [10, 20, 30]:
-            obj[f"forecast_x_{t}"] = float(obj["x"] + prediction[0] * t)
-            obj[f"forecast_y_{t}"] = float(obj["y"] + prediction[1] * t)
-         
-         # Geografische Koordinaten berechnen und speichern
-            forecast_lat, forecast_lon = pixel_to_geo(obj[f"forecast_x_{t}"], obj[f"forecast_y_{t}"])
+
+        for idx, t in enumerate([10, 20, 30]):
+            x_pred = prediction[idx * 2]
+            y_pred = prediction[idx * 2 + 1]
+            obj[f"forecast_x_{t}"] = float(x_pred)
+            obj[f"forecast_y_{t}"] = float(y_pred)
+
+            forecast_lat, forecast_lon = pixel_to_geo(x_pred, y_pred)
             obj[f"forecast_lat_{t}"] = forecast_lat
             obj[f"forecast_lon_{t}"] = forecast_lon
-
 
         for t, forecast_list in zip([10, 20, 30], [forecast_10, forecast_20, forecast_30]):
             forecast_list.append({
@@ -86,8 +95,9 @@ def predict_positions(objects, model, timestamp, stations):
                 "size": obj["size"],
                 "id": obj["id"]
             })            
-            
+
     with open(f"train_data/objects/{timestamp}.json", "w") as f:
         json.dump(objects, f, indent=2)
 
     return forecast_10, forecast_20, forecast_30
+

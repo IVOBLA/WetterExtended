@@ -16,4 +16,5 @@ def save_debug_image(path, image, message=None):
 
 def debug_log(message):
     if DEBUG_MODE:
-        log(f"[DEBUG] {message}")
+        from datetime import datetime
+        print(f"[{datetime.now().isoformat(timespec='seconds')}] DEBUG: {message}")

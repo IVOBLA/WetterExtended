@@ -13,6 +13,7 @@ from debug_utils import save_debug_image, debug_log
 from geo_utils import crop_and_upscale_to_bbox
 from config import MIN_CONTOUR_OVERLAP
 from config import MIN_CONTOUR_TOUCH
+from config import BBOX_KAERNTEN_EXTENDED as BBOX
 
 tracking_memory = {}
 
@@ -116,6 +117,12 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
     objects = []
     new_memory = {}
     used_ids = set()
+    
+    def is_within_bbox(lat, lon, bbox):
+        return (
+            bbox["south"] <= lat <= bbox["north"] and
+            bbox["west"] <= lon <= bbox["east"]
+        )
 
     for contour in contours:
         M = cv2.moments(contour)
@@ -136,6 +143,13 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
 
         # Ausschlussregion: Koralpe (muss VOR dem Erzeugen des Objekts passieren!)
         lat, lon = pixel_to_geo(original_cx, original_cy)
+        
+
+        if not is_within_bbox(lat, lon, BBOX):
+            debug_log(f"[SKIP] Objekt außerhalb BBOX verworfen (lat={lat:.4f}, lon={lon:.4f})")
+            continue        
+        
+        
         if 46.7 < lat < 46.9 and 14.8 < lon < 15.2:
             debug_log(f"[SKIP] Zelle in Ausschlussregion Koralpe verworfen (lat={lat:.2f}, lon={lon:.2f})")
             continue
@@ -215,9 +229,13 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
 
     for obj_id, obj in tracking_memory.items():
         if obj_id not in new_memory:
-            obj["missing"] = obj.get("missing", 0) + 1
-            if obj["missing"] <= 10:
-                new_memory[obj_id] = obj
+            lat, lon = obj.get("lat"), obj.get("lon")
+            if is_within_bbox(lat, lon, BBOX):
+                obj["missing"] = obj.get("missing", 0) + 1
+                if obj["missing"] <= 10:
+                    new_memory[obj_id] = obj
+            else:
+                debug_log(f"[RECYCLE-SKIP] Objekt {obj_id} außerhalb BBOX → nicht übernommen")
 
     tracking_memory = new_memory
     for obj_id, obj in new_memory.items():
@@ -258,79 +276,80 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
     return objects
 
 def detect_and_track_objects(image_path=None, weather_data=None):
-    
+    import os
+    from datetime import datetime
+    from config import BBOX_KAERNTEN_EXTENDED as BBOX, UPSCALE_FACTOR
+
     if image_path is None:
         image_path = "data/latest.png"
-    
+
+    os.makedirs("data/radar", exist_ok=True)
     os.makedirs("train_data/radar", exist_ok=True)
     os.makedirs("train_data/objects", exist_ok=True)
+
     debug_log(f"Tracking auf Bild: {image_path}")
+
     if weather_data is None:
         weather_data = []
 
-    # Timestamp ermitteln
+    # 📆 Timestamp extrahieren
     filename = os.path.basename(image_path).replace(".png", "")
     if "latest" in filename:
         ts_dt = datetime.now()
         timestamp = ts_dt.strftime("%Y-%m-%d_%H-%M-%S")
-        debug_log(f"[INFO] Live-Modus erkannt → Timestamp gesetzt auf: {timestamp}")
+        debug_log(f"[INFO] Live-Modus erkannt → Timestamp: {timestamp}")
     else:
         try:
             ts_dt = datetime.strptime(filename.replace("radar_", ""), "%Y-%m-%d_%H-%M-%S")
             timestamp = ts_dt.strftime("%Y-%m-%d_%H-%M-%S")
-            debug_log(f"[INFO] Historischer Modus → Timestamp extrahiert: {timestamp}")
         except ValueError:
-            debug_log(f"[FEHLER] Ungültiger Dateiname für Timestamp: {filename}")
             ts_dt = datetime.now()
             timestamp = ts_dt.strftime("%Y-%m-%d_%H-%M-%S")
-            
-    # Speichere das vergrößerte Bild mit Timestamp im Dateinamen am selben Ort
-    original_scaled_path = os.path.join("data/radar", os.path.basename(image_path))
-    timestamped_scaled_path = os.path.join("data/radar", f"radar_{timestamp}.png")
 
-    img_scaled = cv2.imread(original_scaled_path)
-    if img_scaled is not None:
-        cv2.imwrite(timestamped_scaled_path, img_scaled)
-        debug_log(f"[INFO] Timestamped Radarbild gespeichert unter: {timestamped_scaled_path}")
+    # ✂️ Bild zuschneiden & hochskalieren
+    scaled_path = os.path.join("data/radar", f"radar_{timestamp}.png")
+    processed_img = crop_and_upscale_to_bbox(image_path, BBOX, UPSCALE_FACTOR, scaled_path)
+
+    # 💾 Originalbild (unverändert) archivieren
+    original_img = cv2.imread(image_path)
+    if original_img is not None:
+        original_path = os.path.join("train_data/radar", f"radar_{timestamp}.png")
+        cv2.imwrite(original_path, original_img)
+        debug_log(f"[INFO] Originalbild archiviert: {original_path}")
     else:
-        debug_log(f"[WARNUNG] Skaliertes Bild nicht gefunden: {original_scaled_path}")        
+        debug_log(f"[WARNUNG] Originalbild konnte nicht geladen werden: {image_path}")
 
-    # Bild verarbeiten
-    hsv, contours, mask = preprocess_image(image_path)
-    objects = update_tracking_memory(hsv, contours, weather_data, timestamp)
-    
-    overlay_img = cv2.imread("data/radar/" + os.path.basename(image_path))
-    if overlay_img is None:
-        raise FileNotFoundError(f"Overlay-Bild fehlt: data/radar/{os.path.basename(image_path)}")
+    # 🧪 Segmentierung
+    hsv = cv2.cvtColor(processed_img, cv2.COLOR_BGR2HSV)
+    mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+    for lower, upper in FILTER_CONFIG["allowed_hsv_ranges"]:
+        mask |= cv2.inRange(hsv, np.array(lower), np.array(upper))
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    merged = merge_close_contours(contours, hsv.shape[:2], min_touch=MIN_CONTOUR_TOUCH)
 
+    # 📌 Objektverfolgung
+    objects = update_tracking_memory(hsv, merged, weather_data, timestamp)
+
+    # 🖼️ Overlay erstellen
+    overlay_img = processed_img.copy()
     for obj in objects:
-        cx = int(obj["x"])
-        cy = int(obj["y"])
+        contour = np.array(obj["contour"], dtype=np.int32).reshape(-1, 1, 2)
+        cv2.drawContours(overlay_img, [contour], -1, (255, 255, 255), 2)
 
-        contour_pts = np.array(obj["contour"], dtype=np.float32).reshape(-1, 2)
-
-        # Zeichnen in Weiß, etwas dicker
-        contour_pts = contour_pts.astype(np.int32).reshape(-1, 1, 2)
-        cv2.drawContours(overlay_img, [contour_pts], -1, (255, 255, 255), 2)
-        
-        # Schwerpunkt zeichnen (kleiner weißer Punkt)
-        contour_pts = np.array(obj["contour"], dtype=np.int32).reshape(-1, 1, 2)
-        M = cv2.moments(contour_pts)
+        M = cv2.moments(contour)
         if M["m00"] != 0:
             cx = int(M["m10"] / M["m00"])
             cy = int(M["m01"] / M["m00"])
-            cv2.circle(overlay_img, (cx, cy), radius=3, color=(255, 255, 255), thickness=-1)
-
-            # Weißer Rand (dicker)
+            cv2.circle(overlay_img, (cx, cy), 3, (255, 255, 255), -1)
             cv2.putText(overlay_img, obj["id"], (cx + 5, cy - 5),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 3, lineType=cv2.LINE_AA)
-
-            # Schwarze Schrift (dünner)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, lineType=cv2.LINE_AA)
             cv2.putText(overlay_img, obj["id"], (cx + 5, cy - 5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1, lineType=cv2.LINE_AA)
 
+    # 💾 Debug Overlay speichern
     debug_overlay_path = f"train_data/debug_overlay_{timestamp}.png"
     cv2.imwrite(debug_overlay_path, overlay_img)
-    save_debug_image(debug_overlay_path, overlay_img, f"Debug-Radarbild mit Konturen gespeichert: {debug_overlay_path}")
+    cv2.imwrite("data/overlay.png", overlay_img)
+    save_debug_image(debug_overlay_path, overlay_img, f"Overlay gespeichert: {debug_overlay_path}")
 
     return objects, timestamp
