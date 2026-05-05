@@ -40,6 +40,7 @@ from config import (
     ML_STATION_FEATURES,
     SAVE_PATHS,
 )
+from data_quality import validate_sample
 
 
 def _safe_float(value):
@@ -82,7 +83,7 @@ def _frame_features(obj, stations, ts):
 
 
 def _empty_result():
-    return {"X": [], "y": [], "y_raw": [], "ids": []}
+    return {"X": [], "y": [], "y_raw": [], "ids": [], "rejected_samples": 0, "rejection_reasons": {}}
 
 
 def _dependencies_available():
@@ -145,6 +146,8 @@ def build_dataset():
 
     X_rows, y_rows, ids = [], [], []
     tabular_rows = []
+    rejection_reasons = {}
+    n_rejected = 0
 
     for i in range(ML_SEQUENCE_LENGTH - 1, len(frames) - max_h_steps):
         seq_slice = frames[i - ML_SEQUENCE_LENGTH + 1 : i + 1]
@@ -168,6 +171,7 @@ def build_dataset():
                 continue
 
             seq_features = []
+            seq_objects = []
             valid = True
             for op, wp, ts, objs, stations in seq_slice:
                 obj = next((o for o in objs if str(o.get("id")) == oid), None)
@@ -175,6 +179,7 @@ def build_dataset():
                     valid = False
                     break
                 seq_features.append(_frame_features(obj, stations, ts))
+                seq_objects.append(obj)
 
             if not valid:
                 continue
@@ -183,6 +188,12 @@ def build_dataset():
             for fmap in future_obj_maps:
                 fo = fmap[oid]
                 targets.extend([_safe_float(fo.get("x", 0.0)), _safe_float(fo.get("y", 0.0))])
+
+            ok, reason = validate_sample(seq_objects, targets)
+            if not ok:
+                n_rejected += 1
+                rejection_reasons[reason or "unknown"] = rejection_reasons.get(reason or "unknown", 0) + 1
+                continue
 
             X_rows.append(seq_features)
             y_rows.append(targets)
@@ -226,7 +237,8 @@ def build_dataset():
     pd.DataFrame(tabular_rows).to_parquet(os.path.join(SAVE_PATHS["dataset"], "tabular.parquet"), index=False)
 
     debug_log(f"[DATASET] Datensatz gebaut: X={X_scaled.shape}, y={y_scaled.shape}")
-    return {"X": X_scaled, "y": y_scaled, "y_raw": y_raw, "ids": ids}
+    debug_log(f"[DATASET] {len(X_rows)} kept, {n_rejected} rejected (reasons: {rejection_reasons})")
+    return {"X": X_scaled, "y": y_scaled, "y_raw": y_raw, "ids": ids, "rejected_samples": n_rejected, "rejection_reasons": rejection_reasons}
 
 
 def build_classification_dataset():
@@ -268,6 +280,7 @@ def build_classification_dataset():
 
         for oid in common_ids:
             seq_features = []
+            seq_objects = []
             valid = True
             for _, _, ts, objs, stations in seq_slice:
                 obj = next((o for o in objs if str(o.get("id")) == oid), None)
@@ -275,6 +288,7 @@ def build_classification_dataset():
                     valid = False
                     break
                 seq_features.append(_frame_features(obj, stations, ts))
+                seq_objects.append(obj)
             if not valid:
                 continue
 
