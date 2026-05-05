@@ -87,13 +87,18 @@ def train_lgbm(X, y):
         return {"trained": False, "models": {}, "best_scores": {}, "samples": len(X)}
     X_flat = X[:, -1, :]
     X_train, X_val, y_train, y_val = train_test_split(X_flat, y, test_size=0.2, random_state=42)
-    params = {"objective": "regression", "metric": "rmse", "num_leaves": 31, "learning_rate": 0.05, "feature_fraction": 0.9, "bagging_fraction": 0.8, "bagging_freq": 5, "verbose": -1}
-    models, best_scores = {}, {}
+    base_params = {"num_leaves": 31, "learning_rate": 0.05, "feature_fraction": 0.9, "bagging_fraction": 0.8, "bagging_freq": 5, "verbose": -1}
+    point_params = {**base_params, "objective": "regression", "metric": "rmse"}
+    quantiles = [0.1, 0.5, 0.9]
+    quantiles_to_train = quantiles if len(X) >= 100 else [0.5]
+    if len(X) < 100:
+        debug_log(f"[LGBM] Wenig Samples ({len(X)} < 100): trainiere nur Median-Quantil (q50)")
+    models, best_scores, quantile_scores = {}, {}, {}
     for h_idx, h in enumerate(ML_FORECAST_HORIZONS_MIN):
         for axis_idx, axis in enumerate(["x", "y"]):
             target_idx = h_idx * 2 + axis_idx
             booster = lgb.train(
-                params,
+                point_params,
                 lgb.Dataset(X_train, label=y_train[:, target_idx]),
                 num_boost_round=500,
                 valid_sets=[lgb.Dataset(X_val, label=y_val[:, target_idx])],
@@ -104,7 +109,23 @@ def train_lgbm(X, y):
             booster.save_model(path)
             models[name] = path
             best_scores[name] = float(booster.best_score.get("valid_0", {}).get("rmse", float("nan")))
-    return {"trained": True, "models": models, "best_scores": best_scores, "samples": len(X)}
+
+            for quantile in quantiles_to_train:
+                q_name = f"q{int(quantile * 100):02d}"
+                quantile_params = {**base_params, "objective": "quantile", "alpha": quantile, "metric": "quantile"}
+                q_booster = lgb.train(
+                    quantile_params,
+                    lgb.Dataset(X_train, label=y_train[:, target_idx]),
+                    num_boost_round=500,
+                    valid_sets=[lgb.Dataset(X_val, label=y_val[:, target_idx])],
+                    callbacks=[lgb.early_stopping(20, verbose=False)],
+                )
+                q_model_name = f"lgbm_h{h}_{axis}_{q_name}"
+                q_path = os.path.join(SAVE_PATHS["models"], f"{q_model_name}.txt")
+                q_booster.save_model(q_path)
+                models[q_model_name] = q_path
+                quantile_scores[q_model_name] = float(q_booster.best_score.get("valid_0", {}).get("quantile", float("nan")))
+    return {"trained": True, "models": models, "best_scores": best_scores, "quantile_scores": quantile_scores, "samples": len(X)}
 
 
 def load_lstm():
@@ -122,6 +143,11 @@ def load_lgbm_models():
             path = os.path.join(SAVE_PATHS["models"], f"{name}.txt")
             if os.path.exists(path):
                 models[name] = lgb.Booster(model_file=path)
+            for q in ["q10", "q50", "q90"]:
+                q_name = f"{name}_{q}"
+                q_path = os.path.join(SAVE_PATHS["models"], f"{q_name}.txt")
+                if os.path.exists(q_path):
+                    models[q_name] = lgb.Booster(model_file=q_path)
     return models
 
 
@@ -131,12 +157,16 @@ def retrain_all():
     y = np.asarray(dataset.get("y", [])) if np is not None else []
     has_data = np is not None and getattr(X, "size", 0) and getattr(y, "size", 0)
     lstm_result = train_lstm(X, y) if has_data else {"trained": False, "val_loss": None}
-    lgbm_result = train_lgbm(X, y) if has_data else {"trained": False, "best_scores": {}}
+    lgbm_result = train_lgbm(X, y) if has_data else {"trained": False, "best_scores": {}, "quantile_scores": {}}
     meta = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "num_samples": int(len(X)) if has_data else 0,
         "lstm": {"trained": lstm_result.get("trained", False), "val_loss": lstm_result.get("val_loss")},
-        "lgbm": {"trained": lgbm_result.get("trained", False), "best_scores": lgbm_result.get("best_scores", {})},
+        "lgbm": {
+            "trained": lgbm_result.get("trained", False),
+            "best_scores": lgbm_result.get("best_scores", {}),
+            "quantile_scores": lgbm_result.get("quantile_scores", {}),
+        },
     }
     os.makedirs(SAVE_PATHS["models"], exist_ok=True)
     with open(os.path.join(SAVE_PATHS["models"], "training_meta.json"), "w", encoding="utf-8") as f:
