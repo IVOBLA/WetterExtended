@@ -1,103 +1,245 @@
-# prediction.py
-
-import os
-import json
 import glob
-import numpy as np
-from math import sin, cos, pi, atan2
+import json
+import os
 from datetime import datetime
+from math import cos, pi, sin
 
-from geo_utils import pixel_to_geo
-from debug_utils import debug_log
-from utils import find_nearest_station, calculate_velocity
+import importlib
+import importlib.util
 
-sequence_length = 3
-num_features = 22
+np = importlib.import_module("numpy") if importlib.util.find_spec("numpy") else None
 
-def predict_positions(objects, model, timestamp, stations):
-    from math import sin, cos, pi, atan2
-    import numpy as np
-    import glob
-    import json
-    from datetime import datetime
-    from geo_utils import pixel_to_geo
+from config import ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, SAVE_PATHS
+from dataset_builder import load_scalers
+from model_training import load_lgbm_models, load_lstm
+
+try:
     from debug_utils import debug_log
-    from utils import find_nearest_station, calculate_velocity
+except Exception:
+    def debug_log(message):
+        print(message)
 
-    sequence_length = 3
-    num_features = 22
+try:
+    from geo_utils import pixel_to_geo
+except Exception:
+    def pixel_to_geo(x, y):
+        return 0.0, 0.0
 
-    forecast_10, forecast_20, forecast_30 = [], [], []
+try:
+    from utils import find_nearest_station
+except Exception:
+    def find_nearest_station(lat, lon, stations):
+        return None
 
-    object_files = sorted(glob.glob("train_data/objects/*.json"))
+
+STATION_KEYS = [
+    "station_temperature_c",
+    "station_humidity_pct",
+    "station_pressure_hpa",
+    "station_wind_speed_kmh",
+    "station_wind_direction_deg",
+    "station_dew_point_c",
+    "station_precip_mm",
+    "station_visibility_km",
+    "station_cloud_base_m",
+]
+
+CELL_KEYS = [
+    "cell_area_px",
+    "cell_mean_intensity",
+    "cell_max_intensity",
+    "cell_perimeter_px",
+    "cell_circularity",
+    "cell_solidity",
+    "cell_eccentricity",
+    "cell_velocity_kmh",
+    "cell_direction_deg",
+    "cell_growth_rate",
+    "cell_lightning_density",
+    "cell_cape_jkg",
+    "cell_cloud_top_height_msl",
+    "cell_missing_flag",
+]
+
+
+def _safe_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _linear_point(obj, horizon):
+    x = _safe_float(obj.get("x", 0.0)) + _safe_float(obj.get("vx", 0.0)) * horizon
+    y = _safe_float(obj.get("y", 0.0)) + _safe_float(obj.get("vy", 0.0)) * horizon
+    return x, y
+
+
+def _append_linear(obj, forecasts):
+    for horizon in ML_FORECAST_HORIZONS_MIN:
+        x_pred, y_pred = _linear_point(obj, horizon)
+        lat, lon = pixel_to_geo(x_pred, y_pred)
+        obj[f"forecast_x_{horizon}"] = float(x_pred)
+        obj[f"forecast_y_{horizon}"] = float(y_pred)
+        obj[f"forecast_lat_{horizon}"] = float(lat)
+        obj[f"forecast_lon_{horizon}"] = float(lon)
+        forecasts[horizon].append(
+            {
+                "id": obj.get("id"),
+                "x": float(x_pred),
+                "y": float(y_pred),
+                "lat": float(lat),
+                "lon": float(lon),
+                "size": _safe_float(obj.get("size", 0.0)),
+            }
+        )
+
+
+def _linear_fallback(objects):
+    forecasts = {h: [] for h in ML_FORECAST_HORIZONS_MIN}
+    for obj in objects:
+        _append_linear(obj, forecasts)
+    return tuple(forecasts[h] for h in ML_FORECAST_HORIZONS_MIN)
+
+
+def _load_json(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _parse_ts_from_file(path):
+    name = os.path.splitext(os.path.basename(path))[0]
+    return datetime.strptime(name, "%Y-%m-%d_%H-%M-%S")
+
+
+def _frame_features(obj, stations, ts_dt):
+    cell_features = [_safe_float(obj.get(k, 0.0)) for k in CELL_KEYS]
+    lat, lon = pixel_to_geo(_safe_float(obj.get("x", 0.0)), _safe_float(obj.get("y", 0.0)))
+    nearest = find_nearest_station(lat, lon, stations) if stations else None
+    station_features = [_safe_float(nearest.get(k, 0.0)) if nearest else 0.0 for k in STATION_KEYS]
+
+    hour_fraction = (ts_dt.hour * 60 + ts_dt.minute) / (24 * 60)
+    hour_angle = 2 * pi * hour_fraction
+    month_fraction = (ts_dt.month - 1) / 12.0
+    month_angle = 2 * pi * month_fraction
+    time_features = [sin(hour_angle), cos(hour_angle), sin(month_angle), cos(month_angle)]
+
+    feats = cell_features + station_features + time_features
+    return feats if len(feats) == ML_NUM_FEATURES else None
+
+
+def _build_sequence(obj_id, current_obj, stations, ts_dt):
+    object_files = sorted(glob.glob(os.path.join(SAVE_PATHS["objects"], "*.json")))
+    weather_files = sorted(glob.glob(os.path.join(SAVE_PATHS["weather"], "*.json")))
+    weather_by_name = {os.path.basename(p): p for p in weather_files}
+
+    predecessor = []
+    for obj_file in object_files:
+        base = os.path.basename(obj_file)
+        w_path = weather_by_name.get(base)
+        if not w_path:
+            continue
+        try:
+            file_ts = _parse_ts_from_file(obj_file)
+        except Exception:
+            continue
+        if file_ts < ts_dt:
+            predecessor.append((file_ts, obj_file, w_path))
+
+    predecessor = sorted(predecessor, key=lambda e: e[0])[-(ML_SEQUENCE_LENGTH - 1) :]
+    if len(predecessor) < (ML_SEQUENCE_LENGTH - 1):
+        return None
+
+    seq = []
+    for file_ts, obj_path, weather_path in predecessor:
+        objs = _load_json(obj_path)
+        obj_match = next((o for o in objs if str(o.get("id")) == str(obj_id)), None)
+        if obj_match is None:
+            return None
+        stations_hist = _load_json(weather_path)
+        feats = _frame_features(obj_match, stations_hist, file_ts)
+        if feats is None:
+            return None
+        seq.append(feats)
+
+    live_feats = _frame_features(current_obj, stations, ts_dt)
+    if live_feats is None:
+        return None
+    seq.append(live_feats)
+
+    if len(seq) != ML_SEQUENCE_LENGTH:
+        return None
+    if np is None:
+        return None
+    return np.asarray(seq, dtype=float)
+
+
+def predict_positions(objects: list, timestamp: str, stations: list):
+    if np is None:
+        debug_log("[PREDICT] numpy fehlt, nutze linearen Fallback.")
+        return _linear_fallback(objects)
+
+    scaler_X, scaler_y = load_scalers()
+    lgbm_models = load_lgbm_models()
+    lstm_model = load_lstm()
+
+    has_lgbm = len(lgbm_models) == len(ML_FORECAST_HORIZONS_MIN) * 2
+    has_lstm = lstm_model is not None
+    if scaler_X is None or scaler_y is None or (not has_lgbm and not has_lstm):
+        debug_log("[PREDICT] Fehlende Scaler/Modelle, nutze linearen Fallback.")
+        return _linear_fallback(objects)
+
+    ts_dt = datetime.strptime(timestamp, "%Y-%m-%d_%H-%M-%S")
+    forecasts = {h: [] for h in ML_FORECAST_HORIZONS_MIN}
 
     for obj in objects:
-        sequence = []
-
-        lat, lon = pixel_to_geo(obj["x"], obj["y"])
-        nearest = find_nearest_station(lat, lon, stations)
-
-        clock = datetime.strptime(timestamp, "%Y-%m-%d_%H-%M-%S")
-        hour_angle = 2 * pi * (clock.hour * 60 + clock.minute) / (24 * 60)
-
-        for j in range(-sequence_length, 0):
-            idx = j + len(object_files)
-            if idx < 0:
-                continue
-
-            with open(object_files[idx]) as f_hist:
-                hist_objs = json.load(f_hist)
-
-            hist_match = next((h for h in hist_objs if h["id"] == obj["id"]), None)
-            if not hist_match:
-                break
-
-            vx_hist, vy_hist = calculate_velocity(obj["id"], object_files)
-            delta_hist = atan2(vy_hist, vx_hist)
-            weather_vals = [nearest.get(k, 0) for k in ["RR", "DD", "FF", "FFX", "GLOW", "P", "RF", "TL", "TP"]] if nearest else [0] * 9
-
-            inp = [
-                hist_match["x"], hist_match["y"],
-                vx_hist, vy_hist,
-                hist_match["size"], hist_match["area"], hist_match["eccentricity"],
-                hist_match.get("core_ratio", 0), hist_match.get("intensity_trend", 0)
-            ] + weather_vals + [
-                sin(hour_angle), cos(hour_angle),
-                cos(delta_hist), sin(delta_hist)
-            ]
-
-            if len(inp) == num_features:
-                sequence.append(inp)
-
-        if len(sequence) != sequence_length:
-            debug_log(f"[SKIP] Zu wenig Historie für Objekt {obj['id']}")
+        seq = _build_sequence(obj.get("id"), obj, stations, ts_dt)
+        if seq is None:
+            _append_linear(obj, forecasts)
             continue
 
-        sequence = np.array(sequence).reshape(1, sequence_length, num_features)
-        prediction = model.predict(sequence, verbose=0)[0]
+        seq_scaled = scaler_X.transform(seq).reshape(1, ML_SEQUENCE_LENGTH, ML_NUM_FEATURES)
 
-        for idx, t in enumerate([10, 20, 30]):
-            x_pred = prediction[idx * 2]
-            y_pred = prediction[idx * 2 + 1]
-            obj[f"forecast_x_{t}"] = float(x_pred)
-            obj[f"forecast_y_{t}"] = float(y_pred)
+        prediction_scaled = None
+        if has_lgbm:
+            last_frame = seq_scaled[:, -1, :]
+            prediction_scaled = np.asarray(
+                [
+                    lgbm_models[f"lgbm_h10_x"].predict(last_frame)[0],
+                    lgbm_models[f"lgbm_h10_y"].predict(last_frame)[0],
+                    lgbm_models[f"lgbm_h20_x"].predict(last_frame)[0],
+                    lgbm_models[f"lgbm_h20_y"].predict(last_frame)[0],
+                    lgbm_models[f"lgbm_h30_x"].predict(last_frame)[0],
+                    lgbm_models[f"lgbm_h30_y"].predict(last_frame)[0],
+                ],
+                dtype=float,
+            )
+        elif has_lstm:
+            prediction_scaled = np.asarray(lstm_model.predict(seq_scaled, verbose=0)[0], dtype=float)
 
-            forecast_lat, forecast_lon = pixel_to_geo(x_pred, y_pred)
-            obj[f"forecast_lat_{t}"] = forecast_lat
-            obj[f"forecast_lon_{t}"] = forecast_lon
+        if prediction_scaled is None or prediction_scaled.shape[0] != len(ML_FORECAST_HORIZONS_MIN) * 2:
+            _append_linear(obj, forecasts)
+            continue
 
-        for t, forecast_list in zip([10, 20, 30], [forecast_10, forecast_20, forecast_30]):
-            forecast_list.append({
-                "x": obj[f"forecast_x_{t}"],
-                "y": obj[f"forecast_y_{t}"],
-                "lat": obj[f"forecast_lat_{t}"],
-                "lon": obj[f"forecast_lon_{t}"],
-                "size": obj["size"],
-                "id": obj["id"]
-            })            
+        prediction = scaler_y.inverse_transform(prediction_scaled.reshape(1, -1))[0]
 
-    with open(f"train_data/objects/{timestamp}.json", "w") as f:
-        json.dump(objects, f, indent=2)
+        for idx, horizon in enumerate(ML_FORECAST_HORIZONS_MIN):
+            x_pred = float(prediction[idx * 2])
+            y_pred = float(prediction[idx * 2 + 1])
+            lat, lon = pixel_to_geo(x_pred, y_pred)
+            obj[f"forecast_x_{horizon}"] = x_pred
+            obj[f"forecast_y_{horizon}"] = y_pred
+            obj[f"forecast_lat_{horizon}"] = float(lat)
+            obj[f"forecast_lon_{horizon}"] = float(lon)
+            forecasts[horizon].append(
+                {
+                    "id": obj.get("id"),
+                    "x": x_pred,
+                    "y": y_pred,
+                    "lat": float(lat),
+                    "lon": float(lon),
+                    "size": _safe_float(obj.get("size", 0.0)),
+                }
+            )
 
-    return forecast_10, forecast_20, forecast_30
-
+    return tuple(forecasts[h] for h in ML_FORECAST_HORIZONS_MIN)
