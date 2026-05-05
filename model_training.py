@@ -1,223 +1,148 @@
-# model_training.py
-
-import os
+import importlib
+import importlib.util
 import json
-import glob
-import numpy as np
-import matplotlib.pyplot as plt
-from datetime import datetime
-from math import sin, cos, pi, atan2
-from tensorflow.keras.models import Sequential, load_model
-from tensorflow.keras.layers import LSTM, Dense
-from tensorflow.keras.losses import MeanSquaredError
-from tensorflow.keras.optimizers import Adam
-from sklearn.model_selection import train_test_split
-from tensorflow.keras.callbacks import EarlyStopping
+import os
+from datetime import datetime, timezone
 
-from geo_utils import pixel_to_geo
-from weather_api import get_weather_data
-from debug_utils import debug_log 
-from utils import find_nearest_station, calculate_velocity
+np = importlib.import_module("numpy") if importlib.util.find_spec("numpy") else None
+lgb = importlib.import_module("lightgbm") if importlib.util.find_spec("lightgbm") else None
 
-sequence_length = 3
-num_features = 23
+if importlib.util.find_spec("sklearn"):
+    train_test_split = importlib.import_module("sklearn.model_selection").train_test_split
+else:
+    train_test_split = None
 
-def train_or_load_model(train_from_scratch: bool = False):
-    model_path = "weather_lstm_model.keras"
+if importlib.util.find_spec("tensorflow"):
+    keras_models = importlib.import_module("tensorflow.keras.models")
+    keras_layers = importlib.import_module("tensorflow.keras.layers")
+    keras_callbacks = importlib.import_module("tensorflow.keras.callbacks")
+    keras_optimizers = importlib.import_module("tensorflow.keras.optimizers")
+    Sequential = keras_models.Sequential
+    load_model = keras_models.load_model
+    LSTM = keras_layers.LSTM
+    Dense = keras_layers.Dense
+    Dropout = keras_layers.Dropout
+    EarlyStopping = keras_callbacks.EarlyStopping
+    ModelCheckpoint = keras_callbacks.ModelCheckpoint
+    Adam = keras_optimizers.Adam
+else:
+    Sequential = load_model = LSTM = Dense = Dropout = EarlyStopping = ModelCheckpoint = Adam = None
 
-    if not train_from_scratch and os.path.exists(model_path):
-        debug_log("Lade bestehendes Modell...")
-        model = load_model(model_path, compile=False)
-        model.compile(loss=MeanSquaredError(), optimizer=Adam(learning_rate=0.001))
-        return model
+from config import ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, SAVE_PATHS
+from dataset_builder import build_dataset
+try:
+    from debug_utils import debug_log
+except Exception:
+    def debug_log(message):
+        print(message)
 
-    debug_log("Erstelle neues LSTM Modell...")
+
+def _build_lstm():
     model = Sequential([
-        LSTM(64, return_sequences=True, input_shape=(sequence_length, num_features)),
-        LSTM(64),
+        LSTM(64, return_sequences=True, input_shape=(ML_SEQUENCE_LENGTH, ML_NUM_FEATURES)),
+        Dropout(0.2),
+        LSTM(32),
+        Dropout(0.2),
         Dense(32, activation="relu"),
-        Dense(16, activation="relu"),
-        Dense(6)
+        Dense(len(ML_FORECAST_HORIZONS_MIN) * 2),
     ])
-    model.compile(loss=MeanSquaredError(), optimizer=Adam(learning_rate=0.001))
-
-    from model_training import train_with_historical_and_live_data
-    result = train_with_historical_and_live_data(model, live_objects=[], timestamp=None, stations=[])
-    if result is None:
-        debug_log("Training fehlgeschlagen – verwende untrainiertes Modell.")
-        return model
-    else:
-        model, _ = result
-        return model
+    model.compile(optimizer=Adam(1e-3), loss="mse")
+    return model
 
 
-def train_with_historical_and_live_data(model, live_objects, timestamp=None, stations=[]):
-    X_train, y_train = [], []
-    new_ids, matched_ids = 0, 0
+def train_lstm(X, y):
+    model_path = os.path.join(SAVE_PATHS["models"], "weather_lstm.keras")
+    os.makedirs(SAVE_PATHS["models"], exist_ok=True)
+    if Sequential is None or train_test_split is None:
+        debug_log("[LSTM] Skip: tensorflow oder sklearn nicht installiert")
+        return {"trained": False, "model_path": model_path, "val_loss": None, "samples": len(X)}
+    if len(X) < 50:
+        debug_log(f"[LSTM] Skip: zu wenig Samples ({len(X)} < 50)")
+        return {"trained": False, "model_path": model_path, "val_loss": None, "samples": len(X)}
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
+    model = _build_lstm()
+    history = model.fit(
+        X_train,
+        y_train,
+        validation_data=(X_val, y_val),
+        epochs=200,
+        batch_size=32,
+        callbacks=[
+            EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True),
+            ModelCheckpoint(filepath=model_path, monitor="val_loss", save_best_only=True),
+        ],
+        verbose=1,
+    )
+    val_loss = float(min(history.history.get("val_loss", [float("nan")])))
+    return {"trained": True, "model_path": model_path, "val_loss": val_loss, "samples": len(X)}
 
-    object_files = sorted(glob.glob("train_data/objects/*.json"))
-    weather_files = sorted(glob.glob("train_data/weather/*.json"))
 
-    for i in range(sequence_length, len(object_files)):
-        try:
-            ts_now = os.path.splitext(os.path.basename(object_files[i]))[0]
-            ts_now_dt = datetime.strptime(ts_now, "%Y-%m-%d_%H-%M-%S")
-            ts_prev = os.path.splitext(os.path.basename(object_files[i - 1]))[0]
-            ts_prev_dt = datetime.strptime(ts_prev, "%Y-%m-%d_%H-%M-%S")
-            delta_minutes = (ts_now_dt - ts_prev_dt).total_seconds() / 60.0
-            if delta_minutes == 0:
-                continue
+def train_lgbm(X, y):
+    os.makedirs(SAVE_PATHS["models"], exist_ok=True)
+    if lgb is None or train_test_split is None:
+        debug_log("[LGBM] Skip: lightgbm oder sklearn nicht installiert")
+        return {"trained": False, "models": {}, "best_scores": {}, "samples": len(X)}
+    if len(X) < 30:
+        debug_log(f"[LGBM] Skip: zu wenig Samples ({len(X)} < 30)")
+        return {"trained": False, "models": {}, "best_scores": {}, "samples": len(X)}
+    X_flat = X[:, -1, :]
+    X_train, X_val, y_train, y_val = train_test_split(X_flat, y, test_size=0.2, random_state=42)
+    params = {"objective": "regression", "metric": "rmse", "num_leaves": 31, "learning_rate": 0.05, "feature_fraction": 0.9, "bagging_fraction": 0.8, "bagging_freq": 5, "verbose": -1}
+    models, best_scores = {}, {}
+    for h_idx, h in enumerate(ML_FORECAST_HORIZONS_MIN):
+        for axis_idx, axis in enumerate(["x", "y"]):
+            target_idx = h_idx * 2 + axis_idx
+            booster = lgb.train(
+                params,
+                lgb.Dataset(X_train, label=y_train[:, target_idx]),
+                num_boost_round=500,
+                valid_sets=[lgb.Dataset(X_val, label=y_val[:, target_idx])],
+                callbacks=[lgb.early_stopping(20, verbose=False)],
+            )
+            name = f"lgbm_h{h}_{axis}"
+            path = os.path.join(SAVE_PATHS["models"], f"{name}.txt")
+            booster.save_model(path)
+            models[name] = path
+            best_scores[name] = float(booster.best_score.get("valid_0", {}).get("rmse", float("nan")))
+    return {"trained": True, "models": models, "best_scores": best_scores, "samples": len(X)}
 
-            with open(object_files[i]) as f_now, open(weather_files[i]) as wf:
-                now_objs = json.load(f_now)
-                weather = json.load(wf)
-            with open(object_files[i - 1]) as f_prev:
-                prev_objs = json.load(f_prev)
 
-            for obj in now_objs:
-                match = next((o for o in prev_objs if o["id"] == obj["id"]), None)
-                if not match:
-                    new_ids += 1
-                    continue
-                matched_ids += 1
+def load_lstm():
+    model_path = os.path.join(SAVE_PATHS["models"], "weather_lstm.keras")
+    return load_model(model_path) if load_model is not None and os.path.exists(model_path) else None
 
-                vx, vy = calculate_velocity(obj["id"], object_files)
-                delta_angle = atan2(vy, vx)
-                station = find_nearest_station(*pixel_to_geo(obj["x"], obj["y"]), weather)
-                weather_vals = [station.get(k, 0) for k in ["RR", "DD", "FF", "FFX", "GLOW", "P", "RF", "TL", "TP"]] if station else [0] * 9
-                hour_angle = 2 * pi * (ts_now_dt.hour * 60 + ts_now_dt.minute) / (24 * 60)
 
-                sequence = []
-                for j in range(i - sequence_length, i):
-                    with open(object_files[j]) as f_hist:
-                        hist_objs = json.load(f_hist)
-                    hist_match = next((h for h in hist_objs if h["id"] == obj["id"]), None)
-                    if not hist_match:
-                        break
+def load_lgbm_models():
+    models = {}
+    if lgb is None:
+        return models
+    for h in ML_FORECAST_HORIZONS_MIN:
+        for axis in ["x", "y"]:
+            name = f"lgbm_h{h}_{axis}"
+            path = os.path.join(SAVE_PATHS["models"], f"{name}.txt")
+            if os.path.exists(path):
+                models[name] = lgb.Booster(model_file=path)
+    return models
 
-                    inp = [
-                        hist_match["x"], hist_match["y"],
-                        hist_match["vx"], hist_match["vy"],
-                        hist_match["size"], hist_match["area"], hist_match["eccentricity"],
-                        hist_match.get("core_ratio", 0), hist_match.get("intensity_trend", 0)
-                    ] + weather_vals + [
-                        sin(hour_angle), cos(hour_angle),
-                        cos(delta_angle), sin(delta_angle),
-                        delta_minutes / 10.0
-                    ]
-                    if len(inp) == num_features:
-                        sequence.append(inp)
 
-                if len(sequence) == sequence_length:
-                    factors = [10 / delta_minutes, 20 / delta_minutes, 30 / delta_minutes]
-                    preds = []
-                    for f in factors:
-                        preds.extend([obj["x"] + f * vx, obj["y"] + f * vy])
-                    y_train.append(preds)
-                    X_train.append(sequence)
-        except Exception as e:
-            debug_log(f"Fehler bei Trainingsdaten: {e}")
+def retrain_all():
+    dataset = build_dataset()
+    X = np.asarray(dataset.get("X", [])) if np is not None else []
+    y = np.asarray(dataset.get("y", [])) if np is not None else []
+    has_data = np is not None and getattr(X, "size", 0) and getattr(y, "size", 0)
+    lstm_result = train_lstm(X, y) if has_data else {"trained": False, "val_loss": None}
+    lgbm_result = train_lgbm(X, y) if has_data else {"trained": False, "best_scores": {}}
+    meta = {
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "num_samples": int(len(X)) if has_data else 0,
+        "lstm": {"trained": lstm_result.get("trained", False), "val_loss": lstm_result.get("val_loss")},
+        "lgbm": {"trained": lgbm_result.get("trained", False), "best_scores": lgbm_result.get("best_scores", {})},
+    }
+    os.makedirs(SAVE_PATHS["models"], exist_ok=True)
+    with open(os.path.join(SAVE_PATHS["models"], "training_meta.json"), "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
+    return meta
 
-    for obj in live_objects:
-        sequence = []
-        try:
-            ts_now_dt = datetime.strptime(timestamp, "%Y-%m-%d_%H-%M-%S")
-            ts_prev = os.path.splitext(os.path.basename(object_files[-2]))[0]
-            ts_prev_dt = datetime.strptime(ts_prev, "%Y-%m-%d_%H-%M-%S")
-            delta_minutes = (ts_now_dt - ts_prev_dt).total_seconds() / 60.0
-            if delta_minutes == 0:
-                continue
-        except:
-            continue
 
-        for j in range(-sequence_length, 0):
-            idx = j + len(object_files)
-            if idx < 0:
-                continue
-            with open(object_files[idx]) as f_hist:
-                hist_objs = json.load(f_hist)
-            hist_match = next((h for h in hist_objs if h["id"] == obj["id"]), None)
-            if not hist_match:
-                break
-
-            vx_hist = obj["vx"]
-            vy_hist = obj["vy"]
-            delta_hist = atan2(vy_hist, vx_hist)
-            station = find_nearest_station(*pixel_to_geo(hist_match["x"], hist_match["y"]), stations)
-            weather_vals = [station.get(k, 0) for k in ["RR", "DD", "FF", "FFX", "GLOW", "P", "RF", "TL", "TP"]] if station else [0] * 9
-
-            try:
-                hour_angle = 2 * pi * (
-                    datetime.strptime(timestamp, "%Y-%m-%d_%H-%M-%S").hour * 60 +
-                    datetime.strptime(timestamp, "%Y-%m-%d_%H-%M-%S").minute
-                ) / (24 * 60)
-            except:
-                hour_angle = 0
-
-            inp = [
-                hist_match["x"], hist_match["y"],
-                vx_hist, vy_hist,
-                hist_match["size"], hist_match["area"], hist_match["eccentricity"],
-                hist_match.get("core_ratio", 0), hist_match.get("intensity_trend", 0)
-            ] + weather_vals + [
-                sin(hour_angle), cos(hour_angle),
-                cos(delta_hist), sin(delta_hist),
-                delta_minutes / 10.0
-            ]
-
-            if len(inp) == num_features:
-                sequence.append(inp)
-
-        if len(sequence) == sequence_length:
-            factors = [10 / delta_minutes, 20 / delta_minutes, 30 / delta_minutes]
-            preds = []
-            for f in factors:
-                preds.extend([obj["x"] + f * obj["vx"], obj["y"] + f * obj["vy"]])
-            y_train.append(preds)
-            X_train.append(sequence)
-
-    if not X_train:
-        debug_log("Keine Trainingsdaten vorhanden.")
-        debug_log(f"[DEBUG] Anzahl Objektdateien: {len(object_files)}")
-        debug_log(f"[DEBUG] Anzahl Live-Objekte: {len(live_objects)}")
-        debug_log(f"[DEBUG] Gesammelt: X_train={len(X_train)}, y_train={len(y_train)}")
-        return None
-
-    X_train = np.array(X_train)
-    y_train = np.array(y_train)
-
-    debug_log(f"Starte Training auf {len(X_train)} Samples (neu: {new_ids}, wiedererkannt: {matched_ids})...")
-
-    X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.2, random_state=42)
-    early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
-
-    history = model.fit(X_train, y_train,
-                        validation_data=(X_val, y_val),
-                        epochs=100,
-                        batch_size=32,
-                        callbacks=[early_stop],
-                        verbose=1)
-
-    model.save("weather_lstm_model.keras")
-    debug_log("Modell gespeichert.")
-    print(f"[INFO] Finaler Trainingsfehler (MSE): {history.history['loss'][-1]:.6f}")
-
-    plt.figure(figsize=(8, 4))
-    plt.plot(history.history['loss'], label="Train Loss")
-    plt.plot(history.history['val_loss'], label="Validation Loss")
-    plt.title("Lernkurve (MSE)")
-    plt.xlabel("Epoche")
-    plt.ylabel("Loss")
-    plt.grid()
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig("train_data/loss_curve.png")
-    debug_log("Lernkurve gespeichert: train_data/loss_curve.png")
-
-    with open("train_data/train_stats.txt", "w") as f:
-        f.write(f"Trainings-Samples: {len(X_train)}\n")
-        f.write(f"Wiedererkannt: {matched_ids}\n")
-        f.write(f"Neue Objekte: {new_ids}\n")
-    debug_log("Trainingsstatistik gespeichert.")
-
-    return model, history
+if __name__ == "__main__":
+    retrain_all()

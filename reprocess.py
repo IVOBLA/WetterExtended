@@ -6,7 +6,7 @@ import json
 import matplotlib.pyplot as plt
 from collections import Counter
 from object_tracking import detect_and_track_objects
-from model_training import train_or_load_model, train_with_historical_and_live_data
+from model_training import retrain_all
 from pathlib import Path
 
 # Schalter: Nur wenn True, werden vorhandene Objektdateien überschrieben
@@ -78,33 +78,8 @@ def reprocess_all_objects():
             timestamp = os.path.basename(obj_path).replace(".json", "")
             timestamps.append(timestamp)
 
-    print(f"[INFO] Starte LSTM-Training mit {len(timestamps)} Zeitpunkten und {len(all_objects)} Objekten...")
-    model = train_or_load_model(train_from_scratch=False)
-    result = train_with_historical_and_live_data(model, all_objects, timestamps, weather_data)
-    if result is None:
-        print("[WARNUNG] Training fehlgeschlagen oder keine gültigen Sequenzen gefunden.")
-        return
-    model, history = result
-
-    # 📊 Loss-Plot erzeugen
-    if history and hasattr(history, "history") and "loss" in history.history:
-        loss = history.history["loss"]
-        epochs = range(1, len(loss) + 1)
-
-        plt.figure(figsize=(8, 4))
-        plt.plot(epochs, loss, marker="o", label="Trainingsverlust (Loss)")
-        plt.title("LSTM Trainingsverlauf")
-        plt.xlabel("Epoche")
-        plt.ylabel("Loss")
-        plt.grid(True)
-        plt.legend()
-        loss_path = "train_data/loss_plot.png"
-        plt.savefig(loss_path)
-        plt.close()
-
-        print(f"[INFO] Finaler Loss: {loss[-1]:.6f}")
-        print(f"[INFO] Verlustverlauf gespeichert unter: {loss_path}")
-
+    print(f"[INFO] Starte Modell-Retraining auf Basis der aufbereiteten Daten...")
+    retrain_all()
     print("[INFO] Training abgeschlossen.")
 
 if __name__ == "__main__":
