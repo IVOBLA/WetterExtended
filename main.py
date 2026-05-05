@@ -9,7 +9,6 @@ import debug_utils
 from radar_download import download_kmz
 from object_tracking import detect_and_track_objects
 from weather_api import get_weather_data
-from model_training import train_or_load_model, train_with_historical_and_live_data
 from prediction import predict_positions
 from kmz_export import save_forecast_as_kmz
 from evaluation import evaluate_prediction, plot_forecast_vs_reality, plot_error_over_time
@@ -27,7 +26,6 @@ ROI = get_roi_from_bbox(BBOX_KAERNTEN_EXTENDED)
 
 def main_loop():
     image_path = "data/latest.png"
-    model = train_or_load_model()
     sleep_time = 120
     forecast_queue = []
 
@@ -69,11 +67,8 @@ def main_loop():
             json.dump(weather_data, open(weather_file, "w"))
             debug_log(f"Wetterdaten gespeichert als {weather_file}")
 
-            # Training
-            train_with_historical_and_live_data(model, objects, timestamp, weather_data)
-
-            # Forecast
-            forecast_10, forecast_20, forecast_30 = predict_positions(objects, model, timestamp, weather_data)
+            # Kein Training im Live-Loop — übernimmt scheduler.py.
+            forecast_10, forecast_20, forecast_30 = predict_positions(objects, timestamp, weather_data)
             save_forecast_as_kmz(forecast_10, forecast_20, forecast_30)
 
             # Merken für spätere Evaluation
