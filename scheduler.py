@@ -6,6 +6,7 @@ from config import DATASET_REBUILD_INTERVAL_MIN, RETRAIN_INTERVAL_HOURS
 from dataset_builder import build_dataset
 from debug_utils import debug_log
 from model_training import retrain_all
+from radar_convlstm import train_convlstm
 
 
 def run_rebuild_dataset_job():
@@ -33,6 +34,16 @@ def run_retrain_job(job_name: str):
         debug_log(f"[SCHEDULER] Job {job_name} Fehler: {exc}")
 
 
+
+
+def run_convlstm_weekly_job():
+    debug_log("[SCHEDULER] Job convlstm_weekly gestartet")
+    try:
+        result = train_convlstm()
+        debug_log(f"[SCHEDULER] Job convlstm_weekly abgeschlossen ({result})")
+    except Exception as exc:
+        debug_log(f"[SCHEDULER] Job convlstm_weekly Fehler: {exc}")
+
 def create_scheduler() -> BlockingScheduler:
     scheduler = BlockingScheduler(timezone="Europe/Vienna")
     scheduler.add_job(
@@ -53,6 +64,13 @@ def create_scheduler() -> BlockingScheduler:
         lambda: run_retrain_job("retrain_nightly"),
         trigger=CronTrigger(hour=3, minute=0),
         id="retrain_nightly",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        run_convlstm_weekly_job,
+        trigger=CronTrigger(day_of_week="mon", hour=2, minute=0),
+        id="convlstm_weekly",
         max_instances=1,
         coalesce=True,
     )
