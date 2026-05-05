@@ -76,32 +76,15 @@ LIGHTNING_DATA_URL = "https://www.lightningmaps.org/live_data/geojson/1.json"
 # --------------------------------------
 
 ML_CELL_FEATURES = [
-    "cell_area_px",
-    "cell_mean_intensity",
-    "cell_max_intensity",
-    "cell_perimeter_px",
-    "cell_circularity",
-    "cell_solidity",
-    "cell_eccentricity",
-    "cell_velocity_kmh",
-    "cell_direction_deg",
-    "cell_growth_rate",
-    "cell_lightning_density",
-    "cell_cape_jkg",
-    "cell_cloud_top_height_msl",
-    "cell_missing_flag",
+    "x", "y",
+    "vx", "vy",
+    "size", "area", "eccentricity", "core_ratio", "trend",
+    "wind_speed_700hPa", "wind_dir_cos", "wind_dir_sin",
+    "cape", "cloud_top_height_msl",
 ]
 
 ML_STATION_FEATURES = [
-    "station_temperature_c",
-    "station_humidity_pct",
-    "station_pressure_hpa",
-    "station_wind_speed_kmh",
-    "station_wind_direction_deg",
-    "station_dew_point_c",
-    "station_precip_mm",
-    "station_visibility_km",
-    "station_cloud_base_m",
+    "RR", "DD", "FF", "FFX", "GLOW", "P", "RF", "TL", "TP",
 ]
 
 ML_TIME_FEATURES = [

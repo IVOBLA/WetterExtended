@@ -238,9 +238,9 @@ mkdir -p \
   "$TARGET/train_data/ir" \
   "$TARGET/train_data/lightning" \
   "$TARGET/train_data/hydro" \
-  "$TARGET/train_data/ml_dataset" \
+  "$TARGET/train_data/dataset" \
   "$TARGET/train_data/cloud" \
-  "$TARGET/models" \
+  "$TARGET/train_data/models" \
   "$TARGET/data" \
   "$TARGET/plots"
 

@@ -8,6 +8,7 @@ from collections import Counter
 from object_tracking import detect_and_track_objects
 from model_training import retrain_all
 from pathlib import Path
+from config import ML_SEQUENCE_LENGTH as sequence_length
 
 # Schalter: Nur wenn True, werden vorhandene Objektdateien überschrieben
 RECREATE_OBJECTS = True
@@ -57,7 +58,6 @@ def reprocess_all_objects():
             except Exception:
                 continue
 
-    sequence_length = 3
     valid_ids = {k for k, v in id_counter.items() if v >= sequence_length}
     print(f"[INFO] Gültige Objekt-IDs mit mindestens {sequence_length} Zeitpunkten: {len(valid_ids)}")
 

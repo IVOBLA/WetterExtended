@@ -15,21 +15,21 @@ if importlib.util.find_spec("sklearn"):
     StandardScaler = importlib.import_module("sklearn.preprocessing").StandardScaler
 
 
-if importlib.util.find_spec("cv2") and importlib.util.find_spec("debug_utils"):
-    debug_log = importlib.import_module("debug_utils").debug_log
-else:
+try:
+    from debug_utils import debug_log
+except Exception:
     def debug_log(message):
         print(message)
 
-if importlib.util.find_spec("cv2") and importlib.util.find_spec("geo_utils"):
-    pixel_to_geo = importlib.import_module("geo_utils").pixel_to_geo
-else:
+try:
+    from geo_utils import pixel_to_geo
+except Exception:
     def pixel_to_geo(x, y):
         return 0.0, 0.0
 
-if importlib.util.find_spec("utils") and importlib.util.find_spec("geopy"):
-    find_nearest_station = importlib.import_module("utils").find_nearest_station
-else:
+try:
+    from utils import find_nearest_station
+except Exception:
     def find_nearest_station(lat, lon, stations):
         return None
 

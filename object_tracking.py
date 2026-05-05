@@ -117,163 +117,155 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
     objects = []
     new_memory = {}
     used_ids = set()
-    
+
     def is_within_bbox(lat, lon, bbox):
         return (
             bbox["south"] <= lat <= bbox["north"] and
             bbox["west"] <= lon <= bbox["east"]
         )
 
+    previous_snapshot = tracking_memory.copy()
+    prev_polys = []
+    for prev_id, prev_obj in previous_snapshot.items():
+        try:
+            if prev_obj.get("missing", 0) <= 10:
+                prev_polys.append((prev_id, Polygon(np.array(prev_obj["contour"]))))
+        except Exception:
+            continue
+
+    assigned_old_to_new = {}
+
     for contour in contours:
         M = cv2.moments(contour)
         if M["m00"] == 0:
-            continue  # kontur zu klein/fehlerhaft
-
+            continue
         cx = int(M["m10"] / M["m00"])
         cy = int(M["m01"] / M["m00"])
         original_cx = int(cx / UPSCALE_FACTOR)
         original_cy = int(cy / UPSCALE_FACTOR)
-
         area, eccentricity = calculate_shape_features(contour)
         core_ratio = calculate_core_ratio(hsv, contour)
-
-        # Bedingung: Nur große oder "rote" Zellen
         if area < FILTER_CONFIG["min_object_area"] and core_ratio < 0.05:
             continue
-
-        # Ausschlussregion: Koralpe (muss VOR dem Erzeugen des Objekts passieren!)
         lat, lon = pixel_to_geo(original_cx, original_cy)
-        
-
         if not is_within_bbox(lat, lon, BBOX):
-            debug_log(f"[SKIP] Objekt außerhalb BBOX verworfen (lat={lat:.4f}, lon={lon:.4f})")
-            continue        
-        
-        
-        if 46.7 < lat < 46.9 and 14.8 < lon < 15.2:
-            debug_log(f"[SKIP] Zelle in Ausschlussregion Koralpe verworfen (lat={lat:.2f}, lon={lon:.2f})")
             continue
 
         current_poly = Polygon(contour[:, 0, :])
-        MATCH_DISTANCE = 50
-        best_id = None
-        min_dist = float('inf')
-
-        for obj_id, prev in tracking_memory.items():
-            if obj_id in used_ids or prev.get("missing", 0) > 10:
-                continue
+        overlaps = []
+        area_new = max(current_poly.area, 1e-6)
+        for old_id, old_poly in prev_polys:
             try:
-                previous_poly = Polygon(np.array(prev["contour"]))
-                dist = current_poly.distance(previous_poly)
-                if dist < MATCH_DISTANCE and dist < min_dist:
-                    best_id = obj_id
-                    min_dist = dist
+                ratio = current_poly.intersection(old_poly).area / area_new
+                if ratio >= 0.3:
+                    overlaps.append((old_id, ratio))
             except Exception:
                 continue
+        overlaps.sort(key=lambda t: t[1], reverse=True)
 
-        if best_id:
+        lineage = "new"
+        parents = []
+        best_id = None
+        obj_id = None
+
+        if len(overlaps) >= 2:
+            obj_id = generate_id()
+            lineage = "merged"
+            parents = [oid for oid, _ in overlaps]
+            for merged_old_id in parents:
+                old_obj = previous_snapshot.get(merged_old_id, {})
+                old_obj["children"] = [obj_id]
+                old_obj["lineage_end"] = f"merged_into:{obj_id}"
+                previous_snapshot[merged_old_id] = old_obj
+                used_ids.add(merged_old_id)
+        elif len(overlaps) == 1:
+            best_id = overlaps[0][0]
             obj_id = best_id
+            lineage = "continued"
+            parents = [best_id]
+
+        if obj_id and obj_id in previous_snapshot:
             used_ids.add(obj_id)
-            kf = tracking_memory[obj_id]["kf"]
+            kf = previous_snapshot[obj_id]["kf"]
             kf.predict()
             kf.update([original_cx, original_cy])
             vx, vy = kf.x[2], kf.x[3]
-            debug_log(f"Objekt erneut erkannt → ID: {obj_id} | Distanz: {min_dist:.2f}px")
         else:
-            obj_id = generate_id()
+            if obj_id is None:
+                obj_id = generate_id()
             kf = KalmanFilter(dim_x=4, dim_z=2)
             kf.x = np.array([original_cx, original_cy, 0.0, 0.0])
-            kf.F = np.array([[1, 0, 1, 0],
-                             [0, 1, 0, 1],
-                             [0, 0, 1, 0],
-                             [0, 0, 0, 1]])
-            kf.H = np.array([[1, 0, 0, 0],
-                             [0, 1, 0, 0]])
+            kf.F = np.array([[1, 0, 1, 0], [0, 1, 0, 1], [0, 0, 1, 0], [0, 0, 0, 1]])
+            kf.H = np.array([[1, 0, 0, 0], [0, 1, 0, 0]])
             kf.P = np.eye(4) * 500
             kf.R = np.eye(2) * 10
-            kf.Q = np.array([[1, 0, 0, 0],
-                             [0, 1, 0, 0],
-                             [0, 0, 0.5, 0],
-                             [0, 0, 0, 0.5]])
+            kf.Q = np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0.5, 0], [0, 0, 0, 0.5]])
             vx, vy = 0.0, 0.0
-            debug_log(f"Neues Objekt erkannt → neue ID: {obj_id}")
 
         trend = 0
-        if best_id and "core_ratio" in tracking_memory[best_id]:
-            prev_core = tracking_memory[best_id]["core_ratio"]
+        if best_id and best_id in previous_snapshot and "core_ratio" in previous_snapshot[best_id]:
+            prev_core = previous_snapshot[best_id]["core_ratio"]
             if core_ratio > prev_core + 0.05:
                 trend = 1
             elif core_ratio < prev_core - 0.05:
                 trend = -1
 
         new_memory[obj_id] = {
-            "x": original_cx,
-            "y": original_cy,
-            "vx": float(vx),
-            "vy": float(vy),
-            "size": int(np.sqrt(area)),
-            "area": float(area),
-            "eccentricity": float(eccentricity),
-            "core_ratio": float(core_ratio),
-            "trend": trend,
-            "lat": lat,
-            "lon": lon,
-            "kf": kf,
-            "contour": contour[:, 0, :].tolist(),
-            "weather_vals": {},
-            "station_ids": [],
-            "lstm_vx": 0.0,
-            "lstm_vy": 0.0,
-            "missing": 0
+            "x": original_cx, "y": original_cy, "vx": float(vx), "vy": float(vy),
+            "size": int(np.sqrt(area)), "area": float(area), "eccentricity": float(eccentricity),
+            "core_ratio": float(core_ratio), "trend": trend, "lat": lat, "lon": lon,
+            "kf": kf, "contour": contour[:, 0, :].tolist(), "weather_vals": {}, "station_ids": [],
+            "lstm_vx": 0.0, "lstm_vy": 0.0, "missing": 0,
+            "lineage": lineage, "parents": parents, "children": [], "lineage_end": None,
         }
+        for parent_id in parents:
+            assigned_old_to_new.setdefault(parent_id, []).append(obj_id)
 
-    for obj_id, obj in tracking_memory.items():
+    for old_id, new_ids in assigned_old_to_new.items():
+        uniq = []
+        for nid in new_ids:
+            if nid not in uniq:
+                uniq.append(nid)
+        if len(uniq) >= 2 and old_id in new_memory:
+            children = [uniq[0]]
+            for sid in uniq[1:]:
+                src = new_memory.get(sid)
+                if not src:
+                    continue
+                new_id = generate_id()
+                while new_id in new_memory:
+                    new_id = generate_id()
+                split_obj = src.copy()
+                split_obj["lineage"] = "split"
+                split_obj["parents"] = [old_id]
+                new_memory[new_id] = split_obj
+                del new_memory[sid]
+                children.append(new_id)
+            old_obj = previous_snapshot.get(old_id, {})
+            old_obj["children"] = children
+            old_obj["lineage_end"] = f"split_into:{children}"
+            previous_snapshot[old_id] = old_obj
+
+    for obj_id, obj in previous_snapshot.items():
         if obj_id not in new_memory:
             lat, lon = obj.get("lat"), obj.get("lon")
             if is_within_bbox(lat, lon, BBOX):
                 obj["missing"] = obj.get("missing", 0) + 1
                 if obj["missing"] <= 10:
                     new_memory[obj_id] = obj
-            else:
-                debug_log(f"[RECYCLE-SKIP] Objekt {obj_id} außerhalb BBOX → nicht übernommen")
 
     tracking_memory = new_memory
     for obj_id, obj in new_memory.items():
         if obj.get("missing", 0) == 0:
             previous_history = tracking_memory.get(obj_id, {}).get("history", [])
+            new_entry = {"timestamp": timestamp, "vx": float(obj["vx"]), "vy": float(obj["vy"]), "core_ratio": float(obj["core_ratio"]), "weather_vals": {}, "lat": obj["lat"], "lon": obj["lon"]}
+            updated_history = (previous_history + [new_entry])[-3:]
+            obj_clean = obj.copy(); obj_clean.pop("kf", None); obj_clean["history"] = updated_history
+            if not isinstance(obj_clean.get("lineage"), str): obj_clean["lineage"] = "new"
+            obj_clean.setdefault("parents", []); obj_clean.setdefault("children", []); obj_clean.setdefault("lineage_end", None)
+            objects.append({"id": obj_id, **obj_clean})
+    return objects, tracking_memory
 
-            new_entry = {
-                "timestamp": timestamp,
-                "vx": float(obj["vx"]),
-                "vy": float(obj["vy"]),
-                "core_ratio": float(obj["core_ratio"]),
-                "weather_vals": {},
-                "lat": obj["lat"],
-                "lon": obj["lon"]
-            }
-
-            updated_history = previous_history + [new_entry]
-            updated_history = updated_history[-3:]
-
-            obj_clean = obj.copy()
-            obj_clean.pop("kf", None)
-            obj_clean["history"] = updated_history
-            obj_clean["lstm_ignore"] = (
-                len(updated_history) < 3 or any(not h.get("weather_vals") for h in updated_history) or obj.get("missing", 0) > 0
-            )
-            obj_clean["contour_verified"] = False
-            obj_clean["forecast_verified"] = False
-
-            contour_geo = []
-            for pt in obj_clean["contour"]:
-                x_pix, y_pix = pt
-                lon_g, lat_g = pixel_to_geo(x_pix, y_pix)
-                contour_geo.append([lon_g, lat_g])
-            obj_clean["contour_geo"] = contour_geo
-
-            objects.append(obj_clean | {"id": obj_id})
-
-    return objects
 
 def detect_and_track_objects(image_path=None, weather_data=None):
     import os
