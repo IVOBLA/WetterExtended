@@ -237,6 +237,7 @@ def build_dataset():
         X=X_scaled,
         y=y_scaled,
         y_raw=y_raw,
+        ids=np.asarray(ids, dtype=object),
     )
 
     pd.DataFrame(tabular_rows).to_parquet(os.path.join(SAVE_PATHS["dataset"], "tabular.parquet"), index=False)
