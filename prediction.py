@@ -95,6 +95,14 @@ def _append_linear(obj, forecasts):
         )
 
 
+def _predict_lgbm_vector(models, frame, suffix=""):
+    preds = []
+    for h in ML_FORECAST_HORIZONS_MIN:
+        for axis in ["x", "y"]:
+            preds.append(models[f"lgbm_h{h}_{axis}{suffix}"].predict(frame)[0])
+    return np.asarray(preds, dtype=float)
+
+
 def _linear_fallback(objects):
     forecasts = {h: [] for h in ML_FORECAST_HORIZONS_MIN}
     for obj in objects:
@@ -183,7 +191,13 @@ def predict_positions(objects: list, timestamp: str, stations: list):
     lgbm_models = load_lgbm_models()
     lstm_model = load_lstm()
 
-    has_lgbm = len(lgbm_models) == len(ML_FORECAST_HORIZONS_MIN) * 2
+    has_lgbm = all(
+        f"lgbm_h{h}_{axis}" in lgbm_models for h in ML_FORECAST_HORIZONS_MIN for axis in ["x", "y"]
+    )
+    has_lgbm_q = {
+        "q10": all(f"lgbm_h{h}_{axis}_q10" in lgbm_models for h in ML_FORECAST_HORIZONS_MIN for axis in ["x", "y"]),
+        "q90": all(f"lgbm_h{h}_{axis}_q90" in lgbm_models for h in ML_FORECAST_HORIZONS_MIN for axis in ["x", "y"]),
+    }
     has_lstm = lstm_model is not None
     if scaler_X is None or scaler_y is None or (not has_lgbm and not has_lstm):
         debug_log("[PREDICT] Fehlende Scaler/Modelle, nutze linearen Fallback.")
@@ -201,19 +215,15 @@ def predict_positions(objects: list, timestamp: str, stations: list):
         seq_scaled = scaler_X.transform(seq).reshape(1, ML_SEQUENCE_LENGTH, ML_NUM_FEATURES)
 
         prediction_scaled = None
+        prediction_q10_scaled = None
+        prediction_q90_scaled = None
         if has_lgbm:
             last_frame = seq_scaled[:, -1, :]
-            prediction_scaled = np.asarray(
-                [
-                    lgbm_models[f"lgbm_h10_x"].predict(last_frame)[0],
-                    lgbm_models[f"lgbm_h10_y"].predict(last_frame)[0],
-                    lgbm_models[f"lgbm_h20_x"].predict(last_frame)[0],
-                    lgbm_models[f"lgbm_h20_y"].predict(last_frame)[0],
-                    lgbm_models[f"lgbm_h30_x"].predict(last_frame)[0],
-                    lgbm_models[f"lgbm_h30_y"].predict(last_frame)[0],
-                ],
-                dtype=float,
-            )
+            prediction_scaled = _predict_lgbm_vector(lgbm_models, last_frame)
+            if has_lgbm_q["q10"]:
+                prediction_q10_scaled = _predict_lgbm_vector(lgbm_models, last_frame, "_q10")
+            if has_lgbm_q["q90"]:
+                prediction_q90_scaled = _predict_lgbm_vector(lgbm_models, last_frame, "_q90")
         elif has_lstm:
             prediction_scaled = np.asarray(lstm_model.predict(seq_scaled, verbose=0)[0], dtype=float)
 
@@ -222,6 +232,8 @@ def predict_positions(objects: list, timestamp: str, stations: list):
             continue
 
         prediction = scaler_y.inverse_transform(prediction_scaled.reshape(1, -1))[0]
+        prediction_q10 = scaler_y.inverse_transform(prediction_q10_scaled.reshape(1, -1))[0] if prediction_q10_scaled is not None else None
+        prediction_q90 = scaler_y.inverse_transform(prediction_q90_scaled.reshape(1, -1))[0] if prediction_q90_scaled is not None else None
 
         for idx, horizon in enumerate(ML_FORECAST_HORIZONS_MIN):
             x_pred = float(prediction[idx * 2])
@@ -231,6 +243,15 @@ def predict_positions(objects: list, timestamp: str, stations: list):
             obj[f"forecast_y_{horizon}"] = y_pred
             obj[f"forecast_lat_{horizon}"] = float(lat)
             obj[f"forecast_lon_{horizon}"] = float(lon)
+            if prediction_q10 is not None and prediction_q90 is not None:
+                x_q10 = float(prediction_q10[idx * 2])
+                y_q10 = float(prediction_q10[idx * 2 + 1])
+                x_q90 = float(prediction_q90[idx * 2])
+                y_q90 = float(prediction_q90[idx * 2 + 1])
+                obj[f"forecast_x_{horizon}_q10"] = x_q10
+                obj[f"forecast_y_{horizon}_q10"] = y_q10
+                obj[f"forecast_x_{horizon}_q90"] = x_q90
+                obj[f"forecast_y_{horizon}_q90"] = y_q90
             forecasts[horizon].append(
                 {
                     "id": obj.get("id"),
@@ -239,6 +260,16 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                     "lat": float(lat),
                     "lon": float(lon),
                     "size": _safe_float(obj.get("size", 0.0)),
+                    **(
+                        {
+                            "x_q10": float(prediction_q10[idx * 2]),
+                            "y_q10": float(prediction_q10[idx * 2 + 1]),
+                            "x_q90": float(prediction_q90[idx * 2]),
+                            "y_q90": float(prediction_q90[idx * 2 + 1]),
+                        }
+                        if prediction_q10 is not None and prediction_q90 is not None
+                        else {}
+                    ),
                 }
             )
 
