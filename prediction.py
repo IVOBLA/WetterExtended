@@ -13,6 +13,8 @@ from config import ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH
 from dataset_builder import load_scalers
 from model_training import load_lgbm_models, load_lstm
 
+lgb = importlib.import_module("lightgbm") if importlib.util.find_spec("lightgbm") else None
+
 try:
     from debug_utils import debug_log
 except Exception:
@@ -106,8 +108,16 @@ def _predict_lgbm_vector(models, frame, suffix=""):
 def _linear_fallback(objects):
     forecasts = {h: [] for h in ML_FORECAST_HORIZONS_MIN}
     for obj in objects:
+        obj["intensification_prob"] = 0.0
         _append_linear(obj, forecasts)
     return tuple(forecasts[h] for h in ML_FORECAST_HORIZONS_MIN)
+
+
+def load_intensification_model():
+    path = os.path.join(SAVE_PATHS["models"], "lgbm_intensification.txt")
+    if lgb is None or not os.path.exists(path):
+        return None
+    return lgb.Booster(model_file=path)
 
 
 def _load_json(path):
@@ -190,6 +200,7 @@ def predict_positions(objects: list, timestamp: str, stations: list):
     scaler_X, scaler_y = load_scalers()
     lgbm_models = load_lgbm_models()
     lstm_model = load_lstm()
+    intensification_model = load_intensification_model()
 
     has_lgbm = all(
         f"lgbm_h{h}_{axis}" in lgbm_models for h in ML_FORECAST_HORIZONS_MIN for axis in ["x", "y"]
@@ -213,6 +224,13 @@ def predict_positions(objects: list, timestamp: str, stations: list):
             continue
 
         seq_scaled = scaler_X.transform(seq).reshape(1, ML_SEQUENCE_LENGTH, ML_NUM_FEATURES)
+        if intensification_model is not None:
+            try:
+                obj["intensification_prob"] = float(intensification_model.predict(seq_scaled[:, -1, :])[0])
+            except Exception:
+                obj["intensification_prob"] = 0.0
+        else:
+            obj["intensification_prob"] = 0.0
 
         prediction_scaled = None
         prediction_q10_scaled = None
