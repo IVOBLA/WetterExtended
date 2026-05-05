@@ -1,0 +1,1 @@
+<html><body><img src='data:image/png;base64,{{p1}}'><img src='data:image/png;base64,{{p2}}'><img src='data:image/png;base64,{{p3}}'><table>{% for r in rows %}<tr><td>{{r.get('timestamp_utc')}}</td><td>{{r.get('num_samples')}}</td><td>{{r.get('status')}}</td></tr>{% endfor %}</table></body></html>

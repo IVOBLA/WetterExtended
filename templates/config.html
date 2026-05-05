@@ -1,0 +1,1 @@
+<html><body>{% if banner %}<div>{{ banner }}</div>{% endif %}<form method='post'>{% for k,v in cfg.items() %}<div>{{k}}: <input name='{{k}}' value='{{v}}'></div>{% endfor %}<button type='submit'>save</button></form></body></html>

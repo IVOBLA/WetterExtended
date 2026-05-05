@@ -9,7 +9,7 @@ import importlib.util
 
 np = importlib.import_module("numpy") if importlib.util.find_spec("numpy") else None
 
-from config import ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, SAVE_PATHS
+from config import ML_CELL_FEATURES as CELL_KEYS, ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, ML_STATION_FEATURES as STATION_KEYS, SAVE_PATHS
 from dataset_builder import load_scalers
 from model_training import load_lgbm_models, load_lstm
 
@@ -33,35 +33,6 @@ except Exception:
     def find_nearest_station(lat, lon, stations):
         return None
 
-
-STATION_KEYS = [
-    "station_temperature_c",
-    "station_humidity_pct",
-    "station_pressure_hpa",
-    "station_wind_speed_kmh",
-    "station_wind_direction_deg",
-    "station_dew_point_c",
-    "station_precip_mm",
-    "station_visibility_km",
-    "station_cloud_base_m",
-]
-
-CELL_KEYS = [
-    "cell_area_px",
-    "cell_mean_intensity",
-    "cell_max_intensity",
-    "cell_perimeter_px",
-    "cell_circularity",
-    "cell_solidity",
-    "cell_eccentricity",
-    "cell_velocity_kmh",
-    "cell_direction_deg",
-    "cell_growth_rate",
-    "cell_lightning_density",
-    "cell_cape_jkg",
-    "cell_cloud_top_height_msl",
-    "cell_missing_flag",
-]
 
 
 def _safe_float(value):

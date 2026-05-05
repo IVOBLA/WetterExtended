@@ -150,7 +150,7 @@ def _build_lstm():
 
 
 def train_lstm(X, y):
-    model_path = os.path.join(SAVE_PATHS["models"], "weather_lstm.keras")
+    model_path = os.path.join(_current_models_dir(), "weather_lstm.keras")
     os.makedirs(SAVE_PATHS["models"], exist_ok=True)
     if Sequential is None or train_test_split is None:
         debug_log("[LSTM] Skip: tensorflow oder sklearn nicht installiert")
@@ -220,7 +220,7 @@ def train_lgbm(X, y):
                     callbacks=[lgb.early_stopping(20, verbose=False)],
                 )
                 q_model_name = f"lgbm_h{h}_{axis}_{q_name}"
-                q_path = os.path.join(SAVE_PATHS["models"], f"{q_model_name}.txt")
+                q_path = os.path.join(_current_models_dir(), f"{q_model_name}.txt")
                 q_booster.save_model(q_path)
                 models[q_model_name] = q_path
                 quantile_scores[q_model_name] = float(q_booster.best_score.get("valid_0", {}).get("quantile", float("nan")))
@@ -251,7 +251,7 @@ def load_lgbm_models():
 
 
 def train_intensification_classifier():
-    model_path = os.path.join(SAVE_PATHS["models"], "lgbm_intensification.txt")
+    model_path = os.path.join(_current_models_dir(), "lgbm_intensification.txt")
     if lgb is None or train_test_split is None or roc_auc_score is None:
         debug_log("[LGBM-CLS] Skip: lightgbm oder sklearn nicht installiert")
         return {"trained": False, "auc": None, "precision": None, "recall": None, "samples": 0, "positive_samples": 0}
