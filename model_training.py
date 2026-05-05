@@ -2,10 +2,11 @@ import importlib
 import importlib.util
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 np = importlib.import_module("numpy") if importlib.util.find_spec("numpy") else None
 lgb = importlib.import_module("lightgbm") if importlib.util.find_spec("lightgbm") else None
+joblib = importlib.import_module("joblib") if importlib.util.find_spec("joblib") else None
 
 if importlib.util.find_spec("sklearn"):
     train_test_split = importlib.import_module("sklearn.model_selection").train_test_split
@@ -82,6 +83,58 @@ def _atomic_switch_current(version_id):
         os.remove(tmp_link)
     os.symlink(os.path.relpath(target, base_dir), tmp_link)
     os.replace(tmp_link, current_link)
+
+
+def evaluate_on_recent(model_dir, hours=24):
+    if np is None or lgb is None or joblib is None:
+        return {"mae_total": float("inf"), "mae_by_horizon": {}, "samples": 0}
+    dataset_path = os.path.join(SAVE_PATHS["dataset"], "dataset.npz")
+    if not os.path.exists(dataset_path):
+        return {"mae_total": float("inf"), "mae_by_horizon": {}, "samples": 0}
+    ds = np.load(dataset_path, allow_pickle=True)
+    X = ds.get("X")
+    y_raw = ds.get("y_raw")
+    ids = ds.get("ids")
+    if X is None or y_raw is None or ids is None or len(X) == 0:
+        return {"mae_total": float("inf"), "mae_by_horizon": {}, "samples": 0}
+
+    timestamps = []
+    for item in ids.tolist():
+        ts_text = item.get("timestamp") if isinstance(item, dict) else None
+        ts = datetime.strptime(ts_text, "%Y-%m-%d_%H-%M-%S").replace(tzinfo=timezone.utc) if ts_text else None
+        timestamps.append(ts)
+    valid_ts = [ts for ts in timestamps if ts is not None]
+    if not valid_ts:
+        return {"mae_total": float("inf"), "mae_by_horizon": {}, "samples": 0}
+    cutoff = max(valid_ts) - timedelta(hours=hours)
+    idx = [i for i, ts in enumerate(timestamps) if ts is not None and ts >= cutoff]
+    if not idx:
+        return {"mae_total": float("inf"), "mae_by_horizon": {}, "samples": 0}
+
+    X_recent = X[idx][:, -1, :]
+    y_recent = y_raw[idx]
+    scaler_y_path = os.path.join(model_dir, "scaler_y.joblib")
+    if not os.path.exists(scaler_y_path):
+        return {"mae_total": float("inf"), "mae_by_horizon": {}, "samples": len(idx)}
+    scaler_y = joblib.load(scaler_y_path)
+    y_pred_scaled = np.zeros_like(y_recent, dtype=float)
+
+    for h_idx, horizon in enumerate(ML_FORECAST_HORIZONS_MIN):
+        for axis_idx, axis in enumerate(["x", "y"]):
+            col = h_idx * 2 + axis_idx
+            model_path = os.path.join(model_dir, f"lgbm_h{horizon}_{axis}.txt")
+            if not os.path.exists(model_path):
+                return {"mae_total": float("inf"), "mae_by_horizon": {}, "samples": len(idx)}
+            booster = lgb.Booster(model_file=model_path)
+            y_pred_scaled[:, col] = booster.predict(X_recent)
+
+    y_pred = scaler_y.inverse_transform(y_pred_scaled)
+    mae_by_horizon = {}
+    for h_idx, horizon in enumerate(ML_FORECAST_HORIZONS_MIN):
+        sl = slice(h_idx * 2, h_idx * 2 + 2)
+        mae_by_horizon[str(horizon)] = float(np.mean(np.abs(y_pred[:, sl] - y_recent[:, sl])))
+    mae_total = float(np.mean([mae_by_horizon[str(h)] for h in ML_FORECAST_HORIZONS_MIN]))
+    return {"mae_total": mae_total, "mae_by_horizon": mae_by_horizon, "samples": len(idx)}
 
 def _build_lstm():
     model = Sequential([
@@ -299,7 +352,38 @@ def retrain_all():
     finally:
         SAVE_PATHS["models"] = old_models_dir
 
-    _atomic_switch_current(timestamp)
+    new_eval = evaluate_on_recent(version_dir)
+    current_dir = _current_models_dir()
+    has_current = os.path.isdir(current_dir)
+    old_eval = evaluate_on_recent(current_dir) if has_current else {"mae_total": float("inf"), "mae_by_horizon": {}, "samples": 0}
+
+    if not has_current:
+        status = "promoted"
+        _atomic_switch_current(timestamp)
+        debug_log(f"[TRAINING] PROMOTED {timestamp} (cold-start)")
+    elif new_eval.get("samples", 0) < 20:
+        status = "no_baseline"
+        _atomic_switch_current(timestamp)
+        debug_log(f"[TRAINING] PROMOTED {timestamp} (no_baseline: <20 recent samples)")
+    elif new_eval["mae_total"] < old_eval["mae_total"] * 1.02:
+        status = "promoted"
+        _atomic_switch_current(timestamp)
+        debug_log(f"[TRAINING] PROMOTED {timestamp} (mae_new={new_eval['mae_total']:.4f} vs mae_old={old_eval['mae_total']:.4f})")
+    else:
+        status = "rejected"
+        debug_log(f"[TRAINING] REJECTED {timestamp} (mae_new={new_eval['mae_total']:.4f} vs mae_old={old_eval['mae_total']:.4f})")
+
+    meta["validation"] = {
+        "mae_old": old_eval.get("mae_total"),
+        "mae_new": new_eval.get("mae_total"),
+        "mae_by_horizon_old": old_eval.get("mae_by_horizon", {}),
+        "mae_by_horizon_new": new_eval.get("mae_by_horizon", {}),
+        "samples_recent": new_eval.get("samples", 0),
+        "status": status,
+    }
+    with open(os.path.join(version_dir, "training_meta.json"), "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
+
     cleanup_old_versions(keep_n=5)
     return meta
 
