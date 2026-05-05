@@ -17,9 +17,6 @@ def save_json(path, data):
     with open(path, "w") as f:
         json.dump(data, f, indent=4)
 
-def debug_log(msg):
-    print(f"[DEBUG] {msg}")
-
 def find_nearest_station(lat, lon, stations):
     if not stations:
         return None
@@ -45,7 +42,7 @@ def find_nearest_station(lat, lon, stations):
                 min_dist = dist
                 nearest = station
         except Exception as e:
-            debug_log(f"Fehler bei Station {station.get('station_id', 'unknown')}: {e}")
+            log(f"[DEBUG] Fehler bei Station {station.get('station_id', 'unknown')}: {e}")
 
     return nearest
 
