@@ -114,7 +114,7 @@ def _linear_fallback(objects):
 
 
 def load_intensification_model():
-    path = os.path.join(SAVE_PATHS["models"], "lgbm_intensification.txt")
+    path = os.path.join(SAVE_PATHS["models"], "current", "lgbm_intensification.txt")
     if lgb is None or not os.path.exists(path):
         return None
     return lgb.Booster(model_file=path)

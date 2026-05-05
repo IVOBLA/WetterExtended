@@ -34,6 +34,8 @@ else:
     Sequential = load_model = LSTM = Dense = Dropout = EarlyStopping = ModelCheckpoint = Adam = None
 
 from config import ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, SAVE_PATHS
+
+MODELS_ROOT = SAVE_PATHS["models"]
 from dataset_builder import build_classification_dataset, build_dataset
 try:
     from debug_utils import debug_log
@@ -41,6 +43,45 @@ except Exception:
     def debug_log(message):
         print(message)
 
+
+
+
+def _current_models_dir():
+    return os.path.join(MODELS_ROOT, "current")
+
+
+def _version_models_dir(version_id):
+    return os.path.join(MODELS_ROOT, version_id)
+
+
+def _list_versions():
+    base = MODELS_ROOT
+    if not os.path.isdir(base):
+        return []
+    return sorted([name for name in os.listdir(base) if name.startswith("v_") and os.path.isdir(os.path.join(base, name))])
+
+
+def cleanup_old_versions(keep_n=5):
+    versions = _list_versions()
+    for old in versions[:-keep_n]:
+        old_path = _version_models_dir(old)
+        for root, dirs, files in os.walk(old_path, topdown=False):
+            for f in files:
+                os.remove(os.path.join(root, f))
+            for d in dirs:
+                os.rmdir(os.path.join(root, d))
+        os.rmdir(old_path)
+
+
+def _atomic_switch_current(version_id):
+    base_dir = MODELS_ROOT
+    target = _version_models_dir(version_id)
+    current_link = _current_models_dir()
+    tmp_link = os.path.join(base_dir, ".current_tmp")
+    if os.path.lexists(tmp_link):
+        os.remove(tmp_link)
+    os.symlink(os.path.relpath(target, base_dir), tmp_link)
+    os.replace(tmp_link, current_link)
 
 def _build_lstm():
     model = Sequential([
@@ -110,7 +151,7 @@ def train_lgbm(X, y):
                 callbacks=[lgb.early_stopping(20, verbose=False)],
             )
             name = f"lgbm_h{h}_{axis}"
-            path = os.path.join(SAVE_PATHS["models"], f"{name}.txt")
+            path = os.path.join(_current_models_dir(), f"{name}.txt")
             booster.save_model(path)
             models[name] = path
             best_scores[name] = float(booster.best_score.get("valid_0", {}).get("rmse", float("nan")))
@@ -134,7 +175,7 @@ def train_lgbm(X, y):
 
 
 def load_lstm():
-    model_path = os.path.join(SAVE_PATHS["models"], "weather_lstm.keras")
+    model_path = os.path.join(_current_models_dir(), "weather_lstm.keras")
     return load_model(model_path) if load_model is not None and os.path.exists(model_path) else None
 
 
@@ -145,12 +186,12 @@ def load_lgbm_models():
     for h in ML_FORECAST_HORIZONS_MIN:
         for axis in ["x", "y"]:
             name = f"lgbm_h{h}_{axis}"
-            path = os.path.join(SAVE_PATHS["models"], f"{name}.txt")
+            path = os.path.join(_current_models_dir(), f"{name}.txt")
             if os.path.exists(path):
                 models[name] = lgb.Booster(model_file=path)
             for q in ["q10", "q50", "q90"]:
                 q_name = f"{name}_{q}"
-                q_path = os.path.join(SAVE_PATHS["models"], f"{q_name}.txt")
+                q_path = os.path.join(_current_models_dir(), f"{q_name}.txt")
                 if os.path.exists(q_path):
                     models[q_name] = lgb.Booster(model_file=q_path)
     return models
@@ -218,36 +259,48 @@ def train_intensification_classifier():
 
 
 def retrain_all():
-    dataset = build_dataset()
-    X = np.asarray(dataset.get("X", [])) if np is not None else []
-    y = np.asarray(dataset.get("y", [])) if np is not None else []
-    has_data = np is not None and getattr(X, "size", 0) and getattr(y, "size", 0)
-    lstm_result = train_lstm(X, y) if has_data else {"trained": False, "val_loss": None}
-    lgbm_result = train_lgbm(X, y) if has_data else {"trained": False, "best_scores": {}, "quantile_scores": {}}
-    intensification_result = train_intensification_classifier()
-    meta = {
-        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-        "num_samples": int(len(X)) if has_data else 0,
-        "rejected_samples": int(dataset.get("rejected_samples", 0)),
-        "rejection_reasons": dataset.get("rejection_reasons", {}),
-        "lstm": {"trained": lstm_result.get("trained", False), "val_loss": lstm_result.get("val_loss")},
-        "lgbm": {
-            "trained": lgbm_result.get("trained", False),
-            "best_scores": lgbm_result.get("best_scores", {}),
-            "quantile_scores": lgbm_result.get("quantile_scores", {}),
-        },
-        "intensification": {
-            "trained": intensification_result.get("trained", False),
-            "auc": intensification_result.get("auc"),
-            "precision_at_0_5": intensification_result.get("precision"),
-            "recall_at_0_5": intensification_result.get("recall"),
-            "samples": intensification_result.get("samples", 0),
-            "positive_samples": intensification_result.get("positive_samples", 0),
-        },
-    }
-    os.makedirs(SAVE_PATHS["models"], exist_ok=True)
-    with open(os.path.join(SAVE_PATHS["models"], "training_meta.json"), "w", encoding="utf-8") as f:
-        json.dump(meta, f, indent=2, ensure_ascii=False)
+    timestamp = datetime.now(timezone.utc).strftime("v_%Y-%m-%dT%H-%M-%SZ")
+    version_dir = _version_models_dir(timestamp)
+    os.makedirs(version_dir, exist_ok=True)
+
+    old_models_dir = SAVE_PATHS["models"]
+    SAVE_PATHS["models"] = version_dir
+    try:
+        dataset = build_dataset()
+        X = np.asarray(dataset.get("X", [])) if np is not None else []
+        y = np.asarray(dataset.get("y", [])) if np is not None else []
+        has_data = np is not None and getattr(X, "size", 0) and getattr(y, "size", 0)
+        lstm_result = train_lstm(X, y) if has_data else {"trained": False, "val_loss": None}
+        lgbm_result = train_lgbm(X, y) if has_data else {"trained": False, "best_scores": {}, "quantile_scores": {}}
+        intensification_result = train_intensification_classifier()
+        meta = {
+            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "version": timestamp,
+            "num_samples": int(len(X)) if has_data else 0,
+            "rejected_samples": int(dataset.get("rejected_samples", 0)),
+            "rejection_reasons": dataset.get("rejection_reasons", {}),
+            "lstm": {"trained": lstm_result.get("trained", False), "val_loss": lstm_result.get("val_loss")},
+            "lgbm": {
+                "trained": lgbm_result.get("trained", False),
+                "best_scores": lgbm_result.get("best_scores", {}),
+                "quantile_scores": lgbm_result.get("quantile_scores", {}),
+            },
+            "intensification": {
+                "trained": intensification_result.get("trained", False),
+                "auc": intensification_result.get("auc"),
+                "precision_at_0_5": intensification_result.get("precision"),
+                "recall_at_0_5": intensification_result.get("recall"),
+                "samples": intensification_result.get("samples", 0),
+                "positive_samples": intensification_result.get("positive_samples", 0),
+            },
+        }
+        with open(os.path.join(version_dir, "training_meta.json"), "w", encoding="utf-8") as f:
+            json.dump(meta, f, indent=2, ensure_ascii=False)
+    finally:
+        SAVE_PATHS["models"] = old_models_dir
+
+    _atomic_switch_current(timestamp)
+    cleanup_old_versions(keep_n=5)
     return meta
 
 
