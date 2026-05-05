@@ -229,5 +229,86 @@ def build_dataset():
     return {"X": X_scaled, "y": y_scaled, "y_raw": y_raw, "ids": ids}
 
 
+def build_classification_dataset():
+    missing_deps = _dependencies_available()
+    if missing_deps:
+        debug_log(f"[DATASET-CLS] Abbruch: fehlende Abhängigkeiten: {', '.join(missing_deps)}")
+        return {"X": [], "y": [], "samples": 0, "positive_samples": 0}
+
+    obj_files = sorted(glob.glob(os.path.join(SAVE_PATHS["objects"], "*.json")))
+    wthr_files = sorted(glob.glob(os.path.join(SAVE_PATHS["weather"], "*.json")))
+    weather_by_name = {os.path.basename(p): p for p in wthr_files}
+    paired = [(op, weather_by_name[os.path.basename(op)]) for op in obj_files if os.path.basename(op) in weather_by_name]
+    if not paired:
+        debug_log("[DATASET-CLS] Keine passenden Objekt/Wetter-Dateipaare gefunden.")
+        return {"X": [], "y": [], "samples": 0, "positive_samples": 0}
+
+    horizon_step = 4  # 20 Minuten bei 5-Minuten-Frames
+    min_required = ML_SEQUENCE_LENGTH + horizon_step + 1
+    if len(paired) < min_required:
+        debug_log(f"[DATASET-CLS] Zu wenige Frames: {len(paired)} < {min_required}.")
+        return {"X": [], "y": [], "samples": 0, "positive_samples": 0}
+
+    frames = []
+    for op, wp in paired:
+        try:
+            frames.append((op, wp, _parse_ts(op), _load_json(op), _load_json(wp)))
+        except Exception as exc:
+            debug_log(f"[DATASET-CLS] Fehler beim Laden von {op}: {exc}")
+
+    rows = []
+    for i in range(ML_SEQUENCE_LENGTH - 1, len(frames) - horizon_step):
+        seq_slice = frames[i - ML_SEQUENCE_LENGTH + 1 : i + 1]
+        now_ts = seq_slice[-1][2]
+        now_map = {str(o.get("id")): o for o in seq_slice[-1][3] if isinstance(o, dict) and "id" in o}
+        fut_map = {str(o.get("id")): o for o in frames[i + horizon_step][3] if isinstance(o, dict) and "id" in o}
+        common_ids = set(now_map.keys()) & set(fut_map.keys())
+        if not common_ids:
+            continue
+
+        for oid in common_ids:
+            seq_features = []
+            valid = True
+            for _, _, ts, objs, stations in seq_slice:
+                obj = next((o for o in objs if str(o.get("id")) == oid), None)
+                if obj is None:
+                    valid = False
+                    break
+                seq_features.append(_frame_features(obj, stations, ts))
+            if not valid:
+                continue
+
+            obj_now = now_map[oid]
+            obj_fut = fut_map[oid]
+            core_now = _safe_float(obj_now.get("core_ratio", 0.0))
+            core_fut = _safe_float(obj_fut.get("core_ratio", 0.0))
+            size_now = max(_safe_float(obj_now.get("size", 0.0)), 1e-6)
+            size_fut = _safe_float(obj_fut.get("size", 0.0))
+            intensified = int((core_fut - core_now) >= 0.05 or (size_fut / size_now) >= 1.2)
+
+            row = {
+                k: v for k, v in zip(
+                    ML_CELL_FEATURES + ML_STATION_FEATURES + ["hour_sin", "hour_cos", "month_sin", "month_cos"],
+                    seq_features[-1],
+                )
+            }
+            row["intensified"] = intensified
+            row["id"] = oid
+            row["timestamp"] = now_ts.strftime("%Y-%m-%d_%H-%M-%S")
+            rows.append(row)
+
+    if not rows:
+        debug_log("[DATASET-CLS] Keine gültigen Samples gefunden.")
+        return {"X": [], "y": [], "samples": 0, "positive_samples": 0}
+
+    df = pd.DataFrame(rows)
+    out_path = os.path.join(SAVE_PATHS["dataset"], "tabular_classification.parquet")
+    os.makedirs(SAVE_PATHS["dataset"], exist_ok=True)
+    df.to_parquet(out_path, index=False)
+    positives = int(df["intensified"].sum())
+    debug_log(f"[DATASET-CLS] Datensatz gebaut: samples={len(df)}, positives={positives}")
+    return {"X": df.drop(columns=["intensified", "id", "timestamp"]), "y": df["intensified"], "samples": len(df), "positive_samples": positives}
+
+
 if __name__ == "__main__":
     build_dataset()

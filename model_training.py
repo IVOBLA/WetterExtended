@@ -9,8 +9,13 @@ lgb = importlib.import_module("lightgbm") if importlib.util.find_spec("lightgbm"
 
 if importlib.util.find_spec("sklearn"):
     train_test_split = importlib.import_module("sklearn.model_selection").train_test_split
+    sklearn_metrics = importlib.import_module("sklearn.metrics")
+    roc_auc_score = sklearn_metrics.roc_auc_score
+    precision_score = sklearn_metrics.precision_score
+    recall_score = sklearn_metrics.recall_score
 else:
     train_test_split = None
+    roc_auc_score = precision_score = recall_score = None
 
 if importlib.util.find_spec("tensorflow"):
     keras_models = importlib.import_module("tensorflow.keras.models")
@@ -29,7 +34,7 @@ else:
     Sequential = load_model = LSTM = Dense = Dropout = EarlyStopping = ModelCheckpoint = Adam = None
 
 from config import ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, SAVE_PATHS
-from dataset_builder import build_dataset
+from dataset_builder import build_classification_dataset, build_dataset
 try:
     from debug_utils import debug_log
 except Exception:
@@ -151,6 +156,67 @@ def load_lgbm_models():
     return models
 
 
+def train_intensification_classifier():
+    model_path = os.path.join(SAVE_PATHS["models"], "lgbm_intensification.txt")
+    if lgb is None or train_test_split is None or roc_auc_score is None:
+        debug_log("[LGBM-CLS] Skip: lightgbm oder sklearn nicht installiert")
+        return {"trained": False, "auc": None, "precision": None, "recall": None, "samples": 0, "positive_samples": 0}
+
+    cls_data = build_classification_dataset()
+    X_df = cls_data.get("X")
+    y_series = cls_data.get("y")
+    samples = int(cls_data.get("samples", 0))
+    positives = int(cls_data.get("positive_samples", 0))
+    if samples == 0:
+        return {"trained": False, "auc": None, "precision": None, "recall": None, "samples": 0, "positive_samples": 0}
+    if positives < 50:
+        debug_log(f"[LGBM-CLS] Skip: zu wenig positive Samples ({positives} < 50)")
+        return {"trained": False, "auc": None, "precision": None, "recall": None, "samples": samples, "positive_samples": positives}
+
+    X = X_df.to_numpy(dtype=float)
+    y = y_series.to_numpy(dtype=int)
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    pos_train = max(int((y_train == 1).sum()), 1)
+    neg_train = max(int((y_train == 0).sum()), 1)
+    scale_pos_weight = neg_train / pos_train
+
+    params = {
+        "objective": "binary",
+        "metric": "auc",
+        "learning_rate": 0.05,
+        "num_leaves": 31,
+        "feature_fraction": 0.9,
+        "bagging_fraction": 0.8,
+        "bagging_freq": 5,
+        "verbose": -1,
+        "scale_pos_weight": scale_pos_weight,
+    }
+    booster = lgb.train(
+        params,
+        lgb.Dataset(X_train, label=y_train),
+        num_boost_round=500,
+        valid_sets=[lgb.Dataset(X_val, label=y_val)],
+        callbacks=[lgb.early_stopping(20, verbose=False)],
+    )
+    os.makedirs(SAVE_PATHS["models"], exist_ok=True)
+    booster.save_model(model_path)
+
+    y_prob = booster.predict(X_val)
+    y_pred = (y_prob >= 0.5).astype(int)
+    auc = float(roc_auc_score(y_val, y_prob))
+    precision = float(precision_score(y_val, y_pred, zero_division=0))
+    recall = float(recall_score(y_val, y_pred, zero_division=0))
+    return {
+        "trained": True,
+        "model_path": model_path,
+        "auc": auc,
+        "precision": precision,
+        "recall": recall,
+        "samples": samples,
+        "positive_samples": positives,
+    }
+
+
 def retrain_all():
     dataset = build_dataset()
     X = np.asarray(dataset.get("X", [])) if np is not None else []
@@ -158,6 +224,7 @@ def retrain_all():
     has_data = np is not None and getattr(X, "size", 0) and getattr(y, "size", 0)
     lstm_result = train_lstm(X, y) if has_data else {"trained": False, "val_loss": None}
     lgbm_result = train_lgbm(X, y) if has_data else {"trained": False, "best_scores": {}, "quantile_scores": {}}
+    intensification_result = train_intensification_classifier()
     meta = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "num_samples": int(len(X)) if has_data else 0,
@@ -166,6 +233,14 @@ def retrain_all():
             "trained": lgbm_result.get("trained", False),
             "best_scores": lgbm_result.get("best_scores", {}),
             "quantile_scores": lgbm_result.get("quantile_scores", {}),
+        },
+        "intensification": {
+            "trained": intensification_result.get("trained", False),
+            "auc": intensification_result.get("auc"),
+            "precision_at_0_5": intensification_result.get("precision"),
+            "recall_at_0_5": intensification_result.get("recall"),
+            "samples": intensification_result.get("samples", 0),
+            "positive_samples": intensification_result.get("positive_samples", 0),
         },
     }
     os.makedirs(SAVE_PATHS["models"], exist_ok=True)
