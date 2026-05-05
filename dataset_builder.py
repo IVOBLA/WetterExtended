@@ -98,12 +98,17 @@ def _dependencies_available():
         missing.append("scikit-learn")
     return missing
 
+def _current_models_dir():
+    return os.path.join(SAVE_PATHS["models"], "current")
+
+
 def load_scalers():
     if joblib is None:
         return None, None
 
-    scaler_x_path = os.path.join(SAVE_PATHS["models"], "scaler_X.joblib")
-    scaler_y_path = os.path.join(SAVE_PATHS["models"], "scaler_y.joblib")
+    base_dir = _current_models_dir()
+    scaler_x_path = os.path.join(base_dir, "scaler_X.joblib")
+    scaler_y_path = os.path.join(base_dir, "scaler_y.joblib")
     if not (os.path.exists(scaler_x_path) and os.path.exists(scaler_y_path)):
         return None, None
     return joblib.load(scaler_x_path), joblib.load(scaler_y_path)
