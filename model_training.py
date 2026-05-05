@@ -228,6 +228,8 @@ def retrain_all():
     meta = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "num_samples": int(len(X)) if has_data else 0,
+        "rejected_samples": int(dataset.get("rejected_samples", 0)),
+        "rejection_reasons": dataset.get("rejection_reasons", {}),
         "lstm": {"trained": lstm_result.get("trained", False), "val_loss": lstm_result.get("val_loss")},
         "lgbm": {
             "trained": lgbm_result.get("trained", False),
