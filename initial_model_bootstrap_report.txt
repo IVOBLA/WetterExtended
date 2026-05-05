@@ -1,0 +1,11 @@
+Initialmodell-Erzeugung geprüft am 2026-05-05 (UTC)
+
+Check:
+- train_data/objects/*.json: 0 Dateien
+- train_data/weather/*.json: 0 Dateien
+- zueinander passende Frame-Paare: 0
+
+Ergebnis:
+- Zu wenig Daten (<30). dataset_builder.py und model_training.py wurden nicht ausgeführt.
+- Bei 1 Frame alle 2 Minuten sind für 30 Frames insgesamt 60 Minuten Laufzeit nötig.
+- Es fehlen aktuell 30 Frames => zusätzliche Laufzeit ca. 60 Minuten.
