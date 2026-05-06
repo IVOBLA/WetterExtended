@@ -6,6 +6,8 @@ from config import DATASET_REBUILD_INTERVAL_MIN, RETRAIN_INTERVAL_HOURS
 from dataset_builder import build_dataset
 from debug_utils import debug_log
 from model_training import retrain_all
+import runtime_config
+from accuracy_tracker import evaluate_all, append_history_point
 from radar_convlstm import train_convlstm
 
 
@@ -44,37 +46,56 @@ def run_convlstm_weekly_job():
     except Exception as exc:
         debug_log(f"[SCHEDULER] Job convlstm_weekly Fehler: {exc}")
 
+
+def run_accuracy_eval_job():
+    debug_log("[SCHEDULER] Job accuracy_eval gestartet")
+    try:
+        from config import ML_FORECAST_HORIZONS_MIN
+        horizons = runtime_config.get("ML_FORECAST_HORIZONS_MIN", ML_FORECAST_HORIZONS_MIN)
+        result = evaluate_all(horizons, since_hours=24)
+        append_history_point(result)
+        debug_log(f"[SCHEDULER] accuracy_eval abgeschlossen: {result}")
+    except Exception as exc:
+        debug_log(f"[SCHEDULER] accuracy_eval Fehler: {exc}")
+
 def create_scheduler() -> BlockingScheduler:
-    scheduler = BlockingScheduler(timezone="Europe/Vienna")
-    scheduler.add_job(
+    sched = BlockingScheduler(timezone="Europe/Vienna")
+
+    sched.add_job(
         run_rebuild_dataset_job,
-        trigger=IntervalTrigger(minutes=DATASET_REBUILD_INTERVAL_MIN),
-        id="rebuild_dataset",
-        max_instances=1,
-        coalesce=True,
+        trigger=IntervalTrigger(minutes=runtime_config.get("DATASET_REBUILD_INTERVAL_MIN", DATASET_REBUILD_INTERVAL_MIN)),
+        id="rebuild_dataset", max_instances=1, coalesce=True,
     )
-    scheduler.add_job(
+
+    ts = runtime_config.get("TRAINING_SCHEDULE", {}) or {}
+    sched.add_job(
         lambda: run_retrain_job("retrain_interval"),
-        trigger=IntervalTrigger(hours=RETRAIN_INTERVAL_HOURS),
-        id="retrain_interval",
-        max_instances=1,
-        coalesce=True,
+        trigger=IntervalTrigger(hours=int(ts.get("retrain_interval_hours", RETRAIN_INTERVAL_HOURS))),
+        id="retrain_interval", max_instances=1, coalesce=True,
     )
-    scheduler.add_job(
+    sched.add_job(
         lambda: run_retrain_job("retrain_nightly"),
-        trigger=CronTrigger(hour=3, minute=0),
-        id="retrain_nightly",
-        max_instances=1,
-        coalesce=True,
+        trigger=CronTrigger(
+            hour=int(ts.get("retrain_cron_hour", 3)),
+            minute=int(ts.get("retrain_cron_minute", 0)),
+        ),
+        id="retrain_nightly", max_instances=1, coalesce=True,
     )
-    scheduler.add_job(
+    sched.add_job(
         run_convlstm_weekly_job,
-        trigger=CronTrigger(day_of_week="mon", hour=2, minute=0),
-        id="convlstm_weekly",
-        max_instances=1,
-        coalesce=True,
+        trigger=CronTrigger(
+            day_of_week=str(ts.get("convlstm_cron_day_of_week", "mon")),
+            hour=int(ts.get("convlstm_cron_hour", 2)),
+            minute=int(ts.get("convlstm_cron_minute", 0)),
+        ),
+        id="convlstm_weekly", max_instances=1, coalesce=True,
     )
-    return scheduler
+    sched.add_job(
+        run_accuracy_eval_job,
+        trigger=IntervalTrigger(hours=1),
+        id="accuracy_eval", max_instances=1, coalesce=True,
+    )
+    return sched
 
 
 def main():

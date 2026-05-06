@@ -1,0 +1,14 @@
+[Unit]
+Description=Wetterprojekt Admin Panel (Flask + React)
+After=network.target
+
+[Service]
+Type=simple
+User=ki-pi
+WorkingDirectory=/home/ki-pi/wetterprojekt
+ExecStart=/home/ki-pi/wetterprojekt/venv/bin/python3 /home/ki-pi/wetterprojekt/app.py
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

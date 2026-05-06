@@ -64,6 +64,8 @@ def _append_linear(obj, forecasts):
                 "lat": float(lat),
                 "lon": float(lon),
                 "size": _safe_float(obj.get("size", 0.0)),
+                "origin_lat": _safe_float(obj.get("lat", 0.0)),
+                "origin_lon": _safe_float(obj.get("lon", 0.0)),
             }
         )
 
@@ -249,6 +251,8 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                     "lat": float(lat),
                     "lon": float(lon),
                     "size": _safe_float(obj.get("size", 0.0)),
+                    "origin_lat": _safe_float(obj.get("lat", 0.0)),
+                    "origin_lon": _safe_float(obj.get("lon", 0.0)),
                     **(
                         {
                             "x_q10": float(prediction_q10[idx * 2]),

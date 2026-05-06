@@ -12,3 +12,10 @@
 /__pycache__
 /train_data
 /train_data
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+*.log
+__pycache__/
+venv/
+train_data/runtime_overrides.json

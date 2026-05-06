@@ -1,0 +1,1 @@
+# Wetterprojekt Frontend (React + Vite)
