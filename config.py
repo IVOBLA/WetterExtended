@@ -96,7 +96,50 @@ ML_TIME_FEATURES = [
 
 ML_NUM_FEATURES = len(ML_CELL_FEATURES) + len(ML_STATION_FEATURES) + len(ML_TIME_FEATURES)
 ML_SEQUENCE_LENGTH = 6
-ML_FORECAST_HORIZONS_MIN = [10, 20, 30]
+ML_FORECAST_HORIZONS_MIN = [10, 20, 30, 40, 60]
+# Pfeilfarben pro Forecast-Horizont (HEX inkl. #).
+FORECAST_ARROW_COLORS = {
+    10: "#00cc44",
+    20: "#3399ff",
+    30: "#ff9900",
+    40: "#cc00cc",
+    60: "#cc0000",
+}
+
+# Linienstärke und Strichmuster pro Horizont (für Karte und KMZ).
+FORECAST_ARROW_STYLE = {
+    10: {"weight": 2, "dash": "4,4"},
+    20: {"weight": 2, "dash": ""},
+    30: {"weight": 3, "dash": ""},
+    40: {"weight": 3, "dash": "8,4"},
+    60: {"weight": 4, "dash": ""},
+}
+
+# Vom Benutzer definierbare Orte mit Umkreis (km). Default für Kärnten.
+LOCATIONS_WATCHLIST = [
+    {"name": "Klagenfurt", "lat": 46.6228, "lon": 14.3050, "radius_km": 5.0},
+    {"name": "Villach",    "lat": 46.6111, "lon": 13.8558, "radius_km": 5.0},
+    {"name": "Wolfsberg",  "lat": 46.8403, "lon": 14.8408, "radius_km": 5.0},
+    {"name": "Spittal",    "lat": 46.7956, "lon": 13.4978, "radius_km": 5.0},
+    {"name": "St. Veit",   "lat": 46.7700, "lon": 14.3614, "radius_km": 5.0},
+]
+
+# Beschriftungen der HSV-Bänder, damit das Adminpanel sie zeigen kann.
+HSV_BAND_LABELS = ["leichter_regen", "regen", "starkregen"]
+
+# Pfad für Runtime-Overrides aus dem Adminpanel.
+RUNTIME_OVERRIDES_PATH = "train_data/runtime_overrides.json"
+
+# Trainings-Schedule (Cron-Stil). Wird vom Scheduler gelesen, kann per
+# Adminpanel über runtime_overrides.json überschrieben werden.
+TRAINING_SCHEDULE = {
+    "retrain_interval_hours": 6,
+    "retrain_cron_hour": 3,
+    "retrain_cron_minute": 0,
+    "convlstm_cron_day_of_week": "mon",
+    "convlstm_cron_hour": 2,
+    "convlstm_cron_minute": 0,
+}
 ML_IGNORE_FLAG = -1
 
 # Backward-Compatibility für bestehende Module
@@ -127,6 +170,7 @@ SAVE_PATHS = {
     "ir": "train_data/ir/",
     "lightning": "train_data/lightning/",
     "hydro": "train_data/hydro/",
+    "evaluation": "train_data/evaluation/",
 }
 
 # Ausgabeauflösung in Pixeln (z. B. für GeoTIFF via WMS)
