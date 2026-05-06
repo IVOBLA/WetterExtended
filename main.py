@@ -21,6 +21,8 @@ from assign_cape_from_forecast import assign_cape
 from geo_utils import get_roi_from_bbox, kml_bounds
 from config import BBOX_KAERNTEN_EXTENDED
 from cloud_height_from_eumetview import assign_cloud_top_height
+import runtime_config
+from locations_check import annotate_locations
 
 ROI = get_roi_from_bbox(BBOX_KAERNTEN_EXTENDED)
 
@@ -68,18 +70,30 @@ def main_loop():
             debug_log(f"Wetterdaten gespeichert als {weather_file}")
 
             # Kein Training im Live-Loop — übernimmt scheduler.py.
-            forecast_10, forecast_20, forecast_30 = predict_positions(objects, timestamp, weather_data)
-            save_forecast_as_kmz(forecast_10, forecast_20, forecast_30)
+            forecasts_per_horizon = predict_positions(objects, timestamp, weather_data)
+            from config import ML_FORECAST_HORIZONS_MIN as _DEFAULT_HORIZONS
+            from config import FORECAST_ARROW_COLORS as _DEFAULT_COLORS
+            horizons = runtime_config.get("ML_FORECAST_HORIZONS_MIN", _DEFAULT_HORIZONS)
+            colors = runtime_config.get("FORECAST_ARROW_COLORS", _DEFAULT_COLORS)
+            save_forecast_as_kmz(dict(zip(horizons, forecasts_per_horizon)), colors)
 
             # Merken für spätere Evaluation
-            forecast_queue.append((forecast_10, timestamp))
+            forecast_queue.append((forecasts_per_horizon[0] if forecasts_per_horizon else [], timestamp))
             if len(forecast_queue) > 2:
                 forecast_queue.pop(0)
 
         else:
             debug_log("Keine vollständigen Daten → Keine Speicherung")
-            save_forecast_as_kmz([], [], [])
+            save_forecast_as_kmz({}, {})
             create_movement_gif("movement.gif")
+
+            # Orte-Markierung bei Pfad-Durchquerung
+            locations = runtime_config.get("LOCATIONS_WATCHLIST", [])
+            location_hits = annotate_locations(objects, locations, horizons, colors)
+            os.makedirs("train_data/evaluation", exist_ok=True)
+            with open(f"train_data/evaluation/locations_{timestamp}.json", "w", encoding="utf-8") as f:
+                json.dump(location_hits, f, indent=2, ensure_ascii=False)
+            debug_log(f"Ort-Hits: {len(location_hits)} betroffene Orte")
 
         create_visualized_radar()
 

@@ -1,82 +1,286 @@
-import base64, glob, io, json, os, subprocess
+import base64
+import glob
+import io
+import json
+import os
+import subprocess
 from datetime import datetime
 from pathlib import Path
-from flask import Flask, jsonify, render_template, request
+
+from flask import Flask, jsonify, render_template, request, send_from_directory
 import matplotlib
-matplotlib.use('Agg')
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-app = Flask(__name__)
-ROOT=Path('.')
+import config as cfg
+import runtime_config
+from accuracy_tracker import evaluate_all, load_history
+
+app = Flask(__name__, static_folder="frontend/dist", static_url_path="")
 
 
+# ---------- Helper ----------
 def _git_info():
-    try: b=subprocess.check_output(['git','rev-parse','--abbrev-ref','HEAD'],text=True).strip()
-    except Exception: b='unknown'
-    try: c=subprocess.check_output(['git','rev-parse','--short','HEAD'],text=True).strip()
-    except Exception: c='unknown'
-    return b,c
+    try:
+        b = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True).strip()
+    except Exception:
+        b = "unknown"
+    try:
+        c = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+    except Exception:
+        c = "unknown"
+    return b, c
+
 
 def _latest_objects():
-    files=sorted(glob.glob('train_data/objects/*.json'))
-    if not files: return []
-    with open(files[-1],encoding='utf-8') as f: return json.load(f)
+    files = sorted(glob.glob("train_data/objects/*.json"))
+    if not files:
+        return []
+    try:
+        with open(files[-1], encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
 
-@app.route('/')
-def index():
-    branch,commit=_git_info(); versions=sorted(glob.glob('train_data/models/v_*'))
-    latest_meta=None
-    metas=sorted(glob.glob('train_data/models/v_*/training_meta.json'))
-    if metas:
-        latest_meta=json.load(open(metas[-1],encoding='utf-8'))
-    return render_template('dashboard.html', obj_count=len(_latest_objects()), latest_meta=latest_meta, versions=len(versions), branch=branch, commit=commit)
 
-@app.route('/map')
-def map_view(): return render_template('map.html')
+def _latest_location_hits():
+    files = sorted(glob.glob("train_data/evaluation/locations_*.json"))
+    if not files:
+        return []
+    try:
+        with open(files[-1], encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
 
-@app.route('/logs')
-def logs():
+
+# ---------- Legacy-HTML-Routen (Bootstrap-Templates bleiben für Notfälle) ----------
+@app.route("/legacy")
+def legacy_index():
+    branch, commit = _git_info()
+    versions = sorted(glob.glob("train_data/models/v_*"))
+    metas = sorted(glob.glob("train_data/models/v_*/training_meta.json"))
+    latest_meta = json.load(open(metas[-1], encoding="utf-8")) if metas else None
+    return render_template("dashboard.html", obj_count=len(_latest_objects()),
+                           latest_meta=latest_meta, versions=len(versions),
+                           branch=branch, commit=commit)
+
+
+@app.route("/legacy/map")
+def legacy_map():
+    return render_template("map.html")
+
+
+@app.route("/legacy/logs")
+def legacy_logs():
     def tail(unit):
-        try:return subprocess.check_output(['journalctl','-u',unit,'-n','500','--no-pager'],text=True)
-        except Exception as e:return f'Fehler: {e}'
-    return render_template('logs.html', logs_a=tail('wetterprojekt'), logs_b=tail('wetterprojekt-scheduler'))
+        try:
+            return subprocess.check_output(["journalctl", "-u", unit, "-n", "500", "--no-pager"], text=True)
+        except Exception as e:
+            return f"Fehler: {e}"
+    return render_template("logs.html", logs_a=tail("wetterprojekt"), logs_b=tail("wetterprojekt-scheduler"))
 
-@app.route('/config', methods=['GET','POST'])
-def config_view():
-    import config
-    cfg={k:getattr(config,k) for k in dir(config) if k.startswith(('ML_','RETRAIN_','DATASET_','LIVE_'))}
-    banner=None
-    if request.method=='POST':
-        Path('train_data').mkdir(exist_ok=True)
-        overrides=request.form.to_dict()
-        json.dump(overrides, open('train_data/runtime_overrides.json','w',encoding='utf-8'), indent=2)
-        banner='Änderungen wirken erst nach Service-Neustart und nur, wenn Overrides in der Pipeline aktiviert wurden.'
-    return render_template('config.html', cfg=cfg, banner=banner)
 
-@app.route('/progress')
-def progress():
-    rows=[]
-    for p in sorted(glob.glob('train_data/models/v_*/training_meta.json')):
-        m=json.load(open(p,encoding='utf-8')); rows.append(m)
-    vers=list(range(1,len(rows)+1)); vl=[r.get('lstm',{}).get('val_loss') for r in rows]
-    h10=[r.get('evaluation',{}).get('mae_by_horizon',{}).get('10') for r in rows]; h20=[r.get('evaluation',{}).get('mae_by_horizon',{}).get('20') for r in rows]; h30=[r.get('evaluation',{}).get('mae_by_horizon',{}).get('30') for r in rows]
-    auc=[r.get('intensification',{}).get('auc') for r in rows]
-    def mk(title, series):
-        fig,ax=plt.subplots();
-        for y,label in series: ax.plot(vers,y,label=label)
-        ax.set_title(title); ax.legend(); buf=io.BytesIO(); fig.savefig(buf,format='png'); plt.close(fig); return base64.b64encode(buf.getvalue()).decode('utf-8')
-    return render_template('progress.html', p1=mk('val_loss',[(vl,'val_loss')]), p2=mk('mae_by_horizon',[(h10,'h10'),(h20,'h20'),(h30,'h30')]), p3=mk('Intensification AUC',[(auc,'auc')]), rows=rows)
+# ---------- JSON-APIs (von React konsumiert) ----------
+@app.route("/api/health")
+def api_health():
+    return jsonify({"ok": True, "ts": datetime.utcnow().isoformat() + "Z"})
 
-@app.route('/api/objects')
-def api_objects(): return jsonify(_latest_objects())
 
-@app.route('/api/forecast')
+@app.route("/api/git")
+def api_git():
+    branch, commit = _git_info()
+    return jsonify({"branch": branch, "commit": commit})
+
+
+@app.route("/api/objects")
+def api_objects():
+    return jsonify(_latest_objects())
+
+
+@app.route("/api/forecast")
 def api_forecast():
-    feats=[]
+    horizons = runtime_config.get("ML_FORECAST_HORIZONS_MIN", [10, 20, 30, 40, 60])
+    colors = runtime_config.get("FORECAST_ARROW_COLORS", {})
+    feats = []
     for o in _latest_objects():
-        if 'forecast_lat_30' in o and 'forecast_lon_30' in o and 'lat' in o and 'lon' in o:
-            feats.append({'type':'Feature','geometry':{'type':'LineString','coordinates':[[o['lon'],o['lat']],[o['forecast_lon_30'],o['forecast_lat_30']]]},'properties':{'id':o.get('id')}})
-    return jsonify({'type':'FeatureCollection','features':feats})
+        if o.get("lat") is None or o.get("lon") is None:
+            continue
+        for h in horizons:
+            fy = o.get(f"forecast_lat_{h}")
+            fx = o.get(f"forecast_lon_{h}")
+            if fy is None or fx is None:
+                continue
+            color = colors.get(h) or colors.get(str(h)) or "#888888"
+            feats.append({
+                "type": "Feature",
+                "geometry": {"type": "LineString", "coordinates": [[o["lon"], o["lat"]], [fx, fy]]},
+                "properties": {
+                    "id": o.get("id"),
+                    "horizon": h,
+                    "color": color,
+                    "lineage": o.get("lineage"),
+                },
+            })
+    return jsonify({"type": "FeatureCollection", "features": feats})
 
-if __name__=='__main__':
-    app.run(host='0.0.0.0', port=5000, debug=os.getenv('ADMIN_DEBUG')=='1')
+
+@app.route("/api/locations")
+def api_locations():
+    return jsonify({
+        "watchlist": runtime_config.get("LOCATIONS_WATCHLIST", []),
+        "hits": _latest_location_hits(),
+        "colors": runtime_config.get("FORECAST_ARROW_COLORS", {}),
+    })
+
+
+@app.route("/api/locations", methods=["POST"])
+def api_locations_save():
+    try:
+        data = request.get_json(force=True)
+        assert isinstance(data, list)
+        for entry in data:
+            assert "name" in entry and "lat" in entry and "lon" in entry and "radius_km" in entry
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    runtime_config.patch({"LOCATIONS_WATCHLIST": data})
+    return jsonify({"ok": True})
+
+
+@app.route("/api/horizons")
+def api_horizons():
+    return jsonify({
+        "horizons": runtime_config.get("ML_FORECAST_HORIZONS_MIN", [10, 20, 30, 40, 60]),
+        "colors": runtime_config.get("FORECAST_ARROW_COLORS", {}),
+        "styles": runtime_config.get("FORECAST_ARROW_STYLE", {}),
+    })
+
+
+@app.route("/api/horizons", methods=["POST"])
+def api_horizons_save():
+    try:
+        data = request.get_json(force=True)
+        assert "horizons" in data and isinstance(data["horizons"], list)
+        assert len(data["horizons"]) == 5, "exakt 5 Horizonte erforderlich"
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    payload = {"ML_FORECAST_HORIZONS_MIN": [int(h) for h in data["horizons"]]}
+    if "colors" in data:
+        payload["FORECAST_ARROW_COLORS"] = {int(k): v for k, v in data["colors"].items()}
+    if "styles" in data:
+        payload["FORECAST_ARROW_STYLE"] = {int(k): v for k, v in data["styles"].items()}
+    runtime_config.patch(payload)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/thresholds")
+def api_thresholds():
+    eff = runtime_config.all_effective()
+    return jsonify({
+        "FILTER_CONFIG": eff.get("FILTER_CONFIG"),
+        "CORE_HSV_RANGES": eff.get("CORE_HSV_RANGES"),
+        "HSV_BAND_LABELS": eff.get("HSV_BAND_LABELS"),
+    })
+
+
+@app.route("/api/thresholds", methods=["POST"])
+def api_thresholds_save():
+    try:
+        data = request.get_json(force=True)
+        assert "FILTER_CONFIG" in data
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    runtime_config.patch(data)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/training")
+def api_training():
+    return jsonify({
+        "TRAINING_SCHEDULE": runtime_config.get("TRAINING_SCHEDULE", {}),
+        "DATASET_REBUILD_INTERVAL_MIN": runtime_config.get("DATASET_REBUILD_INTERVAL_MIN"),
+        "RETRAIN_INTERVAL_HOURS": runtime_config.get("RETRAIN_INTERVAL_HOURS"),
+    })
+
+
+@app.route("/api/training", methods=["POST"])
+def api_training_save():
+    try:
+        data = request.get_json(force=True)
+        assert "TRAINING_SCHEDULE" in data
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    runtime_config.patch(data)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/config")
+def api_config():
+    return jsonify(runtime_config.all_effective())
+
+
+@app.route("/api/config", methods=["POST"])
+def api_config_save():
+    try:
+        data = request.get_json(force=True)
+        assert isinstance(data, dict)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    runtime_config.patch(data)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/progress")
+def api_progress():
+    rows = []
+    for p in sorted(glob.glob("train_data/models/v_*/training_meta.json")):
+        try:
+            rows.append(json.load(open(p, encoding="utf-8")))
+        except Exception:
+            continue
+    return jsonify({"versions": rows})
+
+
+@app.route("/api/accuracy")
+def api_accuracy():
+    since = int(request.args.get("hours", "24"))
+    horizons = runtime_config.get("ML_FORECAST_HORIZONS_MIN", [10, 20, 30, 40, 60])
+    return jsonify({
+        "current": evaluate_all(horizons, since_hours=since),
+        "history": load_history(since_hours=max(since, 24 * 7)),
+    })
+
+
+@app.route("/api/logs")
+def api_logs():
+    def tail(unit):
+        try:
+            out = subprocess.check_output(["journalctl", "-u", unit, "-n", "500", "--no-pager"], text=True)
+            return out.splitlines()[-500:]
+        except Exception as e:
+            return [f"Fehler: {e}"]
+    return jsonify({
+        "wetterprojekt": tail("wetterprojekt"),
+        "scheduler": tail("wetterprojekt-scheduler"),
+        "admin": tail("wetterprojekt-admin"),
+    })
+
+
+# ---------- React-Frontend serven ----------
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_react(path):
+    """Serviert das gebaute React-Frontend aus frontend/dist/.
+    Fallback auf legacy_index() wenn Build noch nicht da ist.
+    """
+    dist_dir = os.path.join(os.path.dirname(__file__), "frontend", "dist")
+    if os.path.isdir(dist_dir):
+        if path and os.path.exists(os.path.join(dist_dir, path)):
+            return send_from_directory(dist_dir, path)
+        return send_from_directory(dist_dir, "index.html")
+    return legacy_index()
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=os.getenv("ADMIN_DEBUG") == "1")
