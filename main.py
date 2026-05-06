@@ -50,7 +50,7 @@ def main_loop():
             objects = fetch_and_assign_700hpa_wind(objects, timestamp)
             objects = assign_cape(objects, timestamp)
             objects = assign_cloud_top_height(objects)
-        
+
         if radar_ok and image is not None and objects and weather_data:
             debug_log("Radarbild, Objekte und Wetterdaten vorhanden → Speichern & Verarbeiten")
 
@@ -82,11 +82,6 @@ def main_loop():
             if len(forecast_queue) > 2:
                 forecast_queue.pop(0)
 
-        else:
-            debug_log("Keine vollständigen Daten → Keine Speicherung")
-            save_forecast_as_kmz({}, {})
-            create_movement_gif("movement.gif")
-
             # Orte-Markierung bei Pfad-Durchquerung
             locations = runtime_config.get("LOCATIONS_WATCHLIST", [])
             location_hits = annotate_locations(objects, locations, horizons, colors)
@@ -94,6 +89,11 @@ def main_loop():
             with open(f"train_data/evaluation/locations_{timestamp}.json", "w", encoding="utf-8") as f:
                 json.dump(location_hits, f, indent=2, ensure_ascii=False)
             debug_log(f"Ort-Hits: {len(location_hits)} betroffene Orte")
+
+        else:
+            debug_log("Keine vollständigen Daten → Keine Speicherung")
+            save_forecast_as_kmz({}, {})
+            create_movement_gif("movement.gif")
 
         create_visualized_radar()
 

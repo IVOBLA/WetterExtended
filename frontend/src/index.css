@@ -1,1 +1,34 @@
-@tailwind base;@tailwind components;@tailwind utilities;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+.swatch {
+  display: inline-block;
+  width: 18px;
+  height: 6px;
+  border-radius: 2px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 12px;
+  font-size: 0.875rem;
+}
+
+@layer components {
+  .btn { @apply inline-block px-3 py-1.5 rounded text-sm font-medium cursor-pointer transition-colors; }
+  .btn-primary { @apply btn bg-blue-600 text-white hover:bg-blue-700; }
+  .btn-secondary { @apply btn bg-gray-200 text-gray-800 hover:bg-gray-300; }
+  .btn-danger { @apply btn bg-red-600 text-white hover:bg-red-700; }
+  .input { @apply px-2 py-1 border border-gray-300 rounded text-sm w-full; }
+  .label { @apply text-sm font-medium text-gray-700 block mb-1; }
+  .card { @apply bg-white border border-gray-200 rounded-lg p-4 shadow-sm; }
+}
