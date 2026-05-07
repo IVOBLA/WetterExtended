@@ -25,6 +25,24 @@ from locations_check import annotate_locations
 
 ROI = get_roi_from_bbox(BBOX_KAERNTEN_EXTENDED)
 
+def _count_lightning_near(lat: float, lon: float,
+                          lightning_data: list, radius_km: float = 10.0) -> int:
+    """Zählt Blitze im radius_km-Umkreis. Nutzt einfache Grad-Näherung."""
+    if not lightning_data:
+        return 0
+    count = 0
+    lat_deg = radius_km / 111.0
+    lon_deg = radius_km / (111.0 * abs(__import__('math').cos(__import__('math').radians(lat))) + 1e-9)
+    for bolt in lightning_data:
+        blat = bolt.get("lat") or bolt.get("y")
+        blon = bolt.get("lon") or bolt.get("x")
+        if blat is None or blon is None:
+            continue
+        if abs(float(blat) - lat) <= lat_deg and abs(float(blon) - lon) <= lon_deg:
+            count += 1
+    return count
+
+
 def main_loop():
     image_path = "data/latest.png"
     sleep_time = 120
@@ -48,6 +66,21 @@ def main_loop():
             objects = fetch_and_assign_700hpa_wind(objects, timestamp)
             objects = assign_cape(objects, timestamp)
             objects = assign_cloud_top_height(objects)
+
+            # Blitzdaten für aktuelle Zellen auswerten
+            lightning_data = []
+            lightning_file = f"train_data/lightning/{timestamp}.json"
+            if os.path.exists(lightning_file):
+                try:
+                    with open(lightning_file, encoding="utf-8") as _f:
+                        lightning_data = json.load(_f)
+                except Exception:
+                    pass
+            for obj in objects:
+                if obj.get("lat") is not None and obj.get("lon") is not None:
+                    obj["lightning_count_10km"] = _count_lightning_near(
+                        float(obj["lat"]), float(obj["lon"]), lightning_data
+                    )
 
         if radar_ok and image is not None and objects and weather_data:
             debug_log("Radarbild, Objekte und Wetterdaten vorhanden → Speichern & Verarbeiten")

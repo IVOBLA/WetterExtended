@@ -9,7 +9,6 @@ from geo_utils import haversine_distance
 
 # Verzeichnisse mit Zusatzdaten
 LIGHTNING_DIR = "train_data/lightning"
-HYDRO_DIR = "train_data/hydro"
 IR_CELL_DIR = "train_data/ir_cells"
 
 
@@ -33,7 +32,6 @@ def evaluate_impact(objects, timestamp):
     Ergänzt das Objekt um ein "impact"-Feld.
     """
     lightning = load_json_if_exists(os.path.join(LIGHTNING_DIR, f"{timestamp}.json"))
-    hydro = load_json_if_exists(os.path.join(HYDRO_DIR, f"{timestamp}.json"))
 
     # Neuestes IR-Bild ≤ Radarzeit verwenden
     ir_ts = find_latest_ir_before(timestamp)
@@ -61,24 +59,6 @@ def evaluate_impact(objects, timestamp):
                     impact["score"] += 1
                     break
 
-        # Hydro: Durchflussmenge direkt bewerten (nicht HQ-Schwellen)
-        if hydro:
-            for station in hydro:
-                s_lat = station.get("werte", {}).get("lat")
-                s_lon = station.get("werte", {}).get("lon")
-                q = station.get("werte", {}).get("q")
-                if not s_lat or not s_lon or q is None:
-                    continue
-                dist = haversine_distance(lat, lon, s_lat, s_lon)
-                if dist <= 10:
-                    impact["hydro_q_m3s"] = q
-                    if q >= 100:
-                        impact["score"] += 3
-                    elif q >= 50:
-                        impact["score"] += 2
-                    elif q >= 20:
-                        impact["score"] += 1
-                    break
 
         obj["impact"] = impact
 
