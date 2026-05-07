@@ -55,9 +55,7 @@ matplotlib>=3.7
 Pillow>=10.0
 
 # --- Karte (Server-seitige Folium-Helfer; Frontend nutzt Leaflet via CDN) ---
-# folium wird vom alten karte_folium.py nicht mehr gebraucht, einige Teile
 # der Pipeline können es aber noch importieren — sicherheitshalber drin lassen.
-folium>=0.15
 
 # --- HTTP / Datenquellen ---
 requests>=2.31

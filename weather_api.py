@@ -19,7 +19,8 @@ def get_weather_data(include_all_stations=True):
     )
 
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()
         data = response.json()
         params = ["RR", "DD", "FF", "FFX", "GLOW", "P", "RF", "TL", "TP"]
 

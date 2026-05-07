@@ -169,7 +169,6 @@ SAVE_PATHS = {
     "models": "train_data/models/",
     "ir": "train_data/ir/",
     "lightning": "train_data/lightning/",
-    "hydro": "train_data/hydro/",
     "evaluation": "train_data/evaluation/",
 }
 

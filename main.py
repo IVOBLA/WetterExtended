@@ -11,7 +11,6 @@ from object_tracking import detect_and_track_objects
 from weather_api import get_weather_data
 from prediction import predict_positions
 from kmz_export import save_forecast_as_kmz
-from evaluation import evaluate_prediction, plot_forecast_vs_reality, plot_error_over_time
 from visualize_radar import create_visualized_radar
 from movement_gif import create_movement_gif
 from upload_utilities import upload_file_ftp
@@ -29,7 +28,6 @@ ROI = get_roi_from_bbox(BBOX_KAERNTEN_EXTENDED)
 def main_loop():
     image_path = "data/latest.png"
     sleep_time = 120
-    forecast_queue = []
 
     while True:
         debug_log("Neuer Zyklus gestartet...")
@@ -77,11 +75,6 @@ def main_loop():
             colors = runtime_config.get("FORECAST_ARROW_COLORS", _DEFAULT_COLORS)
             save_forecast_as_kmz(dict(zip(horizons, forecasts_per_horizon)), colors)
 
-            # Merken für spätere Evaluation
-            forecast_queue.append((forecasts_per_horizon[0] if forecasts_per_horizon else [], timestamp))
-            if len(forecast_queue) > 2:
-                forecast_queue.pop(0)
-
             # Orte-Markierung bei Pfad-Durchquerung
             locations = runtime_config.get("LOCATIONS_WATCHLIST", [])
             location_hits = annotate_locations(objects, locations, horizons, colors)
@@ -97,14 +90,6 @@ def main_loop():
 
         create_visualized_radar()
 
-        # Evaluation
-        if len(forecast_queue) == 2 and objects:
-            forecast_old, forecast_ts = forecast_queue[0]
-            evaluate_prediction(forecast_old, objects, forecast_ts)
-            plot_forecast_vs_reality(forecast_old, objects, forecast_ts)
-            plot_error_over_time()
-            create_movement_gif("movement.gif")
-
         # Uploads
         upload_file_ftp("data/overlay.png", "overlay.png")
         upload_file_ftp("forecast.kmz", "forecast.kmz")
@@ -115,9 +100,6 @@ def main_loop():
             upload_file_ftp(f"train_data/objects/{latest_object}", "latest_objects.json")
         except:
             debug_log("Kein Object-File vorhanden — überspringe Upload von latest_objects.json")
-
-        upload_file_ftp("templates/index.html", "index.html")
-        upload_file_ftp("templates/map.html", "map.html")
 
         debug_log("Warte auf nächstes Radarbild...")
         time.sleep(sleep_time)
