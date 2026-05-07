@@ -20,6 +20,8 @@ from assign_cape_from_forecast import assign_cape
 from geo_utils import get_roi_from_bbox, kml_bounds
 from config import BBOX_KAERNTEN_EXTENDED
 from cloud_height_from_eumetview import assign_cloud_top_height
+from optical_flow_features import assign_optical_flow_to_objects
+from fetch_arome_openmeteo import assign_arome_to_objects
 import runtime_config
 from locations_check import annotate_locations
 
@@ -47,6 +49,8 @@ def main_loop():
     image_path = "data/latest.png"
     sleep_time = 120
 
+    _prev_radar_path = None
+
     while True:
         debug_log("Neuer Zyklus gestartet...")
         radar_ok = download_kmz()
@@ -66,6 +70,14 @@ def main_loop():
             objects = fetch_and_assign_700hpa_wind(objects, timestamp)
             objects = assign_cape(objects, timestamp)
             objects = assign_cloud_top_height(objects)
+            curr_scaled_path = os.path.join("data/radar", f"radar_{timestamp}.png")
+            objects = assign_optical_flow_to_objects(
+                objects,
+                prev_radar_path=_prev_radar_path,
+                curr_radar_path=curr_scaled_path,
+            )
+            _prev_radar_path = curr_scaled_path
+            objects = assign_arome_to_objects(objects, timestamp)
 
             # Blitzdaten für aktuelle Zellen auswerten
             lightning_data = []

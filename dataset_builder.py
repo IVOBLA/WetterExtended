@@ -332,3 +332,13 @@ def build_classification_dataset():
 
 if __name__ == "__main__":
     build_dataset()
+
+
+def build_regression_intensity_dataset():
+    """Leitet an intensity_regression.py weiter (Stub für Importe aus dataset_builder)."""
+    try:
+        from intensity_regression import build_regression_intensity_dataset as _impl
+        return _impl()
+    except ImportError:
+        debug_log("[DATASET] intensity_regression.py nicht gefunden")
+        return None
