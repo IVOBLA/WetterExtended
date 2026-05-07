@@ -83,3 +83,5 @@ tzdata>=2024.1
 # black>=24.0
 # ruff>=0.4
 # ipython>=8.0
+pysteps>=1.8.0
+scipy>=1.11.0
