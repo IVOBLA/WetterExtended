@@ -326,6 +326,12 @@ def retrain_all():
         lstm_result = train_lstm(X, y) if has_data else {"trained": False, "val_loss": None}
         lgbm_result = train_lgbm(X, y) if has_data else {"trained": False, "best_scores": {}, "quantile_scores": {}}
         intensification_result = train_intensification_classifier()
+        try:
+            from intensity_regression import train_intensity_regressors
+            reg_meta = train_intensity_regressors()
+            debug_log(f"[TRAINING] Intensity-Regressoren: {reg_meta}")
+        except Exception as _exc:
+            debug_log(f"[TRAINING] Intensity-Regressoren übersprungen: {_exc}")
         meta = {
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
             "version": timestamp,

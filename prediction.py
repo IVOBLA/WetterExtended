@@ -82,6 +82,8 @@ def _linear_fallback(objects):
     forecasts = {h: [] for h in ML_FORECAST_HORIZONS_MIN}
     for obj in objects:
         obj["intensification_prob"] = 0.0
+        obj["delta_core_ratio_pred"] = 0.0
+        obj["delta_area_pred"] = 0.0
         _append_linear(obj, forecasts)
     return tuple(forecasts[h] for h in ML_FORECAST_HORIZONS_MIN)
 
@@ -91,6 +93,15 @@ def load_intensification_model():
     if lgb is None or not os.path.exists(path):
         return None
     return lgb.Booster(model_file=path)
+
+
+def _load_intensity_regressors():
+    """Lädt delta_core und delta_area Regressionsmodelle."""
+    try:
+        from intensity_regression import load_intensity_regressors
+        return load_intensity_regressors()
+    except ImportError:
+        return None, None
 
 
 def _load_json(path):
@@ -174,6 +185,7 @@ def predict_positions(objects: list, timestamp: str, stations: list):
     lgbm_models = load_lgbm_models()
     lstm_model = load_lstm()
     intensification_model = load_intensification_model()
+    reg_core, reg_area = _load_intensity_regressors()
 
     has_lgbm = all(
         f"lgbm_h{h}_{axis}" in lgbm_models for h in ML_FORECAST_HORIZONS_MIN for axis in ["x", "y"]
@@ -197,13 +209,32 @@ def predict_positions(objects: list, timestamp: str, stations: list):
             continue
 
         seq_scaled = scaler_X.transform(seq).reshape(1, ML_SEQUENCE_LENGTH, ML_NUM_FEATURES)
+        last_frame = seq_scaled[:, -1, :]
+
         if intensification_model is not None:
             try:
-                obj["intensification_prob"] = float(intensification_model.predict(seq_scaled[:, -1, :])[0])
+                obj["intensification_prob"] = float(intensification_model.predict(last_frame)[0])
             except Exception:
                 obj["intensification_prob"] = 0.0
         else:
             obj["intensification_prob"] = 0.0
+
+        core_key = "delta_core_ratio_pred"
+        if reg_core is not None:
+            try:
+                obj["delta_core_ratio_pred"] = float(reg_core.predict(last_frame)[0])
+            except Exception:
+                obj[core_key] = 0.0
+        else:
+            obj[core_key] = 0.0
+
+        if reg_area is not None:
+            try:
+                obj["delta_area_pred"] = float(reg_area.predict(last_frame)[0])
+            except Exception:
+                obj["delta_area_pred"] = 0.0
+        else:
+            obj["delta_area_pred"] = 0.0
 
         prediction_scaled = None
         prediction_q10_scaled = None
