@@ -81,6 +81,9 @@ ML_CELL_FEATURES = [
     "size", "area", "eccentricity", "core_ratio", "trend",
     "wind_speed_700hPa", "wind_dir_cos", "wind_dir_sin",
     "cape", "cloud_top_height_msl",
+    "dem_elevation_m",        # mittlere Geländehöhe im 5-km-Umkreis (Copernicus DEM)
+    "dem_slope_toward_cell",  # Hangneigung in Bewegungsrichtung der Zelle
+    "lightning_count_10km",   # Blitze < 10 km in den letzten 10 Minuten
 ]
 
 ML_STATION_FEATURES = [
@@ -170,6 +173,7 @@ SAVE_PATHS = {
     "ir": "train_data/ir/",
     "lightning": "train_data/lightning/",
     "evaluation": "train_data/evaluation/",
+    "dem": "train_data/dem/",
 }
 
 # Ausgabeauflösung in Pixeln (z. B. für GeoTIFF via WMS)

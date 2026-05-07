@@ -15,6 +15,12 @@ from config import MIN_CONTOUR_OVERLAP
 from config import MIN_CONTOUR_TOUCH
 from config import BBOX_KAERNTEN_EXTENDED as BBOX
 
+try:
+    from dem_feature import get_dem_features
+except Exception:
+    def get_dem_features(*args, **kwargs):
+        return {"dem_elevation_m": 0.0, "dem_slope_toward_cell": 0.0}
+
 tracking_memory = {}
 
 def are_contours_connected(cnt1, cnt2, shape, min_overlap=10):
@@ -210,10 +216,14 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             elif core_ratio < prev_core - 0.05:
                 trend = -1
 
+        dem = get_dem_features(lat, lon, vx=float(vx), vy=float(vy))
         new_memory[obj_id] = {
             "x": original_cx, "y": original_cy, "vx": float(vx), "vy": float(vy),
             "size": int(np.sqrt(area)), "area": float(area), "eccentricity": float(eccentricity),
             "core_ratio": float(core_ratio), "trend": trend, "lat": lat, "lon": lon,
+            "dem_elevation_m": dem["dem_elevation_m"],
+            "dem_slope_toward_cell": dem["dem_slope_toward_cell"],
+            "lightning_count_10km": 0,
             "kf": kf, "contour": contour[:, 0, :].tolist(), "weather_vals": {}, "station_ids": [],
             "lstm_vx": 0.0, "lstm_vy": 0.0, "missing": 0,
             "lineage": lineage, "parents": parents, "children": [], "lineage_end": None,
