@@ -76,14 +76,32 @@ LIGHTNING_DATA_URL = "https://www.lightningmaps.org/live_data/geojson/1.json"
 # --------------------------------------
 
 ML_CELL_FEATURES = [
+    # Zellgeometrie & Kalman-Kinematik
     "x", "y",
     "vx", "vy",
     "size", "area", "eccentricity", "core_ratio", "trend",
+    # Höhenwind (700 hPa) via Open-Meteo
     "wind_speed_700hPa", "wind_dir_cos", "wind_dir_sin",
+    # Thermodynamik (GeoSphere AROME)
     "cape", "cloud_top_height_msl",
+    # Topographie
     "dem_elevation_m",        # mittlere Geländehöhe im 5-km-Umkreis (Copernicus DEM)
     "dem_slope_toward_cell",  # Hangneigung in Bewegungsrichtung der Zelle
+    # Blitze
     "lightning_count_10km",   # Blitze < 10 km in den letzten 10 Minuten
+    # ── NEU: Optical Flow (pysteps Lucas-Kanade) ──────────────────────────────
+    "of_vx",          # Flow-Vektor x am Objektzentrum (px/Frame, orig. Koord.)
+    "of_vy",          # Flow-Vektor y am Objektzentrum
+    "of_speed",       # Betrag des Flow-Vektors
+    "of_divergence",  # lok. Divergenz (∂u/∂x + ∂v/∂y) — pos. = divergent
+    # ── NEU: AROME icon_d2 direkt auf Gitterpunkt (Open-Meteo, 2,2 km) ───────
+    "arome_t2m",       # Temperatur 2 m (°C)
+    "arome_td2m",      # Taupunkt 2 m (°C)
+    "arome_ff10m",     # Windgeschwindigkeit 10 m (km/h)
+    "arome_dd_cos",    # cos(Windrichtung 10 m)
+    "arome_dd_sin",    # sin(Windrichtung 10 m)
+    "arome_li",        # Lifted Index (°C, neg. = instabil)
+    "arome_fl_height", # Gefriergrenze MSL (m)
 ]
 
 ML_STATION_FEATURES = [
