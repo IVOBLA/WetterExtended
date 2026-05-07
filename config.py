@@ -192,8 +192,8 @@ SAVE_PATHS = {
     "lightning": "train_data/lightning/",
     "evaluation": "train_data/evaluation/",
     "dem": "train_data/dem/",
+    "arome": "train_data/arome/",   # NEU: AROME icon_d2 Gitterpunktdaten
 }
-
 # Ausgabeauflösung in Pixeln (z. B. für GeoTIFF via WMS)
 WIDTH = 1600
 HEIGHT = 600
