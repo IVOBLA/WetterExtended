@@ -38,10 +38,7 @@ export default function MapView() {
         api.get('/api/locations'),
         api.get('/api/horizons'),
       ])
-      setObjects(a)
-      setForecast(b)
-      setLocations(c)
-      setHorizons(d)
+      setObjects(a); setForecast(b); setLocations(c); setHorizons(d)
     } catch (e) { console.error(e) }
   }
 
@@ -57,6 +54,64 @@ export default function MapView() {
       <Legend horizons={horizons.horizons} colors={horizons.colors} />
       <MapContainer center={[46.62, 14.31]} zoom={8} style={{ height: '70vh', borderRadius: 8 }}>
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap" />
+
+        {objects.map(o => o.contour_geo && o.contour_geo.length > 0 && (
+          <Polygon key={'p' + o.id}
+            positions={o.contour_geo.map(p => [p[1], p[0]])}
+            pathOptions={{ color: lineageColor[o.lineage] || 'gray', fillOpacity: 0.3, weight: 2 }} />
+        ))}
+
+        {objects.map(o => o.lat && o.lon && (
+          <CircleMarker key={'m' + o.id}
+            center={[o.lat, o.lon]}
+            radius={Math.max(4, Math.sqrt(o.area || 0) / 8)}
+            pathOptions={{ color: '#0d6efd' }}>
+            <Popup>
+              <div><b>{o.id}</b> ({o.lineage})</div>
+              <div>parents: {(o.parents || []).join(',') || '—'}</div>
+              <div>area: {o.area}</div>
+              <div>core_ratio: {o.core_ratio}</div>
+              {o.intensification_prob != null && <div>intensification: {(o.intensification_prob * 100).toFixed(0)}%</div>}
+            </Popup>
+          </CircleMarker>
+        ))}
+
+        {(forecast.features || []).map((f, i) => {
+          const [a, b] = f.geometry.coordinates
+          const p = f.properties || {}
+          const style = horizons.styles[p.horizon] || horizons.styles[String(p.horizon)] || {}
+          return (
+            <Polyline key={'a' + i}
+              positions={[[a[1], a[0]], [b[1], b[0]]]}
+              pathOptions={{ color: p.color || '#888', weight: style.weight || 2, dashArray: style.dash || '' }}>
+              <Popup>+{p.horizon} min — {p.id}</Popup>
+            </Polyline>
+          )
+        })}
+
+        {(locations.watchlist || []).map((w, i) => (
+          <Circle key={'w' + i}
+            center={[w.lat, w.lon]}
+            radius={(w.radius_km || 5) * 1000}
+            pathOptions={{ color: '#666', weight: 1, fillOpacity: 0.05 }}>
+            <Popup>{w.name}</Popup>
+          </Circle>
+        ))}
+
+        {(locations.hits || []).map((h, i) => {
+          const hzs = Object.keys(h.hits || {}).map(Number).sort((a, b) => a - b)
+          const color = locations.colors[hzs[0]] || locations.colors[String(hzs[0])] || '#888'
+          return (
+            <CircleMarker key={'h' + i} center={[h.lat, h.lon]} radius={10}
+              pathOptions={{ color, fillColor: color, fillOpacity: 0.7, weight: 3 }}>
+              <Popup>
+                <b>{h.name}</b>
+                <div>betroffen ab +{hzs[0]} min</div>
+                {hzs.map(hz => <div key={hz}>+{hz}m: {h.hits[hz].cell_id} ({h.hits[hz].distance_km} km)</div>)}
+              </Popup>
+            </CircleMarker>
+          )
+        })}
       </MapContainer>
     </div>
   )
