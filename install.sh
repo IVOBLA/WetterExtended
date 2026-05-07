@@ -329,6 +329,7 @@ DIRS=(
     train_data/wind train_data/cape train_data/dataset
     train_data/models/current train_data/ir train_data/lightning
     train_data/evaluation train_data/cloud
+    train_data/arome          # NEU: AROME icon_d2 Gitterpunktdaten
     data logs
 )
 for d in "${DIRS[@]}"; do
