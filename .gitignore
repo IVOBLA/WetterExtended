@@ -3,7 +3,7 @@
 /train_data
 /__pycache__
 /__pycache__
-/plots
+plots/
 *.kmz
 /data
 /__pycache__
@@ -19,3 +19,5 @@ frontend/.vite/
 __pycache__/
 venv/
 train_data/runtime_overrides.json
+
+.env

@@ -4,6 +4,7 @@ import time
 import requests
 from math import radians, sin, cos
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 def fetch_and_assign_700hpa_wind(objects, timestamp):
     """
@@ -64,7 +65,7 @@ def get_700hpa_wind(lat, lon):
         r = requests.get(url, params=params, timeout=10)
         r.raise_for_status()
         data = r.json()
-        now = datetime.now().strftime("%Y-%m-%dT%H:00")
+        now = datetime.now(ZoneInfo("Europe/Vienna")).strftime("%Y-%m-%dT%H:00")
         idx = data["hourly"]["time"].index(now)
         speed = data["hourly"]["wind_speed_700hPa"][idx]
         direction = data["hourly"]["wind_direction_700hPa"][idx]

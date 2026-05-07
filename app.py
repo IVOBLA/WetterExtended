@@ -1,17 +1,11 @@
-import base64
 import glob
-import io
 import json
 import os
 import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request, send_from_directory
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+from flask import Flask, jsonify, request, send_from_directory
 
 import config as cfg
 import runtime_config
@@ -53,33 +47,6 @@ def _latest_location_hits():
             return json.load(f)
     except Exception:
         return []
-
-
-# ---------- Legacy-HTML-Routen (Bootstrap-Templates bleiben für Notfälle) ----------
-@app.route("/legacy")
-def legacy_index():
-    branch, commit = _git_info()
-    versions = sorted(glob.glob("train_data/models/v_*"))
-    metas = sorted(glob.glob("train_data/models/v_*/training_meta.json"))
-    latest_meta = json.load(open(metas[-1], encoding="utf-8")) if metas else None
-    return render_template("dashboard.html", obj_count=len(_latest_objects()),
-                           latest_meta=latest_meta, versions=len(versions),
-                           branch=branch, commit=commit)
-
-
-@app.route("/legacy/map")
-def legacy_map():
-    return render_template("map.html")
-
-
-@app.route("/legacy/logs")
-def legacy_logs():
-    def tail(unit):
-        try:
-            return subprocess.check_output(["journalctl", "-u", unit, "-n", "500", "--no-pager"], text=True)
-        except Exception as e:
-            return f"Fehler: {e}"
-    return render_template("logs.html", logs_a=tail("wetterprojekt"), logs_b=tail("wetterprojekt-scheduler"))
 
 
 # ---------- JSON-APIs (von React konsumiert) ----------
@@ -272,14 +239,14 @@ def api_logs():
 @app.route("/<path:path>")
 def serve_react(path):
     """Serviert das gebaute React-Frontend aus frontend/dist/.
-    Fallback auf legacy_index() wenn Build noch nicht da ist.
+    Fallback: 404 wenn Build noch nicht da ist.
     """
     dist_dir = os.path.join(os.path.dirname(__file__), "frontend", "dist")
     if os.path.isdir(dist_dir):
         if path and os.path.exists(os.path.join(dist_dir, path)):
             return send_from_directory(dist_dir, path)
         return send_from_directory(dist_dir, "index.html")
-    return legacy_index()
+    return jsonify({"ok": False, "error": "frontend build missing"}), 404
 
 
 if __name__ == "__main__":
