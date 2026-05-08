@@ -8,6 +8,16 @@ _LOCK = threading.RLock()
 _OVERRIDES: dict = {}
 
 
+def _deep_merge(base: dict, patch_data: dict) -> dict:
+    merged = dict(base)
+    for key, value in patch_data.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 def _load() -> dict:
     path = getattr(_cfg, "RUNTIME_OVERRIDES_PATH", "train_data/runtime_overrides.json")
     if not os.path.exists(path):
@@ -66,8 +76,7 @@ def save(overrides: dict) -> None:
 def patch(partial: dict) -> dict:
     """Mergt partial in bestehende Overrides und persistiert."""
     with _LOCK:
-        merged = dict(_OVERRIDES)
-    merged.update(partial)
+        merged = _deep_merge(_OVERRIDES, partial)
     save(merged)
     return merged
 

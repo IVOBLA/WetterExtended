@@ -70,7 +70,7 @@ def main_loop():
             objects,  timestamp = detect_and_track_objects(image_path, weather_data)
             objects = fetch_and_assign_700hpa_wind(objects, timestamp)
             objects = assign_cape(objects, timestamp)
-            objects = assign_cloud_top_height(objects, timestamp)
+            objects = assign_cloud_top_height(objects, weather_data=weather_data, timestamp=timestamp)
             curr_scaled_path = os.path.join("data/radar", f"radar_{timestamp}.png")
             objects = assign_optical_flow_to_objects(
                 objects,
