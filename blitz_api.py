@@ -6,8 +6,8 @@ from datetime import datetime
 import json
 
 # Blitzortung.org Zugang (ersetze ggf. durch sichere Konfiguration)
-USERNAME = "HorstBla"
-PASSWORD = "twelazer"
+USERNAME = os.getenv("BLITZ_USERNAME", "")
+PASSWORD = os.getenv("BLITZ_PASSWORD", "")
 
 # Kärnten-Bounding Box
 WEST = 12.5

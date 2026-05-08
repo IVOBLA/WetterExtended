@@ -5,7 +5,8 @@ from datetime import datetime
 from filterpy.kalman import KalmanFilter
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
-from config import UPSCALE_FACTOR, FILTER_CONFIG, CORE_HSV_RANGES, BBOX_KAERNTEN_EXTENDED as BBOX
+from config import UPSCALE_FACTOR, FILTER_CONFIG as _DEFAULT_FILTER_CONFIG, CORE_HSV_RANGES as _DEFAULT_CORE_HSV_RANGES, BBOX_KAERNTEN_EXTENDED as BBOX
+import runtime_config as _rc
 from geo_utils import pixel_to_geo
 from utils import generate_id
 from utils_weather import find_n_nearest_stations, weighted_average_weather
@@ -91,6 +92,8 @@ def merge_close_contours(contours, image_shape, min_touch=3):
     return merged
 
 def preprocess_image(image_path):
+    FILTER_CONFIG = _rc.get("FILTER_CONFIG", _DEFAULT_FILTER_CONFIG)
+    CORE_HSV_RANGES = _rc.get("CORE_HSV_RANGES", _DEFAULT_CORE_HSV_RANGES)
     # Bild mit geo-zuschnitt & hochskalierung laden
     from config import BBOX_KAERNTEN_EXTENDED
 
@@ -108,6 +111,7 @@ def preprocess_image(image_path):
     return hsv, merged, mask
     
 def calculate_core_ratio(hsv, contour):
+    CORE_HSV_RANGES = _rc.get("CORE_HSV_RANGES", _DEFAULT_CORE_HSV_RANGES)
     mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
     cv2.drawContours(mask, [contour], -1, 255, -1)
     core_mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
@@ -119,6 +123,7 @@ def calculate_core_ratio(hsv, contour):
     return core_pixels / total_pixels if total_pixels > 0 else 0
 
 def update_tracking_memory(hsv, contours, weather_data, timestamp):
+    FILTER_CONFIG = _rc.get("FILTER_CONFIG", _DEFAULT_FILTER_CONFIG)
     global tracking_memory
     objects = []
     new_memory = {}
@@ -278,6 +283,8 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
 
 
 def detect_and_track_objects(image_path=None, weather_data=None):
+    FILTER_CONFIG = _rc.get("FILTER_CONFIG", _DEFAULT_FILTER_CONFIG)
+    CORE_HSV_RANGES = _rc.get("CORE_HSV_RANGES", _DEFAULT_CORE_HSV_RANGES)
     import os
     from datetime import datetime
     from config import BBOX_KAERNTEN_EXTENDED as BBOX, UPSCALE_FACTOR

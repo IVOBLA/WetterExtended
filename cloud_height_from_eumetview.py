@@ -100,7 +100,7 @@ def find_matching_weather_file(timestamp_wms_str: str, weather_dir: str) -> str 
 
     return best_match
 
-def assign_cloud_top_height(objects: list) -> list:
+def assign_cloud_top_height(objects: list, timestamp: str = None) -> list:
     timestamp_wms = get_latest_wms_time()
     if not timestamp_wms:
         print("[FEHLER] Kein gültiger WMS-Timestamp.")
@@ -142,13 +142,19 @@ def assign_cloud_top_height(objects: list) -> list:
     if weather_path:
         try:
             with open(weather_path) as f:
-                weather = json.load(f)
-            temp = weather.get("temperature", 17.0)
-            alt = weather.get("altitude", 600.0)
-            if temp and temp > 0:
-                T_surface = temp + 273.15
-            if alt and alt > 0:
-                altitude_m = alt
+                raw = json.load(f)
+            # weather_api.py liefert eine Liste von Stationsdicts
+            stations = raw if isinstance(raw, list) else [raw]
+            # Mittelwert TL (Lufttemperatur) über alle Stationen bilden
+            tl_values = [
+                float(s["TL"]) for s in stations
+                if isinstance(s, dict) and s.get("TL") not in (None, 0)
+            ]
+            if tl_values:
+                mean_temp = sum(tl_values) / len(tl_values)
+                T_surface = mean_temp + 273.15
+            # Standardhöhe beibehalten (600 m für Kärnten)
+            altitude_m = 600.0
         except Exception as e:
             print(f"[WARNUNG] Wetterdaten-Parsing fehlgeschlagen: {e}")
     else:

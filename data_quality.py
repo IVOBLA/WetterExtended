@@ -21,6 +21,8 @@ def _is_finite_number(value) -> bool:
 
 
 def _iter_values(value):
+    """Liefert nur numerische Blatt-Werte (int/float). Strings, None,
+    bool und andere nicht-numerische Typen werden übersprungen."""
     if isinstance(value, dict):
         for item in value.values():
             yield from _iter_values(item)
@@ -29,9 +31,11 @@ def _iter_values(value):
             yield from _iter_values(item)
     elif hasattr(value, "shape") and hasattr(value, "ravel"):
         for item in value.ravel().tolist():
-            yield item
-    else:
+            if isinstance(item, (int, float)):
+                yield item
+    elif isinstance(value, (int, float)):
         yield value
+    # Strings, None, bool → werden nicht geliefert
 
 
 def validate_sample(seq, target) -> Tuple[bool, Optional[str]]:

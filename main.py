@@ -52,6 +52,7 @@ def main_loop():
     _prev_radar_path = None
 
     while True:
+        runtime_config.reload_overrides()
         debug_log("Neuer Zyklus gestartet...")
         radar_ok = download_kmz()
 
@@ -69,7 +70,7 @@ def main_loop():
             objects,  timestamp = detect_and_track_objects(image_path, weather_data)
             objects = fetch_and_assign_700hpa_wind(objects, timestamp)
             objects = assign_cape(objects, timestamp)
-            objects = assign_cloud_top_height(objects)
+            objects = assign_cloud_top_height(objects, timestamp)
             curr_scaled_path = os.path.join("data/radar", f"radar_{timestamp}.png")
             objects = assign_optical_flow_to_objects(
                 objects,
