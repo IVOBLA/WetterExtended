@@ -279,7 +279,7 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             if not isinstance(obj_clean.get("lineage"), str): obj_clean["lineage"] = "new"
             obj_clean.setdefault("parents", []); obj_clean.setdefault("children", []); obj_clean.setdefault("lineage_end", None)
             objects.append({"id": obj_id, **obj_clean})
-    return objects, tracking_memory
+    return objects
 
 
 def detect_and_track_objects(image_path=None, weather_data=None):

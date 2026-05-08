@@ -100,7 +100,7 @@ def find_matching_weather_file(timestamp_wms_str: str, weather_dir: str) -> str 
 
     return best_match
 
-def assign_cloud_top_height(objects: list, timestamp: str = None) -> list:
+def assign_cloud_top_height(objects: list, weather_data: list | None = None, timestamp: str | None = None) -> list:
     timestamp_wms = get_latest_wms_time()
     if not timestamp_wms:
         print("[FEHLER] Kein gültiger WMS-Timestamp.")
@@ -139,7 +139,19 @@ def assign_cloud_top_height(objects: list, timestamp: str = None) -> list:
     weather_path = find_matching_weather_file(timestamp_wms, os.path.join("train_data", "weather"))
     T_surface = 290.15
     altitude_m = 600.0
-    if weather_path:
+    if weather_data:
+        try:
+            stations = weather_data if isinstance(weather_data, list) else [weather_data]
+            tl_values = [
+                float(s["TL"]) for s in stations
+                if isinstance(s, dict) and s.get("TL") not in (None, 0)
+            ]
+            if tl_values:
+                mean_temp = sum(tl_values) / len(tl_values)
+                T_surface = mean_temp + 273.15
+        except Exception as e:
+            print(f"[WARNUNG] Übergebene Wetterdaten konnten nicht gelesen werden: {e}")
+    elif weather_path:
         try:
             with open(weather_path) as f:
                 raw = json.load(f)

@@ -38,6 +38,7 @@ BRANCH="$DEFAULT_BRANCH"
 REPO="$DEFAULT_REPO_URL"
 TARGET="$DEFAULT_TARGET"
 APT_UPDATED=false
+SERVICE_USER="$(id -un)"
 
 # --- Trap / Lock --------------------------------------------------------------
 cleanup_lock() { rm -f "$LOCK_FILE"; }
@@ -101,6 +102,12 @@ while [[ $# -gt 0 ]]; do
         *)                log_error "Unbekanntes Argument: $1"; usage; exit 1 ;;
     esac
 done
+
+if [[ -f "$TARGET/object_tracking.py" && ! -d "$TARGET/.git" ]] || [[ -f "./object_tracking.py" && ! -d "./.git" ]]; then
+    LOCAL_INSTALL=true
+    LOCAL_SOURCE="$(pwd)"
+    log_info "ZIP/Ordner-Modus automatisch erkannt."
+fi
 
 # ==============================================================================
 # PHASE 2 — Systemzustand prüfen (nur bei full)
@@ -360,6 +367,13 @@ for d in "${DIRS[@]}"; do
 done
 log_info "Verzeichnisstruktur erstellt."
 
+INITIAL_MODEL_SOURCE="$TARGET/weather_lstm_model.keras"
+INITIAL_MODEL_TARGET="$TARGET/train_data/models/current/weather_lstm.keras"
+if [[ -f "$INITIAL_MODEL_SOURCE" && ! -f "$INITIAL_MODEL_TARGET" ]]; then
+    cp "$INITIAL_MODEL_SOURCE" "$INITIAL_MODEL_TARGET"
+    log_info "Initialmodell kopiert: $INITIAL_MODEL_TARGET"
+fi
+
 # .env prüfen / erstellen
 ENV_FILE="$TARGET/.env"
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -528,10 +542,21 @@ CURRENT_PHASE="Phase 7 — systemd-Services"
 log_step "Phase 7 — systemd-Services"
 
 if [[ "$ENABLE_SERVICES" == true ]]; then
+    for svc_file in wetterprojekt.service wetterprojekt-scheduler.service wetterprojekt-admin.service; do
+        src="$TARGET/$svc_file"
+        if [[ -f "$src" ]]; then
+            tmp="$TARGET/.generated-$svc_file"
+            sed -e "s|^WorkingDirectory=.*|WorkingDirectory=$TARGET|g" \
+                -e "s|^User=.*|User=$SERVICE_USER|g" \
+                -e "s|/home/ki-pi/wetterprojekt|$TARGET|g" \
+                "$src" > "$tmp"
+        fi
+    done
     sudo systemctl daemon-reload
     for svc_file in wetterprojekt.service wetterprojekt-scheduler.service wetterprojekt-admin.service; do
-        if [[ -f "$TARGET/$svc_file" ]]; then
-            sudo cp "$TARGET/$svc_file" /etc/systemd/system/
+        generated="$TARGET/.generated-$svc_file"
+        if [[ -f "$generated" ]]; then
+            sudo cp "$generated" "/etc/systemd/system/$svc_file"
             svc_name="${svc_file}"
             sudo systemctl enable "$svc_name" || true
             sudo systemctl restart "$svc_name" || true
