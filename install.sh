@@ -28,6 +28,8 @@ note_manual() { MANUAL_STEPS+=("  • $*"); }
 # --- Optionen -----------------------------------------------------------------
 CURRENT_PHASE="Init"
 MODE="upgrade"
+LOCAL_INSTALL=false
+LOCAL_SOURCE=""
 INSTALL_HAILO=true
 INSTALL_NODE=true
 SYSTEM_DEPS_ENABLED=true
@@ -65,6 +67,8 @@ Verwendung: $0 [OPTIONEN]
   --no-system-deps      apt-Installationen überspringen
   --no-hailo            Hailo-8-Setup überspringen
   --no-node             Node.js/Frontend-Build überspringen
+  --local               Installiert aus dem lokalen Verzeichnis (ZIP-Modus).
+                        Kein git clone nötig. Dateien werden nach --target kopiert.
   --help                Diese Hilfe
 
 Modus-Unterschied:
@@ -89,6 +93,10 @@ while [[ $# -gt 0 ]]; do
         --no-system-deps) SYSTEM_DEPS_ENABLED=false; shift ;;
         --no-hailo)       INSTALL_HAILO=false; shift ;;
         --no-node)        INSTALL_NODE=false; shift ;;
+        --local)
+            LOCAL_INSTALL=true
+            LOCAL_SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+            shift ;;
         --help)           usage; exit 0 ;;
         *)                log_error "Unbekanntes Argument: $1"; usage; exit 1 ;;
     esac
@@ -223,13 +231,28 @@ fi
 CURRENT_PHASE="Phase 3 — Source holen"
 log_step "Phase 3 — Source holen"
 
-if [[ -d "$TARGET/.git" ]]; then
+if [[ "$LOCAL_INSTALL" == true ]]; then
+    log_info "Lokale Installation aus: $LOCAL_SOURCE"
+    if [[ "$LOCAL_SOURCE" != "$TARGET" ]]; then
+        mkdir -p "$TARGET"
+        cp -a "$LOCAL_SOURCE/." "$TARGET/"
+        log_info "Quellcode nach $TARGET kopiert."
+    else
+        log_info "Bereits im Zielverzeichnis — kein Kopieren nötig."
+    fi
+    cd "$TARGET"
+elif [[ -d "$TARGET/.git" ]]; then
     cd "$TARGET"
     git fetch --all
     git checkout "$BRANCH"
     git pull --ff-only
     log_info "Repository aktualisiert: $(git rev-parse --short HEAD)"
 else
+    if [[ "$REPO" == *"<user>"* ]]; then
+        log_error "Placeholder-URL erkannt: $REPO"
+        log_error "Bitte --repo <echte-url> angeben oder --local verwenden."
+        exit 1
+    fi
     git clone --branch "$BRANCH" "$REPO" "$TARGET"
     cd "$TARGET"
     log_info "Repository geklont: $(git rev-parse --short HEAD)"
@@ -370,32 +393,6 @@ else
 fi
 
 # ==============================================================================
-# PHASE 7 — systemd-Services
-# ==============================================================================
-CURRENT_PHASE="Phase 7 — systemd-Services"
-log_step "Phase 7 — systemd-Services"
-
-if [[ "$ENABLE_SERVICES" == true ]]; then
-    sudo systemctl daemon-reload
-    for svc_file in wetterprojekt.service wetterprojekt-scheduler.service wetterprojekt-admin.service; do
-        if [[ -f "$TARGET/$svc_file" ]]; then
-            sudo cp "$TARGET/$svc_file" /etc/systemd/system/
-            svc_name="${svc_file}"
-            sudo systemctl enable "$svc_name" || true
-            sudo systemctl restart "$svc_name" || true
-            systemctl is-active --quiet "$svc_name" \
-                && check_ok "Service aktiv: $svc_name" \
-                || check_warn "Service konnte nicht gestartet werden: $svc_name"
-        else
-            check_warn "Service-Datei nicht gefunden: $svc_file"
-        fi
-    done
-else
-    log_warn "Services werden nicht aktiviert (--enable-services nicht gesetzt)."
-    note_manual "sudo systemctl daemon-reload && sudo systemctl enable --now wetterprojekt wetterprojekt-scheduler wetterprojekt-admin"
-fi
-
-# ==============================================================================
 # PHASE 7b — Hailo-8-Installation
 # ==============================================================================
 CURRENT_PHASE="Phase 7b — Hailo-8"
@@ -522,6 +519,32 @@ if [[ "$INSTALL_NODE" == true ]]; then
 else
     log_info "Node.js/Frontend übersprungen (--no-node)."
     note_manual "cd $TARGET/frontend && npm install && npm run build"
+fi
+
+# ==============================================================================
+# PHASE 7 — systemd-Services
+# ==============================================================================
+CURRENT_PHASE="Phase 7 — systemd-Services"
+log_step "Phase 7 — systemd-Services"
+
+if [[ "$ENABLE_SERVICES" == true ]]; then
+    sudo systemctl daemon-reload
+    for svc_file in wetterprojekt.service wetterprojekt-scheduler.service wetterprojekt-admin.service; do
+        if [[ -f "$TARGET/$svc_file" ]]; then
+            sudo cp "$TARGET/$svc_file" /etc/systemd/system/
+            svc_name="${svc_file}"
+            sudo systemctl enable "$svc_name" || true
+            sudo systemctl restart "$svc_name" || true
+            systemctl is-active --quiet "$svc_name" \
+                && check_ok "Service aktiv: $svc_name" \
+                || check_warn "Service konnte nicht gestartet werden: $svc_name"
+        else
+            check_warn "Service-Datei nicht gefunden: $svc_file"
+        fi
+    done
+else
+    log_warn "Services werden nicht aktiviert (--enable-services nicht gesetzt)."
+    note_manual "sudo systemctl daemon-reload && sudo systemctl enable --now wetterprojekt wetterprojekt-scheduler wetterprojekt-admin"
 fi
 
 # ==============================================================================

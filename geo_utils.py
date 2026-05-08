@@ -125,3 +125,16 @@ def crop_and_upscale_to_bbox(image_path, bbox, upscale=3.0, save_path=None):
 
     return scaled
 
+
+def haversine_distance(lat1: float, lon1: float,
+                       lat2: float, lon2: float) -> float:
+    """Gibt die Distanz in km zwischen zwei WGS84-Koordinaten zurück."""
+    import math
+    R = 6371.0088
+    rlat1, rlat2 = math.radians(lat1), math.radians(lat2)
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (math.sin(dlat / 2) ** 2
+         + math.cos(rlat1) * math.cos(rlat2) * math.sin(dlon / 2) ** 2)
+    return R * 2 * math.asin(math.sqrt(a))
+

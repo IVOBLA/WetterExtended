@@ -36,7 +36,9 @@ else:
 
 from config import ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, SAVE_PATHS
 
-MODELS_ROOT = SAVE_PATHS["models"]
+_MODELS_BASE = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "train_data", "models")
+)
 from dataset_builder import build_classification_dataset, build_dataset
 try:
     from debug_utils import debug_log
@@ -48,15 +50,15 @@ except Exception:
 
 
 def _current_models_dir():
-    return os.path.join(MODELS_ROOT, "current")
+    return os.path.join(_MODELS_BASE, "current")
 
 
 def _version_models_dir(version_id):
-    return os.path.join(MODELS_ROOT, version_id)
+    return os.path.join(_MODELS_BASE, version_id)
 
 
 def _list_versions():
-    base = MODELS_ROOT
+    base = _MODELS_BASE
     if not os.path.isdir(base):
         return []
     return sorted([name for name in os.listdir(base) if name.startswith("v_") and os.path.isdir(os.path.join(base, name))])
@@ -75,7 +77,7 @@ def cleanup_old_versions(keep_n=5):
 
 
 def _atomic_switch_current(version_id):
-    base_dir = MODELS_ROOT
+    base_dir = _MODELS_BASE
     target = _version_models_dir(version_id)
     current_link = _current_models_dir()
     tmp_link = os.path.join(base_dir, ".current_tmp")
@@ -316,10 +318,8 @@ def retrain_all():
     version_dir = _version_models_dir(timestamp)
     os.makedirs(version_dir, exist_ok=True)
 
-    old_models_dir = SAVE_PATHS["models"]
-    SAVE_PATHS["models"] = version_dir
-    try:
-        dataset = build_dataset()
+    dataset = build_dataset(model_save_dir=version_dir)
+    if True:
         X = np.asarray(dataset.get("X", [])) if np is not None else []
         y = np.asarray(dataset.get("y", [])) if np is not None else []
         has_data = np is not None and getattr(X, "size", 0) and getattr(y, "size", 0)
@@ -355,8 +355,6 @@ def retrain_all():
         }
         with open(os.path.join(version_dir, "training_meta.json"), "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2, ensure_ascii=False)
-    finally:
-        SAVE_PATHS["models"] = old_models_dir
 
     new_eval = evaluate_on_recent(version_dir)
     current_dir = _current_models_dir()

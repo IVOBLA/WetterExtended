@@ -114,7 +114,7 @@ def load_scalers():
     return joblib.load(scaler_x_path), joblib.load(scaler_y_path)
 
 
-def build_dataset():
+def build_dataset(model_save_dir=None):
     missing_deps = _dependencies_available()
     if missing_deps:
         debug_log(f"[DATASET] Abbruch: fehlende Abhängigkeiten: {', '.join(missing_deps)}")
@@ -219,7 +219,10 @@ def build_dataset():
     X = np.asarray(X_rows, dtype=float)
     y_raw = np.asarray(y_rows, dtype=float)
 
-    os.makedirs(SAVE_PATHS["models"], exist_ok=True)
+    effective_model_dir = model_save_dir or os.path.join(
+        SAVE_PATHS.get("models", "train_data/models"), "current"
+    )
+    os.makedirs(effective_model_dir, exist_ok=True)
     os.makedirs(SAVE_PATHS["dataset"], exist_ok=True)
 
     scaler_X = StandardScaler()
@@ -229,8 +232,8 @@ def build_dataset():
     scaler_y = StandardScaler()
     y_scaled = scaler_y.fit_transform(y_raw)
 
-    joblib.dump(scaler_X, os.path.join(SAVE_PATHS["models"], "scaler_X.joblib"))
-    joblib.dump(scaler_y, os.path.join(SAVE_PATHS["models"], "scaler_y.joblib"))
+    joblib.dump(scaler_X, os.path.join(effective_model_dir, "scaler_X.joblib"))
+    joblib.dump(scaler_y, os.path.join(effective_model_dir, "scaler_y.joblib"))
 
     np.savez(
         os.path.join(SAVE_PATHS["dataset"], "dataset.npz"),
