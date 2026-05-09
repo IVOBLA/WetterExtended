@@ -19,7 +19,7 @@ def _debug_log(message: str):
 INPUT_FRAMES = 4
 OUTPUT_FRAMES = 4
 SEQUENCE_LENGTH = INPUT_FRAMES + OUTPUT_FRAMES
-MODEL_PATH = os.path.join("models", "radar_convlstm.keras")
+MODEL_PATH = os.path.join(SAVE_PATHS["models"], "current", "radar_convlstm.keras")
 
 
 def _load_and_preprocess_frame(path: str):

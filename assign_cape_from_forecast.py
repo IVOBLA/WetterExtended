@@ -6,13 +6,19 @@ from shapely.geometry import Point
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from debug_utils import debug_log
+from config import BBOX_KAERNTEN_EXTENDED, SAVE_PATHS
 
-CAPE_URL = (
-    "https://dataset.api.hub.geosphere.at/v1/grid/forecast/nwp-v1-1h-2500m?"
-    "parameters=cape&bbox=46.4,12.7,47.2,14.8&forecast_offset=0&output_format=geojson"
-)
+def _build_cape_url() -> str:
+    b = BBOX_KAERNTEN_EXTENDED
+    bbox_str = f"{b['south']},{b['west']},{b['north']},{b['east']}"
+    return (
+        "https://dataset.api.hub.geosphere.at/v1/grid/forecast/nwp-v1-1h-2500m?"
+        f"parameters=cape&bbox={bbox_str}&forecast_offset=0&output_format=geojson"
+    )
 
-SAVE_DIR = "train_data/cape"
+CAPE_URL = _build_cape_url()
+
+SAVE_DIR = SAVE_PATHS["cape"].rstrip("/")
 LAST_HASH_FILE = os.path.join(SAVE_DIR, "last_hash_vector.txt")
 _current_cache = {"geojson": None, "data": None}
 

@@ -113,10 +113,7 @@ def assign_cloud_top_height(objects: list, weather_data: list | None = None, tim
     print(f"[INFO] Starte Wolkenhöhenzuweisung für {timestamp_file}...")
 
     if read_last_timestamp() == timestamp_wms:
-        print("[INFO] Kein neues TIFF verfügbar – Werte werden nicht aktualisiert.")
-        for obj in objects:
-            obj["cloud_top_height_msl"] = -1.0
-            obj["cloud_height_missing"] = 1.0
+        print("[INFO] Kein neues TIFF verfügbar – bestehende Wolkenhöhenwerte bleiben erhalten.")
         return objects
 
     tif_url = build_tiff_url(timestamp_wms)
