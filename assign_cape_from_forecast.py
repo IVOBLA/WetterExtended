@@ -7,16 +7,16 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from debug_utils import debug_log
 from config import BBOX_KAERNTEN_EXTENDED, SAVE_PATHS
+import runtime_config
 
-def _build_cape_url() -> str:
-    b = BBOX_KAERNTEN_EXTENDED
+def _build_cape_url(bbox: dict) -> str:
+    b = bbox
     bbox_str = f"{b['south']},{b['west']},{b['north']},{b['east']}"
     return (
         "https://dataset.api.hub.geosphere.at/v1/grid/forecast/nwp-v1-1h-2500m?"
         f"parameters=cape&bbox={bbox_str}&forecast_offset=0&output_format=geojson"
     )
 
-CAPE_URL = _build_cape_url()
 
 SAVE_DIR = SAVE_PATHS["cape"].rstrip("/")
 LAST_HASH_FILE = os.path.join(SAVE_DIR, "last_hash_vector.txt")
@@ -25,7 +25,9 @@ _current_cache = {"geojson": None, "data": None}
 
 def assign_cape(objects: list, timestamp: str) -> list:
     try:
-        geojson_path = fetch_or_use_latest_geojson(timestamp)
+        bbox = runtime_config.get("BBOX_KAERNTEN_EXTENDED", BBOX_KAERNTEN_EXTENDED)
+        cape_url = _build_cape_url(bbox)
+        geojson_path = fetch_or_use_latest_geojson(timestamp, cape_url)
         if not geojson_path:
             debug_log("[CAPE] Keine GeoJSON-Datei verfügbar.")
             return objects
@@ -108,10 +110,10 @@ def parse_timestamp(timestamp_str: str) -> datetime:
     raise ValueError(f"Ungültiges Timestamp-Format: {timestamp_str}")
 
 
-def fetch_or_use_latest_geojson(filetimestamp: str) -> str | None:
+def fetch_or_use_latest_geojson(filetimestamp: str, cape_url: str) -> str | None:
     os.makedirs(SAVE_DIR, exist_ok=True)
     try:
-        response = requests.get(CAPE_URL, timeout=30)
+        response = requests.get(cape_url, timeout=30)
         response.raise_for_status()
         content = response.content
 

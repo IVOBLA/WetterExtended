@@ -194,7 +194,7 @@ def build_dataset(model_save_dir=None):
                 fo = fmap[oid]
                 targets.extend([_safe_float(fo.get("x", 0.0)), _safe_float(fo.get("y", 0.0))])
 
-            ok, reason = validate_sample(seq_objects, targets)
+            ok, reason = validate_sample(seq_features, targets, seq_context=seq_objects)
             if not ok:
                 n_rejected += 1
                 rejection_reasons[reason or "unknown"] = rejection_reasons.get(reason or "unknown", 0) + 1

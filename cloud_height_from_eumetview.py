@@ -89,6 +89,7 @@ def find_matching_weather_file(timestamp_wms_str: str, weather_dir: str) -> str 
     for path in candidates:
         try:
             fname = os.path.basename(path).replace(".json", "")
+            fname = fname.replace("wetter_", "")
             ts = datetime.strptime(fname, "%Y-%m-%d_%H-%M-%S")
             if ts <= ts_target:
                 diff = (ts_target - ts).total_seconds()

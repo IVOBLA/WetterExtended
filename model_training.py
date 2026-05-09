@@ -82,28 +82,26 @@ def _atomic_switch_current(version_id):
     current_link = _current_models_dir()
     tmp_link = os.path.join(base_dir, ".current_tmp")
 
-    # Fallback: echtes Verzeichnis (z. B. von install.sh) entfernen
-    # damit os.replace() funktioniert (kann nur Symlinks/Dateien ersetzen)
+    # os.replace() kann atomar nur Symlinks/Dateien auf Dateisystem-Ebene ersetzen.
+    # Ein echtes Verzeichnis als Ziel führt auf Linux zu IsADirectoryError.
     if os.path.exists(current_link) and not os.path.islink(current_link):
         debug_log(f"[TRAINING] current ist ein echtes Verzeichnis — konvertiere zu Symlink")
         import shutil
-        tmp_backup = current_link + "_real_backup"
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        tmp_backup = os.path.join(base_dir, f"current_backup_{ts}")
         os.rename(current_link, tmp_backup)
         try:
             if os.path.lexists(tmp_link):
                 os.remove(tmp_link)
             os.symlink(os.path.relpath(target, base_dir), tmp_link)
             os.replace(tmp_link, current_link)
-            # Backup-Dateien in version_dir kopieren falls nötig
-            for fname in os.listdir(tmp_backup):
-                src = os.path.join(tmp_backup, fname)
-                dst = os.path.join(target, fname)
-                if not os.path.exists(dst):
-                    import shutil as _sh
-                    _sh.copy2(src, dst)
             shutil.rmtree(tmp_backup, ignore_errors=True)
         except Exception as exc:
             # Rollback: echtes Verzeichnis wiederherstellen
+            if os.path.lexists(tmp_link):
+                os.remove(tmp_link)
+            if os.path.islink(current_link):
+                os.remove(current_link)
             if os.path.exists(tmp_backup):
                 os.rename(tmp_backup, current_link)
             raise RuntimeError(f"_atomic_switch_current fehlgeschlagen: {exc}") from exc
@@ -342,12 +340,13 @@ def train_intensification_classifier(model_dir):
 
 
 def retrain_all():
+    status = "failed"
     timestamp = datetime.now(timezone.utc).strftime("v_%Y-%m-%dT%H-%M-%SZ")
     version_dir = _version_models_dir(timestamp)
     os.makedirs(version_dir, exist_ok=True)
 
     dataset = build_dataset(model_save_dir=version_dir)
-    if True:
+    try:
         X = np.asarray(dataset.get("X", [])) if np is not None else []
         y = np.asarray(dataset.get("y", [])) if np is not None else []
         has_data = np is not None and getattr(X, "size", 0) and getattr(y, "size", 0)
@@ -383,6 +382,14 @@ def retrain_all():
         }
         with open(os.path.join(version_dir, "training_meta.json"), "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2, ensure_ascii=False)
+    except Exception:
+        meta = {
+            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "version": timestamp,
+            "num_samples": 0,
+            "rejected_samples": 0,
+            "rejection_reasons": {},
+        }
 
     new_eval = evaluate_on_recent(version_dir)
     current_dir = _current_models_dir()
@@ -393,6 +400,10 @@ def retrain_all():
         status = "promoted"
         _atomic_switch_current(timestamp)
         debug_log(f"[TRAINING] PROMOTED {timestamp} (cold-start)")
+    elif getattr(X, "size", 0) == 0:
+        status = "no_data"
+        _atomic_switch_current(timestamp)
+        debug_log(f"[TRAINING] PROMOTED {timestamp} (no_data)")
     elif new_eval.get("samples", 0) < 20:
         status = "no_baseline"
         _atomic_switch_current(timestamp)
