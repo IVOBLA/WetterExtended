@@ -8,6 +8,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 
 import config as cfg
+from config import SAVE_PATHS
 import runtime_config
 from accuracy_tracker import evaluate_all, load_history
 
@@ -28,7 +29,7 @@ def _git_info():
 
 
 def _latest_objects():
-    files = sorted(glob.glob("train_data/objects/*.json"))
+    files = sorted(glob.glob(os.path.join(SAVE_PATHS["objects"], "*.json")))
     if not files:
         return []
     try:
@@ -39,7 +40,7 @@ def _latest_objects():
 
 
 def _latest_location_hits():
-    files = sorted(glob.glob("train_data/evaluation/locations_*.json"))
+    files = sorted(glob.glob(os.path.join(SAVE_PATHS["evaluation"], "locations_*.json")))
     if not files:
         return []
     try:
@@ -201,7 +202,7 @@ def api_config_save():
 @app.route("/api/progress")
 def api_progress():
     rows = []
-    for p in sorted(glob.glob("train_data/models/v_*/training_meta.json")):
+    for p in sorted(glob.glob(os.path.join(SAVE_PATHS["models"], "v_*/training_meta.json"))):
         try:
             rows.append(json.load(open(p, encoding="utf-8")))
         except Exception:

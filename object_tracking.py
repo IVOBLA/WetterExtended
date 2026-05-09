@@ -287,14 +287,14 @@ def detect_and_track_objects(image_path=None, weather_data=None):
     CORE_HSV_RANGES = _rc.get("CORE_HSV_RANGES", _DEFAULT_CORE_HSV_RANGES)
     import os
     from datetime import datetime
-    from config import BBOX_KAERNTEN_EXTENDED as BBOX, UPSCALE_FACTOR
+    from config import BBOX_KAERNTEN_EXTENDED as BBOX, UPSCALE_FACTOR, SAVE_PATHS
 
     if image_path is None:
         image_path = "data/latest.png"
 
-    os.makedirs("data/radar", exist_ok=True)
-    os.makedirs("train_data/radar", exist_ok=True)
-    os.makedirs("train_data/objects", exist_ok=True)
+    os.makedirs(os.path.join("data", "radar"), exist_ok=True)
+    os.makedirs(SAVE_PATHS["radar"].rstrip("/"), exist_ok=True)
+    os.makedirs(SAVE_PATHS["objects"].rstrip("/"), exist_ok=True)
 
     debug_log(f"Tracking auf Bild: {image_path}")
 
@@ -322,7 +322,7 @@ def detect_and_track_objects(image_path=None, weather_data=None):
     # 💾 Originalbild (unverändert) archivieren
     original_img = cv2.imread(image_path)
     if original_img is not None:
-        original_path = os.path.join("train_data/radar", f"radar_{timestamp}.png")
+        original_path = os.path.join(SAVE_PATHS["radar"].rstrip("/"), f"radar_{timestamp}.png")
         cv2.imwrite(original_path, original_img)
         debug_log(f"[INFO] Originalbild archiviert: {original_path}")
     else:

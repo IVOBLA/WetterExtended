@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import json
+from config import SAVE_PATHS
 
 def find_n_nearest_stations(lat, lon, weather_data, n=3):
     stations = []
@@ -29,7 +30,7 @@ def weighted_average_weather(station_list, lat, lon):
 
 
 def load_weather_data(timestamp):
-    path = f"train_data/weather/{timestamp}.json"
+    path = os.path.join(SAVE_PATHS["weather"].rstrip("/"), f"{timestamp}.json")
     if os.path.exists(path):
         with open(path, "r") as f:
             return json.load(f)

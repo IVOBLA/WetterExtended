@@ -5,14 +5,15 @@ import requests
 from math import radians, sin, cos
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from config import SAVE_PATHS
 
 def fetch_and_assign_700hpa_wind(objects, timestamp):
     """
     Holt 700hPa-Winddaten über Open-Meteo API für alle gegebenen Objekte,
-    speichert die Daten in train_data/wind/wind_<timestamp>.json,
+    speichert die Daten in SAVE_PATHS["wind"]/wind_<timestamp>.json,
     und fügt sie zur Laufzeit den Objekten (dicts) anhand ihrer ID hinzu.
     """
-    output_folder = "train_data/wind"
+    output_folder = SAVE_PATHS["wind"].rstrip("/")
     os.makedirs(output_folder, exist_ok=True)
     wind_data = {}
 
