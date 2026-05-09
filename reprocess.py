@@ -8,20 +8,20 @@ from collections import Counter
 from object_tracking import detect_and_track_objects
 from model_training import retrain_all
 from pathlib import Path
-from config import ML_SEQUENCE_LENGTH as sequence_length
+from config import SAVE_PATHS, ML_SEQUENCE_LENGTH as sequence_length
 
 # Schalter: Nur wenn True, werden vorhandene Objektdateien überschrieben
 RECREATE_OBJECTS = True
 
 def reprocess_all_objects():
-    radar_files = sorted(glob.glob("train_data/radar/*.png"))
+    radar_files = sorted(glob.glob(os.path.join(SAVE_PATHS["radar"].rstrip("/"), "*.png")))
     print(f"[INFO] {len(radar_files)} Radar-Bilder gefunden.")
 
     for radar_path in radar_files:
         filename = Path(radar_path).stem.replace("radar_", "")
         print(f"[INFO] Verarbeite: {filename}")
 
-        weather_path = f"train_data/weather/{filename}.json"
+        weather_path = os.path.join(SAVE_PATHS["weather"].rstrip("/"), f"{filename}.json")
         if os.path.exists(weather_path):
             with open(weather_path, "r") as f:
                 weather_data = json.load(f)
@@ -29,7 +29,7 @@ def reprocess_all_objects():
             print(f"[WARNUNG] Keine Wetterdaten für {filename} gefunden.")
             continue
 
-        json_path = f"train_data/objects/{filename}.json"
+        json_path = os.path.join(SAVE_PATHS["objects"].rstrip("/"), f"{filename}.json")
         if not RECREATE_OBJECTS and os.path.exists(json_path):
             print(f"[SKIP] Objektdatei existiert bereits: {json_path}")
             continue
@@ -44,8 +44,8 @@ def reprocess_all_objects():
             json.dump(objects, f, indent=2)
 
     # 🔁 Trainingsdaten sammeln
-    object_files = sorted(glob.glob("train_data/objects/*.json"))
-    weather_files = sorted(glob.glob("train_data/weather/*.json"))
+    object_files = sorted(glob.glob(os.path.join(SAVE_PATHS["objects"].rstrip("/"), "*.json")))
+    weather_files = sorted(glob.glob(os.path.join(SAVE_PATHS["weather"].rstrip("/"), "*.json")))
 
     # Objekt-IDs zählen
     id_counter = Counter()

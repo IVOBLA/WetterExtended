@@ -362,7 +362,7 @@ log_step "Phase 6 — Verzeichnisstruktur und .env"
 DIRS=(
     train_data/radar train_data/objects train_data/weather
     train_data/wind train_data/cape train_data/dataset
-    train_data/models/current train_data/ir train_data/lightning
+    train_data/models train_data/ir train_data/lightning
     train_data/evaluation train_data/cloud
     train_data/arome          # NEU: AROME icon_d2 Gitterpunktdaten
     data logs
@@ -374,9 +374,21 @@ log_info "Verzeichnisstruktur erstellt."
 
 INITIAL_MODEL_SOURCE="$TARGET/weather_lstm_model.keras"
 INITIAL_MODEL_TARGET="$TARGET/train_data/models/current/weather_lstm.keras"
-if [[ -f "$INITIAL_MODEL_SOURCE" && ! -f "$INITIAL_MODEL_TARGET" ]]; then
-    cp "$INITIAL_MODEL_SOURCE" "$INITIAL_MODEL_TARGET"
-    log_info "Initialmodell kopiert: $INITIAL_MODEL_TARGET"
+if [[ -f "$INITIAL_MODEL_SOURCE" ]]; then
+    # Bootstrap: ein initiales Versionsverzeichnis und current-Symlink anlegen
+    BOOTSTRAP_VERSION="v_bootstrap"
+    BOOTSTRAP_DIR="$TARGET/train_data/models/$BOOTSTRAP_VERSION"
+    mkdir -p "$BOOTSTRAP_DIR"
+    if [[ ! -f "$INITIAL_MODEL_TARGET" ]]; then
+        cp "$INITIAL_MODEL_SOURCE" "$BOOTSTRAP_DIR/weather_lstm.keras"
+        log_info "Initialmodell kopiert: $BOOTSTRAP_DIR/weather_lstm.keras"
+    fi
+    # current als Symlink auf Bootstrap setzen (falls noch kein Symlink existiert)
+    CURRENT_LINK="$TARGET/train_data/models/current"
+    if [[ ! -L "$CURRENT_LINK" ]]; then
+        ln -sfn "$BOOTSTRAP_VERSION" "$CURRENT_LINK"
+        log_info "Symlink gesetzt: $CURRENT_LINK → $BOOTSTRAP_VERSION"
+    fi
 fi
 
 # .env prüfen / erstellen
