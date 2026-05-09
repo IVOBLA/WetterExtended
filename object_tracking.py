@@ -136,6 +136,7 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
         )
 
     previous_snapshot = tracking_memory.copy()
+    history_len = int(_rc.get("TRACK_HISTORY_LEN", 3))
     prev_polys = []
     for prev_id, prev_obj in previous_snapshot.items():
         try:
@@ -242,8 +243,13 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             if nid not in uniq:
                 uniq.append(nid)
         if len(uniq) >= 2 and old_id in new_memory:
-            children = [uniq[0]]
-            for sid in uniq[1:]:
+            areas = [(nid, float(new_memory.get(nid, {}).get("area", 0.0))) for nid in uniq if nid in new_memory]
+            if not areas:
+                continue
+            areas.sort(key=lambda item: item[1], reverse=True)
+            keep_id = areas[0][0]
+            children = [keep_id]
+            for sid, _ in areas[1:]:
                 src = new_memory.get(sid)
                 if not src:
                     continue
@@ -269,12 +275,14 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
                 if obj["missing"] <= 10:
                     new_memory[obj_id] = obj
 
+    if len(set(new_memory.keys())) != len(new_memory):
+        debug_log("[TRACKING] WARN: Doppelte IDs in new_memory erkannt")
     tracking_memory = new_memory
     for obj_id, obj in new_memory.items():
         if obj.get("missing", 0) == 0:
             previous_history = tracking_memory.get(obj_id, {}).get("history", [])
             new_entry = {"timestamp": timestamp, "vx": float(obj["vx"]), "vy": float(obj["vy"]), "core_ratio": float(obj["core_ratio"]), "weather_vals": {}, "lat": obj["lat"], "lon": obj["lon"]}
-            updated_history = (previous_history + [new_entry])[-3:]
+            updated_history = (previous_history + [new_entry])[-history_len:]
             obj_clean = obj.copy(); obj_clean.pop("kf", None); obj_clean["history"] = updated_history
             if not isinstance(obj_clean.get("lineage"), str): obj_clean["lineage"] = "new"
             obj_clean.setdefault("parents", []); obj_clean.setdefault("children", []); obj_clean.setdefault("lineage_end", None)

@@ -38,7 +38,7 @@ def _iter_values(value):
     # Strings, None, bool → werden nicht geliefert
 
 
-def validate_sample(seq, target) -> Tuple[bool, Optional[str]]:
+def validate_sample(seq, target, seq_context=None) -> Tuple[bool, Optional[str]]:
     if not all(_is_finite_number(v) for v in _iter_values(seq)) or not all(
         _is_finite_number(v) for v in _iter_values(target)
     ):
@@ -47,7 +47,8 @@ def validate_sample(seq, target) -> Tuple[bool, Optional[str]]:
     if not seq:
         return False, "empty sequence"
 
-    for frame in seq:
+    context_frames = seq_context if seq_context is not None else seq
+    for frame in context_frames:
         if not isinstance(frame, dict):
             continue
 
@@ -72,7 +73,8 @@ def validate_sample(seq, target) -> Tuple[bool, Optional[str]]:
         if not (CLOUD_TOP_MIN_MSL <= cloud_top <= CLOUD_TOP_MAX_MSL):
             return False, "cloud_top_height_msl out of range"
 
-    current_obj = seq[-1] if isinstance(seq[-1], dict) else {}
+    current_source = seq_context if seq_context is not None else seq
+    current_obj = current_source[-1] if current_source and isinstance(current_source[-1], dict) else {}
     current_x = float(current_obj.get("x", 0.0))
     current_y = float(current_obj.get("y", 0.0))
 
