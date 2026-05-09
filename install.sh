@@ -103,10 +103,15 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ -f "$TARGET/object_tracking.py" && ! -d "$TARGET/.git" ]] || [[ -f "./object_tracking.py" && ! -d "./.git" ]]; then
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$_SCRIPT_DIR/object_tracking.py" && ! -d "$_SCRIPT_DIR/.git" ]]; then
     LOCAL_INSTALL=true
-    LOCAL_SOURCE="$(pwd)"
-    log_info "ZIP/Ordner-Modus automatisch erkannt."
+    LOCAL_SOURCE="$_SCRIPT_DIR"
+    log_info "ZIP/Ordner-Modus automatisch erkannt (Skriptverzeichnis: $_SCRIPT_DIR)."
+elif [[ -f "$TARGET/object_tracking.py" && ! -d "$TARGET/.git" ]]; then
+    LOCAL_INSTALL=true
+    LOCAL_SOURCE="$TARGET"
+    log_info "ZIP/Ordner-Modus automatisch erkannt (Zielverzeichnis bereits befüllt)."
 fi
 
 # ==============================================================================

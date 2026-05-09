@@ -4,17 +4,22 @@ import glob
 import numpy as np
 import os
 import debug_utils
-from debug_utils import debug_log # Log-Funktion nutzen
+from debug_utils import debug_log
 from geo_utils import geo_to_pixel
+from config import SAVE_PATHS
+
 
 def create_visualized_radar():
-    radar_file = "data/latest.png"
-
-    if not os.path.exists(radar_file):
-        debug_log("Kein Radarbild gefunden — Visualisierung übersprungen.")
+    # Neuestes skaliertes Radarbild aus data/radar/ verwenden.
+    # Diese Bilder sind zugeschnitten + hochskaliert (UPSCALE_FACTOR=3.0)
+    # und stimmen mit den Objekt-Pixelkoordinaten überein.
+    scaled_radar_files = sorted(glob.glob(os.path.join("data", "radar", "radar_*.png")))
+    if not scaled_radar_files:
+        debug_log("Kein skaliertes Radarbild in data/radar/ gefunden — Visualisierung übersprungen.")
         return
+    radar_file = scaled_radar_files[-1]
 
-    object_files = sorted(glob.glob("train_data/objects/*.json"))[-10:]
+    object_files = sorted(glob.glob(os.path.join(SAVE_PATHS["objects"], "*.json")))[-10:]
 
     if not object_files:
         debug_log("Keine Object-Dateien vorhanden — Visualisierung übersprungen.")
@@ -23,12 +28,13 @@ def create_visualized_radar():
     img = cv2.imread(radar_file)
 
     if img is None:
-        debug_log("Radarbild konnte nicht geladen werden.")
+        debug_log(f"Radarbild konnte nicht geladen werden: {radar_file}")
         return
 
     # Historie sammeln
     history = {}
 
+    from config import UPSCALE_FACTOR as _uf
     for obj_file in object_files:
         with open(obj_file) as f:
             objects = json.load(f)
@@ -36,7 +42,11 @@ def create_visualized_radar():
             obj_id = obj["id"]
             if obj_id not in history:
                 history[obj_id] = []
-            history[obj_id].append((int(obj["x"]), int(obj["y"])))
+            # x,y in Original-Pixeln → skalieren für skaliertes Bild
+            history[obj_id].append((
+                int(float(obj.get("x", 0)) * _uf),
+                int(float(obj.get("y", 0)) * _uf),
+            ))
 
     # Linien für Historie zeichnen
     for points in history.values():
@@ -47,11 +57,19 @@ def create_visualized_radar():
     with open(object_files[-1]) as f:
         last_objects = json.load(f)
 
+    from config import UPSCALE_FACTOR
     for obj in last_objects:
-        cx, cy = geo_to_pixel(obj["lat"], obj["lon"])
+        # x,y sind Original-Pixelkoordinaten (vor Upscaling gespeichert).
+        # Das Bild ist skaliert → mit UPSCALE_FACTOR multiplizieren.
+        cx = int(float(obj.get("x", 0)) * UPSCALE_FACTOR)
+        cy = int(float(obj.get("y", 0)) * UPSCALE_FACTOR)
+        # vx,vy sind Original-Pixel/Frame → ebenfalls skalieren
+        vx_scaled = float(obj.get("vx", 0)) * UPSCALE_FACTOR
+        vy_scaled = float(obj.get("vy", 0)) * UPSCALE_FACTOR
         cv2.circle(img, (cx, cy), 15, (0, 0, 255), 2)
-        cv2.putText(img, obj["id"], (cx + 5, cy - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-        end_point = (int(cx + obj["vx"] * 10), int(cy + obj["vy"] * 10))
+        cv2.putText(img, str(obj.get("id", "")), (cx + 5, cy - 5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+        end_point = (int(cx + vx_scaled * 10), int(cy + vy_scaled * 10))
         cv2.arrowedLine(img, (cx, cy), end_point, (255, 0, 0), 2)
 
     output_path = "data/overlay.png"
