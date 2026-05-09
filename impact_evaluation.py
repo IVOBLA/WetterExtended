@@ -8,8 +8,9 @@ from datetime import datetime
 from geo_utils import haversine_distance
 
 # Verzeichnisse mit Zusatzdaten
-LIGHTNING_DIR = "train_data/lightning"
-IR_CELL_DIR = "train_data/ir_cells"
+from config import SAVE_PATHS as _SP
+LIGHTNING_DIR = _SP["lightning"].rstrip("/")
+IR_CELL_DIR = _SP["ir_cells"].rstrip("/")
 
 
 def find_latest_ir_before(ts):

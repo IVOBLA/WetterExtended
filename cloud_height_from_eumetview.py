@@ -133,7 +133,11 @@ def assign_cloud_top_height(objects: list, weather_data: list | None = None, tim
             obj["cloud_height_missing"] = 1.0
         return objects
 
-    weather_path = find_matching_weather_file(timestamp_wms, os.path.join("train_data", "weather"))
+    from config import SAVE_PATHS as _SP
+    weather_path = find_matching_weather_file(
+        timestamp_wms,
+        _SP["weather"].rstrip("/")
+    )
     T_surface = 290.15
     altitude_m = 600.0
     if weather_data:

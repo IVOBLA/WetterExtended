@@ -6,7 +6,7 @@ import json
 from PIL import Image
 from collections import defaultdict
 from datetime import datetime
-from config import UPSCALE_FACTOR  # Wichtig!
+from config import UPSCALE_FACTOR, SAVE_PATHS  # Wichtig!
 
 def safe_load_json(path):
     if not os.path.exists(path):
@@ -22,7 +22,7 @@ def safe_load_json(path):
 
 def create_movement_gif(output_path="movement.gif", timestamps=None):
     radar_dir = "data/radar"  # 📷 Skaliertes Bild (wie in debug_overlay)
-    object_dir = "train_data/objects"
+    object_dir = SAVE_PATHS["objects"].rstrip("/")
 
     if timestamps:
         radar_files = [os.path.join(radar_dir, f"radar_{ts}.png") for ts in timestamps]

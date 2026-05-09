@@ -25,7 +25,7 @@ from fetch_arome_openmeteo import assign_arome_to_objects
 import runtime_config
 from locations_check import annotate_locations
 
-ROI = get_roi_from_bbox(BBOX_KAERNTEN_EXTENDED)
+_ROI_CACHE = None
 
 def _count_lightning_near(lat: float, lon: float,
                           lightning_data: list, radius_km: float = 10.0) -> int:
@@ -53,6 +53,9 @@ def main_loop():
 
     while True:
         runtime_config.reload_overrides()
+        global _ROI_CACHE
+        _bbox = runtime_config.get("BBOX_KAERNTEN_EXTENDED", BBOX_KAERNTEN_EXTENDED)
+        _ROI_CACHE = get_roi_from_bbox(_bbox)
         debug_log("Neuer Zyklus gestartet...")
         radar_ok = download_kmz()
 

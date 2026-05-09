@@ -193,6 +193,7 @@ SAVE_PATHS = {
     "evaluation": "train_data/evaluation/",
     "dem": "train_data/dem/",
     "arome": "train_data/arome/",   # NEU: AROME icon_d2 Gitterpunktdaten
+    "ir_cells": "train_data/ir_cells/",
 }
 # Ausgabeauflösung in Pixeln (z. B. für GeoTIFF via WMS)
 WIDTH = 1600
