@@ -356,7 +356,10 @@ def detect_and_track_objects(image_path=None, weather_data=None):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1, lineType=cv2.LINE_AA)
 
     # 💾 Debug Overlay speichern
-    debug_overlay_path = f"train_data/debug_overlay_{timestamp}.png"
+    debug_overlay_path = os.path.join(
+        SAVE_PATHS["objects"].rstrip("/"),
+        f"debug_overlay_{timestamp}.png"
+    )
     cv2.imwrite(debug_overlay_path, overlay_img)
     cv2.imwrite("data/overlay.png", overlay_img)
     save_debug_image(debug_overlay_path, overlay_img, f"Overlay gespeichert: {debug_overlay_path}")

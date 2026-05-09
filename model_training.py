@@ -81,6 +81,34 @@ def _atomic_switch_current(version_id):
     target = _version_models_dir(version_id)
     current_link = _current_models_dir()
     tmp_link = os.path.join(base_dir, ".current_tmp")
+
+    # Fallback: echtes Verzeichnis (z. B. von install.sh) entfernen
+    # damit os.replace() funktioniert (kann nur Symlinks/Dateien ersetzen)
+    if os.path.exists(current_link) and not os.path.islink(current_link):
+        debug_log(f"[TRAINING] current ist ein echtes Verzeichnis — konvertiere zu Symlink")
+        import shutil
+        tmp_backup = current_link + "_real_backup"
+        os.rename(current_link, tmp_backup)
+        try:
+            if os.path.lexists(tmp_link):
+                os.remove(tmp_link)
+            os.symlink(os.path.relpath(target, base_dir), tmp_link)
+            os.replace(tmp_link, current_link)
+            # Backup-Dateien in version_dir kopieren falls nötig
+            for fname in os.listdir(tmp_backup):
+                src = os.path.join(tmp_backup, fname)
+                dst = os.path.join(target, fname)
+                if not os.path.exists(dst):
+                    import shutil as _sh
+                    _sh.copy2(src, dst)
+            shutil.rmtree(tmp_backup, ignore_errors=True)
+        except Exception as exc:
+            # Rollback: echtes Verzeichnis wiederherstellen
+            if os.path.exists(tmp_backup):
+                os.rename(tmp_backup, current_link)
+            raise RuntimeError(f"_atomic_switch_current fehlgeschlagen: {exc}") from exc
+        return
+
     if os.path.lexists(tmp_link):
         os.remove(tmp_link)
     os.symlink(os.path.relpath(target, base_dir), tmp_link)
