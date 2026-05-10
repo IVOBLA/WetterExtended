@@ -174,7 +174,8 @@ def assign_cloud_top_height(objects: list, weather_data: list | None = None, tim
     else:
         print(f"[WARNUNG] Keine passende Wetterdatei gefunden.")
 
-    json_path = os.path.join(SAVE_DIR, f"cloud_height_{timestamp_file}.json")
+    pipeline_ts = timestamp if timestamp else timestamp_file
+    json_path = os.path.join(SAVE_DIR, f"cloud_height_{pipeline_ts}.json")
 
     try:
         with rasterio.open(tif_path) as src:

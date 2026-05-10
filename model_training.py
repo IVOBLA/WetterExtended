@@ -346,9 +346,11 @@ def retrain_all():
     os.makedirs(version_dir, exist_ok=True)
 
     dataset = build_dataset(model_save_dir=version_dir)
+    X = np.asarray([])   # Sicherer Default vor try
+    y = np.asarray([])
     try:
-        X = np.asarray(dataset.get("X", [])) if np is not None else []
-        y = np.asarray(dataset.get("y", [])) if np is not None else []
+        X = np.asarray(dataset.get("X", [])) if np is not None else np.asarray([])
+        y = np.asarray(dataset.get("y", [])) if np is not None else np.asarray([])
         has_data = np is not None and getattr(X, "size", 0) and getattr(y, "size", 0)
         lstm_result = train_lstm(X, y, model_dir=version_dir) if has_data else {"trained": False, "val_loss": None}
         lgbm_result = train_lgbm(X, y, model_dir=version_dir) if has_data else {"trained": False, "best_scores": {}, "quantile_scores": {}}
@@ -402,8 +404,9 @@ def retrain_all():
         debug_log(f"[TRAINING] PROMOTED {timestamp} (cold-start)")
     elif getattr(X, "size", 0) == 0:
         status = "no_data"
-        _atomic_switch_current(timestamp)
-        debug_log(f"[TRAINING] PROMOTED {timestamp} (no_data)")
+        debug_log(f"[TRAINING] SKIPPED promotion {timestamp} (no_data — current bleibt erhalten)")
+        # Kein Promote-Switch: leeres version_dir soll current nicht überschreiben.
+        # Das Bootstrap-Modell oder die letzte gültige Version bleibt aktiv.
     elif new_eval.get("samples", 0) < 20:
         status = "no_baseline"
         _atomic_switch_current(timestamp)
