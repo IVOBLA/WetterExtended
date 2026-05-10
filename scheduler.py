@@ -12,6 +12,7 @@ from radar_convlstm import train_convlstm
 
 
 def run_rebuild_dataset_job():
+    runtime_config.reload_overrides()
     debug_log("[SCHEDULER] Job rebuild_dataset gestartet")
     try:
         result = build_dataset()
@@ -23,6 +24,7 @@ def run_rebuild_dataset_job():
 
 
 def run_retrain_job(job_name: str):
+    runtime_config.reload_overrides()
     debug_log(f"[SCHEDULER] Job {job_name} gestartet")
     try:
         meta = retrain_all()
@@ -48,6 +50,7 @@ def run_convlstm_weekly_job():
 
 
 def run_accuracy_eval_job():
+    runtime_config.reload_overrides()
     debug_log("[SCHEDULER] Job accuracy_eval gestartet")
     try:
         from config import ML_FORECAST_HORIZONS_MIN
