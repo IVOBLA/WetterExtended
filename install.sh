@@ -103,6 +103,12 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Im full-Modus Services automatisch aktivieren
+if [[ "$MODE" == "full" && "$ENABLE_SERVICES" == "false" ]]; then
+    ENABLE_SERVICES=true
+    log_info "Vollinstallation: --enable-services automatisch gesetzt."
+fi
+
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$_SCRIPT_DIR/object_tracking.py" && ! -d "$_SCRIPT_DIR/.git" ]]; then
     LOCAL_INSTALL=true
@@ -318,6 +324,7 @@ if [[ "$SYSTEM_DEPS_ENABLED" == true ]]; then
         libffi-dev libssl-dev          # pip wheel builds
         libjpeg-dev zlib1g-dev         # Pillow
         ffmpeg                         # movement.gif
+        nginx                          # Reverse-Proxy für Flask-API + React-Frontend
     )
 
     log_info "Installiere APT-Pakete: ${APT_PKGS[*]}"
@@ -442,19 +449,11 @@ if [[ "$INSTALL_HAILO" == true && "$IS_PI5" == "true" ]]; then
         fi
     fi
 
-    # Hailo APT-Repository
-    if [[ ! -f /etc/apt/sources.list.d/hailo.list ]]; then
-        log_info "Füge Hailo-APT-Repository hinzu..."
-        if curl -fsSL https://hailo.ai/developer-zone/sw-downloads/raspi-key.gpg 2>/dev/null \
-                | sudo tee /etc/apt/trusted.gpg.d/hailo.gpg > /dev/null; then
-            echo "deb https://hailo.ai/developer-zone/sw-downloads/raspbian bookworm main" \
-                | sudo tee /etc/apt/sources.list.d/hailo.list
-            sudo apt-get update -qq
-            APT_UPDATED=true
-        else
-            log_warn "Hailo GPG-Key konnte nicht geladen werden."
-            note_manual "Hailo-Treiber manuell installieren — siehe HAILO_INSTALL.md"
-        fi
+    # hailo-all ist ab Raspberry Pi OS Bookworm (Dez. 2024) im Standard-Repo enthalten.
+    # Kein zusätzliches APT-Repository erforderlich.
+    # Quelle: https://www.raspberrypi.com/documentation/accessories/ai-kit.html
+    if [[ "$APT_UPDATED" == "false" ]]; then
+        sudo apt-get update -qq && APT_UPDATED=true
     fi
 
     # hailo-all Paket
@@ -553,6 +552,123 @@ else
 fi
 
 # ==============================================================================
+# PHASE 7d — nginx: Reverse-Proxy für Flask-API + React-SPA
+# ==============================================================================
+CURRENT_PHASE="PHASE 7d — nginx"
+log_step "Phase 7d — nginx Reverse-Proxy"
+
+NGINX_SITE_CONF="/etc/nginx/sites-available/wetterprojekt"
+NGINX_SITE_ENABLED="/etc/nginx/sites-enabled/wetterprojekt"
+NGINX_DEFAULT_ENABLED="/etc/nginx/sites-enabled/default"
+FRONTEND_DIST="$TARGET/frontend/dist"
+
+if command -v nginx &>/dev/null; then
+
+    log_info "Generiere nginx-Konfiguration: $NGINX_SITE_CONF"
+    sudo tee "$NGINX_SITE_CONF" > /dev/null <<NGINXCONF
+# WetterExtended — nginx Reverse-Proxy
+# Generiert von install.sh am $(date '+%Y-%m-%d %H:%M:%S')
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name _;
+
+    root ${FRONTEND_DIST};
+    index index.html;
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml image/svg+xml;
+    gzip_min_length 1024;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache";
+    }
+
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location /api/ {
+        proxy_pass         http://127.0.0.1:5000/api/;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+        proxy_connect_timeout 10s;
+    }
+
+    location /export/ {
+        proxy_pass         http://127.0.0.1:5000/export/;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_read_timeout 60s;
+    }
+
+    location /plots/ {
+        alias ${TARGET}/plots/;
+        expires 5m;
+        add_header Cache-Control "public";
+    }
+
+    location /nginx_status {
+        stub_status;
+        allow 127.0.0.1;
+        deny all;
+    }
+}
+NGINXCONF
+
+    if [[ -f "$NGINX_DEFAULT_ENABLED" ]]; then
+        sudo rm -f "$NGINX_DEFAULT_ENABLED"
+        log_info "nginx default-Site deaktiviert."
+    fi
+
+    if [[ ! -L "$NGINX_SITE_ENABLED" ]]; then
+        sudo ln -sfn "$NGINX_SITE_CONF" "$NGINX_SITE_ENABLED"
+        log_info "nginx Site aktiviert: $NGINX_SITE_ENABLED"
+    fi
+
+    if sudo nginx -t 2>/dev/null; then
+        check_ok "nginx Konfiguration: syntaktisch korrekt"
+        if systemctl is-active --quiet nginx 2>/dev/null; then
+            sudo systemctl reload nginx
+            check_ok "nginx: Konfiguration neu geladen"
+        else
+            sudo systemctl enable nginx --now
+            if systemctl is-active --quiet nginx; then
+                check_ok "nginx: gestartet und aktiviert"
+            else
+                check_warn "nginx konnte nicht gestartet werden"
+                note_manual "sudo systemctl status nginx"
+            fi
+        fi
+    else
+        check_warn "nginx Konfigurationstest fehlgeschlagen"
+        note_manual "sudo nginx -t && sudo systemctl reload nginx"
+    fi
+
+    if [[ ! -f "$FRONTEND_DIST/index.html" ]]; then
+        check_warn "Frontend-Dist fehlt — wird nach npm run build verfügbar."
+        note_manual "cd $TARGET/frontend && npm run build && sudo systemctl reload nginx"
+    else
+        check_ok "nginx: Frontend-Dist vorhanden ($FRONTEND_DIST/index.html)"
+    fi
+
+    PI_IP=$(hostname -I | awk '{print $1}')
+    log_info "Adminpanel erreichbar unter: http://${PI_IP}/"
+
+else
+    check_warn "nginx nicht installiert — Phase übersprungen."
+    note_manual "sudo apt install nginx && sudo systemctl enable --now nginx"
+fi
+
+# ==============================================================================
 # PHASE 7 — systemd-Services
 # ==============================================================================
 CURRENT_PHASE="Phase 7 — systemd-Services"
@@ -603,6 +719,7 @@ printf "  ${GREEN}%-20s${NC} %s\n" "Python:"      "$("$VENV/bin/python3" --versi
 printf "  ${GREEN}%-20s${NC} %s\n" "Node.js:"     "$(node --version 2>/dev/null || echo 'nicht installiert')"
 printf "  ${GREEN}%-20s${NC} %s\n" "Frontend:"    "$([ -f \"$TARGET/frontend/dist/index.html\" ] && echo 'gebaut ✅' || echo 'fehlt ❌')"
 printf "  ${GREEN}%-20s${NC} %s\n" "Hailo:"       "$(command -v hailortcli &>/dev/null && hailortcli --version 2>/dev/null | head -1 || echo 'nicht installiert')"
+printf "  ${GREEN}%-20s${NC} %s\n" "nginx:"       "$(systemctl is-active nginx 2>/dev/null || echo 'nicht aktiv')"
 printf "  ${GREEN}%-20s${NC} %s\n" ".env:"        "$([ -f \"$TARGET/.env\" ] && echo 'vorhanden' || echo 'fehlt')"
 echo "════════════════════════════════════════════"
 
@@ -635,7 +752,9 @@ Nächste Schritte nach Abschluss:
        source /home/ki-pi/wetterprojekt/venv/bin/activate
        python3 dataset_builder.py && python3 model_training.py
 
-  4. Adminpanel öffnen:
+  4. Adminpanel öffnen (nginx Port 80):
+       http://<pi-ip>/
+     Direktzugriff Flask (ohne nginx):
        http://<pi-ip>:5000/
 
   5. Logs live:
