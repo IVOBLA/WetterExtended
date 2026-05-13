@@ -60,7 +60,9 @@ def get_700hpa_wind(lat, lon):
         "latitude": lat,
         "longitude": lon,
         "hourly": "wind_speed_700hPa,wind_direction_700hPa",
-        "timezone": "Europe/Vienna"
+        "models": "icon_global",
+        "timezone": "Europe/Vienna",
+        "forecast_days": 1,
     }
     try:
         r = requests.get(url, params=params, timeout=10)
