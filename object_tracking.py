@@ -159,7 +159,8 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
         core_ratio = calculate_core_ratio(hsv, contour)
         if area < FILTER_CONFIG["min_object_area"] and core_ratio < 0.05:
             continue
-        lat, lon = pixel_to_geo(original_cx, original_cy)
+        # pixel_to_geo erwartet SKALIERTE Koordinaten (teilt intern durch upscale)
+        lat, lon = pixel_to_geo(cx, cy)
         if not is_within_bbox(lat, lon, BBOX):
             continue
 
@@ -341,6 +342,13 @@ def detect_and_track_objects(image_path=None, weather_data=None):
     mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
     for lower, upper in FILTER_CONFIG["allowed_hsv_ranges"]:
         mask |= cv2.inRange(hsv, np.array(lower), np.array(upper))
+    # Bildrand maskieren (entfernt KMZ-Rahmen-Artefakte)
+    border_px = int(FILTER_CONFIG.get("border_mask_px", 10))
+    if border_px > 0:
+        mask[:border_px, :] = 0
+        mask[-border_px:, :] = 0
+        mask[:, :border_px] = 0
+        mask[:, -border_px:] = 0
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     merged = merge_close_contours(contours, hsv.shape[:2], min_touch=MIN_CONTOUR_TOUCH)
 

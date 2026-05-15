@@ -36,7 +36,8 @@ FILTER_CONFIG = {
         ((10, 100, 180), (27, 255, 255)),  # Orange-Gelb
         ((125, 100, 150), (145, 255, 255)),  # Violett
     ],
-    "min_object_area": 100,  # minimale Objektfläche in Pixel
+    "min_object_area": 800,  # minimale Objektfläche in Pixel
+    "border_mask_px": 10,
 }
 
 # Für Kernerkennung (KI-gestützt, Richtungstracking)
