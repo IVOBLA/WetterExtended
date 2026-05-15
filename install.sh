@@ -7,7 +7,7 @@
 set -euo pipefail
 
 # --- Konstanten ---------------------------------------------------------------
-DEFAULT_REPO_URL="https://github.com/<user>/wetterprojekt.git"
+DEFAULT_REPO_URL="git@github.com:IVOBLA/WetterExtended.git"
 DEFAULT_BRANCH="main"
 DEFAULT_TARGET="/home/ki-pi/wetterprojekt"
 LOCK_FILE="/tmp/wetterprojekt_install.lock"
@@ -24,6 +24,54 @@ log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 log_step()  { echo -e "\n${GREEN}══ $* ══${NC}"; }
 MANUAL_STEPS=()
 note_manual() { MANUAL_STEPS+=("  • $*"); }
+
+# --- Git / GitHub --------------------------------------------------------------
+# Standard: GitHub per SSH verwenden. Damit werden keine Passwörter oder Tokens
+# in URLs, Shell-History oder Logs geschrieben.
+if [[ -z "${GIT_SSH_COMMAND:-}" ]]; then
+    export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10"
+fi
+
+is_ssh_repo_url() {
+    [[ "$1" == git@github.com:* || "$1" == ssh://git@github.com/* ]]
+}
+
+github_ssh_preflight() {
+    # Nur für SSH-URLs prüfen. HTTPS bleibt möglich, wird aber von GitHub
+    # bei privaten Repos nur mit Token funktionieren.
+    if ! is_ssh_repo_url "$REPO"; then
+        log_warn "Repo-URL ist keine SSH-URL: $REPO"
+        log_warn "Empfohlen: git@github.com:IVOBLA/WetterExtended.git"
+        return 0
+    fi
+
+    if ! command -v ssh &>/dev/null; then
+        log_error "ssh ist nicht installiert. Bitte openssh-client installieren."
+        exit 1
+    fi
+
+    log_info "Prüfe GitHub-SSH-Authentifizierung..."
+    set +e
+    SSH_OUT=$(ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -T git@github.com 2>&1)
+    SSH_RC=$?
+    set -e
+
+    # GitHub liefert bei erfolgreicher Authentifizierung oft Exit-Code 1,
+    # weil kein Shell-Zugriff bereitgestellt wird. Entscheidend ist der Text.
+    if echo "$SSH_OUT" | grep -qi "successfully authenticated"; then
+        check_ok "GitHub SSH: authentifiziert"
+        return 0
+    fi
+
+    log_error "GitHub SSH-Authentifizierung fehlgeschlagen."
+    echo "$SSH_OUT" >&2
+    echo "" >&2
+    log_error "Prüfen:"
+    log_error "  ssh -T git@github.com"
+    log_error "  cat ~/.ssh/id_ed25519.pub"
+    log_error "  GitHub → Settings → SSH and GPG keys"
+    exit 1
+}
 
 # --- Optionen -----------------------------------------------------------------
 CURRENT_PHASE="Init"
@@ -61,7 +109,7 @@ usage() { cat <<USAGE
 Verwendung: $0 [OPTIONEN]
 
   --branch <name>       Git-Branch (Default: ${DEFAULT_BRANCH})
-  --repo <url>          Repository-URL
+  --repo <url>          Repository-URL (Default SSH: ${DEFAULT_REPO_URL})
   --target <pfad>       Zielpfad (Default: ${DEFAULT_TARGET})
   --mode <full|upgrade> full = alles neu, upgrade = nur Source (Default: upgrade)
   --enable-services     systemd-Services aktivieren
@@ -71,6 +119,9 @@ Verwendung: $0 [OPTIONEN]
   --local               Installiert aus dem lokalen Verzeichnis (ZIP-Modus).
                         Kein git clone nötig. Dateien werden nach --target kopiert.
   --help                Diese Hilfe
+
+SSH-Beispiel:
+  ./install.sh --repo git@github.com:IVOBLA/WetterExtended.git --mode upgrade
 
 Modus-Unterschied:
   full    Löscht train_data/, venv/, frontend/dist/ und installiert alles neu.
@@ -260,10 +311,29 @@ if [[ "$LOCAL_INSTALL" == true ]]; then
     fi
     cd "$TARGET"
 elif [[ -d "$TARGET/.git" ]]; then
+    github_ssh_preflight
     cd "$TARGET"
-    git fetch --all
-    git checkout "$BRANCH"
-    git pull --ff-only
+
+    CURRENT_REMOTE="$(git remote get-url origin 2>/dev/null || true)"
+    if [[ -z "$CURRENT_REMOTE" ]]; then
+        git remote add origin "$REPO"
+        log_info "Git remote origin gesetzt: $REPO"
+    elif [[ "$CURRENT_REMOTE" != "$REPO" ]]; then
+        log_warn "Git remote origin wird angepasst:"
+        log_warn "  alt: $CURRENT_REMOTE"
+        log_warn "  neu: $REPO"
+        git remote set-url origin "$REPO"
+    fi
+
+    git fetch origin "$BRANCH"
+
+    if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
+        git checkout "$BRANCH"
+    else
+        git checkout -B "$BRANCH" "origin/$BRANCH"
+    fi
+
+    git pull --ff-only origin "$BRANCH"
     log_info "Repository aktualisiert: $(git rev-parse --short HEAD)"
 else
     if [[ "$REPO" == *"<user>"* ]]; then
@@ -271,6 +341,8 @@ else
         log_error "Bitte --repo <echte-url> angeben oder --local verwenden."
         exit 1
     fi
+
+    github_ssh_preflight
     git clone --branch "$BRANCH" "$REPO" "$TARGET"
     cd "$TARGET"
     log_info "Repository geklont: $(git rev-parse --short HEAD)"
@@ -685,19 +757,25 @@ if [[ "$ENABLE_SERVICES" == true ]]; then
                 "$src" > "$tmp"
         fi
     done
-    sudo systemctl daemon-reload
     for svc_file in wetterprojekt.service wetterprojekt-scheduler.service wetterprojekt-admin.service; do
         generated="$TARGET/.generated-$svc_file"
         if [[ -f "$generated" ]]; then
             sudo cp "$generated" "/etc/systemd/system/$svc_file"
+        else
+            check_warn "Service-Datei nicht gefunden: $svc_file"
+        fi
+    done
+
+    sudo systemctl daemon-reload
+
+    for svc_file in wetterprojekt.service wetterprojekt-scheduler.service wetterprojekt-admin.service; do
+        if [[ -f "/etc/systemd/system/$svc_file" ]]; then
             svc_name="${svc_file}"
             sudo systemctl enable "$svc_name" || true
             sudo systemctl restart "$svc_name" || true
             systemctl is-active --quiet "$svc_name" \
                 && check_ok "Service aktiv: $svc_name" \
                 || check_warn "Service konnte nicht gestartet werden: $svc_name"
-        else
-            check_warn "Service-Datei nicht gefunden: $svc_file"
         fi
     done
 else
@@ -711,16 +789,37 @@ fi
 CURRENT_PHASE="Phase 8 — Abschluss-Report"
 log_step "Phase 8 — Abschluss-Report"
 
+if [[ -d "$TARGET/.git" ]]; then
+    SOURCE_INFO="$(cd "$TARGET" && git rev-parse --abbrev-ref HEAD 2>/dev/null) @ $(cd "$TARGET" && git rev-parse --short HEAD 2>/dev/null)"
+else
+    SOURCE_INFO="lokal/ZIP (ohne Git)"
+fi
+
+FRONTEND_STATUS="fehlt ❌"
+[[ -f "$TARGET/frontend/dist/index.html" ]] && FRONTEND_STATUS="gebaut ✅"
+
+ENV_STATUS="fehlt"
+[[ -f "$TARGET/.env" ]] && ENV_STATUS="vorhanden"
+
+PYTHON_STATUS="nicht verfügbar"
+[[ -x "$VENV/bin/python3" ]] && PYTHON_STATUS="$("$VENV/bin/python3" --version 2>&1)"
+
+NODE_STATUS="$(node --version 2>/dev/null || echo 'nicht installiert')"
+HAILO_STATUS="$(command -v hailortcli &>/dev/null && hailortcli --version 2>/dev/null | head -1 || echo 'nicht installiert')"
+NGINX_STATUS="$(systemctl is-active nginx 2>/dev/null || echo 'nicht aktiv')"
+
 echo ""
 echo "════════════════════════════════════════════"
 printf "  ${GREEN}%-20s${NC} %s\n" "Modus:"       "$MODE"
-printf "  ${GREEN}%-20s${NC} %s\n" "Branch:"      "$(cd "$TARGET" && git rev-parse --abbrev-ref HEAD) @ $(cd "$TARGET" && git rev-parse --short HEAD)"
-printf "  ${GREEN}%-20s${NC} %s\n" "Python:"      "$("$VENV/bin/python3" --version 2>&1)"
-printf "  ${GREEN}%-20s${NC} %s\n" "Node.js:"     "$(node --version 2>/dev/null || echo 'nicht installiert')"
-printf "  ${GREEN}%-20s${NC} %s\n" "Frontend:"    "$([ -f \"$TARGET/frontend/dist/index.html\" ] && echo 'gebaut ✅' || echo 'fehlt ❌')"
-printf "  ${GREEN}%-20s${NC} %s\n" "Hailo:"       "$(command -v hailortcli &>/dev/null && hailortcli --version 2>/dev/null | head -1 || echo 'nicht installiert')"
-printf "  ${GREEN}%-20s${NC} %s\n" "nginx:"       "$(systemctl is-active nginx 2>/dev/null || echo 'nicht aktiv')"
-printf "  ${GREEN}%-20s${NC} %s\n" ".env:"        "$([ -f \"$TARGET/.env\" ] && echo 'vorhanden' || echo 'fehlt')"
+printf "  ${GREEN}%-20s${NC} %s\n" "Source:"      "$SOURCE_INFO"
+printf "  ${GREEN}%-20s${NC} %s\n" "Repo:"        "$REPO"
+printf "  ${GREEN}%-20s${NC} %s\n" "Target:"      "$TARGET"
+printf "  ${GREEN}%-20s${NC} %s\n" "Python:"      "$PYTHON_STATUS"
+printf "  ${GREEN}%-20s${NC} %s\n" "Node.js:"     "$NODE_STATUS"
+printf "  ${GREEN}%-20s${NC} %s\n" "Frontend:"    "$FRONTEND_STATUS"
+printf "  ${GREEN}%-20s${NC} %s\n" "Hailo:"       "$HAILO_STATUS"
+printf "  ${GREEN}%-20s${NC} %s\n" "nginx:"       "$NGINX_STATUS"
+printf "  ${GREEN}%-20s${NC} %s\n" ".env:"        "$ENV_STATUS"
 echo "════════════════════════════════════════════"
 
 # Manuelle Schritte ausgeben
@@ -738,18 +837,19 @@ if [[ "${NEEDS_REBOOT:-false}" == "true" ]]; then
 fi
 
 # Nächste Schritte
-cat <<'NEXTSTEPS'
+cat <<NEXTSTEPS
 
 Nächste Schritte nach Abschluss:
   1. .env befüllen (FTP-Credentials):
-       nano /home/ki-pi/wetterprojekt/.env
+       nano ${TARGET}/.env
 
   2. Services aktivieren (falls --enable-services nicht gesetzt war):
        sudo systemctl daemon-reload
        sudo systemctl enable --now wetterprojekt wetterprojekt-scheduler wetterprojekt-admin
 
   3. Erstes Training starten (nach Datensammlung ~1h):
-       source /home/ki-pi/wetterprojekt/venv/bin/activate
+       cd ${TARGET}
+       source venv/bin/activate
        python3 dataset_builder.py && python3 model_training.py
 
   4. Adminpanel öffnen (nginx Port 80):
