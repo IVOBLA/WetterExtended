@@ -1,6 +1,8 @@
 [Unit]
 Description=Wetterprojekt ML-Scheduler
 After=network.target
+StartLimitIntervalSec=120
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -9,6 +11,7 @@ WorkingDirectory=/home/ki-pi/wetterprojekt
 ExecStart=/home/ki-pi/wetterprojekt/venv/bin/python3 /home/ki-pi/wetterprojekt/scheduler.py
 Restart=on-failure
 RestartSec=30
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target
