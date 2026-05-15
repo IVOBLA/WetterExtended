@@ -750,6 +750,10 @@ NGINXCONF
         check_ok "nginx: Frontend-Dist vorhanden ($FRONTEND_DIST/index.html)"
     fi
 
+    # Home-Verzeichnis für nginx (www-data) traversierbar machen
+    chmod o+x "$HOME"
+    check_ok "Heimverzeichnis traversierbar für nginx gesetzt (o+x)"
+
     PI_IP=$(hostname -I | awk '{print $1}')
     log_info "Adminpanel erreichbar unter: http://${PI_IP}/"
 
