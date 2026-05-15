@@ -380,4 +380,52 @@ def detect_and_track_objects(image_path=None, weather_data=None):
     cv2.imwrite("data/overlay.png", overlay_img)
     save_debug_image(debug_overlay_path, overlay_img, f"Overlay gespeichert: {debug_overlay_path}")
 
+    # Geo-Konturen und Intensitätszonen für Karten-Darstellung berechnen
+    INTENSITY_BANDS = [
+        ("orange",  ( 10, 100,  80), ( 27, 255, 255), "#ff8800"),
+        ("rot",     (  0, 100,  80), ( 10, 255, 255), "#cc0000"),
+        ("rot_wrap",(165, 100,  80), (179, 255, 255), "#cc0000"),
+        ("violett", (125, 100,  80), (155, 255, 255), "#9900cc"),
+    ]
+    for obj in objects:
+        raw_contour = obj.get("contour")
+        if not raw_contour:
+            obj["contour_geo"] = []
+            obj["intensity_zones"] = []
+            continue
+
+        cnt_px = np.array(raw_contour, dtype=np.int32).reshape(-1, 1, 2)
+
+        # Äußere Kontur → Geo-Koordinaten [lon, lat] (GeoJSON-Format)
+        geo_pts = []
+        for pt in cnt_px[:, 0, :]:
+            lat_p, lon_p = pixel_to_geo(int(pt[0]), int(pt[1]))
+            geo_pts.append([round(lon_p, 6), round(lat_p, 6)])
+        if len(geo_pts) >= 3:
+            if geo_pts[0] != geo_pts[-1]:
+                geo_pts.append(geo_pts[0])  # Polygon schließen
+        obj["contour_geo"] = geo_pts
+
+        # Intensitätszonen innerhalb der Zelle
+        cell_mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+        cv2.drawContours(cell_mask, [cnt_px], -1, 255, -1)
+
+        zones = []
+        for band_name, lower, upper, color in INTENSITY_BANDS:
+            band_mask = cv2.inRange(hsv, np.array(lower), np.array(upper))
+            band_mask = cv2.bitwise_and(band_mask, cell_mask)
+            band_cnts, _ = cv2.findContours(band_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            for bc in band_cnts:
+                if cv2.contourArea(bc) < 30:
+                    continue
+                zone_pts = []
+                for pt in bc[:, 0, :]:
+                    lat_p, lon_p = pixel_to_geo(int(pt[0]), int(pt[1]))
+                    zone_pts.append([round(lon_p, 6), round(lat_p, 6)])
+                if len(zone_pts) >= 3:
+                    if zone_pts[0] != zone_pts[-1]:
+                        zone_pts.append(zone_pts[0])
+                    zones.append({"band": band_name, "color": color, "coords": zone_pts})
+        obj["intensity_zones"] = zones
+
     return objects, timestamp
