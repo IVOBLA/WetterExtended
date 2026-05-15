@@ -365,10 +365,28 @@ if [[ "$MODE" == "full" ]]; then
         log_warn "Abgebrochen — wechsle in upgrade-Modus."
         MODE="upgrade"
     else
-        # Services stoppen damit keine Dateien gesperrt sind
+        # Services hart stoppen und deaktivieren — verhindert Neustart während Install
+        log_info "Stoppe und deaktiviere Services für Vollinstallation..."
         for svc in wetterprojekt wetterprojekt-scheduler wetterprojekt-admin; do
-            systemctl is-active --quiet "$svc" 2>/dev/null && sudo systemctl stop "$svc" && log_info "Service gestoppt: $svc" || true
+            sudo systemctl disable "$svc" 2>/dev/null || true
+            sudo systemctl stop "$svc" 2>/dev/null || true
+            log_info "Service gestoppt+deaktiviert: $svc"
         done
+        sudo systemctl daemon-reload
+        sleep 2  # Sicherstellen dass Prozesse beendet sind
+
+        # Journalctl-Logs der Services löschen
+        log_info "Lösche alte journalctl-Logs..."
+        sudo journalctl --rotate 2>/dev/null || true
+        sudo journalctl --vacuum-time=1s 2>/dev/null || true
+        check_ok "journalctl-Logs bereinigt"
+
+        # Debug-Logs im Projektverzeichnis löschen
+        if [[ -d "${TARGET}/logs" ]]; then
+            rm -f "${TARGET}/logs"/*.log "${TARGET}/logs"/*.txt 2>/dev/null || true
+            log_info "Projekt-Logs gelöscht: ${TARGET}/logs/"
+        fi
+
         rm -rf "${TARGET}/train_data" "${TARGET}/venv" "${TARGET}/frontend/dist" "${TARGET}/data" "${TARGET}/plots" || true
         log_info "Daten gelöscht."
     fi
