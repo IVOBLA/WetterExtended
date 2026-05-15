@@ -55,26 +55,47 @@ export default function MapView() {
       <MapContainer center={[46.62, 14.31]} zoom={8} style={{ height: '70vh', borderRadius: 8 }}>
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap" />
 
-        {objects.map(o => o.contour_geo && o.contour_geo.length > 0 && (
-          <Polygon key={'p' + o.id}
-            positions={o.contour_geo.map(p => [p[1], p[0]])}
-            pathOptions={{ color: lineageColor[o.lineage] || 'gray', fillOpacity: 0.3, weight: 2 }} />
-        ))}
+        {objects.map(o => {
+          if (!o.contour_geo || o.contour_geo.length < 3) return null
+          const outerPos = o.contour_geo.map(p => [p[1], p[0]])
+          const borderColor = lineageColor[o.lineage] || '#888'
+          return (
+            <React.Fragment key={'cell_' + o.id}>
+              {/* Äußere Zellkontur */}
+              <Polygon
+                positions={outerPos}
+                pathOptions={{ color: borderColor, weight: 2, fillColor: '#ff8800', fillOpacity: 0.15 }}>
+                <Popup>
+                  <div><b>{o.id}</b> ({o.lineage})</div>
+                  <div>area: {o.area} | core_ratio: {(o.core_ratio||0).toFixed(2)}</div>
+                  {o.intensification_prob != null &&
+                    <div>intensification: {(o.intensification_prob*100).toFixed(0)}%</div>}
+                  {o.parents?.length > 0 && <div>parents: {o.parents.join(', ')}</div>}
+                </Popup>
+              </Polygon>
 
-        {objects.map(o => o.lat && o.lon && (
-          <CircleMarker key={'m' + o.id}
-            center={[o.lat, o.lon]}
-            radius={Math.max(4, Math.sqrt(o.area || 0) / 8)}
-            pathOptions={{ color: '#0d6efd' }}>
-            <Popup>
-              <div><b>{o.id}</b> ({o.lineage})</div>
-              <div>parents: {(o.parents || []).join(',') || '—'}</div>
-              <div>area: {o.area}</div>
-              <div>core_ratio: {o.core_ratio}</div>
-              {o.intensification_prob != null && <div>intensification: {(o.intensification_prob * 100).toFixed(0)}%</div>}
-            </Popup>
-          </CircleMarker>
-        ))}
+              {/* Intensitätszonen innerhalb der Zelle (Orange → Rot → Violett) */}
+              {(o.intensity_zones || []).map((zone, zi) => (
+                <Polygon key={'z_' + o.id + '_' + zi}
+                  positions={zone.coords.map(p => [p[1], p[0]])}
+                  pathOptions={{
+                    color: zone.color,
+                    weight: 1,
+                    fillColor: zone.color,
+                    fillOpacity: zone.band === 'violett' ? 0.75
+                               : zone.band === 'rot' || zone.band === 'rot_wrap' ? 0.60
+                               : 0.45
+                  }} />
+              ))}
+
+              {/* Mittelpunkt-Label */}
+              {o.lat && o.lon && (
+                <CircleMarker center={[o.lat, o.lon]} radius={3}
+                  pathOptions={{ color: borderColor, fillColor: borderColor, fillOpacity: 1, weight: 1 }} />
+              )}
+            </React.Fragment>
+          )
+        })}
 
         {(forecast.features || []).map((f, i) => {
           const [a, b] = f.geometry.coordinates
