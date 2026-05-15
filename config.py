@@ -33,27 +33,26 @@ ROI = {
 # ARSO INCA si0zm — Zmzx (dBZ) Farbskala:
 # Grün=zmerne/mdm(36-39) → GelbGrün=močne/hgh(42-45) → Orange(48-51)
 # → Rot=izjemne/ext(54) → Violett=izjemne/ext(57, höchste Intensität)
+# ARSO INCA si0zm — nur konvektive Zellen (48+ dBZ):
+# Stratiformer Regen (Grün/Gelb-Grün <45 dBZ) wird bewusst NICHT erfasst.
+# Nur Orange/Rot/Violett = diskrete Gewitterzellen.
 FILTER_CONFIG = {
     "allowed_hsv_ranges": [
-        (( 55, 100,  80), ( 85, 255, 255)),  # Grün        zmerne/mdm  36–39 dBZ
-        (( 40, 100,  80), ( 55, 255, 255)),  # Gelb-Grün   močne/hgh   42–45 dBZ
-        (( 25, 100,  80), ( 40, 255, 255)),  # Gelb-Orange močne/hgh   48    dBZ
-        (( 10, 100,  80), ( 25, 255, 255)),  # Orange      močne/hgh   51    dBZ
-        ((  0, 100,  80), ( 10, 255, 255)),  # Rot         izjemne/ext 54    dBZ
-        ((165, 100,  80), (179, 255, 255)),  # Rot (wrap)  izjemne/ext 54    dBZ
-        ((125, 100,  80), (155, 255, 255)),  # Violett     izjemne/ext 57    dBZ ← HÖCHSTE
+        (( 10, 100,  80), ( 27, 255, 255)),  # Orange      močne/hgh   48–51 dBZ
+        ((  0, 100,  80), ( 10, 255, 255)),  # Rot 1       izjemne/ext 54    dBZ
+        ((165, 100,  80), (179, 255, 255)),  # Rot 2 wrap  izjemne/ext 54    dBZ
+        ((125, 100,  80), (155, 255, 255)),  # Violett     izjemne/ext 57    dBZ
     ],
     "min_object_area": 800,
     "border_mask_px": 10,
 }
 
-# Kernbereiche: Orange, Rot, Violett (intensivste Zellen für core_ratio)
+# Kernbereiche: Rot und Violett = Zellkern
 CORE_HSV_RANGES = [
-    ([ 25, 120, 100], [ 55, 255, 255]),  # Gelb-Orange  48 dBZ
-    ([ 10, 120, 100], [ 25, 255, 255]),  # Orange       51 dBZ
-    ([  0, 100, 100], [ 10, 255, 255]),  # Rot 1        54 dBZ
-    ([165, 100, 100], [179, 255, 255]),  # Rot 2 (wrap) 54 dBZ
-    ([125, 100, 100], [155, 255, 255]),  # Violett      57 dBZ
+    ([ 10, 120, 100], [ 27, 255, 255]),  # Orange       48–51 dBZ
+    ([  0, 100, 120], [ 10, 255, 255]),  # Rot 1        54    dBZ
+    ([165, 100, 120], [179, 255, 255]),  # Rot 2 (wrap) 54    dBZ
+    ([125, 100, 120], [155, 255, 255]),  # Violett      57    dBZ
 ]
 
 # --------------------------------------
