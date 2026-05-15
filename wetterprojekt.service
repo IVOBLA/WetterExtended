@@ -1,6 +1,8 @@
 [Unit]
 Description=Wetterprojekt Autostart
 After=network.target
+StartLimitIntervalSec=120
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -8,6 +10,8 @@ User=ki-pi
 WorkingDirectory=/home/ki-pi/wetterprojekt
 ExecStart=/home/ki-pi/wetterprojekt/venv/bin/python3 /home/ki-pi/wetterprojekt/main.py
 Restart=on-failure
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target
