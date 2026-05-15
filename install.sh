@@ -561,16 +561,59 @@ if [[ "$INSTALL_HAILO" == true && "$IS_PI5" == "true" ]]; then
     fi
 
     # Python-Bindings
-    if ! "$VENV/bin/pip" show hailo-platform &>/dev/null; then
-        log_info "Installiere hailo-platform Python-Bindings..."
+    # hailo-platform ist NICHT auf PyPI/piwheels — kommt als System-Paket mit hailo-all.
+    # Strategie: 1) Import-Test  2) pip-Versuch  3) .pth-Fallback auf System-Paket
+    HAILO_BOUND=false
+
+    if "$VENV/bin/python3" -c "import hailo_platform" 2>/dev/null; then
+        check_ok "hailo-platform: bereits im venv importierbar"
+        HAILO_BOUND=true
+    fi
+
+    if [[ "$HAILO_BOUND" == false ]]; then
+        log_info "Versuche hailo-platform via pip..."
         if "$VENV/bin/pip" install hailo-platform -q 2>/dev/null; then
-            check_ok "hailo-platform installiert"
-        else
-            log_warn "hailo-platform pip-Install fehlgeschlagen (Treiber muss zuerst installiert sein)."
-            note_manual "Nach Reboot: source venv/bin/activate && pip install hailo-platform"
+            check_ok "hailo-platform: via pip installiert"
+            HAILO_BOUND=true
         fi
-    else
-        check_ok "hailo-platform bereits installiert"
+    fi
+
+    if [[ "$HAILO_BOUND" == false ]]; then
+        log_info "pip fehlgeschlagen — suche System-hailo_platform..."
+        HAILO_SYS_PATH=""
+        for candidate in \
+            /usr/lib/python3/dist-packages \
+            /usr/local/lib/python3.11/dist-packages \
+            /usr/local/lib/python3.10/dist-packages \
+            /usr/lib/python3.11/dist-packages \
+            /usr/lib/python3.10/dist-packages; do
+            if [[ -d "${candidate}/hailo_platform" ]]; then
+                HAILO_SYS_PATH="$candidate"
+                break
+            fi
+        done
+        if [[ -z "$HAILO_SYS_PATH" ]]; then
+            HAILO_SYS_PATH=$(python3 -c "
+import sys, os
+for p in sys.path:
+    if os.path.isdir(os.path.join(p, 'hailo_platform')):
+        print(p); break
+" 2>/dev/null || true)
+        fi
+        if [[ -n "$HAILO_SYS_PATH" ]]; then
+            VENV_SITE=$("$VENV/bin/python3" -c "import site; print(site.getsitepackages()[0])")
+            echo "$HAILO_SYS_PATH" > "$VENV_SITE/hailo_system.pth"
+            if "$VENV/bin/python3" -c "import hailo_platform" 2>/dev/null; then
+                check_ok "hailo-platform: via .pth eingebunden ($HAILO_SYS_PATH)"
+                HAILO_BOUND=true
+            else
+                check_warn "hailo-platform: .pth gesetzt, Import fehlgeschlagen"
+                note_manual "$VENV/bin/python3 -c 'import hailo_platform'"
+            fi
+        else
+            log_warn "hailo_platform System-Paket nicht gefunden."
+            note_manual "Nach Reboot: source $VENV/bin/activate && python3 -c 'import hailo_platform'"
+        fi
     fi
 
     # Verifikation
@@ -750,12 +793,11 @@ NGINXCONF
         check_ok "nginx: Frontend-Dist vorhanden ($FRONTEND_DIST/index.html)"
     fi
 
-    # Home-Verzeichnis für nginx (www-data) traversierbar machen
-    chmod o+x "$HOME"
-    check_ok "Heimverzeichnis traversierbar für nginx gesetzt (o+x)"
-
     PI_IP=$(hostname -I | awk '{print $1}')
     log_info "Adminpanel erreichbar unter: http://${PI_IP}/"
+
+    chmod o+x "$HOME"
+    check_ok "Heimverzeichnis traversierbar für nginx (o+x)"
 
 else
     check_warn "nginx nicht installiert — Phase übersprungen."
