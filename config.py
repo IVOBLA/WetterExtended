@@ -30,22 +30,30 @@ ROI = {
 # Farbfilter-Konfiguration (für Segmentierung)
 # --------------------------------------
 
+# ARSO INCA si0zm — Zmzx (dBZ) Farbskala:
+# Grün=zmerne/mdm(36-39) → GelbGrün=močne/hgh(42-45) → Orange(48-51)
+# → Rot=izjemne/ext(54) → Violett=izjemne/ext(57, höchste Intensität)
 FILTER_CONFIG = {
     "allowed_hsv_ranges": [
-        ((0, 100, 150), (10, 255, 255)),  # Rot
-        ((10, 100, 180), (27, 255, 255)),  # Orange-Gelb
-        ((125, 100, 150), (145, 255, 255)),  # Violett
+        (( 55, 100,  80), ( 85, 255, 255)),  # Grün        zmerne/mdm  36–39 dBZ
+        (( 40, 100,  80), ( 55, 255, 255)),  # Gelb-Grün   močne/hgh   42–45 dBZ
+        (( 25, 100,  80), ( 40, 255, 255)),  # Gelb-Orange močne/hgh   48    dBZ
+        (( 10, 100,  80), ( 25, 255, 255)),  # Orange      močne/hgh   51    dBZ
+        ((  0, 100,  80), ( 10, 255, 255)),  # Rot         izjemne/ext 54    dBZ
+        ((165, 100,  80), (179, 255, 255)),  # Rot (wrap)  izjemne/ext 54    dBZ
+        ((125, 100,  80), (155, 255, 255)),  # Violett     izjemne/ext 57    dBZ ← HÖCHSTE
     ],
-    "min_object_area": 800,  # minimale Objektfläche in Pixel
+    "min_object_area": 800,
     "border_mask_px": 10,
 }
 
-# Für Kernerkennung (KI-gestützt, Richtungstracking)
+# Kernbereiche: Orange, Rot, Violett (intensivste Zellen für core_ratio)
 CORE_HSV_RANGES = [
-    ([10, 150, 200], [25, 255, 255]),  # Orange
-    ([0, 100, 200], [10, 255, 255]),  # Rotbereich 1
-    ([160, 100, 200], [180, 255, 255]),  # Rotbereich 2
-    ([125, 100, 150], [145, 255, 255]),  # Violett
+    ([ 25, 120, 100], [ 55, 255, 255]),  # Gelb-Orange  48 dBZ
+    ([ 10, 120, 100], [ 25, 255, 255]),  # Orange       51 dBZ
+    ([  0, 100, 100], [ 10, 255, 255]),  # Rot 1        54 dBZ
+    ([165, 100, 100], [179, 255, 255]),  # Rot 2 (wrap) 54 dBZ
+    ([125, 100, 100], [155, 255, 255]),  # Violett      57 dBZ
 ]
 
 # --------------------------------------
