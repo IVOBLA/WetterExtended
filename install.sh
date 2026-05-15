@@ -789,8 +789,11 @@ if [[ "$ENABLE_SERVICES" == true ]]; then
     for svc_file in wetterprojekt.service wetterprojekt-scheduler.service wetterprojekt-admin.service; do
         if [[ -f "/etc/systemd/system/$svc_file" ]]; then
             svc_name="${svc_file}"
+            # StartLimit-Counter zurücksetzen (verhindert "start request repeated too quickly")
+            sudo systemctl reset-failed "$svc_name" 2>/dev/null || true
             sudo systemctl enable "$svc_name" || true
-            sudo systemctl restart "$svc_name" || true
+            sudo systemctl start "$svc_name" || true
+            sleep 3  # Startzeit abwarten
             systemctl is-active --quiet "$svc_name" \
                 && check_ok "Service aktiv: $svc_name" \
                 || check_warn "Service konnte nicht gestartet werden: $svc_name"
