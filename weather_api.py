@@ -59,6 +59,18 @@ def get_weather_data(include_all_stations=True):
 
         return stations
 
+    except requests.exceptions.Timeout:
+        from debug_utils import log_api_failure
+        log_api_failure("GeoSphere-TAWES", url, "timeout", fallback_used=True)
+        return []
+    except requests.exceptions.HTTPError as e:
+        from debug_utils import log_api_failure
+        status = getattr(e.response, "status_code", None)
+        log_api_failure("GeoSphere-TAWES", url, f"http-error: {e}",
+                        fallback_used=True, http_status=status)
+        return []
     except Exception as e:
-        debug_log(f"Wetterdaten konnten nicht geladen werden: {e}")
+        from debug_utils import log_api_failure
+        log_api_failure("GeoSphere-TAWES", url, f"{type(e).__name__}: {e}",
+                        fallback_used=True)
         return []

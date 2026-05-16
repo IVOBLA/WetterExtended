@@ -29,7 +29,9 @@ def assign_cape(objects: list, timestamp: str) -> list:
         cape_url = _build_cape_url(bbox)
         geojson_path = fetch_or_use_latest_geojson(timestamp, cape_url)
         if not geojson_path:
-            debug_log("[CAPE] Keine GeoJSON-Datei verfügbar.")
+            from debug_utils import log_api_failure
+            log_api_failure("GeoSphere-CAPE", cape_url,
+                            "geojson-fetch-failed", fallback_used=True)
             return objects
 
         forecast_data = load_geojson_data(geojson_path)
@@ -49,7 +51,9 @@ def assign_cape(objects: list, timestamp: str) -> list:
         try:
             index = timestamps.index(target_time)
         except ValueError:
-            debug_log(f"[CAPE] Kein Forecast für {target_time} in timestamps[] enthalten.")
+            from debug_utils import log_api_failure
+            log_api_failure("GeoSphere-CAPE", cape_url,
+                            f"no-forecast-for-{target_time}", fallback_used=True)
             return objects
 
         # Vorbereitung: alle Forecast-Punkte mit Position und CAPE-Wert
@@ -67,7 +71,9 @@ def assign_cape(objects: list, timestamp: str) -> list:
                 continue
 
         if not data_points:
-            debug_log(f"[CAPE] Keine gültigen CAPE-Daten für {target_time} gefunden.")
+            from debug_utils import log_api_failure
+            log_api_failure("GeoSphere-CAPE", cape_url,
+                            f"no-valid-data-for-{target_time}", fallback_used=True)
             return objects
 
         # Zuordnung: jedes Objekt bekommt den nächstgelegenen CAPE-Wert
