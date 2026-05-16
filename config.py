@@ -176,6 +176,21 @@ HSV_BAND_LABELS = ["leichter_regen", "regen", "starkregen"]
 # Pfad für Runtime-Overrides aus dem Adminpanel.
 RUNTIME_OVERRIDES_PATH = "train_data/runtime_overrides.json"
 
+# --------------------------------------
+# KI-Analyse-Pipeline (Anthropic API)
+# --------------------------------------
+# Default: deaktiviert. Aktivierung über Admin-Panel oder runtime_overrides.json.
+AI_ANALYSIS_CONFIG = {
+    "enabled": False,           # Master-Schalter
+    "cron_hour": 6,             # Uhrzeit des täglichen Analyselaufs
+    "cron_minute": 0,
+    "model": "claude-sonnet-4-20250514",
+    "max_tokens": 1500,
+    "since_hours": 24,          # Datenfenster für den Report
+    "save_suggestions": True,   # Vorschläge als JSON persistieren
+}
+AI_SUGGESTIONS_DIR = "train_data/evaluation/ai_suggestions"
+
 # Trainings-Schedule (Cron-Stil). Wird vom Scheduler gelesen, kann per
 # Adminpanel über runtime_overrides.json überschrieben werden.
 TRAINING_SCHEDULE = {

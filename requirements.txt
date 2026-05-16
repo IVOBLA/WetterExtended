@@ -73,6 +73,9 @@ rasterio>=1.3
 # --- Konfiguration / Secrets (für die in der Anleitung empfohlene .env-Auslagerung) ---
 python-dotenv>=1.0
 
+# --- Anthropic API (KI-Analyse-Pipeline, optional) ---
+anthropic>=0.30
+
 # --- Zeitzonen (auf Python 3.9+ ist zoneinfo stdlib, tzdata braucht es trotzdem) ---
 tzdata>=2024.1
 
