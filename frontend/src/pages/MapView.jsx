@@ -14,6 +14,9 @@ function Legend({ horizons, colors }) {
           +{h} min
         </span>
       ))}
+      <span className="ml-4 mr-2"><strong>Modus:</strong></span>
+      <span className="legend-item"><span className="swatch" style={{ background: '#3399ff' }} />KI-Vorhersage</span>
+      <span className="legend-item"><span className="swatch" style={{ background: '#999', border: '1px dashed #666' }} />Bewegungsschätzung</span>
       <span className="ml-4"><strong>Lineage:</strong></span>
       {Object.entries(lineageColor).map(([k, v]) => (
         <span key={k} className="legend-item">
@@ -100,12 +103,20 @@ export default function MapView() {
         {(forecast.features || []).map((f, i) => {
           const [a, b] = f.geometry.coordinates
           const p = f.properties || {}
+          const isKinematic = p.forecast_mode === 'kinematic'
           const style = horizons.styles[p.horizon] || horizons.styles[String(p.horizon)] || {}
+          const pathOpts = isKinematic
+            ? { color: '#888888', weight: 1.5, dashArray: '6,5', opacity: 0.7 }
+            : { color: p.color || '#888', weight: style.weight || 2, dashArray: style.dash || '' }
           return (
             <Polyline key={'a' + i}
               positions={[[a[1], a[0]], [b[1], b[0]]]}
-              pathOptions={{ color: p.color || '#888', weight: style.weight || 2, dashArray: style.dash || '' }}>
-              <Popup>+{p.horizon} min — {p.id}</Popup>
+              pathOptions={pathOpts}>
+              <Popup>
+                {isKinematic
+                  ? `Bewegungsschätzung (${p.kinematic_source || '?'}) — ${p.id}`
+                  : `+${p.horizon} min KI — ${p.id}`}
+              </Popup>
             </Polyline>
           )
         })}

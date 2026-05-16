@@ -89,6 +89,8 @@ def api_forecast():
                     "horizon": h,
                     "color": color,
                     "lineage": o.get("lineage"),
+                    "forecast_mode": o.get("forecast_mode", "kinematic"),
+                    "kinematic_source": o.get("kinematic_source"),
                 },
             })
     return jsonify({"type": "FeatureCollection", "features": feats})

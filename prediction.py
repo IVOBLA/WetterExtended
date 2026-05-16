@@ -48,26 +48,53 @@ def _linear_point(obj, horizon):
     return x, y
 
 
-def _append_linear(obj, forecasts):
+def _append_kinematic(obj: dict, forecasts: dict) -> None:
+    """
+    Kinematischer Fallback wenn kein ML-Modell verfügbar oder Sequenz zu kurz.
+
+    Geschwindigkeit wird aus den letzten bis zu 3 History-Einträgen gemittelt
+    (jeder Eintrag = 1 Radarbild-Zyklus). Wenn weniger als 2 History-Einträge
+    vorhanden sind, wird der aktuelle Kalman-Wert (vx/vy) verwendet.
+    """
+    history = obj.get("history") or []
+    n = min(3, len(history))
+
+    if n >= 2:
+        recent = history[-n:]
+        avg_vx = sum(float(h.get("vx", 0.0)) for h in recent) / n
+        avg_vy = sum(float(h.get("vy", 0.0)) for h in recent) / n
+        src = f"history_{n}"
+    else:
+        avg_vx = _safe_float(obj.get("vx", 0.0))
+        avg_vy = _safe_float(obj.get("vy", 0.0))
+        src = "kalman_only"
+
+    obj["forecast_mode"]      = "kinematic"
+    obj["has_ml_forecast"]    = False
+    obj["kinematic_source"]   = src
+    obj["kinematic_vx"]       = avg_vx
+    obj["kinematic_vy"]       = avg_vy
+
     for horizon in ML_FORECAST_HORIZONS_MIN:
-        x_pred, y_pred = _linear_point(obj, horizon)
+        x_pred = _safe_float(obj.get("x", 0.0)) + avg_vx * horizon
+        y_pred = _safe_float(obj.get("y", 0.0)) + avg_vy * horizon
         lat, lon = pixel_to_geo(x_pred, y_pred)
-        obj[f"forecast_x_{horizon}"] = float(x_pred)
-        obj[f"forecast_y_{horizon}"] = float(y_pred)
+        obj[f"forecast_x_{horizon}"]   = float(x_pred)
+        obj[f"forecast_y_{horizon}"]   = float(y_pred)
         obj[f"forecast_lat_{horizon}"] = float(lat)
         obj[f"forecast_lon_{horizon}"] = float(lon)
-        forecasts[horizon].append(
-            {
-                "id": obj.get("id"),
-                "x": float(x_pred),
-                "y": float(y_pred),
-                "lat": float(lat),
-                "lon": float(lon),
-                "size": _safe_float(obj.get("size", 0.0)),
-                "origin_lat": _safe_float(obj.get("lat", 0.0)),
-                "origin_lon": _safe_float(obj.get("lon", 0.0)),
-            }
-        )
+        forecasts[horizon].append({
+            "id":               obj.get("id"),
+            "x":                float(x_pred),
+            "y":                float(y_pred),
+            "lat":              float(lat),
+            "lon":              float(lon),
+            "size":             _safe_float(obj.get("size", 0.0)),
+            "origin_lat":       _safe_float(obj.get("lat", 0.0)),
+            "origin_lon":       _safe_float(obj.get("lon", 0.0)),
+            "forecast_mode":    "kinematic",
+            "kinematic_source": src,
+        })
 
 
 def _predict_lgbm_vector(models, frame, suffix=""):
@@ -78,13 +105,14 @@ def _predict_lgbm_vector(models, frame, suffix=""):
     return np.asarray(preds, dtype=float)
 
 
-def _linear_fallback(objects):
+def _kinematic_fallback(objects: list) -> tuple:
+    """Kinematischer Fallback für alle Objekte (keine Modelle geladen)."""
     forecasts = {h: [] for h in ML_FORECAST_HORIZONS_MIN}
     for obj in objects:
-        obj["intensification_prob"] = 0.0
+        obj["intensification_prob"]  = 0.0
         obj["delta_core_ratio_pred"] = 0.0
-        obj["delta_area_pred"] = 0.0
-        _append_linear(obj, forecasts)
+        obj["delta_area_pred"]       = 0.0
+        _append_kinematic(obj, forecasts)
     return tuple(forecasts[h] for h in ML_FORECAST_HORIZONS_MIN)
 
 
@@ -179,7 +207,7 @@ def _build_sequence(obj_id, current_obj, stations, ts_dt):
 def predict_positions(objects: list, timestamp: str, stations: list):
     if np is None:
         debug_log("[PREDICT] numpy fehlt, nutze linearen Fallback.")
-        return _linear_fallback(objects)
+        return _kinematic_fallback(objects)
 
     scaler_X, scaler_y = load_scalers()
     lgbm_models = load_lgbm_models()
@@ -197,7 +225,7 @@ def predict_positions(objects: list, timestamp: str, stations: list):
     has_lstm = lstm_model is not None
     if scaler_X is None or scaler_y is None or (not has_lgbm and not has_lstm):
         debug_log("[PREDICT] Fehlende Scaler/Modelle, nutze linearen Fallback.")
-        return _linear_fallback(objects)
+        return _kinematic_fallback(objects)
 
     ts_dt = datetime.strptime(timestamp, "%Y-%m-%d_%H-%M-%S")
     forecasts = {h: [] for h in ML_FORECAST_HORIZONS_MIN}
@@ -205,7 +233,7 @@ def predict_positions(objects: list, timestamp: str, stations: list):
     for obj in objects:
         seq = _build_sequence(obj.get("id"), obj, stations, ts_dt)
         if seq is None:
-            _append_linear(obj, forecasts)
+            _append_kinematic(obj, forecasts)
             continue
 
         seq_scaled = scaler_X.transform(seq).reshape(1, ML_SEQUENCE_LENGTH, ML_NUM_FEATURES)
@@ -250,10 +278,12 @@ def predict_positions(objects: list, timestamp: str, stations: list):
             prediction_scaled = np.asarray(lstm_model.predict(seq_scaled, verbose=0)[0], dtype=float)
 
         if prediction_scaled is None or prediction_scaled.shape[0] != len(ML_FORECAST_HORIZONS_MIN) * 2:
-            _append_linear(obj, forecasts)
+            _append_kinematic(obj, forecasts)
             continue
 
         prediction = scaler_y.inverse_transform(prediction_scaled.reshape(1, -1))[0]
+        obj["forecast_mode"]   = "ml"
+        obj["has_ml_forecast"] = True
         prediction_q10 = scaler_y.inverse_transform(prediction_q10_scaled.reshape(1, -1))[0] if prediction_q10_scaled is not None else None
         prediction_q90 = scaler_y.inverse_transform(prediction_q90_scaled.reshape(1, -1))[0] if prediction_q90_scaled is not None else None
 
@@ -284,6 +314,7 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                     "size": _safe_float(obj.get("size", 0.0)),
                     "origin_lat": _safe_float(obj.get("lat", 0.0)),
                     "origin_lon": _safe_float(obj.get("lon", 0.0)),
+                    "forecast_mode": "ml",
                     **(
                         {
                             "x_q10": float(prediction_q10[idx * 2]),
