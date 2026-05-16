@@ -222,6 +222,14 @@ def api_accuracy():
     })
 
 
+@app.route("/api/api_health")
+def api_api_health():
+    """Liefert API-Failure-Statistik der letzten N Stunden."""
+    from debug_utils import api_health_summary
+    hours = int(request.args.get("hours", "24"))
+    return jsonify(api_health_summary(since_hours=hours))
+
+
 @app.route("/api/logs")
 def api_logs():
     def tail(unit):

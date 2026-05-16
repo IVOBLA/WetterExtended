@@ -171,6 +171,21 @@ TRAINING_SCHEDULE = {
 }
 ML_IGNORE_FLAG = -1
 
+# --------------------------------------
+# Vorhersage-Verifikation (Closed-Loop)
+# --------------------------------------
+# Räumliche Toleranz: Vorhersage gilt als Treffer wenn tatsächliche Zelle
+# innerhalb dieses Radius zur vorhergesagten Position liegt (Haversine, km).
+VERIFICATION_TOLERANCE_KM = 5.0
+
+# Zeitliche Toleranz beim Suchen des Frames T+horizon (Sekunden).
+# ARSO liefert ca. alle 2-5 Min ein Bild → 90 s sind robust.
+VERIFICATION_TIME_TOLERANCE_S = 90
+
+# Maximaler Suchradius für Nearest-Neighbor-Match (km).
+# Wenn keine Zelle in diesem Radius → "kein Treffer" geloggt, fließt in Hit-Rate ein.
+VERIFICATION_MAX_SEARCH_RADIUS_KM = 25.0
+
 # Backward-Compatibility für bestehende Module
 LSTM_SEQUENCE_LENGTH = ML_SEQUENCE_LENGTH
 LSTM_NUM_FEATURES = ML_NUM_FEATURES

@@ -90,7 +90,11 @@ def _fetch_single(lat: float, lon: float) -> dict:
         target_time = _nearest_hour_str()
         times = hourly.get("time", [])
         if target_time not in times:
-            debug_log(f"[AROME] Kein Slot für {target_time} in icon_d2 — verwende Index 0")
+            from debug_utils import log_api_failure
+            log_api_failure("Open-Meteo-icon_d2",
+                            f"{OPEN_METEO_URL}?latitude={lat:.3f}&longitude={lon:.3f}",
+                            f"no-slot-for-{target_time}",
+                            fallback_used=True)
             idx = 0
         else:
             idx = times.index(target_time)
@@ -118,8 +122,24 @@ def _fetch_single(lat: float, lon: float) -> dict:
             "arome_fl_height": round(fl_h, 1),
         }
 
+    except requests.exceptions.Timeout:
+        from debug_utils import log_api_failure
+        log_api_failure("Open-Meteo-icon_d2",
+                        f"{OPEN_METEO_URL}?latitude={lat:.3f}&longitude={lon:.3f}",
+                        "timeout", fallback_used=True)
+        return dict(_DEFAULT)
+    except requests.exceptions.HTTPError as e:
+        from debug_utils import log_api_failure
+        status = getattr(e.response, "status_code", None)
+        log_api_failure("Open-Meteo-icon_d2",
+                        f"{OPEN_METEO_URL}?latitude={lat:.3f}&longitude={lon:.3f}",
+                        f"http-error: {e}", fallback_used=True, http_status=status)
+        return dict(_DEFAULT)
     except Exception as e:
-        debug_log(f"[AROME] Fehler bei ({lat:.3f},{lon:.3f}): {e}")
+        from debug_utils import log_api_failure
+        log_api_failure("Open-Meteo-icon_d2",
+                        f"{OPEN_METEO_URL}?latitude={lat:.3f}&longitude={lon:.3f}",
+                        f"{type(e).__name__}: {e}", fallback_used=True)
         return dict(_DEFAULT)
 
 
