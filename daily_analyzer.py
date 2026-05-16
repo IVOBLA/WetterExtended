@@ -26,6 +26,145 @@ import runtime_config
 
 
 # ---------------------------------------------------------------------------
+# Quellcode-Kontext für KI-Analyse
+# ---------------------------------------------------------------------------
+
+# Python-Dateien die IMMER einbezogen werden (erste N Zeilen).
+_ALWAYS_INCLUDE = [
+    "config.py",
+    "object_tracking.py",
+    "prediction.py",
+    "accuracy_tracker.py",
+    "dataset_builder.py",
+    "scheduler.py",
+]
+# Maximale Zeilen pro Datei (Token-Budget schonen).
+_MAX_LINES_PER_FILE = 80
+# Maximale Anzahl zusätzlicher Dateien aus Git-Log.
+_MAX_GIT_CHANGED = 3
+
+
+def _read_file_head(path: str, max_lines: int = _MAX_LINES_PER_FILE) -> str:
+    """Liest die ersten max_lines Zeilen einer Datei."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            lines = []
+            for i, line in enumerate(f):
+                if i >= max_lines:
+                    lines.append(f"... ({i} weitere Zeilen gekürzt)\n")
+                    break
+                lines.append(line)
+        return "".join(lines)
+    except Exception as exc:
+        return f"[Lesefehler: {exc}]"
+
+
+def _git_log_summary(repo_dir: str = ".") -> str:
+    """Letzten 5 Git-Commits als kompakte Zusammenfassung."""
+    import subprocess
+
+    try:
+        out = subprocess.check_output(
+            ["git", "-C", repo_dir, "log", "--oneline", "--no-merges", "-5"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+        return out.strip()
+    except Exception:
+        return "(kein Git-Log verfügbar)"
+
+
+def _git_recently_changed(repo_dir: str = ".", n: int = _MAX_GIT_CHANGED) -> list:
+    """
+    Gibt Liste der zuletzt geänderten .py-Dateien zurück (aus Git-Log).
+    Maximal n Dateien, dedupliziert, ohne _ALWAYS_INCLUDE.
+    """
+    import subprocess
+
+    try:
+        out = subprocess.check_output(
+            ["git", "-C", repo_dir, "log", "--name-only", "--pretty=format:", "--diff-filter=M", "-10"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+        seen = set()
+        result = []
+        for line in out.splitlines():
+            fname = line.strip()
+            if (
+                fname.endswith(".py")
+                and fname not in seen
+                and fname not in _ALWAYS_INCLUDE
+                and os.path.isfile(fname)
+            ):
+                seen.add(fname)
+                result.append(fname)
+                if len(result) >= n:
+                    break
+        return result
+    except Exception:
+        return []
+
+
+def _file_inventory(repo_dir: str = ".") -> list:
+    """
+    Erstellt ein kompaktes Inventar aller .py-Dateien:
+    [{name, lines, size_kb, mtime}]
+    """
+    import glob as _glob
+    from datetime import datetime as _dt2
+
+    inventory = []
+    for path in sorted(_glob.glob(os.path.join(repo_dir, "*.py"))):
+        try:
+            stat = os.stat(path)
+            with open(path, encoding="utf-8", errors="replace") as f:
+                line_count = sum(1 for _ in f)
+            inventory.append(
+                {
+                    "file": os.path.basename(path),
+                    "lines": line_count,
+                    "size_kb": round(stat.st_size / 1024, 1),
+                    "mtime": _dt2.utcfromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
+                }
+            )
+        except Exception:
+            continue
+    return inventory
+
+
+def _collect_source_context(repo_dir: str = ".") -> dict:
+    """
+    Sammelt Quellcode-Kontext für die KI-Analyse:
+    - Datei-Inventar (alle .py-Dateien)
+    - Git-Log (letzte 5 Commits)
+    - Immer einbezogene Schlüsseldateien (erste 80 Zeilen)
+    - Zuletzt geänderte Dateien aus Git (erste 80 Zeilen)
+    """
+    ctx = {
+        "inventory": _file_inventory(repo_dir),
+        "git_log": _git_log_summary(repo_dir),
+        "key_files": {},
+        "recently_changed": {},
+    }
+
+    # Schlüsseldateien einlesen
+    for fname in _ALWAYS_INCLUDE:
+        fpath = os.path.join(repo_dir, fname)
+        if os.path.isfile(fpath):
+            ctx["key_files"][fname] = _read_file_head(fpath, _MAX_LINES_PER_FILE)
+        else:
+            ctx["key_files"][fname] = "[nicht gefunden]"
+
+    # Zuletzt geänderte Dateien (aus Git-Log, nicht in key_files)
+    for fname in _git_recently_changed(repo_dir):
+        fpath = os.path.join(repo_dir, fname)
+        ctx["recently_changed"][fname] = _read_file_head(fpath, _MAX_LINES_PER_FILE)
+
+    return ctx
+
+
+# ---------------------------------------------------------------------------
 # Report-Zusammenstellung
 # ---------------------------------------------------------------------------
 
@@ -65,6 +204,7 @@ def build_system_report(since_hours: int = 24) -> dict:
         "model_quality": {},
         "data_quality": {},
         "system": {},
+        "source_context": {},
     }
 
     # --- Vorhersage-Genauigkeit ---
@@ -165,6 +305,19 @@ def build_system_report(since_hours: int = 24) -> dict:
     except Exception:
         pass
 
+    # --- Quellcode-Kontext ---
+    try:
+        report["source_context"] = _collect_source_context(".")
+        total_files = len(report["source_context"].get("key_files", {}))
+        total_changed = len(report["source_context"].get("recently_changed", {}))
+        debug_log(
+            f"[ANALYZER] Source-Kontext: "
+            f"{total_files} Key-Files + {total_changed} geänderte Dateien"
+        )
+    except Exception as exc:
+        debug_log(f"[ANALYZER] Source-Kontext Fehler: {exc}")
+        report["source_context"] = {}
+
     return report
 
 
@@ -173,29 +326,40 @@ WetterExtended-System (Raspberry Pi 5, Hailo-8, Kärnten/Österreich).
 Das System erkennt Gewitterzellen auf ARSO-Radarbildern und macht
 ML-basierte Positionsvorhersagen.
 
-Du erhältst täglich einen komprimierten Metrik-Report und antwortest
-AUSSCHLIESSLICH mit einem validen JSON-Objekt — kein Text davor oder
-danach, keine Markdown-Backticks.
+Du erhältst täglich einen Report mit zwei Teilen:
+1) METRIKEN: Vorhersagegenauigkeit, API-Fehler, Modellqualität, System
+2) QUELLCODE: Datei-Inventar, Git-Log, erste 80 Zeilen der Schlüsseldateien
+   und zuletzt geänderter Dateien
+
+Analysiere BEIDE Teile gemeinsam. Erkenne:
+- Metrisch: schlechte MAE/Hit-Rate, häufige API-Ausfälle, Modell-Drift
+- Im Code: Bugs, fehlende Fehlerbehandlung, hardcodierte Werte,
+  inkonsistente Logik, verbesserbare Algorithmen, fehlende Validierung
+- Zusammenhänge: z.B. API-Fehler im Code der zum bekannten Dienst passt
+
+Antworte AUSSCHLIESSLICH mit einem validen JSON-Objekt —
+kein Text davor oder danach, keine Markdown-Backticks.
 
 JSON-Schema (strikt einhalten):
 {
   "analysis_date": "ISO-Datum",
   "overall_status": "ok|warning|critical",
-  "summary": "Max. 2 Sätze Gesamtbewertung.",
+  "summary": "Max. 2 Sätze Gesamtbewertung (Metriken UND Code).",
   "suggestions": [
     {
       "priority": "high|medium|low",
-      "category": "accuracy|api|model|data|system|config",
+      "category": "accuracy|api|model|data|system|config|code",
       "title": "Kurztitel (max. 60 Zeichen)",
-      "description": "Problembeschreibung (max. 150 Zeichen)",
-      "action": "Konkrete Handlungsempfehlung (max. 200 Zeichen)"
+      "description": "Problembeschreibung mit Dateiname/Zeilennummer falls möglich (max. 200 Zeichen)",
+      "action": "Konkrete Handlungsempfehlung inkl. Code-Snippet falls sinnvoll (max. 300 Zeichen)"
     }
   ]
 }
 
-Maximal 5 Vorschläge, sortiert nach Priorität. Nur echte Probleme
-melden, keine trivialen Hinweise. Wenn alles in Ordnung ist,
-suggestions = [].
+Maximal 6 Vorschläge, sortiert nach Priorität (code-Kategorie ist
+gleichwertig zu anderen). Nur echte Probleme melden. Bei Code-Befunden:
+Dateiname und betroffene Funktion/Zeile angeben.
+Wenn alles in Ordnung ist, suggestions = [].
 """
 
 
