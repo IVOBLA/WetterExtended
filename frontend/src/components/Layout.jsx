@@ -13,6 +13,7 @@ const NAV = [
   { to: '/progress', label: 'Lernfortschritt' },
   { to: '/accuracy', label: 'Genauigkeit' },
   { to: '/logs', label: 'Logs' },
+  { to: '/ai-analysis', label: 'KI-Analyse' },
 ]
 
 export default function Layout() {

@@ -245,6 +245,69 @@ def api_logs():
     })
 
 
+
+# ---------- KI-Analyse-Pipeline ----------
+@app.route("/api/ai_analysis/config")
+def api_ai_analysis_config_get():
+    cfg = runtime_config.get("AI_ANALYSIS_CONFIG", {})
+    from config import AI_ANALYSIS_CONFIG as _default
+    effective = dict(_default)
+    effective.update(cfg)
+    return jsonify(effective)
+
+
+@app.route("/api/ai_analysis/config", methods=["POST"])
+def api_ai_analysis_config_save():
+    try:
+        data = request.get_json(force=True)
+        assert isinstance(data, dict)
+        if "enabled" in data:
+            data["enabled"] = bool(data["enabled"])
+        if "cron_hour" in data:
+            data["cron_hour"] = int(data["cron_hour"])
+        if "cron_minute" in data:
+            data["cron_minute"] = int(data["cron_minute"])
+        if "max_tokens" in data:
+            data["max_tokens"] = int(data["max_tokens"])
+        if "since_hours" in data:
+            data["since_hours"] = int(data["since_hours"])
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    from config import AI_ANALYSIS_CONFIG as _default
+    merged = dict(_default)
+    merged.update(runtime_config.get("AI_ANALYSIS_CONFIG", {}))
+    merged.update(data)
+    runtime_config.patch({"AI_ANALYSIS_CONFIG": merged})
+    return jsonify({"ok": True})
+
+
+@app.route("/api/ai_analysis/suggestions")
+def api_ai_analysis_suggestions():
+    try:
+        from daily_analyzer import load_latest_suggestions
+        n = int(request.args.get("n", "10"))
+        return jsonify({"suggestions": load_latest_suggestions(n)})
+    except Exception as e:
+        return jsonify({"suggestions": [], "error": str(e)})
+
+
+@app.route("/api/ai_analysis/run", methods=["POST"])
+def api_ai_analysis_run():
+    """Manueller Trigger für Sofort-Analyse (ignoriert enabled-Flag)."""
+    try:
+        from daily_analyzer import run_analysis
+        from config import AI_ANALYSIS_CONFIG as _default
+        cfg = dict(_default)
+        cfg.update(runtime_config.get("AI_ANALYSIS_CONFIG", {}))
+        cfg["enabled"] = True
+        result = run_analysis(cfg)
+        if result is None:
+            return jsonify({"ok": False, "error": "Analyse fehlgeschlagen (siehe Logs)"}), 500
+        return jsonify({"ok": True, "result": result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ---------- React-Frontend serven ----------
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")

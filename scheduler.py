@@ -9,6 +9,7 @@ from model_training import retrain_all
 import runtime_config
 from accuracy_tracker import evaluate_all, append_history_point
 from radar_convlstm import train_convlstm
+from config import AI_ANALYSIS_CONFIG
 
 
 def run_rebuild_dataset_job():
@@ -49,6 +50,23 @@ def run_convlstm_weekly_job():
         debug_log(f"[SCHEDULER] Job convlstm_weekly Fehler: {exc}")
 
 
+def run_ai_analysis_job():
+    """Tägliche KI-Analyse (nur wenn AI_ANALYSIS_CONFIG.enabled == True)."""
+    runtime_config.reload_overrides()
+    cfg = runtime_config.get("AI_ANALYSIS_CONFIG", AI_ANALYSIS_CONFIG)
+    if not cfg.get("enabled", False):
+        debug_log("[SCHEDULER] Job ai_analysis übersprungen (deaktiviert)")
+        return
+    debug_log("[SCHEDULER] Job ai_analysis gestartet")
+    try:
+        from daily_analyzer import run_analysis
+        result = run_analysis(cfg)
+        n = len(result.get("suggestions", [])) if result else 0
+        debug_log(f"[SCHEDULER] Job ai_analysis abgeschlossen ({n} Vorschläge, status={result.get('overall_status','?') if result else 'none'})")
+    except Exception as exc:
+        debug_log(f"[SCHEDULER] Job ai_analysis Fehler: {exc}")
+
+
 def run_accuracy_eval_job():
     runtime_config.reload_overrides()
     debug_log("[SCHEDULER] Job accuracy_eval gestartet")
@@ -63,6 +81,18 @@ def run_accuracy_eval_job():
 
 def create_scheduler() -> BlockingScheduler:
     sched = BlockingScheduler(timezone="Europe/Vienna")
+
+    # KI-Analyse täglich (Uhrzeit aus AI_ANALYSIS_CONFIG)
+    _ai_cfg = runtime_config.get("AI_ANALYSIS_CONFIG", AI_ANALYSIS_CONFIG)
+    sched.add_job(
+        run_ai_analysis_job,
+        trigger=CronTrigger(
+            hour=_ai_cfg.get("cron_hour", 6),
+            minute=_ai_cfg.get("cron_minute", 0),
+            timezone="Europe/Vienna",
+        ),
+        id="ai_analysis", max_instances=1, coalesce=True,
+    )
 
     sched.add_job(
         run_rebuild_dataset_job,
