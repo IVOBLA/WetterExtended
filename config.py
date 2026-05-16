@@ -55,6 +55,19 @@ CORE_HSV_RANGES = [
     ([125, 100, 120], [155, 255, 255]),  # Violett      57    dBZ
 ]
 
+# Stratiforme Umgebungsbänder (36–47 dBZ).
+# Werden NICHT getrackt / angezeigt, nur als ML-Kontext-Features genutzt.
+# ARSO INCA Farbskala:
+#   Grün      = zmerne  36–41 dBZ  HSV-Hue ~60–90
+#   GelbGrün  = močne   42–47 dBZ  HSV-Hue ~40–60
+STRATIFORM_HSV_RANGES = [
+    (( 55,  50,  60), ( 92, 255, 255)),  # Grün      36–41 dBZ
+    (( 38,  50,  60), ( 55, 255, 255)),  # GelbGrün  42–47 dBZ
+]
+# Suchradius im hochskalierten Bild (UPSCALE_FACTOR=3.0).
+# 60 px ≈ 20 km — ausreichend für Umgebungskontext.
+STRATIFORM_SEARCH_RADIUS_PX = 60
+
 # --------------------------------------
 # Bildverarbeitung
 # --------------------------------------
@@ -110,6 +123,10 @@ ML_CELL_FEATURES = [
     "arome_dd_sin",    # sin(Windrichtung 10 m)
     "arome_li",        # Lifted Index (°C, neg. = instabil)
     "arome_fl_height", # Gefriergrenze MSL (m)
+    # ── Stratiforme Umgebung (36–47 dBZ, nicht auf Karte) ──────────────────
+    "strat_area_px",        # Pixel-Fläche stratif. Bereich im Suchradius
+    "strat_intensity_mean", # Mittlere HSV-Helligkeit stratif. Pixel (0–1)
+    "strat_dbz_gradient",   # dBZ-Gradient in Bewegungsrichtung (relativ)
 ]
 
 ML_STATION_FEATURES = [

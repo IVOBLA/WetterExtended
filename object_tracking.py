@@ -110,6 +110,94 @@ def preprocess_image(image_path):
     merged = merge_close_contours(contours, hsv.shape[:2], min_touch=MIN_CONTOUR_TOUCH)
     return hsv, merged, mask
     
+def compute_stratiform_environment(hsv: np.ndarray, contour: np.ndarray,
+                                   vx: float = 0.0,
+                                   vy: float = 0.0) -> dict:
+    """
+    Berechnet stratiforme Umgebungsfeatures (36–47 dBZ) im
+    STRATIFORM_SEARCH_RADIUS_PX-Umkreis der Zell-Kontur.
+
+    Rückgabe: dict mit strat_area_px, strat_intensity_mean, strat_dbz_gradient
+    Fallback: alle 0.0 bei Fehler oder fehlenden Imports.
+    """
+    _default = {
+        "strat_area_px": 0.0,
+        "strat_intensity_mean": 0.0,
+        "strat_dbz_gradient": 0.0,
+    }
+    try:
+        from config import STRATIFORM_HSV_RANGES, STRATIFORM_SEARCH_RADIUS_PX
+    except ImportError:
+        return _default
+
+    try:
+        h_img, w_img = hsv.shape[:2]
+        x_pts = contour[:, 0, 0]
+        y_pts = contour[:, 0, 1]
+        r = int(STRATIFORM_SEARCH_RADIUS_PX)
+
+        # Region of Interest um die Zell-Kontur
+        x0 = max(0, int(x_pts.min()) - r)
+        x1 = min(w_img, int(x_pts.max()) + r)
+        y0 = max(0, int(y_pts.min()) - r)
+        y1 = min(h_img, int(y_pts.max()) + r)
+        roi = hsv[y0:y1, x0:x1]
+        if roi.size == 0:
+            return _default
+
+        # Stratiforme Maske (Grün + GelbGrün)
+        strat_mask = np.zeros(roi.shape[:2], dtype=np.uint8)
+        for lower, upper in STRATIFORM_HSV_RANGES:
+            strat_mask |= cv2.inRange(
+                roi,
+                np.array(lower, dtype=np.uint8),
+                np.array(upper, dtype=np.uint8),
+            )
+
+        # Zell-Kontur aus Maske ausschneiden (keine Doppelzählung)
+        cell_roi = np.zeros(roi.shape[:2], dtype=np.uint8)
+        cnt_shift = contour.copy()
+        cnt_shift[:, 0, 0] = np.clip(cnt_shift[:, 0, 0] - x0, 0, x1 - x0 - 1)
+        cnt_shift[:, 0, 1] = np.clip(cnt_shift[:, 0, 1] - y0, 0, y1 - y0 - 1)
+        cv2.drawContours(cell_roi, [cnt_shift], -1, 255, -1)
+        strat_mask = cv2.bitwise_and(strat_mask, cv2.bitwise_not(cell_roi))
+
+        area = float(cv2.countNonZero(strat_mask))
+
+        # Mittlere Helligkeit der stratiformen Pixel
+        if area > 0:
+            val_ch = roi[:, :, 2].astype(np.float32) / 255.0
+            intensity_mean = float(cv2.mean(val_ch, mask=strat_mask)[0])
+        else:
+            intensity_mean = 0.0
+
+        # dBZ-Gradient in Bewegungsrichtung
+        # Verschobene Maske vergleichen: mehr stratiforme Pixel voraus = positiv
+        gradient = 0.0
+        speed = float(np.hypot(vx, vy))
+        if speed > 0.01:
+            shift_dist = max(1, int(r * 0.25))
+            dx = int(round(vx / speed * shift_dist))
+            dy = int(round(vy / speed * shift_dist))
+            M_aff = np.float32([[1, 0, dx], [0, 1, dy]])
+            shifted = cv2.warpAffine(
+                strat_mask, M_aff,
+                (strat_mask.shape[1], strat_mask.shape[0]),
+            )
+            area_ahead = float(cv2.countNonZero(shifted))
+            gradient = (area_ahead - area) / max(area, 1.0)
+
+        return {
+            "strat_area_px": round(area, 1),
+            "strat_intensity_mean": round(intensity_mean, 4),
+            "strat_dbz_gradient": round(gradient, 4),
+        }
+
+    except Exception as exc:
+        debug_log(f"[STRAT] compute_stratiform_environment Fehler: {exc}")
+        return _default
+
+
 def calculate_core_ratio(hsv, contour):
     CORE_HSV_RANGES = _rc.get("CORE_HSV_RANGES", _DEFAULT_CORE_HSV_RANGES)
     mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
@@ -224,12 +312,18 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
                 trend = -1
 
         dem = get_dem_features(lat, lon, vx=float(vx), vy=float(vy))
+        strat = compute_stratiform_environment(
+            hsv, contour, vx=float(vx), vy=float(vy)
+        )
         new_memory[obj_id] = {
             "x": original_cx, "y": original_cy, "vx": float(vx), "vy": float(vy),
             "size": int(np.sqrt(area)), "area": float(area), "eccentricity": float(eccentricity),
             "core_ratio": float(core_ratio), "trend": trend, "lat": lat, "lon": lon,
             "dem_elevation_m": dem["dem_elevation_m"],
             "dem_slope_toward_cell": dem["dem_slope_toward_cell"],
+            "strat_area_px": strat["strat_area_px"],
+            "strat_intensity_mean": strat["strat_intensity_mean"],
+            "strat_dbz_gradient": strat["strat_dbz_gradient"],
             "lightning_count_10km": 0,
             "kf": kf, "contour": contour[:, 0, :].tolist(), "weather_vals": {}, "station_ids": [],
             "lstm_vx": 0.0, "lstm_vy": 0.0, "missing": 0,
