@@ -23,12 +23,23 @@ export default function AiSuggestions() {
   const [running, setRunning] = useState(false)
   const [msg, setMsg] = useState('')
   const [saved, setSaved] = useState(false)
+  const [models,         setModels]         = useState([])
+  const [selectedModel,  setSelectedModel]  = useState('claude-sonnet-4-6')
+  const [includeData,    setIncludeData]    = useState(true)
+  const [includeSource,  setIncludeSource]  = useState(false)
+  const [chatQuestion,   setChatQuestion]   = useState('')
+  const [chatAnswer,     setChatAnswer]     = useState(null)
+  const [chatLoading,    setChatLoading]    = useState(false)
+  const [chatError,      setChatError]      = useState(null)
 
   useEffect(() => {
     api.get('/api/ai_analysis/config').then(setCfg).catch(() => {})
     api.get('/api/ai_analysis/suggestions?n=5').then(d => {
       setSuggestions(d.suggestions || [])
     }).catch(() => {})
+    api.get('/api/ai_analysis/models')
+      .then(d => setModels(d.models || []))
+      .catch(() => {})
   }, [])
 
   async function saveCfg() {
@@ -56,6 +67,27 @@ export default function AiSuggestions() {
       setMsg('Fehler: ' + e.message)
     }
     setRunning(false)
+  }
+
+  async function sendChat() {
+    if (!chatQuestion.trim()) return
+    setChatLoading(true)
+    setChatError(null)
+    setChatAnswer(null)
+    try {
+      const r = await api.post('/api/ai_analysis/chat', {
+        question:       chatQuestion,
+        include_data:   includeData,
+        include_source: includeSource,
+        model:          selectedModel,
+      })
+      if (r.ok) setChatAnswer(r.answer)
+      else setChatError(r.error || 'Unbekannter Fehler')
+    } catch (e) {
+      setChatError(String(e))
+    } finally {
+      setChatLoading(false)
+    }
   }
 
   return (
@@ -150,6 +182,80 @@ export default function AiSuggestions() {
           ))
         )}
       </div>
+
+      {/* KI-Analyse Chat */}
+      <div className="card mt-6">
+        <h2 className="text-base font-semibold mb-3">🤖 KI-Analyse Chat</h2>
+
+        <div className="flex flex-wrap gap-4 mb-3 text-sm">
+          {/* Modell-Auswahl */}
+          <label className="flex items-center gap-2">
+            Modell:
+            <select
+              className="border rounded px-2 py-1 text-sm"
+              value={selectedModel}
+              onChange={e => setSelectedModel(e.target.value)}
+            >
+              {models.map(m => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+          </label>
+
+          {/* Kontext-Toggle */}
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={includeData}
+              onChange={e => setIncludeData(e.target.checked)} />
+            Metriken & Systemdaten (letzte 24h)
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={includeSource}
+              onChange={e => setIncludeSource(e.target.checked)} />
+            Quellcode einbeziehen
+            <span className="text-xs text-gray-400">(langsamer)</span>
+          </label>
+        </div>
+
+        {/* Eingabe */}
+        <div className="flex gap-2 items-end">
+          <textarea
+            className="flex-1 border rounded px-3 py-2 text-sm resize-y"
+            style={{ minHeight: 80 }}
+            placeholder={
+              'Frage stellen, z.B.:\n' +
+              '• Warum ist die Hit-Rate so niedrig?\n' +
+              '• Welche Verbesserungen empfiehlst du für den Tracker?\n' +
+              '• Strg+Enter zum Senden'
+            }
+            value={chatQuestion}
+            onChange={e => setChatQuestion(e.target.value)}
+            onKeyDown={e => { if (e.ctrlKey && e.key === 'Enter') sendChat() }}
+          />
+          <button
+            className="btn-primary px-5 py-2"
+            onClick={sendChat}
+            disabled={chatLoading || !chatQuestion.trim()}
+          >
+            {chatLoading ? '⏳…' : 'Senden'}
+          </button>
+        </div>
+
+        {/* Fehler */}
+        {chatError && (
+          <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+            ❌ {chatError}
+          </div>
+        )}
+
+        {/* Antwort */}
+        {chatAnswer && (
+          <div className="mt-3 p-4 bg-green-50 border border-green-200 rounded text-sm
+                          whitespace-pre-wrap leading-relaxed">
+            {chatAnswer}
+          </div>
+        )}
+      </div>
+
     </div>
   )
 }
