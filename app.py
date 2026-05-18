@@ -69,28 +69,42 @@ def api_objects():
 
 @app.route("/api/forecast")
 def api_forecast():
+    import math as _math
+    from config import MIN_MOVEMENT_FOR_ARROW_KMH, FORECAST_ARROW_STYLE
     horizons = runtime_config.get("ML_FORECAST_HORIZONS_MIN", [10, 20, 30, 40, 60])
-    colors = runtime_config.get("FORECAST_ARROW_COLORS", {})
+    colors   = runtime_config.get("FORECAST_ARROW_COLORS", {})
+    styles   = runtime_config.get("FORECAST_ARROW_STYLE", FORECAST_ARROW_STYLE)
+    min_kmh  = runtime_config.get("MIN_MOVEMENT_FOR_ARROW_KMH", MIN_MOVEMENT_FOR_ARROW_KMH)
+    # 1 px/Frame (UPSCALE=3, ~2 min/Frame) ≈ 10 km/h (Näherung Kärnten)
+    PX_TO_KMH = 10.0
     feats = []
     for o in _latest_objects():
         if o.get("lat") is None or o.get("lon") is None:
             continue
+        vx = float(o.get("vx") or 0.0)
+        vy = float(o.get("vy") or 0.0)
+        speed_kmh = _math.hypot(vx, vy) * PX_TO_KMH
+        has_arrow = speed_kmh >= min_kmh
         for h in horizons:
             fy = o.get(f"forecast_lat_{h}")
             fx = o.get(f"forecast_lon_{h}")
             if fy is None or fx is None:
                 continue
-            color = colors.get(h) or colors.get(str(h)) or "#888888"
+            color = colors.get(h) or colors.get(str(h))
+            style = styles.get(h) or styles.get(str(h)) or {}
             feats.append({
                 "type": "Feature",
                 "geometry": {"type": "LineString", "coordinates": [[o["lon"], o["lat"]], [fx, fy]]},
                 "properties": {
-                    "id": o.get("id"),
-                    "horizon": h,
-                    "color": color,
-                    "lineage": o.get("lineage"),
-                    "forecast_mode": o.get("forecast_mode", "kinematic"),
+                    "cell_id":         o.get("id"),
+                    "horizon":         h,
+                    "color":           color,
+                    "weight":          style.get("weight", 2),
+                    "dash":            style.get("dash", ""),
+                    "forecast_mode":   o.get("forecast_mode", "kinematic"),
                     "kinematic_source": o.get("kinematic_source"),
+                    "has_arrow":       has_arrow,
+                    "speed_kmh":       round(speed_kmh, 1),
                 },
             })
     return jsonify({"type": "FeatureCollection", "features": feats})
