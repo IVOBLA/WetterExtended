@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import {
   MapContainer, TileLayer, CircleMarker,
-  Polyline, Polygon, Circle, Popup
+  Polyline, Polygon, Circle, Popup, ImageOverlay,
 } from 'react-leaflet'
 import api from '../api.js'
 
@@ -14,20 +14,27 @@ export default function MapFullscreen() {
   const [forecast,  setForecast]  = useState({ features: [] })
   const [locations, setLocations] = useState({ watchlist: [], hits: [], colors: {} })
   const [horizons,  setHorizons]  = useState({ horizons: [10, 20, 30, 40, 60], colors: {}, styles: {} })
-  const [radarTiming, setRadarTiming] = useState(null)
-  const [lastTs,    setLastTs]    = useState(null)
+  const [lastTs,       setLastTs]       = useState(null)
+  const [radarBounds,  setRadarBounds]  = useState(null)
+  const [radarOpacity, setRadarOpacity] = useState(0.65)
+  const [showRadar,    setShowRadar]    = useState(true)
+  const [radarTiming,  setRadarTiming]  = useState(null)
+  const [radarTs,      setRadarTs]      = useState(0)
 
   async function load() {
     try {
-      const [a, b, c, d, timing] = await Promise.all([
+      const [a, b, c, d, timing, bounds] = await Promise.all([
         api.get('/api/objects'),
         api.get('/api/forecast'),
         api.get('/api/locations'),
         api.get('/api/horizons'),
         api.get('/api/radar_timing').catch(() => null),
+        api.get('/api/radar_bounds').catch(() => null),
       ])
       setObjects(a); setForecast(b); setLocations(c); setHorizons(d)
       if (timing) setRadarTiming(timing)
+      if (bounds?.bounds) setRadarBounds(bounds.bounds)
+      setRadarTs(Date.now())
       setLastTs(new Date().toLocaleTimeString('de-AT'))
     } catch (e) { console.error(e) }
   }
@@ -38,34 +45,63 @@ export default function MapFullscreen() {
     return () => clearInterval(t)
   }, [])
 
+  const fmtTime = utcStr => utcStr
+    ? new Date(utcStr).toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })
+    : '—'
+
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 0 }}>
-      {/* Radar-Timing Panel */}
-      {radarTiming && (
-        <div style={{
-          position: 'absolute', top: 10, left: 60, zIndex: 1000,
-          background: 'rgba(255,255,255,0.92)', borderRadius: 8,
-          padding: '6px 12px', fontSize: 12,
-          boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
-          display: 'flex', flexDirection: 'column', gap: 3,
-        }}>
-          <div>🛰 Letztes Radar:{' '}
-            <strong>
-              {new Date(radarTiming.last_radar_image_utc)
-                .toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })}
-            </strong>
-          </div>
-          <div>⏱ Nächste Abfrage:{' '}
-            <strong>
-              {new Date(radarTiming.next_fetch_estimated_utc)
-                .toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })}
-            </strong>
-          </div>
-          <div style={{ color: radarTiming.cells_active ? '#c00' : '#999' }}>
-            {radarTiming.cells_active ? '⚡ Zellen aktiv' : '✓ Keine Zellen'}
-          </div>
-        </div>
-      )}
+
+      {/* Overlay-Panel: Radar-Timing + Deckkraft-Slider — fixiert oben links */}
+      <div style={{
+        position: 'absolute', top: 10, left: 60, zIndex: 1000,
+        background: 'rgba(255,255,255,0.93)', borderRadius: 8,
+        padding: '8px 14px', fontSize: 12,
+        boxShadow: '0 2px 6px rgba(0,0,0,0.20)',
+        display: 'flex', flexDirection: 'column', gap: 5, minWidth: 230,
+      }}>
+        {radarTiming && (
+          <>
+            <div>
+              🛰 Letztes Radar:{' '}
+              <strong>{fmtTime(radarTiming.last_radar_image_utc)}</strong>
+            </div>
+            <div>
+              ⏱ Nächste Abfrage:{' '}
+              <strong>{fmtTime(radarTiming.next_fetch_estimated_utc)}</strong>
+            </div>
+            <div style={{ color: radarTiming.cells_active ? '#cc0000' : '#999' }}>
+              {radarTiming.cells_active ? '⚡ Zellen aktiv' : '✓ Keine aktiven Zellen'}
+            </div>
+          </>
+        )}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+          <input
+            type="checkbox"
+            checked={showRadar}
+            onChange={e => setShowRadar(e.target.checked)}
+          />
+          <span style={{ fontWeight: 500 }}>Radar-Overlay</span>
+        </label>
+        {showRadar && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: '#666' }}>Deckkraft:</span>
+            <input
+              type="range" min="0" max="100"
+              value={Math.round(radarOpacity * 100)}
+              onChange={e => setRadarOpacity(Number(e.target.value) / 100)}
+              style={{ width: 80 }}
+            />
+            <span style={{ fontFamily: 'monospace', minWidth: 28, textAlign: 'right' }}>
+              {Math.round(radarOpacity * 100)}%
+            </span>
+          </label>
+        )}
+        {lastTs && (
+          <div style={{ color: '#aaa', fontSize: 11 }}>Stand: {lastTs}</div>
+        )}
+      </div>
+
       <MapContainer
         center={[46.62, 14.31]}
         zoom={8}
@@ -75,6 +111,17 @@ export default function MapFullscreen() {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution="© OpenStreetMap"
         />
+
+        {/* Radar-Overlay */}
+        {showRadar && radarBounds && (
+          <ImageOverlay
+            key={radarTs}
+            url={`/api/radar_image?t=${radarTs}`}
+            bounds={radarBounds}
+            opacity={radarOpacity}
+            zIndex={200}
+          />
+        )}
 
         {objects.map(o => {
           if (!o.contour_geo || o.contour_geo.length < 3) return null
@@ -165,44 +212,6 @@ export default function MapFullscreen() {
           )
         })}
       </MapContainer>
-
-      {/* Overlay: Legende + Status oben links */}
-      <div style={{
-        position: 'absolute', top: 12, left: 12, zIndex: 1000,
-        background: 'rgba(255,255,255,0.90)', borderRadius: 8,
-        padding: '8px 12px', fontSize: 12, boxShadow: '0 2px 8px rgba(0,0,0,.2)',
-        maxWidth: 340,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-          <strong style={{ fontSize: 13 }}>WetterExtended</strong>
-          {lastTs && (
-            <span style={{ color: '#666', fontSize: 11 }}>Stand: {lastTs}</span>
-          )}
-          <a href="/map" style={{ marginLeft: 'auto', color: '#1d4ed8', fontSize: 11 }}>
-            ← Admin
-          </a>
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px' }}>
-          {horizons.horizons.map(h => {
-            const c = horizons.colors[h] || horizons.colors[String(h)] || '#888'
-            return (
-              <span key={h} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <span style={{ display: 'inline-block', width: 14, height: 3, background: c, borderRadius: 2 }} />
-                <span>+{h} min</span>
-              </span>
-            )
-          })}
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ display: 'inline-block', width: 14, height: 3, background: '#aaa', borderRadius: 2 }} />
-            <span style={{ color: '#888' }}>kinematisch</span>
-          </span>
-        </div>
-        {objects.filter(o => (o.missing ?? 0) === 0).length > 0 && (
-          <div style={{ marginTop: 4, color: '#c2410c', fontWeight: 600 }}>
-            ⛈ {objects.filter(o => (o.missing ?? 0) === 0).length} aktive Zelle(n)
-          </div>
-        )}
-      </div>
     </div>
   )
 }
