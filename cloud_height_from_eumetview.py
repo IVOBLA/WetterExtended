@@ -48,6 +48,11 @@ def get_latest_wms_time():
 
     try:
         r = requests.get(url, timeout=10)
+        try:
+            from debug_utils import log_api_call
+            log_api_call("eumetview_wms", url=url, status_code=r.status_code)
+        except Exception:
+            pass
         if r.ok:
             root = ET.fromstring(r.content)
             for elem in root.iter():
@@ -143,6 +148,11 @@ def assign_cloud_top_height(objects: list, weather_data: list | None = None, tim
 
     try:
         r = requests.get(tif_url, timeout=20)
+        try:
+            from debug_utils import log_api_call
+            log_api_call("eumetview_wms", url=tif_url, status_code=r.status_code)
+        except Exception:
+            pass
         r.raise_for_status()
         with open(tif_path, "wb") as f:
             f.write(r.content)

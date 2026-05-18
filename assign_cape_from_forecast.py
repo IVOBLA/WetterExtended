@@ -141,6 +141,11 @@ def fetch_or_use_latest_geojson(filetimestamp: str, cape_url: str) -> str | None
 
     try:
         response = requests.get(cape_url, timeout=30)
+        try:
+            from debug_utils import log_api_call
+            log_api_call("geosphere_cape", url=cape_url, status_code=response.status_code)
+        except Exception:
+            pass
         response.raise_for_status()
         content = response.content
 

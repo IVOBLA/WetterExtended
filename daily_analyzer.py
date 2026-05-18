@@ -403,6 +403,12 @@ def run_analysis(cfg: Optional[dict] = None) -> Optional[dict]:
                 }
             ],
         )
+        try:
+            from debug_utils import log_api_call
+            log_api_call("anthropic_api", url="https://api.anthropic.com/v1/messages",
+                         status_code=200)
+        except Exception:
+            pass
         raw = message.content[0].text if message.content else ""
         debug_log(f"[ANALYZER] Antwort empfangen ({len(raw)} Zeichen)")
     except Exception as exc:
