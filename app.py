@@ -134,19 +134,25 @@ def api_radar_timing():
 @app.route("/api/radar_image")
 def api_radar_image():
     """
-    Liefert das neueste, auf BBOX_KAERNTEN_EXTENDED zugeschnittene Radarbild
-    als PNG mit transparentem Hintergrund (weiße Pixel → transparent).
-    Leaflet ImageOverlay lädt dieses Bild exakt passend zu /api/radar_bounds.
+    Liefert ein Radar-PNG mit transparentem Hintergrund.
+    ?ts=YYYY-MM-DD_HH-MM-SS  → spezifisches Frame (für Animation)
+    ohne ts                  → neuestes Frame
     """
     import glob as _gl
     from flask import send_file, make_response
     import io
 
-    radar_files = sorted(_gl.glob(os.path.join("data", "radar", "radar_*.png")))
-    if not radar_files:
-        return jsonify({"error": "Kein Radarbild verfügbar"}), 404
-
-    latest = radar_files[-1]
+    ts_param = request.args.get("ts")
+    if ts_param:
+        specific = os.path.join("data", "radar", f"radar_{ts_param}.png")
+        if not os.path.exists(specific):
+            return jsonify({"error": f"Frame {ts_param} nicht gefunden"}), 404
+        latest = specific
+    else:
+        radar_files = sorted(_gl.glob(os.path.join("data", "radar", "radar_*.png")))
+        if not radar_files:
+            return jsonify({"error": "Kein Radarbild verfügbar"}), 404
+        latest = radar_files[-1]
 
     try:
         from PIL import Image
@@ -185,6 +191,35 @@ def api_radar_image():
     except Exception as exc:
         print(f"[RADAR-IMG] Fehler: {exc}")
         return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/radar_frames")
+def api_radar_frames():
+    """Letzte 12 Radar-Frames als Timestamp-Liste für die Karten-Animation."""
+    import glob as _gl
+    from zoneinfo import ZoneInfo as _ZI
+    from datetime import timezone as _tz
+
+    radar_files = sorted(_gl.glob(os.path.join("data", "radar", "radar_*.png")))[-12:]
+    frames = []
+    _vienna = _ZI("Europe/Vienna")
+    for f in radar_files:
+        try:
+            base  = os.path.basename(f)
+            ts    = base.replace("radar_", "").replace(".png", "")
+            ldt   = datetime.strptime(ts, "%Y-%m-%d_%H-%M-%S").replace(tzinfo=_vienna)
+            utcdt = ldt.astimezone(_tz.utc)
+            frames.append({
+                "ts":    ts,
+                "utc":   utcdt.isoformat(timespec="seconds").replace("+00:00", "Z"),
+                "label": ldt.strftime("%H:%M"),
+            })
+        except Exception:
+            continue
+    return jsonify({
+        "frames":     frames,
+        "latest_idx": len(frames) - 1,
+    })
 
 
 @app.route("/api/radar_bounds")

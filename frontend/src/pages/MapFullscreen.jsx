@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef, useCallback } from 'react'
 import {
   MapContainer, TileLayer, CircleMarker,
   Polyline, Polygon, Circle, Popup, ImageOverlay,
@@ -20,20 +20,52 @@ export default function MapFullscreen() {
   const [showRadar,    setShowRadar]    = useState(true)
   const [radarTiming,  setRadarTiming]  = useState(null)
   const [radarTs,      setRadarTs]      = useState(0)
+  // Animation
+  const [frames,       setFrames]       = useState([])
+  const [currentIdx,   setCurrentIdx]   = useState(-1)
+  const [playing,      setPlaying]      = useState(false)
+  const [speed,        setSpeed]        = useState(500)
+  const timerRef = useRef(null)
+
+  const currentFrame = frames[currentIdx] ?? null
+  const radarUrl = currentFrame
+    ? `/api/radar_image?ts=${currentFrame.ts}`
+    : `/api/radar_image?t=${radarTs}`
+
+  useEffect(() => {
+    frames.forEach(f => { const img = new window.Image(); img.src = `/api/radar_image?ts=${f.ts}` })
+  }, [frames])
+
+  useEffect(() => {
+    if (timerRef.current) clearInterval(timerRef.current)
+    if (!playing || frames.length === 0) return
+    timerRef.current = setInterval(() => {
+      setCurrentIdx(i => (i + 1) % frames.length)
+    }, speed)
+    return () => clearInterval(timerRef.current)
+  }, [playing, speed, frames.length])
+
+  const handlePlay  = useCallback(() => setPlaying(true),  [])
+  const handlePause = useCallback(() => setPlaying(false), [])
 
   async function load() {
     try {
-      const [a, b, c, d, timing, bounds] = await Promise.all([
+      const [a, b, c, d, timing, bounds, framesData] = await Promise.all([
         api.get('/api/objects'),
         api.get('/api/forecast'),
         api.get('/api/locations'),
         api.get('/api/horizons'),
         api.get('/api/radar_timing').catch(() => null),
         api.get('/api/radar_bounds').catch(() => null),
+        api.get('/api/radar_frames').catch(() => null),
       ])
       setObjects(a); setForecast(b); setLocations(c); setHorizons(d)
       if (timing) setRadarTiming(timing)
       if (bounds?.bounds) setRadarBounds(bounds.bounds)
+      if (framesData?.frames) {
+        setFrames(framesData.frames)
+        setCurrentIdx(framesData.latest_idx ?? framesData.frames.length - 1)
+      }
       setRadarTs(Date.now())
       setLastTs(new Date().toLocaleTimeString('de-AT'))
     } catch (e) { console.error(e) }
@@ -48,6 +80,11 @@ export default function MapFullscreen() {
   const fmtTime = utcStr => utcStr
     ? new Date(utcStr).toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })
     : '—'
+
+  const btnStyle = {
+    padding: '1px 6px', border: '1px solid #d1d5db', borderRadius: 4,
+    cursor: 'pointer', fontSize: 11, background: '#f9fafb', userSelect: 'none',
+  }
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 0 }}>
@@ -101,8 +138,36 @@ export default function MapFullscreen() {
             </span>
           </label>
         )}
+        {frames.length > 0 && showRadar && (
+          <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #eee' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:4, flexWrap:'wrap' }}>
+              <button onClick={() => { handlePause(); setCurrentIdx(i => Math.max(0,i-1)) }}
+                style={btnStyle}>◀</button>
+              <button onClick={playing ? handlePause : handlePlay}
+                style={{ ...btnStyle, background:'#dbeafe', fontWeight:600 }}>
+                {playing ? '⏸' : '▶'}
+              </button>
+              <button onClick={() => { handlePause(); setCurrentIdx(i => Math.min(frames.length-1,i+1)) }}
+                style={btnStyle}>▶</button>
+              <input type="range" min="0" max={frames.length-1} value={currentIdx}
+                onChange={e => { handlePause(); setCurrentIdx(Number(e.target.value)) }}
+                style={{ width:70, accentColor:'#2563eb' }} />
+              <span style={{ fontFamily:'monospace', fontSize:12, fontWeight:700, minWidth:34 }}>
+                {frames[currentIdx]?.label ?? '—'}
+              </span>
+            </div>
+            <div style={{ display:'flex', gap:3, marginTop:4 }}>
+              {[500,300,150].map(s => (
+                <button key={s} onClick={() => setSpeed(s)}
+                  style={{ ...btnStyle, background: speed===s?'#2563eb':'', color: speed===s?'#fff':'' }}>
+                  {s===500?'1×':s===300?'2×':'4×'}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {lastTs && (
-          <div style={{ color: '#aaa', fontSize: 11 }}>Stand: {lastTs}</div>
+          <div style={{ color: '#aaa', fontSize: 11, marginTop:4 }}>Stand: {lastTs}</div>
         )}
       </div>
 
@@ -119,15 +184,15 @@ export default function MapFullscreen() {
         {/* Radar-Overlay */}
         {showRadar && radarBounds && (
           <ImageOverlay
-            key={radarTs}
-            url={`/api/radar_image?t=${radarTs}`}
+            key={radarUrl}
+            url={radarUrl}
             bounds={radarBounds}
             opacity={radarOpacity}
             zIndex={200}
           />
         )}
 
-        {objects.map(o => {
+        {(currentIdx === frames.length - 1 || frames.length === 0) && objects.map(o => {
           if (!o.contour_geo || o.contour_geo.length < 3) return null
           const outerPos = o.contour_geo.map(p => [p[1], p[0]])
           const borderColor = lineageColor[o.lineage] || '#888'
@@ -166,7 +231,8 @@ export default function MapFullscreen() {
           )
         })}
 
-        {(forecast.features || [])
+        {(currentIdx === frames.length - 1 || frames.length === 0) &&
+         (forecast.features || [])
           .filter(f => f.properties?.has_arrow !== false)
           .map((f, i) => {
           const [a, b] = f.geometry.coordinates
