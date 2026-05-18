@@ -100,7 +100,9 @@ export default function MapView() {
           )
         })}
 
-        {(forecast.features || []).map((f, i) => {
+        {(forecast.features || [])
+          .filter(f => f.properties?.has_arrow !== false)
+          .map((f, i) => {
           const [a, b] = f.geometry.coordinates
           const p = f.properties || {}
           const isKinematic = p.forecast_mode === 'kinematic'
@@ -115,7 +117,8 @@ export default function MapView() {
               <Popup>
                 {isKinematic
                   ? `Bewegungsschätzung (${p.kinematic_source || '?'}) — ${p.id}`
-                  : `+${p.horizon} min KI — ${p.id}`}
+                  : `+${p.horizon} min KI — ${p.cell_id || p.id}`}
+                <div>{p.speed_kmh != null ? `${p.speed_kmh} km/h` : ''}</div>
               </Popup>
             </Polyline>
           )

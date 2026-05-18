@@ -85,6 +85,13 @@ WIND_RASTER_RESOLUTION_KM = 10  # Rasterweite für Höhenwind
 MIN_CONTOUR_OVERLAP = 10
 MIN_CONTOUR_TOUCH = 5
 
+# Minimale Zell-Geschwindigkeit für Pfeil-Darstellung in der Karte (km/h).
+# Zellen langsamer als dieser Wert erhalten KEINEN Bewegungspfeil.
+# 0 = alle Zellen bekommen Pfeil (altes Verhalten).
+# Empfehlung: 5 km/h ≈ 0,5 px/Frame bei UPSCALE=3, Frame ~2 min.
+# Überschreibbar via runtime_overrides.json: "MIN_MOVEMENT_FOR_ARROW_KMH": 8.0
+MIN_MOVEMENT_FOR_ARROW_KMH = 5.0
+
 # --------------------------------------
 # Datenquellen
 # --------------------------------------
