@@ -101,12 +101,40 @@ def run_accuracy_eval_job():
     runtime_config.reload_overrides()
     debug_log("[SCHEDULER] Job accuracy_eval gestartet")
     try:
-        from config import ML_FORECAST_HORIZONS_MIN
+        from config import ML_FORECAST_HORIZONS_MIN, SAVE_PATHS
 
         horizons = runtime_config.get("ML_FORECAST_HORIZONS_MIN", ML_FORECAST_HORIZONS_MIN)
         result = evaluate_all(horizons, since_hours=24)
         append_history_point(result)
-        debug_log(f"[SCHEDULER] accuracy_eval abgeschlossen: {result}")
+
+        # Health-Check: 0 Samples für ALLE Horizonte → Warning + JSONL-Eintrag
+        all_zero = all(h.get("samples", 0) == 0 for h in result.get("horizons", []))
+        if all_zero:
+            import os as _os, glob as _gl, json as _jh, datetime as _dt
+            obj_dir = SAVE_PATHS.get("objects", "train_data/objects")
+            obj_count = len(_gl.glob(_os.path.join(obj_dir, "*.json")))
+            debug_log(
+                f"[ACCURACY][HEALTH-WARN] 0 verifizierbare Samples für alle Horizonte. "
+                f"Objekt-Dateien vorhanden: {obj_count}. "
+                f"Mögliche Ursachen: (1) forecast_lat_* fehlt in objects-JSON — "
+                f"predict_positions() lief noch nicht, "
+                f"(2) SAVE_PATHS['evaluation'] falsch konfiguriert, "
+                f"(3) Noch keine Zellen im Beobachtungszeitraum erkannt."
+            )
+            eval_dir = SAVE_PATHS.get("evaluation", "train_data/evaluation")
+            _os.makedirs(eval_dir, exist_ok=True)
+            health_log = _os.path.join(eval_dir, "accuracy_health.jsonl")
+            entry = {
+                "ts": _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                "event": "zero_samples",
+                "obj_files": obj_count,
+                "horizons": horizons,
+            }
+            with open(health_log, "a", encoding="utf-8") as _hf:
+                _jh.dump(entry, _hf)
+                _hf.write("\n")
+        else:
+            debug_log(f"[SCHEDULER] accuracy_eval abgeschlossen: {result}")
     except Exception as exc:
         debug_log(f"[SCHEDULER] accuracy_eval Fehler: {exc}")
 
