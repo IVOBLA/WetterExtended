@@ -5,7 +5,7 @@
 # --------------------------------------
 
 import os as _os
-DEBUG_MODE = _os.environ.get("WETTER_DEBUG", "0") == "1"
+DEBUG_MODE = _os.environ.get("WETTER_DEBUG", "0") == "1"  # Aktivierung: WETTER_DEBUG=1
 DEBUG_IMAGE_SAVE = DEBUG_MODE  # Bilder speichern nur bei aktiviertem Debug-Modus
 
 # --------------------------------------
