@@ -308,6 +308,75 @@ def api_ai_analysis_run():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/dataset_stats")
+def api_dataset_stats():
+    """Statistik über gesammelte Trainingsdaten und Dataset-Größe."""
+    import glob as _glob
+
+    obj_files = sorted(_glob.glob(os.path.join(SAVE_PATHS["objects"], "*.json")))
+    npz_path  = os.path.join(SAVE_PATHS["dataset"], "dataset.npz")
+
+    # Dataset-Samples aus NPZ
+    dataset_samples = 0
+    dataset_features = 0
+    if os.path.exists(npz_path):
+        try:
+            import numpy as _np
+            ds = _np.load(npz_path, allow_pickle=True)
+            if "X" in ds:
+                dataset_samples  = int(ds["X"].shape[0])
+                dataset_features = int(ds["X"].shape[-1]) if ds["X"].ndim >= 2 else 0
+        except Exception:
+            pass
+
+    # Objekt-Datei Zeitraum
+    first_ts = os.path.basename(obj_files[0]).replace(".json", "") if obj_files else None
+    last_ts  = os.path.basename(obj_files[-1]).replace(".json", "") if obj_files else None
+
+    # Letzter Cleanup-Log-Eintrag
+    cleanup_log = os.path.join(SAVE_PATHS["evaluation"], "cleanup_log.jsonl")
+    last_cleanup = None
+    if os.path.exists(cleanup_log):
+        try:
+            with open(cleanup_log, encoding="utf-8") as f:
+                lines = f.readlines()
+            if lines:
+                last_cleanup = json.loads(lines[-1].strip())
+        except Exception:
+            pass
+
+    return jsonify({
+        "object_files":      len(obj_files),
+        "dataset_samples":   dataset_samples,
+        "dataset_features":  dataset_features,
+        "first_frame":       first_ts,
+        "last_frame":        last_ts,
+        "last_cleanup":      last_cleanup,
+    })
+
+
+@app.route("/api/recent_frames")
+def api_recent_frames():
+    """Letzte N Frame-Dateien mit Timestamp, Objekt-Anzahl und Zell-IDs."""
+    import glob as _glob
+    n = min(int(request.args.get("n", 30)), 200)
+    files = sorted(_glob.glob(os.path.join(SAVE_PATHS["objects"], "*.json")))[-n:]
+    rows = []
+    for f in reversed(files):
+        ts = os.path.basename(f).replace(".json", "")
+        try:
+            objs = json.load(open(f, encoding="utf-8"))
+            rows.append({
+                "ts":    ts,
+                "count": len(objs),
+                "ids":   [o.get("id", "?") for o in objs],
+                "modes": list({o.get("forecast_mode", "—") for o in objs}),
+            })
+        except Exception:
+            rows.append({"ts": ts, "count": 0, "ids": [], "modes": []})
+    return jsonify(rows)
+
+
 @app.route("/api/disk")
 def api_disk():
     """Disk-Usage des Raspberry Pi für Dashboard-Monitoring."""
