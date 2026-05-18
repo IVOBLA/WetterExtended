@@ -24,7 +24,14 @@ import json as _json
 import os as _os
 from datetime import datetime as _dt
 
-_API_HEALTH_FILE = "train_data/evaluation/api_health.jsonl"
+try:
+    from config import SAVE_PATHS as _SAVE_PATHS_DU
+    _API_HEALTH_FILE = _os.path.join(
+        _SAVE_PATHS_DU.get("evaluation", "train_data/evaluation/").rstrip("/"),
+        "api_health.jsonl",
+    )
+except Exception:
+    _API_HEALTH_FILE = "train_data/evaluation/api_health.jsonl"
 
 def log_api_failure(service: str, url: str, reason: str,
                     fallback_used: bool = False, http_status: int = None):
