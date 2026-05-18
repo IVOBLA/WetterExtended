@@ -93,6 +93,33 @@ OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 LIGHTNING_DATA_URL = "https://www.lightningmaps.org/live_data/geojson/1.json"
 
 # --------------------------------------
+# API-Cache TTLs (Sekunden) — vermeidet unnötige Requests an Fremdsysteme.
+# TTL ≈ 50 % der natürlichen Update-Frequenz des Anbieters (Sicherheitsmarge
+# gegen Modell-Lauf-Verzögerungen).
+#
+# Update-Intervalle der Anbieter (Stand 2026-05):
+#   - ARSO INCA si0zm KMZ:          5 Min   → If-Modified-Since (kein TTL nötig)
+#   - Open-Meteo icon_d2 (AROME):   3 h Modell-Run, stündliche Werte
+#   - Open-Meteo icon_global 700hPa: 6 h Modell-Run, stündliche Werte
+#   - GeoSphere AROME CAPE:         3 h Modell-Run, stündliche Werte
+#   - EUMETView MSG IR108 (FES):   15 Min Full-Earth-Scan
+#   - Blitzortung last_strikes:     1 Min
+#
+# Überschreibbar über runtime_overrides.json.
+# --------------------------------------
+API_CACHE_TTL_SECONDS: dict = {
+    "openmeteo_icon_d2":      1800,  # 30 Min (Modell alle 3 h)
+    "openmeteo_icon_global":  3600,  # 60 Min (Modell alle 6 h)
+    "geosphere_cape":         1800,  # 30 Min (Modell alle 3 h)
+    "eumetview_capabilities":  600,  # 10 Min (Scan alle 15 Min)
+    "blitzortung":              60,  # 60 s   (Update alle 1 Min)
+}
+
+# Räumliche Rundung beim Cache-Schlüssel: 0,02° ≈ 2 km — kleine Zellbewegungen
+# treffen denselben Cache-Eintrag und sparen so weitere Requests.
+API_CACHE_GRID_ROUND_DEG: float = 0.02
+
+# --------------------------------------
 # ML-Konfiguration (Single Source of Truth)
 # --------------------------------------
 
