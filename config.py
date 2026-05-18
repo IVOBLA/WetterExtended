@@ -266,3 +266,36 @@ SAVE_DIR = "train_data/cloud/"
 LAPSE_RATE = 6.5  # K/km
 DEFAULT_SURFACE_TEMP_K = 290.0
 DEFAULT_ALTITUDE_M = 600.0
+
+# -------------------------------------------------------
+# Daten-Rotation (Task A4)
+# -------------------------------------------------------
+# Dateien älter als N Tage werden täglich gelöscht.
+DATA_RETENTION_DAYS: int = 90
+DATA_CLEANUP_CRON_HOUR: int = 4
+DATA_CLEANUP_CRON_MINUTE: int = 30
+# Verzeichnisse die rotiert werden (relative Pfade vom Projektstamm).
+# NICHT rotiert: train_data/models/, train_data/evaluation/, train_data/dataset/
+DATA_CLEANUP_PATHS: list = [
+    "train_data/radar/",
+    "train_data/objects/",
+    "train_data/weather/",
+    "train_data/wind/",
+    "train_data/cape/",
+    "train_data/lightning/",
+    "train_data/ir/",
+    "train_data/ir_cells/",
+    "train_data/cloud/",
+    "train_data/arome/",
+]
+
+# -------------------------------------------------------
+# Multi-Rechner-Vorbereitung (Task A8)
+# -------------------------------------------------------
+# True  = Scheduler startet retrain_*, rebuild_dataset, convlstm_weekly Jobs
+# False = Diese Jobs werden übersprungen; Modelle kommen extern per rsync
+#         vom Linux-Trainer-Rechner (Phase B).
+# Kann überschrieben werden via:
+#   - runtime_overrides.json  (zur Laufzeit)
+#   - install.sh --no-training (setzt runtime_overrides.json automatisch)
+LOCAL_TRAINING: bool = True
