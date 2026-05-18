@@ -15,6 +15,7 @@ import AiSuggestions from './pages/AiSuggestions.jsx';
 import Datensatz from './pages/Datensatz.jsx';
 import LiveDaten from './pages/LiveDaten.jsx';
 import MapFullscreen from './pages/MapFullscreen.jsx';
+import Atmosphaere from './pages/Atmosphaere.jsx';
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
         <Route path="/map"         element={<MapView />} />
         <Route path="/live"        element={<LiveDaten />} />
         <Route path="/data"        element={<Datensatz />} />
+        <Route path="/atmosphaere" element={<Atmosphaere />} />
         <Route path="/locations"   element={<Locations />} />
         <Route path="/thresholds"  element={<Thresholds />} />
         <Route path="/horizons"    element={<Horizons />} />
