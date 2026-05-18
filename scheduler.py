@@ -128,6 +128,16 @@ def run_cleanup_job():
         debug_log(f"[SCHEDULER] Job data_cleanup Fehler: {exc}")
 
 
+
+
+def run_api_cache_cleanup_job():
+    """Räumt API-Cache-Dateien älter als 7 Tage auf."""
+    try:
+        from api_cache import cache_cleanup
+        n = cache_cleanup(max_age_seconds=7 * 24 * 3600)
+        debug_log(f"[SCHEDULER] api_cache_cleanup: {n} Dateien entfernt.")
+    except Exception as exc:
+        debug_log(f"[SCHEDULER] api_cache_cleanup Fehler: {exc}")
 def run_atmospheric_snapshot_job():
     """Atmosphärischer Zustand für Kärnten-Referenzpunkte — unabhängig von Zellen."""
     runtime_config.reload_overrides()
@@ -186,6 +196,14 @@ def create_scheduler() -> BlockingScheduler:
         id="data_cleanup", max_instances=1, coalesce=True,
     )
 
+
+
+    # --- immer aktiv: API-Cache-Cleanup (täglich, 7 Tage Aufbewahrung) ---
+    sched.add_job(
+        run_api_cache_cleanup_job,
+        trigger=CronTrigger(hour=4, minute=45, timezone="Europe/Vienna"),
+        id="api_cache_cleanup", max_instances=1, coalesce=True,
+    )
     # --- immer aktiv: Atmosphären-Snapshot ---
     sched.add_job(
         run_atmospheric_snapshot_job,
