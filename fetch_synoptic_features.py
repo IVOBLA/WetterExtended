@@ -49,7 +49,7 @@ def _nearest_hour():
 def _parse(loc, target):
     h = loc.get("hourly", {})
     times = h.get("time", [])
-    idx = times.index(target) if target in times else 0
+    idx = times.index(target) if (times and target in times) else 0
 
     g = h.get("geopotential_height_500hPa", [])
     s = h.get("wind_speed_500hPa", [])
