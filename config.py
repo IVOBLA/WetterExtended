@@ -211,6 +211,7 @@ LOCATIONS_WATCHLIST = [
     {"name": "Wolfsberg",  "lat": 46.8403, "lon": 14.8408, "radius_km": 5.0},
     {"name": "Spittal",    "lat": 46.7956, "lon": 13.4978, "radius_km": 5.0},
     {"name": "St. Veit",   "lat": 46.7700, "lon": 14.3614, "radius_km": 5.0},
+    {"name": "Feldkirchen", "lat": 46.7233, "lon": 14.0992, "radius_km": 5.0},
 ]
 
 # Beschriftungen der HSV-Bänder, damit das Adminpanel sie zeigen kann.
