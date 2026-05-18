@@ -97,3 +97,77 @@ def api_health_summary(since_hours: int = 24) -> dict:
     except Exception as exc:
         debug_log(f"[API-FAIL] api_health_summary Lesefehler: {exc}")
     return {"since_hours": since_hours, "total": total, "by_service": summary}
+
+# ── API-Request-Zähler ────────────────────────────────────────────────────────
+import threading as _rq_threading
+_rq_lock = _rq_threading.Lock()
+
+
+def log_api_call(service: str, url: str = "", status_code: int = 200) -> None:
+    """
+    Zählt jeden API-Aufruf (Erfolg + Fehler) pro Service in JSONL-Datei.
+    Thread-sicher. Nie blockierend — Fehler werden still ignoriert.
+
+    Servicenamen (einheitlich verwenden):
+      "arso_radar"           — radar_download.py
+      "openmeteo_icon_d2"   — fetch_arome_openmeteo.py
+      "openmeteo_icon_global"— fetch_synoptic_features.py / 700hPa
+      "geosphere_cape"      — assign_cape_from_forecast.py
+      "eumetview_wms"       — cloud_height_from_eumetview.py
+      "blitzortung"         — blitzortung.py / lightning-Loader
+      "anthropic_api"       — daily_analyzer.py
+    """
+    import datetime as _dt, json as _jc, os as _oc
+    from config import SAVE_PATHS
+    entry = {
+        "ts":      _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "service": service,
+        "url":     (url or "")[:120],
+        "status":  status_code,
+    }
+    log_path = _oc.path.join(
+        SAVE_PATHS.get("evaluation", "train_data/evaluation"),
+        "api_call_counts.jsonl",
+    )
+    try:
+        _oc.makedirs(_oc.path.dirname(log_path), exist_ok=True)
+        with _rq_lock:
+            with open(log_path, "a", encoding="utf-8") as _f:
+                _jc.dump(entry, _f, ensure_ascii=False)
+                _f.write("\n")
+    except Exception:
+        pass  # Nie den Hauptprozess blockieren
+
+
+def api_call_summary(since_hours: int = 24) -> dict:
+    """Liest api_call_counts.jsonl und aggregiert Counts + Fehler pro Service."""
+    import datetime as _dt, json as _jc, os as _oc
+    from config import SAVE_PATHS
+    log_path = _oc.path.join(
+        SAVE_PATHS.get("evaluation", "train_data/evaluation"),
+        "api_call_counts.jsonl",
+    )
+    if not _oc.path.exists(log_path):
+        return {"by_service": {}, "since_hours": since_hours}
+    cutoff = _dt.datetime.utcnow() - _dt.timedelta(hours=since_hours)
+    by_service: dict = {}
+    try:
+        with open(log_path, "r", encoding="utf-8") as _f:
+            for line in _f:
+                try:
+                    rec = _jc.loads(line.strip())
+                    ts  = _dt.datetime.fromisoformat(rec.get("ts", "").replace("Z", ""))
+                    if ts < cutoff:
+                        continue
+                    svc = rec.get("service", "unknown")
+                    if svc not in by_service:
+                        by_service[svc] = {"calls": 0, "errors": 0}
+                    by_service[svc]["calls"] += 1
+                    if int(rec.get("status", 200)) >= 400:
+                        by_service[svc]["errors"] += 1
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    return {"by_service": by_service, "since_hours": since_hours}
+

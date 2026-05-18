@@ -331,6 +331,14 @@ def api_accuracy():
     })
 
 
+@app.route("/api/api_calls")
+def api_api_calls():
+    """Request-Zähler pro externer Schnittstelle für Admin-Panel."""
+    from debug_utils import api_call_summary
+    hours = int(request.args.get("hours", "24"))
+    return jsonify(api_call_summary(since_hours=hours))
+
+
 @app.route("/api/api_health")
 def api_api_health():
     """Liefert API-Failure-Statistik der letzten N Stunden."""

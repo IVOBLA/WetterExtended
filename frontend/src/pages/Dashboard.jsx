@@ -16,6 +16,7 @@ export default function Dashboard() {
   const [progress, setProgress] = useState({ versions: [] })
   const [git, setGit] = useState({})
   const [disk, setDisk] = useState(null)
+  const [apiCalls, setApiCalls] = useState(null)
 
   useEffect(() => {
     Promise.all([
@@ -23,6 +24,7 @@ export default function Dashboard() {
       api.get('/api/progress').then(setProgress).catch(() => setProgress({ versions: [] })),
       api.get('/api/git').then(setGit).catch(() => {}),
       api.get('/api/disk').then(setDisk).catch(() => setDisk(null)),
+      api.get('/api/api_calls?hours=24').then(setApiCalls).catch(() => {}),
     ])
   }, [])
 
@@ -68,6 +70,40 @@ export default function Dashboard() {
           />
         )}
       </div>
+
+      {apiCalls?.by_service && Object.keys(apiCalls.by_service).length > 0 && (
+        <div className="card">
+          <h2 className="text-base font-semibold mb-2">📡 API-Requests (24h)</h2>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-xs text-gray-500 uppercase">
+                <th className="p-1 text-left">Service</th>
+                <th className="p-1 text-right">Anfragen</th>
+                <th className="p-1 text-right">Fehler</th>
+                <th className="p-1 text-right">Fehlerrate</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(apiCalls.by_service)
+                .sort((a, b) => b[1].calls - a[1].calls)
+                .map(([svc, d]) => (
+                <tr key={svc} className="border-b hover:bg-gray-50">
+                  <td className="p-1 font-mono text-xs">{svc}</td>
+                  <td className="p-1 text-right">{d.calls}</td>
+                  <td className={`p-1 text-right ${d.errors > 0 ? 'text-red-600 font-semibold' : 'text-gray-400'}`}>
+                    {d.errors}
+                  </td>
+                  <td className="p-1 text-right text-xs text-gray-500">
+                    {d.calls > 0
+                      ? `${((d.errors / d.calls) * 100).toFixed(1)}%`
+                      : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

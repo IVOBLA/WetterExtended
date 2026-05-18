@@ -67,6 +67,11 @@ def download_kmz() -> bool:
             response = requests.get(
                 KMZ_URL, headers=req_headers, timeout=_TIMEOUT
             )
+            try:
+                from debug_utils import log_api_call
+                log_api_call("arso_radar", url=KMZ_URL, status_code=response.status_code)
+            except Exception:
+                pass
 
             if response.status_code == 304:
                 debug_log("Kein neues Radarbild verfügbar (304 Not Modified).")

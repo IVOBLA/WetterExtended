@@ -139,6 +139,11 @@ def assign_arome_to_objects(objects: list, timestamp: str) -> list:
 
     try:
         r = requests.get(bulk_url, timeout=_TIMEOUT)
+        try:
+            from debug_utils import log_api_call
+            log_api_call("openmeteo_icon_d2", url=bulk_url, status_code=r.status_code)
+        except Exception:
+            pass
         r.raise_for_status()
         data = r.json()
         cache_set(ck, data)
