@@ -2,8 +2,8 @@
 """
 Topographie-Features aus Copernicus GLO-30 DEM — ganz Kärnten.
 
-Kacheln N46_E013 + N46_E014 + N46_E015 werden als Mosaic zusammengefügt.
-Download einmalig (~90 MB). Danach nur In-Memory-Zugriff.
+Kacheln N46/N47 + E013/E014/E015 werden als Mosaic zusammengefügt.
+Download einmalig (~180 MB). Danach nur In-Memory-Zugriff.
 
 Features:
   dem_elevation_m       – mittlere Höhe im 5-km-Umkreis (m)
