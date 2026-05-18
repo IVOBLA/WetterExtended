@@ -464,6 +464,26 @@ def api_dataset_stats():
     })
 
 
+@app.route("/api/cells_log")
+def api_cells_log():
+    """Letzte N Einträge aus cells_log.jsonl — welche Zellen wurden wann erkannt."""
+    import glob as _gl
+    n = min(int(request.args.get("n", "50")), 500)
+    log_path = os.path.join(SAVE_PATHS.get("evaluation", "train_data/evaluation"), "cells_log.jsonl")
+    entries = []
+    if os.path.exists(log_path):
+        try:
+            with open(log_path, "r", encoding="utf-8") as _f:
+                for line in _f:
+                    try:
+                        entries.append(json.loads(line.strip()))
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+    return jsonify(entries[-n:])
+
+
 @app.route("/api/recent_frames")
 def api_recent_frames():
     """Letzte N Frame-Dateien mit Timestamp, Objekt-Anzahl und Zell-IDs."""

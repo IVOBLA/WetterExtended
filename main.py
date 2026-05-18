@@ -87,6 +87,37 @@ def main_loop():
             _prev_radar_path = curr_scaled_path
             objects = assign_arome_to_objects(objects, timestamp)
             objects = assign_synoptic_features(objects, timestamp)
+            debug_log(f"Gefundene Objekte: {len(objects)}")
+            # ── Strukturiertes Cell-Log (JSONL) ──────────────────────────
+            _cell_log_path = os.path.join(
+                SAVE_PATHS.get("evaluation", "train_data/evaluation"),
+                "cells_log.jsonl"
+            )
+            os.makedirs(os.path.dirname(_cell_log_path), exist_ok=True)
+            _cell_entry = {
+                "ts":    timestamp,
+                "count": len(objects),
+                "cells": [
+                    {
+                        "id":         o.get("id"),
+                        "lat":        o.get("lat"),
+                        "lon":        o.get("lon"),
+                        "size":       o.get("size"),
+                        "core_ratio": round(float(o.get("core_ratio") or 0), 3),
+                        "missing":    o.get("missing", 0),
+                        "lineage":    o.get("lineage"),
+                        "vx":         round(float(o.get("vx") or 0), 2),
+                        "vy":         round(float(o.get("vy") or 0), 2),
+                    }
+                    for o in objects
+                ],
+            }
+            try:
+                with open(_cell_log_path, "a", encoding="utf-8") as _clf:
+                    json.dump(_cell_entry, _clf, ensure_ascii=False)
+                    _clf.write("\n")
+            except Exception as _cl_exc:
+                debug_log(f"[CELLS-LOG] Schreibfehler: {_cl_exc}")
 
             # Blitzdaten: erst fetchen, dann einlesen
             lightning_data = []
