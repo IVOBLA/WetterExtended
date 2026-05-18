@@ -156,10 +156,43 @@ def api_thresholds():
 
 @app.route("/api/thresholds", methods=["POST"])
 def api_thresholds_save():
+    def _check_hsv_band(band, ctx):
+        if not (isinstance(band, list) and len(band) == 2):
+            raise ValueError(f"{ctx}: braucht [lower, upper]")
+        for bound in band:
+            if not (isinstance(bound, list) and len(bound) == 3):
+                raise ValueError(f"{ctx}: Grenze muss [H,S,V] sein")
+            if not all(isinstance(c, (int, float)) and 0 <= c <= 255 for c in bound):
+                raise ValueError(f"{ctx}: HSV-Wert außerhalb 0-255: {bound}")
+
     try:
         data = request.get_json(force=True)
-        assert "FILTER_CONFIG" in data
-    except Exception as e:
+        if not isinstance(data, dict):
+            raise ValueError("Payload muss JSON-Objekt sein")
+        allowed = {"FILTER_CONFIG", "CORE_HSV_RANGES", "HSV_BAND_LABELS"}
+        unknown = set(data.keys()) - allowed
+        if unknown:
+            raise ValueError(f"Unbekannte Schlüssel: {sorted(unknown)}")
+        if "FILTER_CONFIG" in data:
+            fc = data["FILTER_CONFIG"]
+            if not isinstance(fc, dict):
+                raise ValueError("FILTER_CONFIG muss Objekt sein")
+            if "min_object_area" in fc:
+                v = fc["min_object_area"]
+                if not isinstance(v, (int, float)) or not (1 <= v <= 100000):
+                    raise ValueError(f"min_object_area ungültig (1-100000): {v}")
+            for i, b in enumerate(fc.get("allowed_hsv_ranges", [])):
+                _check_hsv_band(b, f"FILTER_CONFIG.allowed_hsv_ranges[{i}]")
+        if "CORE_HSV_RANGES" in data:
+            if not isinstance(data["CORE_HSV_RANGES"], list):
+                raise ValueError("CORE_HSV_RANGES muss Liste sein")
+            for i, b in enumerate(data["CORE_HSV_RANGES"]):
+                _check_hsv_band(b, f"CORE_HSV_RANGES[{i}]")
+        if "HSV_BAND_LABELS" in data:
+            lbl = data["HSV_BAND_LABELS"]
+            if not isinstance(lbl, list) or not all(isinstance(s, str) for s in lbl):
+                raise ValueError("HSV_BAND_LABELS muss String-Liste sein")
+    except (ValueError, TypeError, KeyError) as e:
         return jsonify({"ok": False, "error": str(e)}), 400
     runtime_config.patch(data)
     return jsonify({"ok": True})
