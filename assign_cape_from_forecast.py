@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from debug_utils import debug_log
 from config import BBOX_KAERNTEN_EXTENDED, SAVE_PATHS
+from api_cache import cache_key, cache_get, cache_set, get_ttl
 import runtime_config
 
 def _build_cape_url(bbox: dict) -> str:
@@ -125,7 +126,19 @@ def parse_timestamp(timestamp_str: str) -> datetime:
 
 
 def fetch_or_use_latest_geojson(filetimestamp: str, cape_url: str) -> str | None:
+    """
+    Holt CAPE-Vektor-Daten von GeoSphere — mit TTL-Cache (30 Min).
+    GeoSphere AROME wird alle 3 h neu gerechnet → 30 Min Cache ist sicher.
+    """
     os.makedirs(SAVE_DIR, exist_ok=True)
+
+    # --- Cache-Lookup ---
+    ck = cache_key("geosphere:cape", cape_url)
+    cached_path = cache_get(ck, ttl_seconds=get_ttl("geosphere_cape", 1800))
+    if cached_path is not None and isinstance(cached_path, str) and os.path.exists(cached_path):
+        debug_log(f"[CAPE] Cache-HIT — kein HTTP-Request (Pfad: {cached_path}).")
+        return cached_path
+
     try:
         response = requests.get(cape_url, timeout=30)
         response.raise_for_status()
@@ -137,19 +150,25 @@ def fetch_or_use_latest_geojson(filetimestamp: str, cape_url: str) -> str | None
                 old_hash = f.read().strip()
             if new_hash == old_hash:
                 debug_log("[CAPE] Keine neuen Vektor-CAPE-Daten – verwende letzte gespeicherte Datei.")
-                return get_latest_geojson()
+                latest = get_latest_geojson()
+                if latest:
+                    cache_set(ck, latest)
+                return latest
 
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         save_path = os.path.join(SAVE_DIR, f"cape_vector_{filetimestamp}.geojson")
         with open(save_path, "wb") as f:
             f.write(content)
         with open(LAST_HASH_FILE, "w") as f:
             f.write(new_hash)
 
+        cache_set(ck, save_path)
         debug_log(f"[CAPE] Neue CAPE-Vektor-Datei gespeichert: {save_path}")
         return save_path
 
     except Exception as e:
+        from debug_utils import log_api_failure
+        log_api_failure("GeoSphere-CAPE", cape_url,
+                        f"{type(e).__name__}: {e}", fallback_used=True)
         debug_log(f"[CAPE] Fehler beim Abrufen der CAPE-Vektor-Daten: {e}")
         return get_latest_geojson()
 
