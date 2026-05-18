@@ -552,10 +552,16 @@ if [[ ! -f "$ENV_FILE" ]]; then
         note_manual "nano $ENV_FILE  # FTP_SERVER, FTP_USER, FTP_PASS, FTP_PATH setzen"
     else
         cat > "$ENV_FILE" <<'ENVTEMPLATE'
+# ── FTP-Upload ────────────────────────────────────────────────
 FTP_SERVER=
 FTP_USER=
 FTP_PASS=
 FTP_PATH=/wetterAI/
+
+# ── Debug-Modus ───────────────────────────────────────────────
+# WETTER_DEBUG=1  →  ausführliche Logs + Debug-Bilder speichern
+# Achtung: erhöht I/O-Last auf dem Pi — nur für Fehlersuche!
+WETTER_DEBUG=0
 ENVTEMPLATE
         log_warn ".env angelegt — FTP-Credentials fehlen noch:"
         note_manual "nano $ENV_FILE  # FTP_SERVER, FTP_USER, FTP_PASS, FTP_PATH setzen"
