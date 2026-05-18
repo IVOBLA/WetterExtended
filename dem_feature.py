@@ -2,7 +2,7 @@
 """
 Topographie-Features aus Copernicus GLO-30 DEM — ganz Kärnten.
 
-Kacheln N46/N47 + E013/E014/E015 werden als Mosaic zusammengefügt.
+Kacheln N46/N47 + E012/E013/E014/E015 werden als Mosaic zusammengefügt.
 Download einmalig (~180 MB). Danach nur In-Memory-Zugriff.
 
 Features:
@@ -41,6 +41,10 @@ DEM_DIR = SAVE_PATHS.get("dem", "train_data/dem/")
 
 _DEM_TILES = [
     # N46 – südlicher Bereich Kärnten
+    ("dem_kaernten_N46_E012.tif",
+     "https://copernicus-dem-30m.s3.amazonaws.com/"
+     "Copernicus_DSM_COG_10_N46_00_E012_00_DEM/"
+     "Copernicus_DSM_COG_10_N46_00_E012_00_DEM.tif"),
     ("dem_kaernten_N46_E013.tif",
      "https://copernicus-dem-30m.s3.amazonaws.com/"
      "Copernicus_DSM_COG_10_N46_00_E013_00_DEM/"
@@ -55,6 +59,10 @@ _DEM_TILES = [
      "Copernicus_DSM_COG_10_N46_00_E015_00_DEM.tif"),
 
     # N47 – nördlicher Bereich der Extended-BBOX bis north=47.18
+    ("dem_kaernten_N47_E012.tif",
+     "https://copernicus-dem-30m.s3.amazonaws.com/"
+     "Copernicus_DSM_COG_10_N47_00_E012_00_DEM/"
+     "Copernicus_DSM_COG_10_N47_00_E012_00_DEM.tif"),
     ("dem_kaernten_N47_E013.tif",
      "https://copernicus-dem-30m.s3.amazonaws.com/"
      "Copernicus_DSM_COG_10_N47_00_E013_00_DEM/"
@@ -140,6 +148,21 @@ def _ensure_dem():
         _mosaic_data = arr
         _mosaic_transform = mosaic_transform
         debug_log(f"[DEM] Mosaic: {arr.shape[1]}x{arr.shape[0]} px, {len(tile_paths)} Kacheln.")
+
+        # Verifikation: alle Tiles im Cache vorhanden?
+        missing_tiles = [
+            fn for fn, _url in _DEM_TILES
+            if not os.path.exists(os.path.join(DEM_DIR, fn))
+        ]
+        if missing_tiles:
+            debug_log(
+                f"[DEM][WARN] {len(missing_tiles)} Tile(s) fehlen im Cache: "
+                f"{missing_tiles}. dem_elevation_m kann 0.0 für diesen Bereich liefern."
+            )
+        else:
+            debug_log(
+                f"[DEM] Alle {len(_DEM_TILES)} Tiles im Cache — BBOX vollständig abgedeckt."
+            )
         return True
     except Exception as exc:
         debug_log(f"[DEM] Mosaic fehlgeschlagen: {exc}")
