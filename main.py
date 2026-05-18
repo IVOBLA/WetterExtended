@@ -23,6 +23,8 @@ from config import (BBOX_KAERNTEN_EXTENDED, SAVE_PATHS, LIVE_LOOP_INTERVAL_S,
 from cloud_height_from_eumetview import assign_cloud_top_height
 from optical_flow_features import assign_optical_flow_to_objects
 from fetch_arome_openmeteo import assign_arome_to_objects
+from fetch_synoptic_features import assign_synoptic_features
+from orographic_module import assign_orographic_scores
 import runtime_config
 from locations_check import annotate_locations
 
@@ -73,6 +75,8 @@ def main_loop():
             objects,  timestamp = detect_and_track_objects(image_path, weather_data)
             objects = fetch_and_assign_700hpa_wind(objects, timestamp)
             objects = assign_cape(objects, timestamp)
+            # Orographische Scores nach CAPE berechnen (brauchen cape-Wert)
+            objects = assign_orographic_scores(objects)
             objects = assign_cloud_top_height(objects, weather_data=weather_data, timestamp=timestamp)
             curr_scaled_path = os.path.join("data", "radar", f"radar_{timestamp}.png")
             objects = assign_optical_flow_to_objects(
@@ -82,6 +86,7 @@ def main_loop():
             )
             _prev_radar_path = curr_scaled_path
             objects = assign_arome_to_objects(objects, timestamp)
+            objects = assign_synoptic_features(objects, timestamp)
 
             # Blitzdaten: erst fetchen, dann einlesen
             lightning_data = []
