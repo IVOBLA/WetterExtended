@@ -40,18 +40,33 @@ from config import SAVE_PATHS
 DEM_DIR = SAVE_PATHS.get("dem", "train_data/dem/")
 
 _DEM_TILES = [
-    ("dem_kaernten_E013.tif",
+    # N46 – südlicher Bereich Kärnten
+    ("dem_kaernten_N46_E013.tif",
      "https://copernicus-dem-30m.s3.amazonaws.com/"
      "Copernicus_DSM_COG_10_N46_00_E013_00_DEM/"
      "Copernicus_DSM_COG_10_N46_00_E013_00_DEM.tif"),
-    ("dem_kaernten_E014.tif",
+    ("dem_kaernten_N46_E014.tif",
      "https://copernicus-dem-30m.s3.amazonaws.com/"
      "Copernicus_DSM_COG_10_N46_00_E014_00_DEM/"
      "Copernicus_DSM_COG_10_N46_00_E014_00_DEM.tif"),
-    ("dem_kaernten_E015.tif",
+    ("dem_kaernten_N46_E015.tif",
      "https://copernicus-dem-30m.s3.amazonaws.com/"
      "Copernicus_DSM_COG_10_N46_00_E015_00_DEM/"
      "Copernicus_DSM_COG_10_N46_00_E015_00_DEM.tif"),
+
+    # N47 – nördlicher Bereich der Extended-BBOX bis north=47.18
+    ("dem_kaernten_N47_E013.tif",
+     "https://copernicus-dem-30m.s3.amazonaws.com/"
+     "Copernicus_DSM_COG_10_N47_00_E013_00_DEM/"
+     "Copernicus_DSM_COG_10_N47_00_E013_00_DEM.tif"),
+    ("dem_kaernten_N47_E014.tif",
+     "https://copernicus-dem-30m.s3.amazonaws.com/"
+     "Copernicus_DSM_COG_10_N47_00_E014_00_DEM/"
+     "Copernicus_DSM_COG_10_N47_00_E014_00_DEM.tif"),
+    ("dem_kaernten_N47_E015.tif",
+     "https://copernicus-dem-30m.s3.amazonaws.com/"
+     "Copernicus_DSM_COG_10_N47_00_E015_00_DEM/"
+     "Copernicus_DSM_COG_10_N47_00_E015_00_DEM.tif"),
 ]
 
 _mosaic_data: "np.ndarray | None" = None
