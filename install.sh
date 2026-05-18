@@ -772,9 +772,29 @@ server {
         add_header Cache-Control "no-cache";
     }
 
+    # Vollbild-Karte: ohne Authentifizierung erreichbar
+    location = /karte {
+        auth_basic off;
+        try_files \$uri /index.html;
+        add_header Cache-Control "no-cache";
+    }
+
+    # Leaflet-Assets: ohne Auth (werden von /karte geladen)
     location /assets/ {
+        auth_basic off;
         expires 1y;
         add_header Cache-Control "public, immutable";
+    }
+
+    # API-Endpunkte fuer oeffentliche Karte (nur lesend, kein POST)
+    location ~ ^/api/(objects|forecast|locations|horizons|health)$ {
+        auth_basic off;
+        proxy_pass         http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              \$host;
+        proxy_set_header   X-Real-IP         \$remote_addr;
+        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
+        proxy_read_timeout 30s;
     }
 
     location /api/ {
