@@ -68,7 +68,11 @@ export default function MapFullscreen() {
             </div>
             <div>
               ⏱ Nächste Abfrage:{' '}
-              <strong>{fmtTime(radarTiming.next_fetch_estimated_utc)}</strong>
+              <strong>
+                {radarTiming.next_fetch_estimated_utc
+                  ? fmtTime(radarTiming.next_fetch_estimated_utc)
+                  : `~${Math.round((radarTiming.loop_interval_s || 120) / 60)} min`}
+              </strong>
             </div>
             <div style={{ color: radarTiming.cells_active ? '#cc0000' : '#999' }}>
               {radarTiming.cells_active ? '⚡ Zellen aktiv' : '✓ Keine aktiven Zellen'}

@@ -83,7 +83,13 @@ export default function MapView() {
         <div className="flex flex-wrap gap-4 text-xs text-gray-600 bg-blue-50
                         border border-blue-200 rounded px-3 py-1.5 mb-2">
           <span>🛰 Letztes Radar: <strong>{fmtTime(radarTiming.last_radar_image_utc)}</strong></span>
-          <span>⏱ Nächste Abfrage: <strong>{fmtTime(radarTiming.next_fetch_estimated_utc)}</strong></span>
+          <span>⏱ Nächste Abfrage:{' '}
+            <strong>
+              {radarTiming.next_fetch_estimated_utc
+                ? fmtTime(radarTiming.next_fetch_estimated_utc)
+                : `~${Math.round((radarTiming.loop_interval_s || 120) / 60)} min`}
+            </strong>
+          </span>
           <span className={radarTiming.cells_active ? 'text-red-600 font-semibold' : 'text-gray-400'}>
             {radarTiming.cells_active ? '⚡ Zellen aktiv' : '✓ Keine aktiven Zellen'}
           </span>
