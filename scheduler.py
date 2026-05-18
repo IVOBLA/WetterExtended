@@ -20,6 +20,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from config import (
     AI_ANALYSIS_CONFIG,
+    ATMOSPHERIC_SNAPSHOT_INTERVAL_MIN,
     DATA_CLEANUP_CRON_HOUR,
     DATA_CLEANUP_CRON_MINUTE,
     DATASET_REBUILD_INTERVAL_MIN,
@@ -127,6 +128,19 @@ def run_cleanup_job():
         debug_log(f"[SCHEDULER] Job data_cleanup Fehler: {exc}")
 
 
+def run_atmospheric_snapshot_job():
+    """Atmosphärischer Zustand für Kärnten-Referenzpunkte — unabhängig von Zellen."""
+    runtime_config.reload_overrides()
+    debug_log("[SCHEDULER] Job atmospheric_snapshot gestartet")
+    try:
+        from fetch_atmospheric_snapshot import fetch_atmospheric_snapshot
+        result = fetch_atmospheric_snapshot()
+        n = len(result.get("locations", []))
+        debug_log(f"[SCHEDULER] atmospheric_snapshot abgeschlossen ({n} Orte)")
+    except Exception as exc:
+        debug_log(f"[SCHEDULER] atmospheric_snapshot Fehler: {exc}")
+
+
 # ---------------------------------------------------------------------------
 # Scheduler erstellen
 # ---------------------------------------------------------------------------
@@ -170,6 +184,17 @@ def create_scheduler() -> BlockingScheduler:
             minute=runtime_config.get("DATA_CLEANUP_CRON_MINUTE", DATA_CLEANUP_CRON_MINUTE),
         ),
         id="data_cleanup", max_instances=1, coalesce=True,
+    )
+
+    # --- immer aktiv: Atmosphären-Snapshot ---
+    sched.add_job(
+        run_atmospheric_snapshot_job,
+        trigger=IntervalTrigger(
+            minutes=runtime_config.get(
+                "ATMOSPHERIC_SNAPSHOT_INTERVAL_MIN", ATMOSPHERIC_SNAPSHOT_INTERVAL_MIN
+            )
+        ),
+        id="atmospheric_snapshot", max_instances=1, coalesce=True,
     )
 
     # --- nur wenn LOCAL_TRAINING=True ---
