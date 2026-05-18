@@ -32,7 +32,7 @@ _MODEL   = "icon_global"
 _PARAMS = "geopotential_height_500hPa,wind_speed_500hPa,wind_direction_500hPa"
 _TZ      = "Europe/Vienna"
 _TIMEOUT = 15
-_G       = 9.80665  # m/s² Normgravitation
+
 
 _DEFAULT = {
     "z500_dam":        560.0,
@@ -51,7 +51,7 @@ def _parse(loc, target):
     times = h.get("time", [])
     idx = times.index(target) if target in times else 0
 
-    g = h.get("geopotential_500hPa", [])
+    g = h.get("geopotential_height_500hPa", [])
     s = h.get("wind_speed_500hPa", [])
     d = h.get("wind_direction_500hPa", [])
 
@@ -64,7 +64,7 @@ def _parse(loc, target):
 
     dr = radians(float(dv))
     return {
-        "z500_dam":        round(float(gv)/_G/10.0, 1),
+        "z500_dam":        round(float(gv) / 10.0, 1),
         "wind_500_speed":  round(float(sv), 1),
         "wind_500_dir_cos": round(cos(dr), 4),
         "wind_500_dir_sin": round(sin(dr), 4),
