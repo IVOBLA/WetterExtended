@@ -14,6 +14,7 @@ import Logs from './pages/Logs.jsx';
 import AiSuggestions from './pages/AiSuggestions.jsx';
 import Datensatz from './pages/Datensatz.jsx';
 import LiveDaten from './pages/LiveDaten.jsx';
+import MapFullscreen from './pages/MapFullscreen.jsx';
 
 export default function App() {
   return (
@@ -34,6 +35,7 @@ export default function App() {
         <Route path="/ai-analysis" element={<AiSuggestions />} />
         <Route path="*"            element={<Navigate to="/" replace />} />
       </Route>
+      <Route path="/karte" element={<MapFullscreen />} />
     </Routes>
   )
 }
