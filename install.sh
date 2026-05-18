@@ -76,6 +76,8 @@ github_ssh_preflight() {
 # --- Optionen -----------------------------------------------------------------
 CURRENT_PHASE="Init"
 MODE="upgrade"
+NO_HAILO=0
+NO_NODE=0
 LOCAL_INSTALL=false
 LOCAL_SOURCE=""
 INSTALL_HAILO=true
@@ -145,14 +147,40 @@ while [[ $# -gt 0 ]]; do
                           shift 2 ;;
         --enable-services) ENABLE_SERVICES=true; shift ;;
         --no-system-deps) SYSTEM_DEPS_ENABLED=false; shift ;;
-        --no-hailo)       INSTALL_HAILO=false; shift ;;
-        --no-node)        INSTALL_NODE=false; shift ;;
+        --no-hailo)       INSTALL_HAILO=false; NO_HAILO=1; shift ;;
+        --no-node)        INSTALL_NODE=false; NO_NODE=1; shift ;;
         --no-training)    LOCAL_TRAINING_FLAG=false; shift ;;
         --local)
             LOCAL_INSTALL=true
             LOCAL_SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
             shift ;;
-        --help)           usage; exit 0 ;;
+        --help|-h)
+                          echo ""
+                          echo "WetterExtended install.sh"
+                          echo ""
+                          echo "Verwendung: bash install.sh [OPTIONEN]"
+                          echo ""
+                          echo "  --mode=upgrade   Nur Source-Code aktualisieren (DEFAULT)"
+                          echo "                   Modelle + Trainingsdaten bleiben erhalten."
+                          echo "                   Python/Node-Pakete + systemd-Services werden aktualisiert."
+                          echo ""
+                          echo "  --mode=full      KOMPLETTE NEUINSTALLATION"
+                          echo "                   ⚠️  LÖSCHT alle Trainingsmodelle und Radar-Daten!"
+                          echo "                   Folgende Verzeichnisse werden geleert:"
+                          echo "                     ~/wetterprojekt/train_data/models/"
+                          echo "                     ~/wetterprojekt/train_data/radar/"
+                          echo "                     ~/wetterprojekt/train_data/objects/"
+                          echo "                     ~/wetterprojekt/train_data/dataset/"
+                          echo "                     ~/wetterprojekt/train_data/weather/"
+                          echo "                     ~/wetterprojekt/train_data/dem_cache/"
+                          echo "                   Konfiguration (runtime_overrides.json) und"
+                          echo "                   evaluation/-Logs bleiben erhalten."
+                          echo ""
+                          echo "  --no-hailo       Hailo-apt-Pakete nicht installieren"
+                          echo "  --no-node        Node.js/npm nicht installieren (kein Frontend-Build)"
+                          echo "  --help           Diese Hilfe anzeigen"
+                          echo ""
+                          exit 0 ;;
         *)                log_error "Unbekanntes Argument: $1"; usage; exit 1 ;;
     esac
 done
@@ -358,44 +386,61 @@ CURRENT_PHASE="Phase 3b — Modus"
 log_step "Phase 3b — Modus: $MODE"
 
 if [[ "$MODE" == "full" ]]; then
-    log_warn "VOLLINSTALLATION — folgende Verzeichnisse werden gelöscht:"
-    log_warn "  ${TARGET}/train_data/  (Trainingsdaten + Modelle)"
-    log_warn "  ${TARGET}/venv/        (Python-Umgebung)"
-    log_warn "  ${TARGET}/frontend/dist/ (Frontend-Build)"
-    log_warn "  ${TARGET}/data/        (Radar-Cache)"
-    read -r -p "  Wirklich fortfahren? (yes/NO) " confirm
-    if [[ "$confirm" != "yes" ]]; then
-        log_warn "Abgebrochen — wechsle in upgrade-Modus."
-        MODE="upgrade"
-    else
-        # Services hart stoppen und deaktivieren — verhindert Neustart während Install
-        log_info "Stoppe und deaktiviere Services für Vollinstallation..."
-        for svc in wetterprojekt wetterprojekt-scheduler wetterprojekt-admin; do
-            sudo systemctl disable "$svc" 2>/dev/null || true
-            sudo systemctl stop "$svc" 2>/dev/null || true
-            log_info "Service gestoppt+deaktiviert: $svc"
-        done
-        sudo systemctl daemon-reload
-        sleep 2  # Sicherstellen dass Prozesse beendet sind
-
-        # Journalctl-Logs der Services löschen
-        log_info "Lösche alte journalctl-Logs..."
-        sudo journalctl --rotate 2>/dev/null || true
-        sudo journalctl --vacuum-time=1s 2>/dev/null || true
-        check_ok "journalctl-Logs bereinigt"
-
-        # Debug-Logs im Projektverzeichnis löschen
-        if [[ -d "${TARGET}/logs" ]]; then
-            rm -f "${TARGET}/logs"/*.log "${TARGET}/logs"/*.txt 2>/dev/null || true
-            log_info "Projekt-Logs gelöscht: ${TARGET}/logs/"
-        fi
-
-        rm -rf "${TARGET}/train_data" "${TARGET}/venv" "${TARGET}/frontend/dist" "${TARGET}/data" "${TARGET}/plots" || true
-        log_info "Daten gelöscht."
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║         ⚠️   VOLLSTÄNDIGE NEUINSTALLATION (--mode=full)      ║"
+    echo "║   ALLE TRAININGSMODELLE UND RADAR-DATEN WERDEN GELÖSCHT!    ║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
+    echo ""
+    echo "Folgende Verzeichnisse werden geleert:"
+    echo "  ~/wetterprojekt/train_data/models/"
+    echo "  ~/wetterprojekt/train_data/radar/"
+    echo "  ~/wetterprojekt/train_data/objects/"
+    echo "  ~/wetterprojekt/train_data/dataset/"
+    echo "  ~/wetterprojekt/train_data/weather/"
+    echo "  ~/wetterprojekt/train_data/dem_cache/"
+    echo ""
+    echo "NICHT gelöscht werden:"
+    echo "  train_data/evaluation/   (Logs, Genauigkeits-Historie)"
+    echo "  train_data/runtime_overrides.json"
+    echo "  .env (FTP-Zugangsdaten)"
+    echo ""
+    printf "Fortfahren? Tippe 'ja' und drücke Enter: "
+    read -r CONFIRM
+    if [[ "$CONFIRM" != "ja" ]]; then
+        echo "Abgebrochen."
+        exit 1
     fi
+
+    echo ""
+    echo "[FULL] Stoppe Services..."
+    sudo systemctl stop wetterprojekt wetterprojekt-scheduler wetterprojekt-admin 2>/dev/null || true
+    sudo systemctl disable wetterprojekt wetterprojekt-scheduler wetterprojekt-admin 2>/dev/null || true
+
+    echo "[FULL] Lösche Trainingsmodelle..."
+    rm -rf "${TARGET}/train_data/models/"
+
+    echo "[FULL] Lösche Radar-Rohdaten..."
+    rm -rf "${TARGET}/train_data/radar/"
+
+    echo "[FULL] Lösche Object-Tracking-Daten..."
+    rm -rf "${TARGET}/train_data/objects/"
+
+    echo "[FULL] Lösche Dataset..."
+    rm -rf "${TARGET}/train_data/dataset/"
+
+    echo "[FULL] Lösche Weather-Cache..."
+    rm -rf "${TARGET}/train_data/weather/"
+
+    echo "[FULL] Lösche DEM-Tile-Cache (werden beim Start neu geladen)..."
+    rm -rf "${TARGET}/train_data/dem_cache/"
+
+    echo "[FULL] Alte Daten gelöscht. Weiter mit vollständiger Installation..."
+    echo ""
 else
     log_info "Upgrade-Modus: Trainingsdaten und Modelle bleiben erhalten."
 fi
+echo "[INSTALL] Modus: $MODE | no-hailo: $NO_HAILO | no-node: $NO_NODE"
 
 # ==============================================================================
 # PHASE 4 — System-Dependencies (apt)
@@ -449,6 +494,12 @@ if "$VENV/bin/pip" install -r "$TARGET/requirements.txt" \
         --extra-index-url https://www.piwheels.org/simple \
         2>&1 | tail -5; then
     log_info "pip-Pakete installiert."
+    echo ""
+    echo "[INFO] DEM-Höhendaten (Copernicus 30m) werden beim ersten Start"
+    echo "       automatisch geladen (8 Kacheln × ~180 MB ≈ 1.4 GB)."
+    echo "       Benötigter freier Speicher: min. 2 GB."
+    echo "       Download läuft im Hintergrund-Thread — blockiert den Loop nicht."
+    echo ""
 else
     log_warn "pip install hatte Fehler — bitte manuell prüfen:"
     note_manual "cd $TARGET && source venv/bin/activate && pip install -r requirements.txt"
