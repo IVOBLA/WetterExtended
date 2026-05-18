@@ -102,18 +102,26 @@ def assign_cape(objects: list, timestamp: str) -> list:
 
 
 def parse_timestamp(timestamp_str: str) -> datetime:
+    """
+    Erkennt alle bekannten Timestamp-Formate.
+    Timezone-aware Formate (ISO mit %z) werden direkt zurückgegeben.
+    Naive Formate erhalten Europe/Vienna als Zeitzone.
+    """
     formats = (
         "%Y%m%d_%H%M%S",
         "%Y-%m-%d_%H-%M-%S",
-        "%Y-%m-%d_%H:%M:%S",    # zusätzlicher Fall mit Doppelpunkten
-        "%Y-%m-%dT%H:%M:%S%z",  # ISO mit Zeitzone (optional)
+        "%Y-%m-%d_%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S%z",
     )
     for fmt in formats:
         try:
-            return datetime.strptime(timestamp_str, "%Y-%m-%d_%H-%M-%S").replace(tzinfo=ZoneInfo("Europe/Vienna"))
+            dt = datetime.strptime(timestamp_str, fmt)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=ZoneInfo("Europe/Vienna"))
+            return dt
         except ValueError:
             continue
-    raise ValueError(f"Ungültiges Timestamp-Format: {timestamp_str}")
+    raise ValueError(f"Ungültiges Timestamp-Format: {timestamp_str!r}")
 
 
 def fetch_or_use_latest_geojson(filetimestamp: str, cape_url: str) -> str | None:
