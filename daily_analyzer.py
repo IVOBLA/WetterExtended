@@ -393,7 +393,7 @@ def run_analysis(cfg: Optional[dict] = None) -> Optional[dict]:
 
         client = anthropic.Anthropic(api_key=api_key)
         message = client.messages.create(
-            model=cfg.get("model", "claude-sonnet-4-20250514"),
+            model=cfg.get("model", "claude-sonnet-4-6"),
             max_tokens=cfg.get("max_tokens", 1500),
             system=_SYSTEM_PROMPT,
             messages=[
