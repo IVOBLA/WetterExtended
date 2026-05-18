@@ -4,7 +4,8 @@
 # Debugging / Logging
 # --------------------------------------
 
-DEBUG_MODE = True  # Globales Flag für Debug-Ausgaben
+import os as _os
+DEBUG_MODE = _os.environ.get("WETTER_DEBUG", "0") == "1"
 DEBUG_IMAGE_SAVE = DEBUG_MODE  # Bilder speichern nur bei aktiviertem Debug-Modus
 
 # --------------------------------------
