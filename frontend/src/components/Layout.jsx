@@ -6,6 +6,7 @@ const NAV = [
   { to: '/',            label: 'Dashboard' },
   { to: '/map',         label: 'Karte' },
   { to: '/live',        label: 'Live-Daten' },
+  { to: '/atmosphaere', label: 'Atmosphäre' },
   { to: '/data',        label: 'Datensatz' },
   { to: '/locations',   label: 'Orte' },
   { to: '/thresholds',  label: 'Schwellwerte' },
