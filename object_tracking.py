@@ -14,7 +14,7 @@ from debug_utils import save_debug_image, debug_log
 from geo_utils import crop_and_upscale_to_bbox
 from config import MIN_CONTOUR_OVERLAP
 from config import MIN_CONTOUR_TOUCH
-from config import BBOX_KAERNTEN_EXTENDED as BBOX
+
 
 try:
     from dem_feature import get_dem_features
