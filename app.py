@@ -308,6 +308,46 @@ def api_ai_analysis_run():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/disk")
+def api_disk():
+    """Disk-Usage des Raspberry Pi für Dashboard-Monitoring."""
+    import shutil
+    total, used, free = shutil.disk_usage("/")
+    pct = (used / total) * 100 if total else 0
+    return jsonify({
+        "total_gb":  round(total / 1e9, 1),
+        "used_gb":   round(used / 1e9, 1),
+        "free_gb":   round(free / 1e9, 1),
+        "used_pct":  round(pct, 1),
+        "warning":   pct > 80,
+        "critical":  pct > 90,
+    })
+
+
+@app.route("/api/local_training")
+def api_local_training():
+    """Gibt an ob lokales Training aktiv ist (für Training.jsx Banner)."""
+    return jsonify({
+        "local_training": runtime_config.get("LOCAL_TRAINING", True),
+    })
+
+
+@app.route("/api/hailo/reload", methods=["POST"])
+def api_hailo_reload():
+    """
+    Leert den Hailo-Modell-Cache. Wird nach rsync neuer HEF-Dateien aufgerufen
+    (sync_models_to_pi.sh). Graceful fallback wenn hailo_inference nicht verfügbar.
+    """
+    try:
+        from hailo_inference import reload_models
+        result = reload_models()
+        return jsonify(result)
+    except ImportError:
+        return jsonify({"ok": True, "note": "hailo_inference nicht verfügbar (Phase A)"})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
 # ---------- React-Frontend serven ----------
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
