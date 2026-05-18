@@ -5,7 +5,24 @@
 # --------------------------------------
 
 import os as _os
-DEBUG_MODE = _os.environ.get("WETTER_DEBUG", "0") == "1"  # Aktivierung: WETTER_DEBUG=1
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    # Expliziter Pfad relativ zu config.py — funktioniert unabhängig vom Arbeitsverzeichnis.
+    # override=True: .env-Wert überschreibt Shell-Variablen aus derselben Session.
+    # Systemd Environment= hat trotzdem Vorrang, da es den Prozess-Env VOR
+    # dem Python-Start setzt — load_dotenv() läuft erst danach und würde
+    # override=True den systemd-Wert überschreiben. Deshalb:
+    # Priorität: systemd Environment= > .env > Default "0"
+    # Um systemd-Vorrang zu wahren: override=False; für .env-Vorrang: override=True.
+    # override=True gewählt: .env ist die primäre Konfigurationsquelle auf dem Pi.
+    _load_dotenv(
+        dotenv_path=_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), ".env"),
+        override=True,
+    )
+except ImportError:
+    pass  # python-dotenv nicht installiert — nur os.environ gilt
+# Aktivierung: WETTER_DEBUG=1 in .env  ODER  export WETTER_DEBUG=1 vor dem Start
+DEBUG_MODE = _os.environ.get("WETTER_DEBUG", "0") == "1"
 DEBUG_IMAGE_SAVE = DEBUG_MODE  # Bilder speichern nur bei aktiviertem Debug-Modus
 
 # --------------------------------------
