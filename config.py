@@ -110,6 +110,7 @@ LIGHTNING_DATA_URL = "https://www.lightningmaps.org/live_data/geojson/1.json"
 API_CACHE_TTL_SECONDS: dict = {
     "openmeteo_icon_d2":      1800,  # 30 Min (Modell alle 3 h)
     "openmeteo_icon_global":  3600,  # 60 Min (Modell alle 6 h)
+    "openmeteo_synoptic":     3600,  # 60 Min (500-hPa, icon_global alle 6 h)
     "geosphere_cape":         1800,  # 30 Min (Modell alle 3 h)
     "eumetview_capabilities":  600,  # 10 Min (Scan alle 15 Min)
     "blitzortung":              60,  # 60 s   (Update alle 1 Min)
@@ -150,10 +151,25 @@ ML_CELL_FEATURES = [
     "arome_dd_sin",    # sin(Windrichtung 10 m)
     "arome_li",        # Lifted Index (°C, neg. = instabil)
     "arome_fl_height", # Gefriergrenze MSL (m)
-    # ── Stratiforme Umgebung (36–47 dBZ, nicht auf Karte) ──────────────────
-    "strat_area_px",        # Pixel-Fläche stratif. Bereich im Suchradius
-    "strat_intensity_mean", # Mittlere HSV-Helligkeit stratif. Pixel (0–1)
-    "strat_dbz_gradient",   # dBZ-Gradient in Bewegungsrichtung (relativ)
+    # ── Stratiforme Umgebung (36–47 dBZ) ─────────────────────────────────
+    "strat_area_px",
+    "strat_intensity_mean",
+    "strat_dbz_gradient",
+    # ── DEM erweitert (Mosaic E013+E014+E015) ────────────────────────────
+    "dem_barrier_ahead",       # Höhendiff. 10-20 km voraus (m, pos=Barriere)
+    # ── Talkanalisierung ─────────────────────────────────────────────────
+    "valley_alignment",        # |cos(angle)| Zell-Bewegung vs. Tal (0-1)
+    "valley_distance_km",      # Abstand Talmitte (km)
+    "valley_confinement",      # 1.0 wenn im Talquerschnitt
+    # ── Großwetterlage 500 hPa ───────────────────────────────────────────
+    "z500_dam",                # Geopotential 500 hPa in dam
+    "wind_500_speed",          # Steuerströmung 500 hPa (km/h)
+    "wind_500_dir_cos",
+    "wind_500_dir_sin",
+    # ── Orographische Risk-Scores ────────────────────────────────────────
+    "terrain_blocking_score",  # Gelände blockiert Zugbahn (0-1)
+    "orographic_lift_score",   # Staulage/Hebung (0-1)
+    "stationary_risk",         # Stationärrisiko (0-1)
 ]
 
 ML_STATION_FEATURES = [
