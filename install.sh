@@ -82,6 +82,7 @@ INSTALL_HAILO=true
 INSTALL_NODE=true
 SYSTEM_DEPS_ENABLED=true
 ENABLE_SERVICES=false
+LOCAL_TRAINING_FLAG=true          # --no-training setzt auf false (Phase B)
 BRANCH="$DEFAULT_BRANCH"
 REPO="$DEFAULT_REPO_URL"
 TARGET="$DEFAULT_TARGET"
@@ -116,6 +117,7 @@ Verwendung: $0 [OPTIONEN]
   --no-system-deps      apt-Installationen überspringen
   --no-hailo            Hailo-8-Setup überspringen
   --no-node             Node.js/Frontend-Build überspringen
+  --no-training         LOCAL_TRAINING=False setzen (Phase B: Training auf Linux-Rechner)
   --local               Installiert aus dem lokalen Verzeichnis (ZIP-Modus).
                         Kein git clone nötig. Dateien werden nach --target kopiert.
   --help                Diese Hilfe
@@ -145,6 +147,7 @@ while [[ $# -gt 0 ]]; do
         --no-system-deps) SYSTEM_DEPS_ENABLED=false; shift ;;
         --no-hailo)       INSTALL_HAILO=false; shift ;;
         --no-node)        INSTALL_NODE=false; shift ;;
+        --no-training)    LOCAL_TRAINING_FLAG=false; shift ;;
         --local)
             LOCAL_INSTALL=true
             LOCAL_SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -415,6 +418,7 @@ if [[ "$SYSTEM_DEPS_ENABLED" == true ]]; then
         libjpeg-dev zlib1g-dev         # Pillow
         ffmpeg                         # movement.gif
         nginx                          # Reverse-Proxy für Flask-API + React-Frontend
+        apache2-utils                  # htpasswd für nginx Basic-Auth
     )
 
     log_info "Installiere APT-Pakete: ${APT_PKGS[*]}"
@@ -518,6 +522,28 @@ else
         check_warn ".env: FTP-Credentials unvollständig"
         note_manual "nano $ENV_FILE  # FTP_SERVER, FTP_USER, FTP_PASS prüfen"
     fi
+fi
+
+# LOCAL_TRAINING Flag in runtime_overrides.json schreiben (nur wenn --no-training)
+if [[ "$LOCAL_TRAINING_FLAG" == "false" ]]; then
+    log_info "Setze LOCAL_TRAINING=False in runtime_overrides.json ..."
+    "$VENV/bin/python3" - <<PYEOF
+import json, os
+path = "$TARGET/train_data/runtime_overrides.json"
+os.makedirs(os.path.dirname(path), exist_ok=True)
+data = {}
+if os.path.exists(path):
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+data["LOCAL_TRAINING"] = False
+with open(path, "w") as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+print("[INSTALL] LOCAL_TRAINING=False in runtime_overrides.json gesetzt.")
+PYEOF
+    check_ok "LOCAL_TRAINING=False gesetzt (Phase B: Training auf Linux-Rechner)"
 fi
 
 # ==============================================================================
@@ -697,6 +723,30 @@ FRONTEND_DIST="$TARGET/frontend/dist"
 
 if command -v nginx &>/dev/null; then
 
+    # Basic-Auth: Passwort generieren (einmalig, bei Upgrade beibehalten)
+    ADMIN_PASS_FILE="$TARGET/.admin_password"
+    if [[ ! -f "$ADMIN_PASS_FILE" ]]; then
+        ADMIN_PASS=$(openssl rand -base64 16 | tr -d '/+=\n' | head -c 16)
+        echo "$ADMIN_PASS" | sudo htpasswd -ic /etc/nginx/.htpasswd admin
+        echo "$ADMIN_PASS" > "$ADMIN_PASS_FILE"
+        chmod 600 "$ADMIN_PASS_FILE"
+        check_ok "nginx Basic-Auth: Passwort generiert → $ADMIN_PASS_FILE"
+        echo -e "${YELLOW}  Admin-Passwort: ${ADMIN_PASS}${NC}"
+        echo -e "${YELLOW}  (auch gespeichert in: $ADMIN_PASS_FILE)${NC}"
+    else
+        log_info "nginx Basic-Auth: $ADMIN_PASS_FILE vorhanden — Passwort unverändert."
+        # htpasswd wiederherstellen falls gelöscht (z. B. nach OS-Neuinstallation)
+        if [[ ! -f /etc/nginx/.htpasswd ]]; then
+            EXISTING_PASS=$(cat "$ADMIN_PASS_FILE" 2>/dev/null || true)
+            if [[ -n "$EXISTING_PASS" ]]; then
+                echo "$EXISTING_PASS" | sudo htpasswd -ic /etc/nginx/.htpasswd admin
+                check_ok "nginx Basic-Auth: .htpasswd aus $ADMIN_PASS_FILE wiederhergestellt."
+            else
+                check_warn "nginx Basic-Auth: .admin_password leer — Basic-Auth deaktiviert."
+            fi
+        fi
+    fi
+
     log_info "Generiere nginx-Konfiguration: $NGINX_SITE_CONF"
     sudo tee "$NGINX_SITE_CONF" > /dev/null <<NGINXCONF
 # WetterExtended — nginx Reverse-Proxy
@@ -706,6 +756,9 @@ server {
     listen 80;
     listen [::]:80;
     server_name _;
+
+    auth_basic           "WetterExtended Admin";
+    auth_basic_user_file /etc/nginx/.htpasswd;
 
     root ${FRONTEND_DIST};
     index index.html;
