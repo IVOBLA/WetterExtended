@@ -9,6 +9,12 @@ import importlib.util
 
 np = importlib.import_module("numpy") if importlib.util.find_spec("numpy") else None
 
+if np is None:
+    raise ImportError(
+        "[prediction.py] numpy ist nicht installiert. "
+        "Bitte ausführen: pip3 install numpy --break-system-packages"
+    )
+
 from config import ML_CELL_FEATURES as CELL_KEYS, ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, ML_STATION_FEATURES as STATION_KEYS, SAVE_PATHS
 from dataset_builder import load_scalers
 from model_training import load_lgbm_models, load_lstm
