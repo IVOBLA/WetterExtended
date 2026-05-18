@@ -20,7 +20,26 @@ try:
     from dem_feature import get_dem_features
 except Exception:
     def get_dem_features(*args, **kwargs):
-        return {"dem_elevation_m": 0.0, "dem_slope_toward_cell": 0.0}
+        return {"dem_elevation_m": 0.0, "dem_slope_toward_cell": 0.0,
+                "dem_barrier_ahead": 0.0}
+
+try:
+    from valley_feature import get_valley_features
+except Exception:
+    def get_valley_features(*args, **kwargs):
+        return {"valley_alignment": 0.0, "valley_distance_km": 999.0,
+                "valley_confinement": 0.0}
+
+try:
+    from orographic_module import assign_orographic_scores as _assign_orog
+except Exception:
+    def _assign_orog(objs):
+        for o in objs:
+            o.setdefault("terrain_blocking_score", 0.0)
+            o.setdefault("orographic_lift_score",  0.0)
+            o.setdefault("stationary_risk",        0.0)
+            o.setdefault("forecast_speed_factor",  1.0)
+        return objs
 
 tracking_memory = {}
 
@@ -354,16 +373,25 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             elif core_ratio < prev_core - 0.05:
                 trend = -1
 
-        dem = get_dem_features(lat, lon, vx=float(vx), vy=float(vy))
-        strat = compute_stratiform_environment(
+        dem    = get_dem_features(lat, lon, vx=float(vx), vy=float(vy))
+        valley = get_valley_features(lat, lon, vx=float(vx), vy=float(vy))
+        strat  = compute_stratiform_environment(
             hsv, contour, vx=float(vx), vy=float(vy)
         )
         new_memory[obj_id] = {
             "x": original_cx, "y": original_cy, "vx": float(vx), "vy": float(vy),
             "size": int(np.sqrt(area)), "area": float(area), "eccentricity": float(eccentricity),
             "core_ratio": float(core_ratio), "trend": trend, "lat": lat, "lon": lon,
-            "dem_elevation_m": dem["dem_elevation_m"],
-            "dem_slope_toward_cell": dem["dem_slope_toward_cell"],
+            "dem_elevation_m":        dem["dem_elevation_m"],
+            "dem_slope_toward_cell":  dem["dem_slope_toward_cell"],
+            "dem_barrier_ahead":      dem.get("dem_barrier_ahead", 0.0),
+            "valley_alignment":       valley["valley_alignment"],
+            "valley_distance_km":     valley["valley_distance_km"],
+            "valley_confinement":     valley["valley_confinement"],
+            "terrain_blocking_score": 0.0,
+            "orographic_lift_score":  0.0,
+            "stationary_risk":        0.0,
+            "forecast_speed_factor":  1.0,
             "strat_area_px": strat["strat_area_px"],
             "strat_intensity_mean": strat["strat_intensity_mean"],
             "strat_dbz_gradient": strat["strat_dbz_gradient"],
@@ -415,6 +443,8 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
 
     if len(set(new_memory.keys())) != len(new_memory):
         debug_log("[TRACKING] WARN: Doppelte IDs in new_memory erkannt")
+    # Orographische Scores werden in main.py nach assign_cape gesetzt
+    # (brauchen CAPE-Werte die hier noch nicht verfügbar sind).
     tracking_memory = new_memory
     for obj_id, obj in new_memory.items():
         if obj.get("missing", 0) == 0:
