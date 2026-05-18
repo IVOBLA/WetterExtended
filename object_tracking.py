@@ -24,6 +24,37 @@ except Exception:
 
 tracking_memory = {}
 
+# ---------------------------------------------------------------------------
+# Statische Ausschlusszonen (False-Positive-Filter)
+# ---------------------------------------------------------------------------
+try:
+    from config import STATIC_EXCLUSION_ZONES as _DEFAULT_EXCLUSION_ZONES
+except Exception:
+    _DEFAULT_EXCLUSION_ZONES = []
+
+
+def _is_in_exclusion_zone(lat: float, lon: float, zones: list) -> bool:
+    """
+    Gibt True zurück wenn (lat, lon) innerhalb einer konfigurierten
+    Ausschlusszone liegt (Haversine-Distanz ≤ radius_km).
+    """
+    if not zones or lat is None or lon is None:
+        return False
+    try:
+        from geo_utils import haversine_distance
+    except Exception:
+        return False
+    for zone in zones:
+        z_lat = zone.get("lat")
+        z_lon = zone.get("lon")
+        r_km  = float(zone.get("radius_km", 5.0))
+        if z_lat is None or z_lon is None:
+            continue
+        if haversine_distance(float(lat), float(lon),
+                              float(z_lat), float(z_lon)) <= r_km:
+            return True
+    return False
+
 def are_contours_connected(cnt1, cnt2, shape, min_overlap=10):
     mask1 = np.zeros(shape, dtype=np.uint8)
     mask2 = np.zeros(shape, dtype=np.uint8)
@@ -249,6 +280,15 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             continue
         # pixel_to_geo erwartet SKALIERTE Koordinaten (teilt intern durch upscale)
         lat, lon = pixel_to_geo(cx, cy)
+
+        # Ausschlusszone prüfen — bekannte Artefakte (Radarmaste, Sendeanlagen)
+        _zones = _rc.get("STATIC_EXCLUSION_ZONES", _DEFAULT_EXCLUSION_ZONES)
+        if _is_in_exclusion_zone(lat, lon, _zones):
+            debug_log(
+                f"[TRACKING] Kontur bei ({lat:.3f}°N, {lon:.3f}°E) in "
+                f"Ausschlusszone — übersprungen."
+            )
+            continue
         if not is_within_bbox(lat, lon, BBOX):
             continue
 
