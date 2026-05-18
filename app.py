@@ -400,6 +400,89 @@ def api_ai_analysis_suggestions():
         return jsonify({"suggestions": [], "error": str(e)})
 
 
+@app.route("/api/ai_analysis/models")
+def api_ai_analysis_models():
+    """Verfügbare Claude-Modelle für Admin-Dropdown."""
+    return jsonify({
+        "models": [
+            {"id": "claude-haiku-4-5-20251001", "label": "Haiku 4.5 — schnell, günstig"},
+            {"id": "claude-sonnet-4-6",          "label": "Sonnet 4.6 — Standard"},
+            {"id": "claude-opus-4-6",            "label": "Opus 4.6 — leistungsstark"},
+        ]
+    })
+
+
+@app.route("/api/ai_analysis/chat", methods=["POST"])
+def api_ai_analysis_chat():
+    """
+    Freier KI-Chat mit optionalem System-Daten- und Quellcode-Kontext.
+    Body JSON:
+      question       (str)  — Pflichtfeld
+      include_data   (bool) — System-Metriken aus build_system_report() (default true)
+      include_source (bool) — Quellcode-Kontext (default false, langsamer/mehr Token)
+      model          (str)  — Claude-Modell-ID (default claude-sonnet-4-6)
+    """
+    try:
+        data     = request.get_json(force=True) or {}
+        question = str(data.get("question", "")).strip()
+        if not question:
+            return jsonify({"ok": False, "error": "Feld 'question' fehlt"}), 400
+
+        include_data   = bool(data.get("include_data", True))
+        include_source = bool(data.get("include_source", False))
+        model_id       = str(data.get("model", "claude-sonnet-4-6"))
+
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return jsonify({"ok": False, "error": "ANTHROPIC_API_KEY nicht gesetzt"}), 500
+
+        import anthropic
+        from daily_analyzer import build_system_report, _collect_source_context
+        from config import AI_ANALYSIS_CONFIG as _def_cfg
+
+        parts = []
+
+        if include_data:
+            cfg     = dict(_def_cfg)
+            cfg.update(runtime_config.get("AI_ANALYSIS_CONFIG", {}))
+            since_h = cfg.get("since_hours", 24)
+            report  = build_system_report(since_hours=since_h)
+            parts.append(
+                f"=== SYSTEM-DATEN (letzte {since_h}h) ===\n"
+                + json.dumps(report, ensure_ascii=False, indent=1)
+            )
+
+        if include_source:
+            ctx = _collect_source_context(repo_dir=".")
+            parts.append(
+                "=== QUELLCODE-KONTEXT ===\n"
+                + json.dumps(ctx, ensure_ascii=False, indent=1)
+            )
+
+        system_prompt = (
+            "Du bist Experte für das WetterExtended-Sturmzell-Tracking-System "
+            "in Kärnten/Österreich (Raspberry Pi 5, Hailo-8 AI, ARSO-Radar). "
+            "Beantworte die Frage präzise auf Basis des bereitgestellten Kontexts. "
+            "Antworte auf Deutsch. Sei konkret und praxisnah."
+        )
+
+        user_content = "\n\n".join(parts)
+        user_content += (f"\n\n=== FRAGE ===\n{question}" if user_content else question)
+
+        client  = anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model=model_id,
+            max_tokens=2000,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        answer = message.content[0].text if message.content else "(keine Antwort)"
+        return jsonify({"ok": True, "answer": answer, "model": model_id})
+
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
 @app.route("/api/ai_analysis/run", methods=["POST"])
 def api_ai_analysis_run():
     """Manueller Trigger für Sofort-Analyse (ignoriert enabled-Flag)."""
