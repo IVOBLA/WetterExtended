@@ -29,7 +29,7 @@ from api_cache import cache_key, cache_get, cache_set, get_ttl
 
 _URL     = "https://api.open-meteo.com/v1/forecast"
 _MODEL   = "icon_global"
-_PARAMS  = "geopotential_500hPa,wind_speed_500hPa,wind_direction_500hPa"
+_PARAMS = "geopotential_height_500hPa,wind_speed_500hPa,wind_direction_500hPa"
 _TZ      = "Europe/Vienna"
 _TIMEOUT = 15
 _G       = 9.80665  # m/s² Normgravitation
