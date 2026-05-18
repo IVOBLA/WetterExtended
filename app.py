@@ -146,7 +146,10 @@ def api_radar_image():
         # Schwellwert R,G,B > 230 erfasst den ARSO-Kartenhintergrund.
         # Niederschlagsfarben (Orange, Rot, Violett, Gelb) bleiben opak.
         r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
-        bg_mask = (r > 230) & (g > 230) & (b > 230)
+        # ARSO-Radar nach OpenCV-Crop: Hintergrund = schwarz (0,0,0).
+        # Beide Fälle abdecken: schwarz (OpenCV-Default) + weiß (Original-KMZ)
+        bg_mask = ((r < 30) & (g < 30) & (b < 30)) | \
+                  ((r > 225) & (g > 225) & (b > 225))
         arr[bg_mask, 3] = 0  # Alpha = 0 (vollständig transparent)
 
         out = Image.fromarray(arr)
