@@ -19,6 +19,7 @@ from config import (
     SAVE_DIR,
     LAPSE_RATE
 )
+from api_cache import cache_key, cache_get, cache_set, get_ttl
 
 # Bounding Box vorbereiten
 BBOX = [
@@ -32,7 +33,19 @@ LAST_TIMESTAMP_FILE = os.path.join(SAVE_DIR, "last_cloud_top_time.txt")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 def get_latest_wms_time():
+    """
+    Liest den aktuellen WMS-Timestamp aus EUMETView-Capabilities.
+    Cache (10 Min) — MSG Full Earth Scan aktualisiert nur alle 15 Min.
+    """
     url = "https://view.eumetsat.int/geoserver/wms?service=WMS&request=GetCapabilities&version=1.3.0"
+
+    # Cache-Lookup
+    ck = cache_key("eumetview:capabilities", LAYER)
+    cached_ts = cache_get(ck, ttl_seconds=get_ttl("eumetview_capabilities", 600))
+    if cached_ts is not None:
+        print(f"[DEBUG] WMS-Timestamp aus Cache: {cached_ts}")
+        return cached_ts
+
     try:
         r = requests.get(url, timeout=10)
         if r.ok:
@@ -41,9 +54,16 @@ def get_latest_wms_time():
                 if elem.tag.endswith('Dimension') and elem.attrib.get('name') == 'time':
                     ts = elem.attrib.get('default')
                     print(f"[DEBUG] WMS-Timestamp gefunden: {ts}")
+                    cache_set(ck, ts)
                     return ts
     except Exception as e:
         print(f"[FEHLER] GetCapabilities fehlgeschlagen: {e}")
+        try:
+            from debug_utils import log_api_failure
+            log_api_failure("EUMETView-WMS", url,
+                            f"{type(e).__name__}: {e}", fallback_used=True)
+        except Exception:
+            pass
     return None
 
 def wms_to_filename_timestamp(wms_time: str) -> str:
