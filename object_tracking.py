@@ -243,6 +243,9 @@ def calculate_core_ratio(hsv, contour):
 
 def update_tracking_memory(hsv, contours, weather_data, timestamp):
     FILTER_CONFIG = _rc.get("FILTER_CONFIG", _DEFAULT_FILTER_CONFIG)
+    # F7-FIX: BBOX live aus runtime_config — Admin-Panel-Änderungen wirken sofort.
+    from config import BBOX_KAERNTEN_EXTENDED as _DEFAULT_BBOX
+    _BBOX_LIVE = _rc.get("BBOX_KAERNTEN_EXTENDED", _DEFAULT_BBOX)
     global tracking_memory
     objects = []
     new_memory = {}
@@ -289,7 +292,7 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
                 f"Ausschlusszone — übersprungen."
             )
             continue
-        if not is_within_bbox(lat, lon, BBOX):
+        if not is_within_bbox(lat, lon, _BBOX_LIVE):
             continue
 
         current_poly = Polygon(contour[:, 0, :])
@@ -405,7 +408,7 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
     for obj_id, obj in previous_snapshot.items():
         if obj_id not in new_memory:
             lat, lon = obj.get("lat"), obj.get("lon")
-            if is_within_bbox(lat, lon, BBOX):
+            if is_within_bbox(lat, lon, _BBOX_LIVE):
                 obj["missing"] = obj.get("missing", 0) + 1
                 if obj["missing"] <= 10:
                     new_memory[obj_id] = obj
@@ -415,7 +418,9 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
     tracking_memory = new_memory
     for obj_id, obj in new_memory.items():
         if obj.get("missing", 0) == 0:
-            previous_history = tracking_memory.get(obj_id, {}).get("history", [])
+            # F2-FIX: History aus previous_snapshot lesen (vor Überschreiben),
+            # nicht aus tracking_memory (= new_memory, hat noch kein "history"-Key).
+            previous_history = previous_snapshot.get(obj_id, {}).get("history", [])
             new_entry = {"timestamp": timestamp, "vx": float(obj["vx"]), "vy": float(obj["vy"]), "core_ratio": float(obj["core_ratio"]), "weather_vals": {}, "lat": obj["lat"], "lon": obj["lon"]}
             updated_history = (previous_history + [new_entry])[-history_len:]
             obj_clean = obj.copy(); obj_clean.pop("kf", None); obj_clean["history"] = updated_history
