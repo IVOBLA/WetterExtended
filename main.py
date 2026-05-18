@@ -18,7 +18,8 @@ from debug_utils import debug_log
 from fetch_700hpa_wind_per_object_slim import fetch_and_assign_700hpa_wind
 from assign_cape_from_forecast import assign_cape
 from geo_utils import get_roi_from_bbox, kml_bounds
-from config import BBOX_KAERNTEN_EXTENDED, SAVE_PATHS, LIVE_LOOP_INTERVAL_S
+from config import (BBOX_KAERNTEN_EXTENDED, SAVE_PATHS, LIVE_LOOP_INTERVAL_S,
+                    LOOP_INTERVAL_CELLS_S, LOOP_INTERVAL_NO_CELLS_S)
 from cloud_height_from_eumetview import assign_cloud_top_height
 from optical_flow_features import assign_optical_flow_to_objects
 from fetch_arome_openmeteo import assign_arome_to_objects
@@ -47,7 +48,6 @@ def _count_lightning_near(lat: float, lon: float,
 
 def main_loop():
     image_path = "data/latest.png"
-    sleep_time = runtime_config.get("LIVE_LOOP_INTERVAL_S", LIVE_LOOP_INTERVAL_S)
 
     _prev_radar_path = None
 
@@ -61,7 +61,7 @@ def main_loop():
 
         if not radar_ok:
             debug_log("[SKIP] Radarbild ungültig oder nicht neu → nächster Zyklus.")
-            time.sleep(sleep_time)
+            time.sleep(runtime_config.get("LOOP_INTERVAL_NO_CELLS_S", LOOP_INTERVAL_NO_CELLS_S))
             continue
 
         image = cv2.imread(image_path) if os.path.exists(image_path) else None
@@ -156,8 +156,15 @@ def main_loop():
         except Exception:
             debug_log("Kein Object-File vorhanden — überspringe Upload von latest_objects.json")
 
-        debug_log("Warte auf nächstes Radarbild...")
-        time.sleep(sleep_time)
+        # Adaptiver Intervall: kurz bei aktiven Zellen, lang bei Ruhe
+        _cells_now = bool(objects and any(o.get("missing", 0) == 0 for o in objects))
+        if _cells_now:
+            _sleep = runtime_config.get("LOOP_INTERVAL_CELLS_S", LOOP_INTERVAL_CELLS_S)
+            debug_log(f"[LOOP] Zellen aktiv → kurzer Intervall ({_sleep}s)")
+        else:
+            _sleep = runtime_config.get("LOOP_INTERVAL_NO_CELLS_S", LOOP_INTERVAL_NO_CELLS_S)
+            debug_log(f"[LOOP] Keine Zellen → langer Intervall ({_sleep}s)")
+        time.sleep(_sleep)
 
 if __name__ == "__main__":
     main_loop()
