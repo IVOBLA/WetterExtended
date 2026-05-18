@@ -107,11 +107,11 @@ def run_accuracy_eval_job():
         result = evaluate_all(horizons, since_hours=24)
         append_history_point(result)
 
-        # Health-Check: 0 Samples für ALLE Horizonte → Warning + JSONL-Eintrag
+        # Health-Check: 0 Samples für ALLE Horizonte → Warning + JSONL
         all_zero = all(h.get("samples", 0) == 0 for h in result.get("horizons", []))
         if all_zero:
             import os as _os, glob as _gl, json as _jh, datetime as _dt
-            obj_dir = SAVE_PATHS.get("objects", "train_data/objects")
+            obj_dir   = SAVE_PATHS.get("objects", "train_data/objects")
             obj_count = len(_gl.glob(_os.path.join(obj_dir, "*.json")))
             debug_log(
                 f"[ACCURACY][HEALTH-WARN] 0 verifizierbare Samples für alle Horizonte. "
@@ -123,15 +123,13 @@ def run_accuracy_eval_job():
             )
             eval_dir = SAVE_PATHS.get("evaluation", "train_data/evaluation")
             _os.makedirs(eval_dir, exist_ok=True)
-            health_log = _os.path.join(eval_dir, "accuracy_health.jsonl")
-            entry = {
-                "ts": _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                "event": "zero_samples",
-                "obj_files": obj_count,
-                "horizons": horizons,
-            }
-            with open(health_log, "a", encoding="utf-8") as _hf:
-                _jh.dump(entry, _hf)
+            with open(_os.path.join(eval_dir, "accuracy_health.jsonl"), "a", encoding="utf-8") as _hf:
+                _jh.dump({
+                    "ts":       _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                    "event":    "zero_samples",
+                    "obj_files": obj_count,
+                    "horizons": horizons,
+                }, _hf)
                 _hf.write("\n")
         else:
             debug_log(f"[SCHEDULER] accuracy_eval abgeschlossen: {result}")
