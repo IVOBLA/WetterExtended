@@ -832,7 +832,7 @@ server {
     # Vollbild-Karte: ohne Authentifizierung erreichbar
     location = /karte {
         auth_basic off;
-        try_files \$uri /index.html;
+        try_files /index.html =404;
         add_header Cache-Control "no-cache";
     }
 
