@@ -1,36 +1,31 @@
 # fetch_arome_openmeteo.py
 """
-Holt AROME-äquivalente Gitterpunktdaten direkt auf jeder Objektkoordinate
-über die Open-Meteo API (Modell: icon_d2, 2,2 km Auflösung, deckt AT/DE/CH ab).
+Holt AROME-äquivalente Gitterpunktdaten für alle Objekte eines Frames
+über die Open-Meteo API (Modell: icon_d2, 2,2 km, AT/DE/CH).
 
-Damit entfällt die Abhängigkeit von der nächsten TAWES-Station (bis zu 20 km
-entfernt). TAWES-Beobachtungswerte bleiben als eigene Features erhalten —
-AROME ist eine ergänzende Modell-Perspektive.
+Bulk-Query: alle Zellen in einem einzigen HTTP-Request.
+  1 Request/Frame statt 1 Request/Zelle × N Zellen.
 
 Neue Features je Objekt:
-  arome_t2m       — Temperatur 2 m (°C)
-  arome_td2m      — Taupunkt 2 m (°C)
-  arome_ff10m     — Windgeschwindigkeit 10 m (km/h)
-  arome_dd_cos    — cos(Windrichtung 10 m) — zyklisch kodiert
-  arome_dd_sin    — sin(Windrichtung 10 m)
-  arome_li        — Lifted Index (°C, negativ → Instabilität)
-  arome_fl_height — Gefriergrenze (m MSL)
+  arome_t2m, arome_td2m, arome_ff10m, arome_dd_cos, arome_dd_sin,
+  arome_li, arome_fl_height
 
 API-Spec: https://open-meteo.com/en/docs (models=icon_d2)
 Rate-Limit: kostenlos bis 10 000 req/Tag, kein API-Key nötig.
 """
 
-import os
 import json
-import time
+import os
 import requests
-from math import radians, cos, sin
+from math import cos, radians, sin
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from debug_utils import debug_log
+
+from config import SAVE_PATHS
+from debug_utils import debug_log, log_api_failure
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
-_MODEL = "icon_d2"   # DWD ICON-D2, 2,2 km, stündlich, AT/DE/CH
+_MODEL = "icon_d2"
 _PARAMS = ",".join([
     "temperature_2m",
     "dewpoint_2m",
@@ -40,8 +35,8 @@ _PARAMS = ",".join([
     "freezing_level_height",
 ])
 _TZ = "Europe/Vienna"
-_SAVE_DIR = "train_data/arome"
-_RATE_SLEEP = 0.3   # Sekunden zwischen API-Calls (Rate-Limit-Schutz)
+_SAVE_DIR = SAVE_PATHS.get("arome", "train_data/arome/").rstrip("/")
+_TIMEOUT = 15   # Sekunden — etwas mehr als bei Single-Call da mehr Daten
 
 _DEFAULT = {
     "arome_t2m": 0.0,
@@ -55,123 +50,137 @@ _DEFAULT = {
 
 
 def _nearest_hour_str() -> str:
-    """Gibt die aktuelle volle Stunde als ISO-String zurück, z. B. '2025-05-07T14:00'."""
-    now = datetime.now(ZoneInfo(_TZ))
-    return now.strftime("%Y-%m-%dT%H:00")
+    """Aktuelle volle Stunde als ISO-String, z. B. '2025-05-16T14:00'."""
+    return datetime.now(ZoneInfo(_TZ)).strftime("%Y-%m-%dT%H:00")
 
 
-def _fetch_single(lat: float, lon: float) -> dict:
+def _parse_location_response(loc_data: dict, target_time: str) -> dict:
     """
-    Ruft Open-Meteo icon_d2 für einen Gitterpunkt ab.
-    Gibt dict mit arome_* Keys zurück; bei Fehler alle 0.0.
-
-    API-Aufruf:
-      GET https://api.open-meteo.com/v1/forecast
-        ?latitude=<lat>&longitude=<lon>
-        &hourly=temperature_2m,dewpoint_2m,...
-        &models=icon_d2
-        &timezone=Europe/Vienna
-        &forecast_days=1
+    Extrahiert AROME-Features aus einem einzelnen Locations-Eintrag der Bulk-Response.
+    Gibt _DEFAULT zurück falls Slot nicht vorhanden.
     """
-    params = {
-        "latitude": round(lat, 4),
-        "longitude": round(lon, 4),
-        "hourly": _PARAMS,
-        "models": _MODEL,
-        "timezone": _TZ,
-        "forecast_days": 1,
+    hourly = loc_data.get("hourly", {})
+    times = hourly.get("time", [])
+
+    if target_time in times:
+        idx = times.index(target_time)
+    else:
+        idx = 0  # Fallback auf ersten verfügbaren Slot
+
+    def _val(key: str, default: float = 0.0) -> float:
+        vals = hourly.get(key, [])
+        v = vals[idx] if idx < len(vals) else None
+        return float(v) if v is not None else default
+
+    dd_rad = radians(_val("wind_direction_10m"))
+    return {
+        "arome_t2m": round(_val("temperature_2m"), 2),
+        "arome_td2m": round(_val("dewpoint_2m"), 2),
+        "arome_ff10m": round(_val("wind_speed_10m"), 2),
+        "arome_dd_cos": round(cos(dd_rad), 4),
+        "arome_dd_sin": round(sin(dd_rad), 4),
+        "arome_li": round(_val("lifted_index"), 2),
+        "arome_fl_height": round(_val("freezing_level_height"), 1),
     }
-    try:
-        r = requests.get(OPEN_METEO_URL, params=params, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        hourly = data.get("hourly", {})
-
-        target_time = _nearest_hour_str()
-        times = hourly.get("time", [])
-        if target_time not in times:
-            from debug_utils import log_api_failure
-            log_api_failure("Open-Meteo-icon_d2",
-                            f"{OPEN_METEO_URL}?latitude={lat:.3f}&longitude={lon:.3f}",
-                            f"no-slot-for-{target_time}",
-                            fallback_used=True)
-            idx = 0
-        else:
-            idx = times.index(target_time)
-
-        def _val(key, default=0.0):
-            vals = hourly.get(key, [])
-            v = vals[idx] if idx < len(vals) else None
-            return float(v) if v is not None else default
-
-        t2m    = _val("temperature_2m")
-        td2m   = _val("dewpoint_2m")
-        ff10m  = _val("wind_speed_10m")
-        dd_deg = _val("wind_direction_10m")
-        li     = _val("lifted_index")
-        fl_h   = _val("freezing_level_height")
-
-        dd_rad = radians(dd_deg)
-        return {
-            "arome_t2m":       round(t2m, 2),
-            "arome_td2m":      round(td2m, 2),
-            "arome_ff10m":     round(ff10m, 2),
-            "arome_dd_cos":    round(cos(dd_rad), 4),
-            "arome_dd_sin":    round(sin(dd_rad), 4),
-            "arome_li":        round(li, 2),
-            "arome_fl_height": round(fl_h, 1),
-        }
-
-    except requests.exceptions.Timeout:
-        from debug_utils import log_api_failure
-        log_api_failure("Open-Meteo-icon_d2",
-                        f"{OPEN_METEO_URL}?latitude={lat:.3f}&longitude={lon:.3f}",
-                        "timeout", fallback_used=True)
-        return dict(_DEFAULT)
-    except requests.exceptions.HTTPError as e:
-        from debug_utils import log_api_failure
-        status = getattr(e.response, "status_code", None)
-        log_api_failure("Open-Meteo-icon_d2",
-                        f"{OPEN_METEO_URL}?latitude={lat:.3f}&longitude={lon:.3f}",
-                        f"http-error: {e}", fallback_used=True, http_status=status)
-        return dict(_DEFAULT)
-    except Exception as e:
-        from debug_utils import log_api_failure
-        log_api_failure("Open-Meteo-icon_d2",
-                        f"{OPEN_METEO_URL}?latitude={lat:.3f}&longitude={lon:.3f}",
-                        f"{type(e).__name__}: {e}", fallback_used=True)
-        return dict(_DEFAULT)
 
 
 def assign_arome_to_objects(objects: list, timestamp: str) -> list:
     """
-    Holt AROME icon_d2 Werte für alle Objekte und schreibt sie ins dict.
-    Speichert Ergebnis in train_data/arome/<timestamp>.json.
+    Holt AROME icon_d2 Werte für alle Objekte in einem Bulk-Request.
+    Schreibt Ergebnisse in train_data/arome/<timestamp>.json.
+    Objekte ohne Koordinaten erhalten _DEFAULT-Werte.
 
     Parameter
     ---------
-    objects   : Liste der aktuellen Objekte mit "lat" und "lon"
+    objects   : Liste der aktuellen Objekte mit "lat", "lon", "id"
     timestamp : Aktueller Zeitstempel (Format YYYY-MM-DD_HH-MM-SS)
     """
     os.makedirs(_SAVE_DIR, exist_ok=True)
-    results = {}
 
-    for obj in objects:
-        lat = obj.get("lat")
-        lon = obj.get("lon")
-        obj_id = obj.get("id")
-        if lat is None or lon is None or obj_id is None:
+    # Gültige Objekte mit Index merken
+    valid: list = [
+        (i, obj)
+        for i, obj in enumerate(objects)
+        if obj.get("lat") is not None
+        and obj.get("lon") is not None
+        and obj.get("id") is not None
+    ]
+
+    # Ungültige Objekte mit Defaults befüllen
+    valid_idxs = {i for i, _ in valid}
+    for i, obj in enumerate(objects):
+        if i not in valid_idxs:
             obj.update(_DEFAULT)
+
+    if not valid:
+        debug_log("[AROME] Keine Objekte mit Koordinaten — kein API-Call.")
+        _save_results({}, timestamp)
+        return objects
+
+    # Bulk-Request aufbauen — komma-separierte Koordinaten
+    lats = ",".join(f"{obj['lat']:.4f}" for _, obj in valid)
+    lons = ",".join(f"{obj['lon']:.4f}" for _, obj in valid)
+    bulk_url = (
+        f"{OPEN_METEO_URL}?latitude={lats}&longitude={lons}"
+        f"&hourly={_PARAMS}&models={_MODEL}&timezone={_TZ}&forecast_days=1"
+    )
+
+    try:
+        r = requests.get(bulk_url, timeout=_TIMEOUT)
+        r.raise_for_status()
+        data = r.json()
+    except requests.exceptions.Timeout:
+        log_api_failure("Open-Meteo-icon_d2", bulk_url, "timeout", fallback_used=True)
+        debug_log("[AROME] Timeout beim Bulk-Request — alle Objekte erhalten Default-Werte.")
+        for _, obj in valid:
+            obj.update(_DEFAULT)
+        _save_results({}, timestamp)
+        return objects
+    except requests.exceptions.HTTPError as exc:
+        status = getattr(exc.response, "status_code", None)
+        log_api_failure("Open-Meteo-icon_d2", bulk_url,
+                        f"http-{status}", fallback_used=True, http_status=status)
+        debug_log(f"[AROME] HTTP-Fehler {status} — Default-Werte.")
+        for _, obj in valid:
+            obj.update(_DEFAULT)
+        _save_results({}, timestamp)
+        return objects
+    except Exception as exc:
+        log_api_failure("Open-Meteo-icon_d2", bulk_url,
+                        f"{type(exc).__name__}: {exc}", fallback_used=True)
+        debug_log(f"[AROME] Fehler: {exc} — Default-Werte.")
+        for _, obj in valid:
+            obj.update(_DEFAULT)
+        _save_results({}, timestamp)
+        return objects
+
+    # Response normalisieren: Single-Object → Liste
+    if isinstance(data, dict):
+        data = [data]
+
+    target_time = _nearest_hour_str()
+    results: dict = {}
+
+    for loc_idx, (_, obj) in enumerate(valid):
+        if loc_idx >= len(data):
+            # Weniger Antworten als erwartet → Default
+            obj.update(_DEFAULT)
+            debug_log(f"[AROME] Fehlende Response für Objekt {obj.get('id')} — Default.")
             continue
-
-        arome_vals = _fetch_single(lat, lon)
+        arome_vals = _parse_location_response(data[loc_idx], target_time)
         obj.update(arome_vals)
-        results[obj_id] = arome_vals
-        time.sleep(_RATE_SLEEP)
+        results[obj.get("id")] = arome_vals
 
-    out_path = os.path.join(_SAVE_DIR, f"{timestamp}.json")
-    with open(out_path, "w") as f:
-        json.dump(results, f, indent=2)
-    debug_log(f"[AROME] Daten gespeichert: {out_path} ({len(results)} Objekte)")
-
+    _save_results(results, timestamp)
+    debug_log(f"[AROME] Bulk-Request OK: {len(valid)} Objekte in 1 API-Call.")
     return objects
+
+
+def _save_results(results: dict, timestamp: str) -> None:
+    out_path = os.path.join(_SAVE_DIR, f"{timestamp}.json")
+    try:
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(results, f, indent=2)
+        debug_log(f"[AROME] Gespeichert: {out_path} ({len(results)} Objekte)")
+    except Exception as exc:
+        debug_log(f"[AROME] Fehler beim Speichern von {out_path}: {exc}")
