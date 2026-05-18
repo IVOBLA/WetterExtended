@@ -35,22 +35,25 @@ def annotate_locations(objects: Iterable[dict], locations: List[dict], horizons:
     """Pro Ort prüfen, welche Forecast-Pfade ihn berühren.
     Rückgabe: Liste von Hits {name, lat, lon, radius_km, hits: {h: {color, cell_id, distance_km}}}
 
-    Orts-Markierung ist nur aktiv wenn mindestens eine Zelle eine echte
-    ML-Vorhersage hat (forecast_mode == 'ml'). Rein kinematische
-    Bewegungsschätzungen reichen nicht aus um Orte als Ziel zu markieren.
+    Orts-Markierung ist aktiv sobald Forecast-Pfade vorliegen (ML oder
+    kinematisch), sofern mindestens ein Forecast-Lat/Lon-Wert je Objekt
+    für die geprüften Horizonte vorhanden ist.
     """
     objects = list(objects)
 
-    has_any_ml = any(obj.get("forecast_mode") == "ml" for obj in objects)
-    if not has_any_ml:
+    # F3-FIX: ML UND kinematische Forecasts markieren Orte (Zieldefinition).
+    forecast_objects = [
+        obj for obj in objects
+        if obj.get("forecast_mode") in ("ml", "kinematic")
+        and any(obj.get(f"forecast_lat_{h}") is not None for h in horizons)
+    ]
+    if not forecast_objects:
         try:
             from debug_utils import debug_log
-            debug_log("[LOCATIONS] Keine ML-Vorhersagen verfügbar → Orts-Markierung deaktiviert.")
+            debug_log("[LOCATIONS] Keine Forecast-Felder verfügbar — Orts-Markierung übersprungen.")
         except Exception:
             pass
         return []
-
-    ml_objects = [obj for obj in objects if obj.get("forecast_mode") == "ml"]
 
     out = []
     for loc in locations:
@@ -63,7 +66,7 @@ def annotate_locations(objects: Iterable[dict], locations: List[dict], horizons:
             continue
 
         hits = {}
-        for obj in ml_objects:
+        for obj in forecast_objects:
             o_lat = obj.get("lat")
             o_lon = obj.get("lon")
             if o_lat is None or o_lon is None:
