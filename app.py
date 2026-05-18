@@ -377,6 +377,20 @@ def api_recent_frames():
     return jsonify(rows)
 
 
+@app.route("/api/atmosphere")
+def api_atmosphere():
+    """Atmosphärischer Zustand für Kärnten-Referenzpunkte (unabhängig von Zellen)."""
+    import glob as _glob
+    path = os.path.join(SAVE_PATHS["evaluation"], "atmosphere_latest.json")
+    if not os.path.exists(path):
+        return jsonify({"ts_utc": None, "locations": [], "note": "noch kein Snapshot"})
+    try:
+        with open(path, encoding="utf-8") as f:
+            return jsonify(json.load(f))
+    except Exception as exc:
+        return jsonify({"error": str(exc), "locations": []}), 500
+
+
 @app.route("/api/disk")
 def api_disk():
     """Disk-Usage des Raspberry Pi für Dashboard-Monitoring."""
