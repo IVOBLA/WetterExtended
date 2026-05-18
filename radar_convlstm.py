@@ -19,7 +19,24 @@ def _debug_log(message: str):
 INPUT_FRAMES = 4
 OUTPUT_FRAMES = 4
 SEQUENCE_LENGTH = INPUT_FRAMES + OUTPUT_FRAMES
-MODEL_PATH = os.path.join(SAVE_PATHS["models"], "current", "radar_convlstm.keras")
+def _get_model_path() -> str:
+    """
+    Gibt den aktuellen ConvLSTM-Modellpfad zurück.
+    Kann via runtime_overrides.json überschrieben werden:
+      {"CONVLSTM_MODEL_PATH": "/pfad/zum/modell.keras"}
+    """
+    try:
+        import runtime_config
+        override = runtime_config.get("CONVLSTM_MODEL_PATH", None)
+        if override and isinstance(override, str):
+            return override
+    except Exception:
+        pass
+    return os.path.join(SAVE_PATHS["models"], "current", "radar_convlstm.keras")
+
+
+# Modul-Level-Konstante bleibt für Rückwärtskompatibilität
+MODEL_PATH = _get_model_path()
 
 
 def _load_and_preprocess_frame(path: str):
@@ -123,7 +140,8 @@ def train_convlstm(batch_size: int = 4, epochs: int = 30):
     )
 
     safe_batch_size = 2 if batch_size < 2 else batch_size
-    os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
+    effective_model_path = _get_model_path()
+    os.makedirs(os.path.dirname(effective_model_path), exist_ok=True)
 
     _debug_log(
         f"[CONVLSTM] Training gestartet: samples={len(x_data)}, batch_size={safe_batch_size}, epochs={epochs}"
@@ -152,12 +170,12 @@ def train_convlstm(batch_size: int = 4, epochs: int = 30):
             )
         else:
             raise
-    model.save(MODEL_PATH)
-    _debug_log(f"[CONVLSTM] Modell gespeichert unter {MODEL_PATH}")
+    model.save(effective_model_path)
+    _debug_log(f"[CONVLSTM] Modell gespeichert unter {effective_model_path}")
 
     return {
         "trained": True,
-        "model_path": MODEL_PATH,
+        "model_path": effective_model_path,
         "epochs_ran": len(history.history.get("loss", [])),
     }
 
@@ -182,10 +200,15 @@ def predict_radar_convlstm(latest_4_frames: List[Any]):
 
     import tensorflow as tf
 
-    if not os.path.exists(MODEL_PATH):
-        raise FileNotFoundError(f"Modell nicht gefunden: {MODEL_PATH}")
+    effective_model_path = _get_model_path()
+    if not os.path.exists(effective_model_path):
+        _debug_log(
+            f"[CONVLSTM] Modell nicht gefunden: {effective_model_path} "
+            f"— ConvLSTM-Vorhersage übersprungen (noch kein Training?)."
+        )
+        return None
 
-    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+    model = tf.keras.models.load_model(effective_model_path, compile=False)
     prediction = model.predict(input_tensor, verbose=0)[0, :, :, :, 0]
 
     restored = []
