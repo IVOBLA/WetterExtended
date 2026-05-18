@@ -299,3 +299,25 @@ DATA_CLEANUP_PATHS: list = [
 #   - runtime_overrides.json  (zur Laufzeit)
 #   - install.sh --no-training (setzt runtime_overrides.json automatisch)
 LOCAL_TRAINING: bool = True
+
+# -------------------------------------------------------
+# Statische Ausschlusszonen (Segmentierung — False-Positive-Filter)
+# -------------------------------------------------------
+# Bekannte Quellen von Falschdetektionen im ARSO-Radarbild.
+# Objekte deren Schwerpunkt innerhalb von radius_km liegt werden verworfen.
+#
+# Format je Eintrag:
+#   name      — Beschreibung (für Logs und Admin-Panel)
+#   lat/lon   — WGS84-Koordinaten des Zentrums
+#   radius_km — Ausschlussradius in Kilometern
+#
+# Konfigurierbar zur Laufzeit via runtime_overrides.json:
+#   {"STATIC_EXCLUSION_ZONES": [{"name": "...", "lat": ..., "lon": ..., "radius_km": ...}]}
+STATIC_EXCLUSION_ZONES: list = [
+    {
+        "name": "Radarstation Koralpe (Reinischkogel)",
+        "lat": 46.874,
+        "lon": 14.963,
+        "radius_km": 5.0,
+    },
+]
