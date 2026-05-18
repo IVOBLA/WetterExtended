@@ -14,17 +14,20 @@ export default function MapFullscreen() {
   const [forecast,  setForecast]  = useState({ features: [] })
   const [locations, setLocations] = useState({ watchlist: [], hits: [], colors: {} })
   const [horizons,  setHorizons]  = useState({ horizons: [10, 20, 30, 40, 60], colors: {}, styles: {} })
+  const [radarTiming, setRadarTiming] = useState(null)
   const [lastTs,    setLastTs]    = useState(null)
 
   async function load() {
     try {
-      const [a, b, c, d] = await Promise.all([
+      const [a, b, c, d, timing] = await Promise.all([
         api.get('/api/objects'),
         api.get('/api/forecast'),
         api.get('/api/locations'),
         api.get('/api/horizons'),
+        api.get('/api/radar_timing').catch(() => null),
       ])
       setObjects(a); setForecast(b); setLocations(c); setHorizons(d)
+      if (timing) setRadarTiming(timing)
       setLastTs(new Date().toLocaleTimeString('de-AT'))
     } catch (e) { console.error(e) }
   }
@@ -37,6 +40,32 @@ export default function MapFullscreen() {
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 0 }}>
+      {/* Radar-Timing Panel */}
+      {radarTiming && (
+        <div style={{
+          position: 'absolute', top: 10, left: 60, zIndex: 1000,
+          background: 'rgba(255,255,255,0.92)', borderRadius: 8,
+          padding: '6px 12px', fontSize: 12,
+          boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
+          display: 'flex', flexDirection: 'column', gap: 3,
+        }}>
+          <div>🛰 Letztes Radar:{' '}
+            <strong>
+              {new Date(radarTiming.last_radar_image_utc)
+                .toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })}
+            </strong>
+          </div>
+          <div>⏱ Nächste Abfrage:{' '}
+            <strong>
+              {new Date(radarTiming.next_fetch_estimated_utc)
+                .toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })}
+            </strong>
+          </div>
+          <div style={{ color: radarTiming.cells_active ? '#c00' : '#999' }}>
+            {radarTiming.cells_active ? '⚡ Zellen aktiv' : '✓ Keine Zellen'}
+          </div>
+        </div>
+      )}
       <MapContainer
         center={[46.62, 14.31]}
         zoom={8}

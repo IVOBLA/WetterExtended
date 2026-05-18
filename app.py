@@ -55,6 +55,68 @@ def _latest_location_hits():
 def api_health():
     return jsonify({"ok": True, "ts": datetime.utcnow().isoformat() + "Z"})
 
+@app.route("/api/radar_timing")
+def api_radar_timing():
+    """Letztes Radarbild-Timestamp + geschätzte nächste Abfrage."""
+    import glob as _gl
+    from config import LOOP_INTERVAL_CELLS_S, LOOP_INTERVAL_NO_CELLS_S
+
+    obj_dir   = SAVE_PATHS.get("objects", "train_data/objects")
+    radar_dir = "data/radar"
+
+    radar_files = sorted(_gl.glob(os.path.join(radar_dir, "radar_*.png")))
+    obj_files   = sorted(_gl.glob(os.path.join(obj_dir, "*.json")))
+
+    last_radar_utc = None
+    if radar_files:
+        try:
+            mtime = os.path.getmtime(radar_files[-1])
+            last_radar_utc = datetime.utcfromtimestamp(mtime).isoformat(timespec="seconds") + "Z"
+        except Exception:
+            pass
+
+    last_obj_utc = None
+    if obj_files:
+        try:
+            mtime = os.path.getmtime(obj_files[-1])
+            last_obj_utc = datetime.utcfromtimestamp(mtime).isoformat(timespec="seconds") + "Z"
+        except Exception:
+            pass
+
+    cells_active = False
+    if obj_files:
+        try:
+            with open(obj_files[-1], encoding="utf-8") as _f:
+                objs = json.load(_f)
+                cells_active = bool(objs and any(o.get("missing", 0) == 0 for o in objs))
+        except Exception:
+            pass
+
+    interval_s = (
+        runtime_config.get("LOOP_INTERVAL_CELLS_S", LOOP_INTERVAL_CELLS_S)
+        if cells_active else
+        runtime_config.get("LOOP_INTERVAL_NO_CELLS_S", LOOP_INTERVAL_NO_CELLS_S)
+    )
+
+    next_fetch_utc = None
+    if obj_files:
+        try:
+            mtime = os.path.getmtime(obj_files[-1])
+            next_fetch_utc = (
+                datetime.utcfromtimestamp(mtime + interval_s)
+                .isoformat(timespec="seconds") + "Z"
+            )
+        except Exception:
+            pass
+
+    return jsonify({
+        "last_radar_image_utc":     last_radar_utc,
+        "last_objects_utc":         last_obj_utc,
+        "next_fetch_estimated_utc": next_fetch_utc,
+        "loop_interval_s":          interval_s,
+        "cells_active":             cells_active,
+    })
+
 
 @app.route("/api/git")
 def api_git():

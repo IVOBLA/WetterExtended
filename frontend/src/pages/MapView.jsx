@@ -28,20 +28,23 @@ function Legend({ horizons, colors }) {
 }
 
 export default function MapView() {
-  const [objects, setObjects] = useState([])
-  const [forecast, setForecast] = useState({ features: [] })
-  const [locations, setLocations] = useState({ watchlist: [], hits: [], colors: {} })
-  const [horizons, setHorizons] = useState({ horizons: [10, 20, 30, 40, 60], colors: {}, styles: {} })
+  const [objects,     setObjects]     = useState([])
+  const [forecast,    setForecast]    = useState({ features: [] })
+  const [locations,   setLocations]   = useState({ watchlist: [], hits: [], colors: {} })
+  const [horizons,    setHorizons]    = useState({ horizons: [10, 20, 30, 40, 60], colors: {}, styles: {} })
+  const [radarTiming, setRadarTiming] = useState(null)
 
   async function load() {
     try {
-      const [a, b, c, d] = await Promise.all([
+      const [a, b, c, d, timing] = await Promise.all([
         api.get('/api/objects'),
         api.get('/api/forecast'),
         api.get('/api/locations'),
         api.get('/api/horizons'),
+        api.get('/api/radar_timing').catch(() => null),
       ])
       setObjects(a); setForecast(b); setLocations(c); setHorizons(d)
+      if (timing) setRadarTiming(timing)
     } catch (e) { console.error(e) }
   }
 
@@ -54,6 +57,33 @@ export default function MapView() {
   return (
     <div>
       <h1 className="text-2xl font-bold mb-4">Live-Karte</h1>
+      {radarTiming && (
+        <div className="flex flex-wrap gap-4 text-xs text-gray-600 bg-blue-50
+                        border border-blue-200 rounded px-3 py-1.5 mb-2">
+          <span>
+            🛰 Letztes Radar:{' '}
+            <strong>
+              {radarTiming.last_radar_image_utc
+                ? new Date(radarTiming.last_radar_image_utc)
+                    .toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })
+                : '—'}
+            </strong>
+          </span>
+          <span>
+            ⏱ Nächste Abfrage:{' '}
+            <strong>
+              {radarTiming.next_fetch_estimated_utc
+                ? new Date(radarTiming.next_fetch_estimated_utc)
+                    .toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })
+                : '—'}
+            </strong>
+          </span>
+          <span className={radarTiming.cells_active
+            ? 'text-red-600 font-semibold' : 'text-gray-400'}>
+            {radarTiming.cells_active ? '⚡ Zellen aktiv' : '✓ Keine Zellen'}
+          </span>
+        </div>
+      )}
       <Legend horizons={horizons.horizons} colors={horizons.colors} />
       <MapContainer center={[46.62, 14.31]} zoom={8} style={{ height: '70vh', borderRadius: 8 }}>
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap" />
