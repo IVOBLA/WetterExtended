@@ -73,24 +73,31 @@ _mosaic_data: "np.ndarray | None" = None
 _mosaic_transform: Any = None
 
 
-def _download_tile(filename, url):
-    path = os.path.join(DEM_DIR, filename)
-    if os.path.exists(path):
-        return True
+def _download_tile(url: str, dest: str) -> bool:
+    """Lädt eine Copernicus-DEM-Kachel (bis ~180 MB) mit Timeout + Stream.
+    Atomisches Schreiben via .tmp verhindert korrupte Tiles bei Abbruch.
+    """
+    import requests as _req
+    import shutil as _sh
+    import os as _os
     try:
-        import requests
-        debug_log(f"[DEM] Lade {filename} (~30 MB)...")
-        r = requests.get(url, timeout=300, stream=True)
-        r.raise_for_status()
-        tmp = path + ".tmp"
-        with open(tmp, "wb") as f:
-            for chunk in r.iter_content(1024*1024):
-                f.write(chunk)
-        os.replace(tmp, path)
-        debug_log(f"[DEM] {filename} gespeichert.")
+        _os.makedirs(_os.path.dirname(dest), exist_ok=True)
+        debug_log(f"[DEM] Download gestartet: {url}")
+        # timeout=(connect_s, read_s): 10s TCP, 120s Read (für 180 MB auf Pi)
+        # stream=True: schreibt direkt auf Disk, kein RAM-Overflow
+        with _req.get(url, timeout=(10, 120), stream=True) as resp:
+            resp.raise_for_status()
+            tmp = dest + ".tmp"
+            with open(tmp, "wb") as f:
+                _sh.copyfileobj(resp.raw, f)
+            _os.replace(tmp, dest)
+        debug_log(f"[DEM] Download OK: {dest} ({_os.path.getsize(dest) // 1024} KB)")
         return True
     except Exception as exc:
-        debug_log(f"[DEM] Download {filename} fehlgeschlagen: {exc}")
+        debug_log(f"[DEM] Download fehlgeschlagen ({url}): {exc}")
+        import os as _os2
+        if _os2.path.exists(dest + ".tmp"):
+            _os2.remove(dest + ".tmp")
         return False
 
 
@@ -102,8 +109,24 @@ def _ensure_dem():
         debug_log("[DEM] rasterio/numpy nicht verfügbar.")
         return False
     os.makedirs(DEM_DIR, exist_ok=True)
-    tile_paths = [os.path.join(DEM_DIR, fn)
-                  for fn, url in _DEM_TILES if _download_tile(fn, url)]
+    tile_paths = []
+    for fn, url in _DEM_TILES:
+        dest_path = os.path.join(DEM_DIR, fn)
+        if os.path.exists(dest_path):
+            tile_paths.append(dest_path)
+            continue
+        import threading as _thr
+        _dl_result = [False]
+        def _dl_worker():
+            _dl_result[0] = _download_tile(url, dest_path)
+        _t = _thr.Thread(target=_dl_worker, daemon=True)
+        _t.start()
+        _t.join(timeout=150)  # max. 2:30 min warten
+        success = _dl_result[0]
+        if not success:
+            debug_log(f"[DEM] Download-Thread Timeout oder Fehler für {url}")
+        if success:
+            tile_paths.append(dest_path)
     if not tile_paths:
         debug_log("[DEM] Keine Kachel verfügbar.")
         return False
