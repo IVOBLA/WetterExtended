@@ -118,6 +118,76 @@ def api_radar_timing():
     })
 
 
+@app.route("/api/radar_image")
+def api_radar_image():
+    """
+    Liefert das neueste, auf BBOX_KAERNTEN_EXTENDED zugeschnittene Radarbild
+    als PNG mit transparentem Hintergrund (weiße Pixel → transparent).
+    Leaflet ImageOverlay lädt dieses Bild exakt passend zu /api/radar_bounds.
+    """
+    import glob as _gl
+    from flask import send_file, make_response
+    import io
+
+    radar_files = sorted(_gl.glob(os.path.join("data", "radar", "radar_*.png")))
+    if not radar_files:
+        return jsonify({"error": "Kein Radarbild verfügbar"}), 404
+
+    latest = radar_files[-1]
+
+    try:
+        from PIL import Image
+        import numpy as _np
+
+        img = Image.open(latest).convert("RGBA")
+        arr = _np.array(img)
+
+        # Weißer + hellgrauer Hintergrund transparent machen.
+        # Schwellwert R,G,B > 230 erfasst den ARSO-Kartenhintergrund.
+        # Niederschlagsfarben (Orange, Rot, Violett, Gelb) bleiben opak.
+        r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+        bg_mask = (r > 230) & (g > 230) & (b > 230)
+        arr[bg_mask, 3] = 0  # Alpha = 0 (vollständig transparent)
+
+        out = Image.fromarray(arr)
+        buf = io.BytesIO()
+        out.save(buf, format="PNG")
+        buf.seek(0)
+
+        resp = make_response(send_file(buf, mimetype="image/png"))
+        resp.headers["Cache-Control"] = "no-cache, max-age=120"
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        return resp
+
+    except ImportError:
+        # Pillow fehlt → Originalbild ohne Transparenz (Fallback)
+        print("[RADAR-IMG] Pillow nicht installiert — Fallback ohne Transparenz")
+        resp = make_response(send_file(latest, mimetype="image/png"))
+        resp.headers["Cache-Control"] = "no-cache, max-age=120"
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        return resp
+    except Exception as exc:
+        print(f"[RADAR-IMG] Fehler: {exc}")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/radar_bounds")
+def api_radar_bounds():
+    """
+    BBOX des Radarbilds für Leaflet ImageOverlay.
+    Format: { "bounds": [[south, west], [north, east]] }
+    """
+    from config import BBOX_KAERNTEN_EXTENDED
+    bbox = runtime_config.get("BBOX_KAERNTEN_EXTENDED", BBOX_KAERNTEN_EXTENDED)
+    return jsonify({
+        "bounds": [
+            [bbox["south"], bbox["west"]],
+            [bbox["north"], bbox["east"]],
+        ],
+        "bbox": bbox,
+    })
+
+
 @app.route("/api/git")
 def api_git():
     branch, commit = _git_info()
