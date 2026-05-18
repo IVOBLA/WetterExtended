@@ -228,7 +228,7 @@ AI_ANALYSIS_CONFIG = {
     "enabled": False,           # Master-Schalter
     "cron_hour": 6,             # Uhrzeit des täglichen Analyselaufs
     "cron_minute": 0,
-    "model": "claude-sonnet-4-20250514",
+    "model": "claude-sonnet-4-6",
     "max_tokens": 1500,
     "since_hours": 24,          # Datenfenster für den Report
     "save_suggestions": True,   # Vorschläge als JSON persistieren
