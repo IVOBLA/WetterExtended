@@ -1,79 +1,201 @@
-import os
+# fetch_700hpa_wind_per_object_slim.py
+"""
+Holt 700 hPa Winddaten für alle Objekte eines Frames über Open-Meteo
+(Modell: icon_global — einziges Modell das 700-hPa-Level liefert).
+
+Bulk-Query: alle Zellen in einem einzigen HTTP-Request.
+  1 Request/Frame statt 1 Request/Zelle × N Zellen.
+
+API-Spec: https://open-meteo.com/en/docs
+Rate-Limit: kostenlos bis 10 000 req/Tag, kein API-Key nötig.
+"""
+
 import json
-import time
+import os
 import requests
-from math import radians, sin, cos
+from math import cos, radians, sin
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from config import SAVE_PATHS
 
-def fetch_and_assign_700hpa_wind(objects, timestamp):
+from config import SAVE_PATHS
+from debug_utils import debug_log, log_api_failure
+
+_OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+_MODEL   = "icon_global"   # Einziges Modell mit 700-hPa-Level
+_PARAMS  = "wind_speed_700hPa,wind_direction_700hPa"
+_TZ      = "Europe/Vienna"
+_TIMEOUT = 15
+
+_DEFAULT_WIND = {
+    "wind_speed_700hPa": 0.0,
+    "wind_dir_cos":      0.0,
+    "wind_dir_sin":      0.0,
+}
+
+
+def _nearest_hour_str() -> str:
+    """Aktuelle volle Stunde als ISO-String, z. B. '2025-05-16T14:00'."""
+    return datetime.now(ZoneInfo(_TZ)).strftime("%Y-%m-%dT%H:00")
+
+
+def _parse_wind_response(loc_data: dict, target_time: str) -> dict:
     """
-    Holt 700hPa-Winddaten über Open-Meteo API für alle gegebenen Objekte,
-    speichert die Daten in SAVE_PATHS["wind"]/wind_<timestamp>.json,
-    und fügt sie zur Laufzeit den Objekten (dicts) anhand ihrer ID hinzu.
+    Extrahiert 700-hPa-Windwerte aus einem einzelnen Locations-Eintrag.
+    Gibt _DEFAULT_WIND zurück wenn Slot nicht verfügbar.
+    """
+    hourly = loc_data.get("hourly", {})
+    times  = hourly.get("time", [])
+
+    if target_time in times:
+        idx = times.index(target_time)
+    else:
+        idx = 0
+
+    speeds = hourly.get("wind_speed_700hPa", [])
+    dirs   = hourly.get("wind_direction_700hPa", [])
+
+    speed_val = speeds[idx] if idx < len(speeds) else None
+    dir_val   = dirs[idx]   if idx < len(dirs)   else None
+
+    if speed_val is None or dir_val is None:
+        return dict(_DEFAULT_WIND)
+
+    dir_rad = radians(float(dir_val))
+    return {
+        "wind_speed_700hPa": round(float(speed_val), 2),
+        "wind_dir_cos":      round(cos(dir_rad), 4),
+        "wind_dir_sin":      round(sin(dir_rad), 4),
+    }
+
+
+def fetch_and_assign_700hpa_wind(objects: list, timestamp: str) -> list:
+    """
+    Holt 700 hPa Winddaten für alle Objekte in einem Bulk-Request.
+    Speichert Ergebnis in SAVE_PATHS["wind"]/wind_<timestamp>.json.
+    Objekte ohne Koordinaten erhalten Null-Werte.
+
+    Parameter
+    ---------
+    objects   : Liste der aktuellen Objekte mit "lat", "lon", "id"
+    timestamp : Aktueller Zeitstempel (Format YYYY-MM-DD_HH-MM-SS)
     """
     output_folder = SAVE_PATHS["wind"].rstrip("/")
     os.makedirs(output_folder, exist_ok=True)
-    wind_data = {}
 
-    for obj in objects:
-        lat = obj.get("lat")
-        lon = obj.get("lon")
-        obj_id = obj.get("id")
-        if lat is None or lon is None or obj_id is None:
-            continue
+    # Gültige Objekte mit ursprünglichem Index merken
+    valid: list = [
+        (i, obj)
+        for i, obj in enumerate(objects)
+        if obj.get("lat") is not None
+        and obj.get("lon") is not None
+        and obj.get("id") is not None
+    ]
 
-        speed, dir_cos, dir_sin = get_700hpa_wind(lat, lon)
-        if speed is not None:
-            wind_data[obj_id] = {
-                "id": obj_id,
-                "wind_speed_700hPa": speed,
-                "wind_dir_cos": dir_cos,
-                "wind_dir_sin": dir_sin
-            }
-        time.sleep(0.3)  # API Rate-Limiting beachten
+    # Ungültige Objekte mit Default befüllen
+    valid_idxs = {i for i, _ in valid}
+    for i, obj in enumerate(objects):
+        if i not in valid_idxs:
+            obj.update(_DEFAULT_WIND)
 
-    # Speichern als JSON-Datei
-    output_file = os.path.join(output_folder, f"wind_{timestamp}.json")
-    with open(output_file, "w") as f:
-        json.dump(list(wind_data.values()), f, indent=2)
-    print(f"[INFO] Winddaten gespeichert: {output_file}")
+    if not valid:
+        debug_log("[WIND] Keine Objekte mit Koordinaten — kein API-Call.")
+        _save_wind_file([], output_folder, timestamp)
+        return objects
 
-    # Winddaten zur Laufzeit in die Objekte einfügen
-    for obj in objects:
-        wid = obj.get("id")
-        wind = wind_data.get(wid, {})
-        obj["wind_speed_700hPa"] = wind.get("wind_speed_700hPa", 0)
-        obj["wind_dir_cos"] = wind.get("wind_dir_cos", 0)
-        obj["wind_dir_sin"] = wind.get("wind_dir_sin", 0)
+    # Bulk-Request aufbauen
+    lats = ",".join(f"{obj['lat']:.4f}" for _, obj in valid)
+    lons = ",".join(f"{obj['lon']:.4f}" for _, obj in valid)
+    bulk_url = (
+        f"{_OPEN_METEO_URL}?latitude={lats}&longitude={lons}"
+        f"&hourly={_PARAMS}&models={_MODEL}&timezone={_TZ}&forecast_days=1"
+    )
 
-    return objects
-
-def get_700hpa_wind(lat, lon):
-    """
-    Fragt die Open-Meteo API nach Winddaten auf 700 hPa an einem Punkt (lat, lon).
-    Rückgabe: (Geschwindigkeit, cos(Richtung), sin(Richtung))
-    """
-    url = "https://api.open-meteo.com/v1/forecast"
-    params = {
-        "latitude": lat,
-        "longitude": lon,
-        "hourly": "wind_speed_700hPa,wind_direction_700hPa",
-        "models": "icon_global",
-        "timezone": "Europe/Vienna",
-        "forecast_days": 1,
-    }
     try:
-        r = requests.get(url, params=params, timeout=10)
+        r = requests.get(bulk_url, timeout=_TIMEOUT)
         r.raise_for_status()
         data = r.json()
-        now = datetime.now(ZoneInfo("Europe/Vienna")).strftime("%Y-%m-%dT%H:00")
-        idx = data["hourly"]["time"].index(now)
-        speed = data["hourly"]["wind_speed_700hPa"][idx]
-        direction = data["hourly"]["wind_direction_700hPa"][idx]
-        dir_rad = radians(direction)
-        return round(speed, 2), round(cos(dir_rad), 4), round(sin(dir_rad), 4)
-    except Exception as e:
-        print(f"[WARNUNG] Fehler bei {lat}, {lon}: {e}")
+    except requests.exceptions.Timeout:
+        log_api_failure("Open-Meteo-700hPa", bulk_url, "timeout", fallback_used=True)
+        debug_log("[WIND] Timeout — Default-Windwerte für alle Objekte.")
+        for _, obj in valid:
+            obj.update(_DEFAULT_WIND)
+        _save_wind_file([], output_folder, timestamp)
+        return objects
+    except requests.exceptions.HTTPError as exc:
+        status = getattr(exc.response, "status_code", None)
+        log_api_failure("Open-Meteo-700hPa", bulk_url,
+                        f"http-{status}", fallback_used=True, http_status=status)
+        debug_log(f"[WIND] HTTP-Fehler {status} — Default-Windwerte.")
+        for _, obj in valid:
+            obj.update(_DEFAULT_WIND)
+        _save_wind_file([], output_folder, timestamp)
+        return objects
+    except Exception as exc:
+        log_api_failure("Open-Meteo-700hPa", bulk_url,
+                        f"{type(exc).__name__}: {exc}", fallback_used=True)
+        debug_log(f"[WIND] Fehler: {exc} — Default-Windwerte.")
+        for _, obj in valid:
+            obj.update(_DEFAULT_WIND)
+        _save_wind_file([], output_folder, timestamp)
+        return objects
+
+    # Response normalisieren
+    if isinstance(data, dict):
+        data = [data]
+
+    target_time = _nearest_hour_str()
+    wind_records: list = []
+
+    for loc_idx, (_, obj) in enumerate(valid):
+        if loc_idx >= len(data):
+            obj.update(_DEFAULT_WIND)
+            debug_log(f"[WIND] Fehlende Response für Objekt {obj.get('id')} — Default.")
+            continue
+        wind_vals = _parse_wind_response(data[loc_idx], target_time)
+        obj.update(wind_vals)
+        wind_records.append({"id": obj.get("id"), **wind_vals})
+
+    _save_wind_file(wind_records, output_folder, timestamp)
+    debug_log(f"[WIND] Bulk-Request OK: {len(valid)} Objekte in 1 API-Call.")
+    return objects
+
+
+def _save_wind_file(records: list, folder: str, timestamp: str) -> None:
+    path = os.path.join(folder, f"wind_{timestamp}.json")
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(records, f, indent=2)
+        debug_log(f"[WIND] Gespeichert: {path} ({len(records)} Einträge)")
+    except Exception as exc:
+        debug_log(f"[WIND] Fehler beim Speichern von {path}: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Einzelabfrage (rückwärtskompatibel, z. B. für reprocess.py)
+# ---------------------------------------------------------------------------
+
+def get_700hpa_wind(lat: float, lon: float) -> tuple:
+    """
+    Einzelabfrage für einen Koordinaten-Punkt.
+    Rückgabe: (speed, cos(dir), sin(dir)) oder (None, None, None) bei Fehler.
+    """
+    url = (
+        f"{_OPEN_METEO_URL}?latitude={lat:.4f}&longitude={lon:.4f}"
+        f"&hourly={_PARAMS}&models={_MODEL}&timezone={_TZ}&forecast_days=1"
+    )
+    try:
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        # Single-Response ist ein dict
+        wind = _parse_wind_response(data, _nearest_hour_str())
+        return (
+            wind["wind_speed_700hPa"],
+            wind["wind_dir_cos"],
+            wind["wind_dir_sin"],
+        )
+    except Exception as exc:
+        log_api_failure("Open-Meteo-700hPa", url,
+                        f"{type(exc).__name__}: {exc}", fallback_used=True)
+        debug_log(f"[WIND] Einzelabfrage Fehler bei ({lat}, {lon}): {exc}")
         return None, None, None
