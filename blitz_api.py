@@ -13,6 +13,7 @@ from datetime import datetime
 
 from config import SAVE_PATHS
 from debug_utils import debug_log, log_api_failure
+from api_cache import cache_key, cache_get, cache_set, get_ttl
 
 # Credentials aus Umgebungsvariablen (in .env definiert)
 USERNAME = os.getenv("BLITZ_USERNAME", "")
@@ -49,6 +50,16 @@ def fetch_and_save_lightning(timestamp: str) -> None:
     )
     # Credentials NICHT in URL — würden in Logs erscheinen
     url = _BASE_URL + params
+
+    # --- Cache-Lookup (TTL 60s — Blitzortung aktualisiert alle 1 Min) ---
+    ck = cache_key("blitzortung:last_strikes", WEST, EAST, SOUTH, NORTH, NUM_STRIKES)
+    cached_strikes = cache_get(ck, ttl_seconds=get_ttl("blitzortung", 60))
+    if cached_strikes is not None:
+        save_path = os.path.join(_SAVE_DIR, f"{timestamp}.json")
+        with open(save_path, "w", encoding="utf-8") as f:
+            json.dump(cached_strikes, f, indent=2)
+        debug_log(f"[LIGHTNING] Cache-HIT — {len(cached_strikes)} Blitze (kein HTTP-Request).")
+        return
 
     try:
         response = requests.get(
@@ -94,6 +105,7 @@ def fetch_and_save_lightning(timestamp: str) -> None:
     save_path = os.path.join(_SAVE_DIR, f"{timestamp}.json")
     with open(save_path, "w", encoding="utf-8") as f:
         json.dump(strikes, f, indent=2)
+    cache_set(ck, strikes)
     debug_log(f"[LIGHTNING] {len(strikes)} Blitzereignisse gespeichert: {save_path}")
 
 
