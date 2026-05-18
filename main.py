@@ -104,26 +104,34 @@ def main_loop():
                         float(obj["lat"]), float(obj["lon"]), lightning_data
                     )
 
-        if radar_ok and image is not None and objects and weather_data:
-            debug_log("Radarbild, Objekte und Wetterdaten vorhanden → Speichern & Verarbeiten")
+        if radar_ok and image is not None and objects:
+            if not weather_data:
+                debug_log("[WARN] Keine Wetterdaten — Forecast läuft mit Defaults.")
+
+            # F1-FIX: predict_positions() VOR dem Speichern — schreibt forecast_lat_X
+            # in-place in die Objekte, danach erst JSON-Dump damit /api/forecast Pfeile hat.
+            forecasts_per_horizon = predict_positions(objects, timestamp, weather_data)
 
             # Radarbild speichern
             radar_file = os.path.join(SAVE_PATHS["radar"], f"{timestamp}.png")
             cv2.imwrite(radar_file, image)
             debug_log(f"Radarbild gespeichert als {radar_file}")
 
-            # Objekte speichern (ohne Kalman)
+            # Objekte NACH predict_positions() speichern (forecast_lat_X enthalten)
             object_file = os.path.join(SAVE_PATHS["objects"], f"{timestamp}.json")
-            json.dump([{k: v for k, v in o.items() if k != "kf"} for o in objects], open(object_file, "w"))
-            debug_log(f"Object-File gespeichert mit {len(objects)} Objekten")
+            with open(object_file, "w", encoding="utf-8") as _of:
+                json.dump(
+                    [{k: v for k, v in o.items() if k != "kf"} for o in objects],
+                    _of, ensure_ascii=False,
+                )
+            debug_log(f"Object-File gespeichert: {len(objects)} Objekte (inkl. Forecasts)")
 
-            # Wetter speichern
-            weather_file = os.path.join(SAVE_PATHS["weather"], f"{timestamp}.json")
-            json.dump(weather_data, open(weather_file, "w"))
-            debug_log(f"Wetterdaten gespeichert als {weather_file}")
-
-            # Kein Training im Live-Loop — übernimmt scheduler.py.
-            forecasts_per_horizon = predict_positions(objects, timestamp, weather_data)
+            # Wetter speichern (falls vorhanden)
+            if weather_data:
+                weather_file = os.path.join(SAVE_PATHS["weather"], f"{timestamp}.json")
+                with open(weather_file, "w", encoding="utf-8") as _wf:
+                    json.dump(weather_data, _wf, ensure_ascii=False)
+                debug_log(f"Wetterdaten gespeichert als {weather_file}")
             from config import ML_FORECAST_HORIZONS_MIN as _DEFAULT_HORIZONS
             from config import FORECAST_ARROW_COLORS as _DEFAULT_COLORS
             horizons = runtime_config.get("ML_FORECAST_HORIZONS_MIN", _DEFAULT_HORIZONS)
