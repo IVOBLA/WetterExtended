@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo
 
 from config import SAVE_PATHS
 from debug_utils import debug_log, log_api_failure
+from api_cache import cache_key, cache_get, cache_set, get_ttl
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 _MODEL = "icon_d2"
@@ -125,10 +126,22 @@ def assign_arome_to_objects(objects: list, timestamp: str) -> list:
         f"&hourly={_PARAMS}&models={_MODEL}&timezone={_TZ}&forecast_days=1"
     )
 
+    # --- Cache-Lookup (TTL 30 Min — Modell-Run alle 3 h, Werte stündlich) ---
+    target_time_cache = _nearest_hour_str()
+    coord_list = [(obj["lat"], obj["lon"]) for _, obj in valid]
+    ck = cache_key("openmeteo:icon_d2", coord_list, target_time_cache, _PARAMS)
+    cached = cache_get(ck, ttl_seconds=get_ttl("openmeteo_icon_d2", 1800))
+    if cached is not None:
+        debug_log(f"[AROME] Cache-HIT — kein HTTP-Request ({len(valid)} Objekte).")
+        data = cached
+        _apply_data_to_objects(data, valid, objects, timestamp)
+        return objects
+
     try:
         r = requests.get(bulk_url, timeout=_TIMEOUT)
         r.raise_for_status()
         data = r.json()
+        cache_set(ck, data)
     except requests.exceptions.Timeout:
         log_api_failure("Open-Meteo-icon_d2", bulk_url, "timeout", fallback_used=True)
         debug_log("[AROME] Timeout beim Bulk-Request — alle Objekte erhalten Default-Werte.")
@@ -154,6 +167,12 @@ def assign_arome_to_objects(objects: list, timestamp: str) -> list:
         _save_results({}, timestamp)
         return objects
 
+    _apply_data_to_objects(data, valid, objects, timestamp)
+    return objects
+
+
+def _apply_data_to_objects(data, valid, objects, timestamp):
+    """Schreibt AROME-Werte aus der API-Response/Cache in die Objekte."""
     # Response normalisieren: Single-Object → Liste
     if isinstance(data, dict):
         data = [data]
@@ -163,7 +182,6 @@ def assign_arome_to_objects(objects: list, timestamp: str) -> list:
 
     for loc_idx, (_, obj) in enumerate(valid):
         if loc_idx >= len(data):
-            # Weniger Antworten als erwartet → Default
             obj.update(_DEFAULT)
             debug_log(f"[AROME] Fehlende Response für Objekt {obj.get('id')} — Default.")
             continue
@@ -172,8 +190,7 @@ def assign_arome_to_objects(objects: list, timestamp: str) -> list:
         results[obj.get("id")] = arome_vals
 
     _save_results(results, timestamp)
-    debug_log(f"[AROME] Bulk-Request OK: {len(valid)} Objekte in 1 API-Call.")
-    return objects
+    debug_log(f"[AROME] {len(valid)} Objekte in 1 API-Call/Cache-Hit verarbeitet.")
 
 
 def _save_results(results: dict, timestamp: str) -> None:
