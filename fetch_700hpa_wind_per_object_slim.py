@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 
 from config import SAVE_PATHS
 from debug_utils import debug_log, log_api_failure
+from api_cache import cache_key, cache_get, cache_set, get_ttl
 
 _OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 _MODEL   = "icon_global"   # Einziges Modell mit 700-hPa-Level
@@ -110,34 +111,38 @@ def fetch_and_assign_700hpa_wind(objects: list, timestamp: str) -> list:
         f"&hourly={_PARAMS}&models={_MODEL}&timezone={_TZ}&forecast_days=1"
     )
 
-    try:
-        r = requests.get(bulk_url, timeout=_TIMEOUT)
-        r.raise_for_status()
-        data = r.json()
-    except requests.exceptions.Timeout:
-        log_api_failure("Open-Meteo-700hPa", bulk_url, "timeout", fallback_used=True)
-        debug_log("[WIND] Timeout — Default-Windwerte für alle Objekte.")
-        for _, obj in valid:
-            obj.update(_DEFAULT_WIND)
-        _save_wind_file([], output_folder, timestamp)
-        return objects
-    except requests.exceptions.HTTPError as exc:
-        status = getattr(exc.response, "status_code", None)
-        log_api_failure("Open-Meteo-700hPa", bulk_url,
-                        f"http-{status}", fallback_used=True, http_status=status)
-        debug_log(f"[WIND] HTTP-Fehler {status} — Default-Windwerte.")
-        for _, obj in valid:
-            obj.update(_DEFAULT_WIND)
-        _save_wind_file([], output_folder, timestamp)
-        return objects
-    except Exception as exc:
-        log_api_failure("Open-Meteo-700hPa", bulk_url,
-                        f"{type(exc).__name__}: {exc}", fallback_used=True)
-        debug_log(f"[WIND] Fehler: {exc} — Default-Windwerte.")
-        for _, obj in valid:
-            obj.update(_DEFAULT_WIND)
-        _save_wind_file([], output_folder, timestamp)
-        return objects
+    # --- Cache-Lookup (TTL 60 Min — icon_global alle 6 h, Werte stündlich) ---
+    target_time_cache = _nearest_hour_str()
+    coord_list = [(obj["lat"], obj["lon"]) for _, obj in valid]
+    ck = cache_key("openmeteo:icon_global", coord_list, target_time_cache, _PARAMS)
+    cached = cache_get(ck, ttl_seconds=get_ttl("openmeteo_icon_global", 3600))
+    if cached is not None:
+        debug_log(f"[700hPa] Cache-HIT — kein HTTP-Request ({len(valid)} Objekte).")
+        data = cached
+    else:
+        try:
+            r = requests.get(bulk_url, timeout=_TIMEOUT)
+            r.raise_for_status()
+            data = r.json()
+            cache_set(ck, data)
+        except requests.exceptions.Timeout:
+            log_api_failure("Open-Meteo-icon_global", bulk_url, "timeout", fallback_used=True)
+            for _, obj in valid:
+                obj.update(_DEFAULT_WIND)
+            return objects
+        except requests.exceptions.HTTPError as exc:
+            status = getattr(exc.response, "status_code", None)
+            log_api_failure("Open-Meteo-icon_global", bulk_url,
+                            f"http-{status}", fallback_used=True, http_status=status)
+            for _, obj in valid:
+                obj.update(_DEFAULT_WIND)
+            return objects
+        except Exception as exc:
+            log_api_failure("Open-Meteo-icon_global", bulk_url,
+                            f"{type(exc).__name__}: {exc}", fallback_used=True)
+            for _, obj in valid:
+                obj.update(_DEFAULT_WIND)
+            return objects
 
     # Response normalisieren
     if isinstance(data, dict):
