@@ -68,12 +68,26 @@ def api_radar_timing():
     obj_files   = sorted(_gl.glob(os.path.join(obj_dir, "*.json")))
 
     last_radar_utc = None
+    last_radar_dt  = None   # für next_fetch-Berechnung wiederverwenden
     if radar_files:
         try:
-            mtime = os.path.getmtime(radar_files[-1])
-            last_radar_utc = datetime.utcfromtimestamp(mtime).isoformat(timespec="seconds") + "Z"
+            from zoneinfo import ZoneInfo as _ZI
+            from datetime import timezone as _tz
+            _vienna = _ZI("Europe/Vienna")
+            # Zeitstempel aus Dateiname: radar_YYYY-MM-DD_HH-MM-SS.png (lokale Zeit Wien)
+            _base     = os.path.basename(radar_files[-1])
+            _ts       = _base.replace("radar_", "").replace(".png", "")
+            _local_dt = datetime.strptime(_ts, "%Y-%m-%d_%H-%M-%S").replace(tzinfo=_vienna)
+            last_radar_dt  = _local_dt.astimezone(_tz.utc)
+            last_radar_utc = last_radar_dt.isoformat(timespec="seconds").replace("+00:00", "Z")
         except Exception:
-            pass
+            # Fallback: Datei-Mtime
+            try:
+                mtime          = os.path.getmtime(radar_files[-1])
+                last_radar_dt  = datetime.utcfromtimestamp(mtime)
+                last_radar_utc = last_radar_dt.isoformat(timespec="seconds") + "Z"
+            except Exception:
+                pass
 
     last_obj_utc = None
     if obj_files:
@@ -99,13 +113,12 @@ def api_radar_timing():
     )
 
     next_fetch_utc = None
-    if obj_files:
+    if last_radar_dt is not None:
         try:
-            mtime = os.path.getmtime(obj_files[-1])
-            next_fetch_utc = (
-                datetime.utcfromtimestamp(mtime + interval_s)
-                .isoformat(timespec="seconds") + "Z"
-            )
+            from datetime import timezone as _tz2, timedelta as _td
+            _base_dt = last_radar_dt if last_radar_dt.tzinfo else                        last_radar_dt.replace(tzinfo=_tz2.utc)
+            _next          = _base_dt + _td(seconds=interval_s)
+            next_fetch_utc = _next.isoformat(timespec="seconds").replace("+00:00", "Z")
         except Exception:
             pass
 
