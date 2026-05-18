@@ -1,11 +1,28 @@
+# runtime_config.py
+"""
+Laufzeit-Konfiguration für WetterExtended.
+
+Liest Overrides aus train_data/runtime_overrides.json (gitignored).
+Override > Config-Default > übergegebener Default.
+
+Thread-Safety: threading.RLock (innerhalb eines Prozesses)
+File-Safety:   fcntl.flock   (zwischen den 3 Service-Prozessen)
+"""
+
+import fcntl
 import json
 import os
 import threading
 from typing import Any
+
 import config as _cfg
 
 _LOCK = threading.RLock()
 _OVERRIDES: dict = {}
+
+
+def _get_path() -> str:
+    return getattr(_cfg, "RUNTIME_OVERRIDES_PATH", "train_data/runtime_overrides.json")
 
 
 def _deep_merge(base: dict, patch_data: dict) -> dict:
@@ -19,18 +36,24 @@ def _deep_merge(base: dict, patch_data: dict) -> dict:
 
 
 def _load() -> dict:
-    path = getattr(_cfg, "RUNTIME_OVERRIDES_PATH", "train_data/runtime_overrides.json")
+    """Liest runtime_overrides.json mit Shared File-Lock (Cross-Process-sicher)."""
+    path = _get_path()
     if not os.path.exists(path):
         return {}
     try:
         with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+            fcntl.flock(f, fcntl.LOCK_SH)   # Shared Lock: parallele Leser OK
+            try:
+                data = json.load(f)
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
 
 
 def reload_overrides() -> None:
+    """Lädt runtime_overrides.json neu in den In-Memory-Cache."""
     global _OVERRIDES
     with _LOCK:
         _OVERRIDES = _load()
@@ -62,14 +85,26 @@ def all_effective() -> dict:
 
 
 def save(overrides: dict) -> None:
-    """Schreibt Overrides atomar zurück und reloaded."""
-    path = getattr(_cfg, "RUNTIME_OVERRIDES_PATH", "train_data/runtime_overrides.json")
+    """
+    Schreibt Overrides atomar zurück.
+    Exclusive File-Lock auf tmp-Datei verhindert gleichzeitige Schreibvorgänge.
+    Atomic-Replace via os.replace() garantiert konsistente Zieldatei.
+    """
+    path = _get_path()
     parent = os.path.dirname(path) or "."
     os.makedirs(parent, exist_ok=True)
     tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(overrides, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, path)
+
+    with _LOCK:
+        with open(tmp, "w", encoding="utf-8") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)   # Exclusive Lock: nur ein Schreiber
+            try:
+                json.dump(overrides, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())         # Auf Raspbian SD-Karte wichtig
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+        os.replace(tmp, path)  # atomic auf Linux
     reload_overrides()
 
 
@@ -81,4 +116,5 @@ def patch(partial: dict) -> dict:
     return merged
 
 
+# Beim Modulimport einmalig laden
 reload_overrides()
