@@ -83,15 +83,21 @@ def main_loop():
             _prev_radar_path = curr_scaled_path
             objects = assign_arome_to_objects(objects, timestamp)
 
-            # Blitzdaten für aktuelle Zellen auswerten
+            # Blitzdaten: erst fetchen, dann einlesen
             lightning_data = []
-            lightning_file = os.path.join(SAVE_PATHS["lightning"], f"{timestamp}.json")
-            if os.path.exists(lightning_file):
+            if timestamp:
                 try:
-                    with open(lightning_file, encoding="utf-8") as _f:
-                        lightning_data = json.load(_f)
-                except Exception:
-                    pass
+                    from blitz_api import fetch_and_save_lightning
+                    fetch_and_save_lightning(timestamp)
+                except Exception as _le:
+                    debug_log(f"[LIGHTNING] Fetch fehlgeschlagen: {_le}")
+                lightning_file = os.path.join(SAVE_PATHS["lightning"], f"{timestamp}.json")
+                if os.path.exists(lightning_file):
+                    try:
+                        with open(lightning_file, encoding="utf-8") as _f:
+                            lightning_data = json.load(_f)
+                    except Exception:
+                        pass
             for obj in objects:
                 if obj.get("lat") is not None and obj.get("lon") is not None:
                     obj["lightning_count_10km"] = _count_lightning_near(
