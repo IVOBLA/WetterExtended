@@ -229,7 +229,16 @@ LSTM_IGNORE_FLAG = ML_IGNORE_FLAG
 
 RETRAIN_INTERVAL_HOURS = 6
 DATASET_REBUILD_INTERVAL_MIN = 60
-LIVE_LOOP_INTERVAL_S = 120
+LIVE_LOOP_INTERVAL_S = 120          # Rückwärtskompatibilität
+
+# Adaptiver Loop-Intervall (main.py)
+# Wenn Zellen aktiv: kurzer Intervall für schnelle Reaktion
+# Wenn keine Zellen: langer Intervall spart Ressourcen
+LOOP_INTERVAL_CELLS_S: int   = 120   # 2 Min  — Zellen aktiv
+LOOP_INTERVAL_NO_CELLS_S: int = 900  # 15 Min — keine Zellen (konfigurierbar)
+
+# Atmosphären-Snapshot (unabhängig von erkannten Zellen)
+ATMOSPHERIC_SNAPSHOT_INTERVAL_MIN: int = 30   # alle 30 Min
 
 # --------------------------------------
 # Dateispeicherung (lokale Struktur)
