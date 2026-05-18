@@ -1,16 +1,42 @@
+# scheduler.py
+"""
+APScheduler-basierter Hintergrund-Scheduler für WetterExtended.
+
+Jobs die immer aktiv sind:
+  ai_analysis     — tägliche KI-Analyse (nur wenn enabled=True in config)
+  accuracy_eval   — stündliche Closed-Loop-Verifikation
+  data_cleanup    — tägliche Daten-Rotation (04:30, konfigurierbar)
+
+Jobs nur wenn LOCAL_TRAINING=True:
+  rebuild_dataset  — Datensatz-Rebuild (Intervall konfigurierbar)
+  retrain_interval — LightGBM/LSTM Retrain nach Intervall
+  retrain_nightly  — Nightly Retrain per Cron
+  convlstm_weekly  — ConvLSTM-Training wöchentlich per Cron
+"""
+
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from config import DATASET_REBUILD_INTERVAL_MIN, RETRAIN_INTERVAL_HOURS
+from config import (
+    AI_ANALYSIS_CONFIG,
+    DATA_CLEANUP_CRON_HOUR,
+    DATA_CLEANUP_CRON_MINUTE,
+    DATASET_REBUILD_INTERVAL_MIN,
+    LOCAL_TRAINING,
+    RETRAIN_INTERVAL_HOURS,
+)
 from dataset_builder import build_dataset
 from debug_utils import debug_log
 from model_training import retrain_all
 import runtime_config
 from accuracy_tracker import evaluate_all, append_history_point
 from radar_convlstm import train_convlstm
-from config import AI_ANALYSIS_CONFIG
 
+
+# ---------------------------------------------------------------------------
+# Job-Funktionen
+# ---------------------------------------------------------------------------
 
 def run_rebuild_dataset_job():
     runtime_config.reload_overrides()
@@ -39,9 +65,8 @@ def run_retrain_job(job_name: str):
         debug_log(f"[SCHEDULER] Job {job_name} Fehler: {exc}")
 
 
-
-
 def run_convlstm_weekly_job():
+    runtime_config.reload_overrides()
     debug_log("[SCHEDULER] Job convlstm_weekly gestartet")
     try:
         result = train_convlstm()
@@ -60,9 +85,13 @@ def run_ai_analysis_job():
     debug_log("[SCHEDULER] Job ai_analysis gestartet")
     try:
         from daily_analyzer import run_analysis
+
         result = run_analysis(cfg)
         n = len(result.get("suggestions", [])) if result else 0
-        debug_log(f"[SCHEDULER] Job ai_analysis abgeschlossen ({n} Vorschläge, status={result.get('overall_status','?') if result else 'none'})")
+        debug_log(
+            f"[SCHEDULER] Job ai_analysis abgeschlossen "
+            f"({n} Vorschläge, status={result.get('overall_status', '?') if result else 'none'})"
+        )
     except Exception as exc:
         debug_log(f"[SCHEDULER] Job ai_analysis Fehler: {exc}")
 
@@ -72,6 +101,7 @@ def run_accuracy_eval_job():
     debug_log("[SCHEDULER] Job accuracy_eval gestartet")
     try:
         from config import ML_FORECAST_HORIZONS_MIN
+
         horizons = runtime_config.get("ML_FORECAST_HORIZONS_MIN", ML_FORECAST_HORIZONS_MIN)
         result = evaluate_all(horizons, since_hours=24)
         append_history_point(result)
@@ -79,10 +109,41 @@ def run_accuracy_eval_job():
     except Exception as exc:
         debug_log(f"[SCHEDULER] accuracy_eval Fehler: {exc}")
 
+
+def run_cleanup_job():
+    """Tägliche Daten-Rotation — löscht Dateien älter als DATA_RETENTION_DAYS."""
+    runtime_config.reload_overrides()
+    debug_log("[SCHEDULER] Job data_cleanup gestartet")
+    try:
+        from cleanup_old_data import cleanup_old_data
+
+        result = cleanup_old_data()
+        debug_log(
+            f"[SCHEDULER] Job data_cleanup abgeschlossen: "
+            f"{result.get('deleted_count', 0)} Dateien gelöscht, "
+            f"{result.get('freed_mb', 0)} MB freigegeben."
+        )
+    except Exception as exc:
+        debug_log(f"[SCHEDULER] Job data_cleanup Fehler: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Scheduler erstellen
+# ---------------------------------------------------------------------------
+
 def create_scheduler() -> BlockingScheduler:
+    # LOCAL_TRAINING aus runtime_overrides (Laufzeit) oder config (Default)
+    local_training = runtime_config.get("LOCAL_TRAINING", LOCAL_TRAINING)
+
+    if local_training:
+        debug_log("[SCHEDULER] LOCAL_TRAINING=True — alle Training-Jobs aktiv.")
+    else:
+        debug_log("[SCHEDULER] LOCAL_TRAINING=False — Training-Jobs deaktiviert.")
+        debug_log("[SCHEDULER] Aktive Jobs: accuracy_eval, ai_analysis, data_cleanup")
+
     sched = BlockingScheduler(timezone="Europe/Vienna")
 
-    # KI-Analyse täglich (Uhrzeit aus AI_ANALYSIS_CONFIG)
+    # --- immer aktiv: KI-Analyse ---
     _ai_cfg = runtime_config.get("AI_ANALYSIS_CONFIG", AI_ANALYSIS_CONFIG)
     sched.add_job(
         run_ai_analysis_job,
@@ -94,40 +155,61 @@ def create_scheduler() -> BlockingScheduler:
         id="ai_analysis", max_instances=1, coalesce=True,
     )
 
-    sched.add_job(
-        run_rebuild_dataset_job,
-        trigger=IntervalTrigger(minutes=runtime_config.get("DATASET_REBUILD_INTERVAL_MIN", DATASET_REBUILD_INTERVAL_MIN)),
-        id="rebuild_dataset", max_instances=1, coalesce=True,
-    )
-
-    ts = runtime_config.get("TRAINING_SCHEDULE", {}) or {}
-    sched.add_job(
-        lambda: run_retrain_job("retrain_interval"),
-        trigger=IntervalTrigger(hours=int(ts.get("retrain_interval_hours", RETRAIN_INTERVAL_HOURS))),
-        id="retrain_interval", max_instances=1, coalesce=True,
-    )
-    sched.add_job(
-        lambda: run_retrain_job("retrain_nightly"),
-        trigger=CronTrigger(
-            hour=int(ts.get("retrain_cron_hour", 3)),
-            minute=int(ts.get("retrain_cron_minute", 0)),
-        ),
-        id="retrain_nightly", max_instances=1, coalesce=True,
-    )
-    sched.add_job(
-        run_convlstm_weekly_job,
-        trigger=CronTrigger(
-            day_of_week=str(ts.get("convlstm_cron_day_of_week", "mon")),
-            hour=int(ts.get("convlstm_cron_hour", 2)),
-            minute=int(ts.get("convlstm_cron_minute", 0)),
-        ),
-        id="convlstm_weekly", max_instances=1, coalesce=True,
-    )
+    # --- immer aktiv: Accuracy-Eval ---
     sched.add_job(
         run_accuracy_eval_job,
         trigger=IntervalTrigger(hours=1),
         id="accuracy_eval", max_instances=1, coalesce=True,
     )
+
+    # --- immer aktiv: Daten-Cleanup ---
+    sched.add_job(
+        run_cleanup_job,
+        trigger=CronTrigger(
+            hour=runtime_config.get("DATA_CLEANUP_CRON_HOUR", DATA_CLEANUP_CRON_HOUR),
+            minute=runtime_config.get("DATA_CLEANUP_CRON_MINUTE", DATA_CLEANUP_CRON_MINUTE),
+        ),
+        id="data_cleanup", max_instances=1, coalesce=True,
+    )
+
+    # --- nur wenn LOCAL_TRAINING=True ---
+    if local_training:
+        sched.add_job(
+            run_rebuild_dataset_job,
+            trigger=IntervalTrigger(
+                minutes=runtime_config.get(
+                    "DATASET_REBUILD_INTERVAL_MIN", DATASET_REBUILD_INTERVAL_MIN
+                )
+            ),
+            id="rebuild_dataset", max_instances=1, coalesce=True,
+        )
+
+        ts = runtime_config.get("TRAINING_SCHEDULE", {}) or {}
+        sched.add_job(
+            lambda: run_retrain_job("retrain_interval"),
+            trigger=IntervalTrigger(
+                hours=int(ts.get("retrain_interval_hours", RETRAIN_INTERVAL_HOURS))
+            ),
+            id="retrain_interval", max_instances=1, coalesce=True,
+        )
+        sched.add_job(
+            lambda: run_retrain_job("retrain_nightly"),
+            trigger=CronTrigger(
+                hour=int(ts.get("retrain_cron_hour", 3)),
+                minute=int(ts.get("retrain_cron_minute", 0)),
+            ),
+            id="retrain_nightly", max_instances=1, coalesce=True,
+        )
+        sched.add_job(
+            run_convlstm_weekly_job,
+            trigger=CronTrigger(
+                day_of_week=str(ts.get("convlstm_cron_day_of_week", "mon")),
+                hour=int(ts.get("convlstm_cron_hour", 2)),
+                minute=int(ts.get("convlstm_cron_minute", 0)),
+            ),
+            id="convlstm_weekly", max_instances=1, coalesce=True,
+        )
+
     return sched
 
 
