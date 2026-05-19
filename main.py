@@ -108,6 +108,7 @@ def main_loop():
 
     _prev_radar_path = None
     _prev_location_hit_names: set = set()  # F47: Auto-Entwarnung
+    _last_cells_active_ts: float | None = None  # Zeitpunkt der letzten aktiven Zelle
 
     while True:
         runtime_config.reload_overrides()
@@ -312,14 +313,26 @@ def main_loop():
         except Exception:
             debug_log("Kein Object-File vorhanden — überspringe Upload von latest_objects.json")
 
-        # Adaptiver Intervall: kurz bei aktiven Zellen, lang bei Ruhe
+        # Adaptiver Intervall:
+        #   aktive Zellen (missing==0)      → 120s
+        #   innerhalb 60 Min danach         → 120s (Nachbeobachtung)
+        #   nach 60 Min ohne aktive Zellen  → 900s
         _cells_now = bool(objects and any(o.get("missing", 0) == 0 for o in objects))
         if _cells_now:
+            _last_cells_active_ts = time.time()
+        from config import NO_CELLS_SLOW_INTERVAL_TIMEOUT_S as _NCST_CFG
+        _timeout_s = float(runtime_config.get("NO_CELLS_SLOW_INTERVAL_TIMEOUT_S", _NCST_CFG))
+        _within_timeout = (
+            _last_cells_active_ts is not None and
+            (time.time() - _last_cells_active_ts) < _timeout_s
+        )
+        if _cells_now or _within_timeout:
             _sleep = runtime_config.get("LOOP_INTERVAL_CELLS_S", LOOP_INTERVAL_CELLS_S)
-            debug_log(f"[LOOP] Zellen aktiv → kurzer Intervall ({_sleep}s)")
+            _reason = "Zellen aktiv" if _cells_now else f"Nachbeobachtung < {int(_timeout_s // 60)} min"
+            debug_log(f"[LOOP] {_reason} → kurzer Intervall ({_sleep}s)")
         else:
             _sleep = runtime_config.get("LOOP_INTERVAL_NO_CELLS_S", LOOP_INTERVAL_NO_CELLS_S)
-            debug_log(f"[LOOP] Keine Zellen → langer Intervall ({_sleep}s)")
+            debug_log(f"[LOOP] Ruhe > {int(_timeout_s // 60)} min → langer Intervall ({_sleep}s)")
         time.sleep(_sleep)
 
 if __name__ == "__main__":

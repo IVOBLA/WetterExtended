@@ -190,6 +190,16 @@ MAX_SPEED_CHANGE_PER_CYCLE_KMH: float = 60.0
 # 0.25 = 25% konvektiver Kern → eindeutig konvektiv, kein Rauschen.
 WAS_ACTIVE_CORE_RATIO_THRESHOLD: float = 0.25
 
+# Wie lange inaktive Zellen (missing > 0) weitergetrackt werden.
+# Zeitbasiert — unabhängig vom aktuellen Loop-Intervall.
+# 1200 s = 20 Minuten.
+INACTIVE_CELL_TRACK_DURATION_S: int = 1200
+
+# Wie lange der kurze Loop-Intervall (LOOP_INTERVAL_CELLS_S) nach der letzten
+# aktiven Zelle beibehalten wird, bevor auf LOOP_INTERVAL_NO_CELLS_S umgeschaltet.
+# 3600 s = 60 Minuten.
+NO_CELLS_SLOW_INTERVAL_TIMEOUT_S: int = 3600
+
 # --------------------------------------
 # ML-Konfiguration (Single Source of Truth)
 # --------------------------------------
