@@ -268,6 +268,9 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
     # was_active-Schwellwert — runtime-überschreibbar über Admin-Panel
     from config import WAS_ACTIVE_CORE_RATIO_THRESHOLD as _WAT_CFG
     _was_active_threshold = float(_rc.get("WAS_ACTIVE_CORE_RATIO_THRESHOLD", _WAT_CFG))
+    # Zeitbasiertes Hintergrund-Tracking: 20 Minuten unabhängig vom Loop-Intervall
+    from config import INACTIVE_CELL_TRACK_DURATION_S as _ICTD_CFG
+    _track_duration_s = float(_rc.get("INACTIVE_CELL_TRACK_DURATION_S", _ICTD_CFG))
     # F7-FIX: BBOX live aus runtime_config — Admin-Panel-Änderungen wirken sofort.
     from config import BBOX_KAERNTEN_EXTENDED as _DEFAULT_BBOX
     _BBOX_LIVE = _rc.get("BBOX_KAERNTEN_EXTENDED", _DEFAULT_BBOX)
@@ -442,12 +445,18 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             old_obj["lineage_end"] = f"split_into:{children}"
             previous_snapshot[old_id] = old_obj
 
+    import time as _time_mod
     for obj_id, obj in previous_snapshot.items():
         if obj_id not in new_memory:
             lat, lon = obj.get("lat"), obj.get("lon")
             if is_within_bbox(lat, lon, _BBOX_LIVE):
                 obj["missing"] = obj.get("missing", 0) + 1
-                if obj["missing"] <= 10:
+                # Zeitstempel des ersten Verschwindens setzen (einmalig)
+                if "missing_since" not in obj:
+                    obj["missing_since"] = _time_mod.time()
+                # Zeitbasiertes Limit: 20 Minuten unabhängig vom Loop-Intervall
+                _elapsed = _time_mod.time() - float(obj["missing_since"])
+                if _elapsed <= _track_duration_s:
                     new_memory[obj_id] = obj
 
     if len(set(new_memory.keys())) != len(new_memory):
@@ -457,6 +466,7 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
     tracking_memory = new_memory
     for obj_id, obj in new_memory.items():
         if obj.get("missing", 0) == 0:
+            obj.pop("missing_since", None)  # Zelle wieder sichtbar → Timer zurücksetzen
             # was_active: sticky Flag — True sobald core_ratio Schwellwert je erreicht.
             # Prüft auch previous_snapshot (carry-forward) falls Matching-Code das Flag
             # nicht automatisch übernimmt. Ermöglicht MISSING_LIMIT_ACTIVE statt DEFAULT.
