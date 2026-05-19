@@ -668,11 +668,42 @@ def api_ai_analysis_chat():
                 + json.dumps(ctx, ensure_ascii=False, indent=1)
             )
 
+        _source_addon = ""
+        if include_source:
+            _source_addon = (
+                "\n\n"
+                "ZUSATZREGEL — gilt nur wenn Quellcode-Kontext enthalten ist:\n"
+                "Wenn du in dem gezeigten Quellcode einen konkreten Bug oder eine "
+                "kritische Schwachstelle erkennst, liefere am Ende deiner Antwort "
+                "einen fertigen Claude Code Prompt in folgendem Format:\n"
+                "\n"
+                "```claudecode\n"
+                "Datei: <exakter Dateiname>\n"
+                "Aenderung: TEILERSATZ oder VOLLERSATZ\n"
+                "\n"
+                "SUCHE exakt:\n"
+                "    <exakter Such-String aus dem Code, unveraendert>\n"
+                "\n"
+                "ERSETZE durch:\n"
+                "    <exakter Ersatz-String>\n"
+                "\n"
+                "Verifikation:\n"
+                "    <bash-Befehl der den Fix beweist>\n"
+                "```\n"
+                "\n"
+                "Regeln fuer den claudecode-Block:\n"
+                "- SUCHE-String muss exakt so im Code vorkommen (kopiere ihn wortwörtlich)\n"
+                "- Maximal 1 Bug pro claudecode-Block; mehrere Bugs = mehrere Bloecke\n"
+                "- Kein claudecode-Block wenn kein konkreter Bug gefunden wurde\n"
+                "- Keine Vermutungen — nur Bugs die du im gezeigten Code siehst"
+            )
+
         system_prompt = (
             "Du bist Experte fuer das WetterExtended-Sturmzell-Tracking-System "
             "in Kaernten/Oesterreich (Raspberry Pi 5, Hailo-8 AI, ARSO-Radar). "
             "Beantworte die Frage praezise auf Basis des bereitgestellten Kontexts. "
             "Antworte auf Deutsch. Sei konkret und praxisnah."
+            + _source_addon
         )
 
         # Kontext-Text aufbauen
