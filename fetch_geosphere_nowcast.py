@@ -30,14 +30,24 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
         ck=cache_key("geosphere:nowcast", lat, lon, _cache_hour)
         cached=cache_get(ck, ttl_seconds=_TTL)
         if cached is not None: obj.update(cached); continue
-        url=f"{_BASE_URL}?lat={lat}&lon={lon}&parameters={_PARAMS}&start={_start_str}&end={_end_str}"
+        # GeoSphere FastAPI erwartet wiederholte Parameter (nicht kommasepariert)
+        _qparams = [
+            ("lat",        lat),
+            ("lon",        lon),
+            ("parameters", "rr"),
+            ("parameters", "ff"),
+            ("parameters", "ffx"),
+            ("start",      _start_str),
+            ("end",        _end_str),
+        ]
+        url = requests.Request("GET", _BASE_URL, params=_qparams).prepare().url
         try:
-            r=requests.get(url, timeout=_TIMEOUT, headers={"Accept":"application/json"})
+            r=requests.get(_BASE_URL, params=_qparams, timeout=_TIMEOUT, headers={"Accept":"application/json"})
             r.raise_for_status(); data=r.json()
         except requests.exceptions.Timeout:
             log_api_failure("geosphere_nowcast", url, "timeout", fallback_used=True); continue
         except Exception as exc:
-            log_api_failure("geosphere_nowcast", url, str(exc)[:80], fallback_used=True); continue
+            log_api_failure("geosphere_nowcast", str(url), str(exc)[:80], fallback_used=True); continue
         result=_parse_nowcast(data); cache_set(ck,result); obj.update(result)
     return objects
 
