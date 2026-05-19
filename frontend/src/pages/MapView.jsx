@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react'
 import {
   MapContainer, TileLayer, CircleMarker, Polyline,
   Polygon, Circle, Popup, ImageOverlay, Tooltip,
+  useMapEvents,
 } from 'react-leaflet'
 import api from '../api.js'
 import {
@@ -95,6 +96,218 @@ function Legend({ horizons, colors }) {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Manuelles Zell-Markieren — Polygon-Zeichner (Human-in-the-Loop)
+// ---------------------------------------------------------------------------
+
+/**
+ * PolygonDrawer: Sammelt Klick-Punkte auf der Karte und ruft onComplete auf.
+ * - Einfachklick: Punkt hinzufügen
+ * - Doppelklick:  Polygon abschließen (mind. 3 Punkte erforderlich)
+ * - ESC-Taste:    Zeichnen abbrechen
+ */
+function PolygonDrawer({ active, onComplete, onCancel }) {
+  const [pts, setPts] = React.useState([])
+
+  // ESC bricht ab
+  React.useEffect(() => {
+    if (!active) { setPts([]); return }
+    const handler = e => { if (e.key === 'Escape') { setPts([]); onCancel() } }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [active, onCancel])
+
+  useMapEvents({
+    click(e) {
+      if (!active) return
+      setPts(prev => [...prev, [e.latlng.lat, e.latlng.lng]])
+    },
+    dblclick(e) {
+      if (!active || pts.length < 3) return
+      e.originalEvent.preventDefault()
+      e.originalEvent.stopPropagation()
+      const closed = [...pts, pts[0]]
+      setPts([])
+      onComplete(closed)
+    },
+  })
+
+  if (!active || pts.length === 0) return null
+
+  return (
+    <>
+      {pts.map((p, i) => (
+        <CircleMarker key={`pm-${i}`} center={p} radius={5}
+          pathOptions={{ color: '#f59e0b', fillColor: '#fbbf24',
+            fillOpacity: 1, weight: 2 }} />
+      ))}
+      {pts.length >= 2 && (
+        <Polyline positions={pts}
+          pathOptions={{ color: '#f59e0b', weight: 2, dashArray: '6,4' }} />
+      )}
+    </>
+  )
+}
+
+/**
+ * HitlModal: Human-in-the-Loop Dialog nach Polygon-Analyse.
+ * Zeigt HSV-Messwerte, Farbvorschau, vorgeschlagenen Filter.
+ * Benutzer bestätigt oder verwirft.
+ */
+function HitlModal({ loading, result, onConfirm, onClose }) {
+  if (!loading && !result) return null
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      zIndex: 9999, padding: 16,
+    }}>
+      <div style={{
+        background: '#fff', borderRadius: 12, padding: 24,
+        maxWidth: 480, width: '100%',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.28)',
+      }}>
+        {/* Ladeindikator */}
+        {loading && (
+          <div style={{ textAlign: 'center', padding: '32px 0' }}>
+            <div style={{ fontSize: 40, marginBottom: 12,
+              animation: 'spin 1s linear infinite' }}>🔍</div>
+            <p style={{ color: '#6b7280' }}>Radarbild wird analysiert...</p>
+          </div>
+        )}
+
+        {/* Fehler */}
+        {result && !result.ok && (
+          <>
+            <h2 style={{ color: '#dc2626', marginBottom: 8 }}>Analyse fehlgeschlagen</h2>
+            <p style={{ fontSize: 13, color: '#374151',
+              fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+              {result.error}
+            </p>
+            <button onClick={onClose}
+              style={{ marginTop: 16, width: '100%', padding: '8px 0',
+                background: '#f3f4f6', border: '1px solid #d1d5db',
+                borderRadius: 8, cursor: 'pointer' }}>
+              Schließen
+            </button>
+          </>
+        )}
+
+        {/* Erfolg */}
+        {result?.ok && (
+          <>
+            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16 }}>
+              🔬 Zell-Analyse — Filter vorschlagen
+            </h2>
+
+            {/* Farbvorschau + Statistik */}
+            <div style={{ display: 'flex', gap: 12, marginBottom: 16,
+              alignItems: 'flex-start' }}>
+              <div style={{
+                width: 56, height: 56, borderRadius: 8, flexShrink: 0,
+                border: '2px solid #d1d5db',
+                background: `rgb(${result.preview_rgb.join(',')})`,
+              }} />
+              <div style={{ fontSize: 13 }}>
+                <p style={{ fontWeight: 600 }}>
+                  {result.pixel_count} Pixel analysiert
+                </p>
+                <p style={{ color: '#6b7280', marginTop: 2 }}>
+                  Label:{' '}
+                  <span style={{ fontFamily: 'monospace',
+                    background: '#f3f4f6',
+                    padding: '1px 5px', borderRadius: 4 }}>
+                    {result.suggested_label}
+                  </span>
+                </p>
+                <p style={{ color: '#9ca3af', fontSize: 11, marginTop: 2 }}>
+                  Bild: {result.radar_path}
+                </p>
+              </div>
+            </div>
+
+            {/* HSV-Messwerte */}
+            <div style={{ background: '#f9fafb', borderRadius: 8,
+              padding: '10px 14px', marginBottom: 12,
+              fontFamily: 'monospace', fontSize: 12 }}>
+              <p style={{ fontWeight: 700, color: '#374151',
+                marginBottom: 4 }}>HSV-Messwerte im Polygon:</p>
+              <p>Hue: {result.hsv_stats.h_min}–{result.hsv_stats.h_max}
+                <span style={{ color: '#9ca3af' }}>
+                  {' '}(Ø {result.hsv_stats.h_mean})
+                </span>
+              </p>
+              <p>Sat: {result.hsv_stats.s_min}–{result.hsv_stats.s_max}</p>
+              <p>Val: {result.hsv_stats.v_min}–{result.hsv_stats.v_max}</p>
+            </div>
+
+            {/* Vorgeschlagener Filter */}
+            <div style={{
+              background: '#fffbeb', border: '1px solid #fcd34d',
+              borderRadius: 8, padding: '10px 14px', marginBottom: 16,
+            }}>
+              <p style={{ fontWeight: 700, color: '#92400e',
+                fontSize: 13, marginBottom: 4 }}>
+                📐 Vorgeschlagener HSV-Filter (±5 Toleranz, 5./95. Perzentil):
+              </p>
+              <p style={{ fontFamily: 'monospace', fontSize: 12,
+                color: '#78350f' }}>
+                Lower: [{result.suggested_range[0].join(', ')}]<br/>
+                Upper: [{result.suggested_range[1].join(', ')}]
+              </p>
+              {result.already_covered && (
+                <p style={{ color: '#065f46', fontSize: 12, marginTop: 6 }}>
+                  ✅ Dieser Bereich ist bereits im aktiven Filter abgedeckt.
+                </p>
+              )}
+            </div>
+
+            {/* Buttons */}
+            {result.already_covered ? (
+              <div>
+                <p style={{ fontSize: 12, color: '#065f46', marginBottom: 12 }}>
+                  Die Zelle sollte bereits erkannt werden. Falls sie trotzdem
+                  fehlt, kann der Wert zusätzlich ergänzt werden.
+                </p>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={onClose}
+                    style={{ flex: 1, padding: '9px 0', background: '#f3f4f6',
+                      border: '1px solid #d1d5db', borderRadius: 8,
+                      cursor: 'pointer', fontSize: 13 }}>
+                    Schließen
+                  </button>
+                  <button onClick={onConfirm}
+                    style={{ flex: 1, padding: '9px 0', background: '#f59e0b',
+                      border: 'none', borderRadius: 8, color: '#fff',
+                      cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                    Trotzdem ergänzen
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={onClose}
+                  style={{ flex: 1, padding: '9px 0', background: '#f3f4f6',
+                    border: '1px solid #d1d5db', borderRadius: 8,
+                    cursor: 'pointer', fontSize: 13 }}>
+                  Abbrechen
+                </button>
+                <button onClick={onConfirm}
+                  style={{ flex: 1, padding: '9px 0', background: '#2563eb',
+                    border: 'none', borderRadius: 8, color: '#fff',
+                    cursor: 'pointer', fontSize: 14, fontWeight: 700 }}>
+                  ✅ Filter übernehmen
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function MapView() {
   const [objects,      setObjects]      = useState([])
   const [forecast,     setForecast]     = useState({ features: [] })
@@ -115,6 +328,12 @@ export default function MapView() {
   const [playing,    setPlaying]    = useState(false)
   const [speed,      setSpeed]      = useState(500)
   const timerRef = useRef(null)
+
+  // ── Manuelles Zell-Markieren ──────────────────────────────────────────────
+  const [cellMarkActive,   setCellMarkActive]   = useState(false)
+  const [hitlLoading,      setHitlLoading]      = useState(false)
+  const [hitlResult,       setHitlResult]       = useState(null)   // API-Antwort
+  const [hitlConfirmed,    setHitlConfirmed]    = useState(false)
 
   const currentFrame = frames[currentIdx] ?? null
   const radarUrl = currentFrame
@@ -175,6 +394,47 @@ export default function MapView() {
   const fmtTime = utcStr => utcStr
     ? new Date(utcStr).toLocaleTimeString('de-AT', { hour:'2-digit', minute:'2-digit' })
     : '—'
+
+  // ── Handler: Polygon abgeschlossen → Analyse aufrufen ────────────────────
+  const handlePolygonComplete = React.useCallback(async (latlngPoints) => {
+    setCellMarkActive(false)
+    setHitlLoading(true)
+    setHitlResult(null)
+    try {
+      // GeoJSON-Konvention: [lon, lat]
+      const coords = latlngPoints.map(([lat, lng]) => [lng, lat])
+      const res = await api.post('/api/analyze_cell_polygon',
+        { coordinates: coords })
+      setHitlResult(res)
+    } catch (e) {
+      setHitlResult({ ok: false, error: e.message ?? String(e) })
+    } finally {
+      setHitlLoading(false)
+    }
+  }, [])
+
+  // ── Handler: Benutzer bestätigt Filter-Übernahme ──────────────────────────
+  const handleHitlConfirm = React.useCallback(async () => {
+    if (!hitlResult?.suggested_range) return
+    try {
+      await api.post('/api/thresholds/add_range', {
+        range: hitlResult.suggested_range,
+        label: hitlResult.suggested_label,
+      })
+      setHitlConfirmed(true)
+      setTimeout(() => {
+        setHitlResult(null)
+        setHitlConfirmed(false)
+      }, 2500)
+    } catch (e) {
+      alert('Fehler beim Speichern: ' + (e.message ?? String(e)))
+    }
+  }, [hitlResult])
+
+  const handleHitlClose = React.useCallback(() => {
+    setHitlResult(null)
+    setHitlLoading(false)
+  }, [])
 
   return (
     <div>
@@ -240,6 +500,23 @@ export default function MapView() {
         </label>
         <button onClick={load}
           className="text-xs text-blue-600 hover:text-blue-800 underline ml-auto">↺ Neu laden</button>
+        {/* Manuelles Zell-Markieren */}
+        <button
+          onClick={() => {
+            setCellMarkActive(v => !v)
+            setHitlResult(null)
+          }}
+          className={`text-xs px-2 py-1 rounded border select-none ${
+            cellMarkActive
+              ? 'bg-amber-400 border-amber-500 text-white font-semibold'
+              : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+          }`}
+          title="Zelle manuell einzeichnen: Klicken = Punkt setzen, Doppelklick = abschließen, ESC = abbrechen"
+        >
+          {cellMarkActive
+            ? '✏️ Zeichnen… (Dblklick = fertig, ESC = abbrechen)'
+            : '✏️ Zelle markieren'}
+        </button>
       </div>
 
       <MapContainer
@@ -495,7 +772,40 @@ export default function MapView() {
             )
           })
         }
+        {/* Manuelles Zell-Markieren — Polygon-Zeichner */}
+        <PolygonDrawer
+          active={cellMarkActive}
+          onComplete={handlePolygonComplete}
+          onCancel={() => setCellMarkActive(false)}
+        />
       </MapContainer>
+
+      {/* Human-in-the-Loop Modal */}
+      {hitlConfirmed ? (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 9999,
+        }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 32,
+            textAlign: 'center', boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>✅</div>
+            <p style={{ fontWeight: 700, color: '#065f46', fontSize: 16 }}>
+              Filter gespeichert!
+            </p>
+            <p style={{ color: '#6b7280', fontSize: 13, marginTop: 4 }}>
+              Wirkt im nächsten Live-Loop-Zyklus (≤ 120 s).
+            </p>
+          </div>
+        </div>
+      ) : (
+        <HitlModal
+          loading={hitlLoading}
+          result={hitlResult}
+          onConfirm={handleHitlConfirm}
+          onClose={handleHitlClose}
+        />
+      )}
     </div>
   )
 }
