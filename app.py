@@ -259,13 +259,12 @@ def api_objects():
 @app.route("/api/forecast")
 def api_forecast():
     import math as _math
-    from config import MIN_MOVEMENT_FOR_ARROW_KMH, FORECAST_ARROW_STYLE
+    from config import MIN_MOVEMENT_FOR_ARROW_KMH, FORECAST_ARROW_STYLE, PX_TO_KMH
     horizons = runtime_config.get("ML_FORECAST_HORIZONS_MIN", [10, 20, 30, 40, 60])
     colors   = runtime_config.get("FORECAST_ARROW_COLORS", {})
     styles   = runtime_config.get("FORECAST_ARROW_STYLE", FORECAST_ARROW_STYLE)
     min_kmh  = runtime_config.get("MIN_MOVEMENT_FOR_ARROW_KMH", MIN_MOVEMENT_FOR_ARROW_KMH)
-    # 1 px/Frame (UPSCALE=3, ~2 min/Frame) ≈ 10 km/h (Näherung Kärnten)
-    PX_TO_KMH = 10.0
+    # PX_TO_KMH aus config.py — Single Source of Truth
     feats = []
     for o in _latest_objects():
         if o.get("lat") is None or o.get("lon") is None:
