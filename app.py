@@ -941,6 +941,204 @@ def serve_react(path):
         return send_from_directory(dist_dir, "index.html")
     return jsonify({"ok": False, "error": "frontend build missing"}), 404
 
+# ---------------------------------------------------------------------------
+# Manuelles Zell-Markieren — Human-in-the-Loop
+# ---------------------------------------------------------------------------
+
+@app.route("/api/analyze_cell_polygon", methods=["POST"])
+def api_analyze_cell_polygon():
+    """
+    Analysiert HSV-Werte im verarbeiteten Radarbild innerhalb eines vom Benutzer
+    gezeichneten Polygons und schlägt einen neuen FILTER_CONFIG-Eintrag vor.
+
+    Eingabe (JSON):
+      { "coordinates": [[lon, lat], ...],  // GeoJSON-Reihenfolge (lon zuerst!)
+        "label": "optional_name" }
+
+    Ausgabe:
+      { "ok": true,
+        "pixel_count": int,
+        "radar_path": str,
+        "hsv_stats":  { h_min, h_max, h_mean, s_min, s_max, v_min, v_max },
+        "suggested_range": [[h_lo, s_lo, v_lo], [h_hi, s_hi, v_hi]],
+        "suggested_label": str,
+        "already_covered": bool,
+        "preview_rgb": [r, g, b] }
+    """
+    import glob as _glob
+    import numpy as _np
+    import cv2 as _cv2
+
+    try:
+        data = request.get_json(force=True)
+        coords = data.get("coordinates", [])   # [[lon, lat], ...]
+        label  = str(data.get("label", "manuell"))[:40]
+
+        if len(coords) < 3:
+            return jsonify({"ok": False,
+                            "error": "Mindestens 3 Punkte erforderlich"}), 400
+
+        # Aktuellstes verarbeitetes Radarbild (bereits gecroppt + upgeskaliert)
+        _radar_dir = SAVE_PATHS.get("radar", "data/radar")
+        radar_files = sorted(_glob.glob(os.path.join(_radar_dir, "radar_*.png")))
+        if not radar_files:
+            # Fallback: Originalbild (unkonsistente Pixelkoordinaten möglich)
+            radar_files = [os.path.join("data", "latest.png")]
+        radar_path = radar_files[-1]
+
+        img_bgr = _cv2.imread(radar_path)
+        if img_bgr is None:
+            return jsonify({"ok": False,
+                            "error": f"Radarbild nicht lesbar: {radar_path}"}), 500
+
+        h_img, w_img = img_bgr.shape[:2]
+        hsv_img = _cv2.cvtColor(img_bgr, _cv2.COLOR_BGR2HSV)
+        img_rgb = _cv2.cvtColor(img_bgr, _cv2.COLOR_BGR2RGB)
+
+        # Geo → Pixel (auf gecroptes+upgeskaliertes Bild)
+        from geo_utils import geo_to_pixel_in_bbox
+        from config import BBOX_KAERNTEN_EXTENDED as _BBOX
+
+        px_points = []
+        for lon, lat in coords:
+            px, py = geo_to_pixel_in_bbox(float(lat), float(lon),
+                                          _BBOX, w_img, h_img)
+            px_points.append([px, py])
+
+        # Polygon-Maske
+        pts = _np.array(px_points, dtype=_np.int32).reshape(-1, 1, 2)
+        poly_mask = _np.zeros((h_img, w_img), dtype=_np.uint8)
+        _cv2.fillPoly(poly_mask, [pts], 255)
+
+        # Weißen/schwarzen Hintergrund ausschließen
+        r_ch = img_rgb[:, :, 0]
+        g_ch = img_rgb[:, :, 1]
+        b_ch = img_rgb[:, :, 2]
+        bg = ((r_ch > 225) & (g_ch > 225) & (b_ch > 225)) |              ((r_ch < 20)  & (g_ch < 20)  & (b_ch < 20))
+        valid_mask = (poly_mask == 255) & (~bg)
+
+        valid_count = int(_np.sum(valid_mask))
+        if valid_count < 5:
+            return jsonify({
+                "ok": False,
+                "error": ("Zu wenige Vordergrundpixel im Polygon "
+                          "(Hintergrund oder leeres Gebiet?)")
+            }), 400
+
+        h_vals = hsv_img[:, :, 0][valid_mask].astype(int)
+        s_vals = hsv_img[:, :, 1][valid_mask].astype(int)
+        v_vals = hsv_img[:, :, 2][valid_mask].astype(int)
+
+        # 5./95.-Perzentil statt absolutem Min/Max (Ausreißer-robust)
+        h_lo_raw = int(_np.percentile(h_vals, 5))
+        h_hi_raw = int(_np.percentile(h_vals, 95))
+        s_lo_raw = int(_np.percentile(s_vals, 10))
+        v_lo_raw = int(_np.percentile(v_vals, 10))
+
+        # ±5 Hue-Toleranz, Mindest-Sättigung 40, Mindest-Helligkeit 50
+        h_lo = max(0,   h_lo_raw - 5)
+        h_hi = min(179, h_hi_raw + 5)
+        s_lo = max(40,  s_lo_raw - 10)
+        v_lo = max(50,  v_lo_raw - 10)
+
+        suggested = [[h_lo, s_lo, v_lo], [h_hi, 255, 255]]
+
+        # Prüfen ob Range bereits abgedeckt
+        fc_now = runtime_config.get("FILTER_CONFIG",
+                                    {"allowed_hsv_ranges": []})
+        already_covered = False
+        for lo_ex, hi_ex in fc_now.get("allowed_hsv_ranges", []):
+            if (int(lo_ex[0]) <= h_lo and int(hi_ex[0]) >= h_hi and
+                    int(lo_ex[1]) <= s_lo and int(lo_ex[2]) <= v_lo):
+                already_covered = True
+                break
+
+        # Durchschnitts-RGB für Farbvorschau im Dialog
+        r_mean = int(_np.mean(img_rgb[:, :, 0][valid_mask]))
+        g_mean = int(_np.mean(img_rgb[:, :, 1][valid_mask]))
+        b_mean = int(_np.mean(img_rgb[:, :, 2][valid_mask]))
+
+        # Automatisches Label aus Hue-Schwerpunkt
+        h_center = int(_np.mean(h_vals))
+        def _auto_label(hc: int) -> str:
+            if hc <= 10 or hc >= 165: return "rot_manuell"
+            if hc <= 27:              return "orange_manuell"
+            if hc <= 55:              return "gelb_manuell"
+            if hc <= 92:              return "gruen_manuell"
+            if hc <= 124:             return "cyan_manuell"
+            if hc <= 155:             return "violett_manuell"
+            return "unbekannt_manuell"
+
+        auto_label = label if label != "manuell" else _auto_label(h_center)
+
+        return jsonify({
+            "ok": True,
+            "pixel_count":     valid_count,
+            "radar_path":      os.path.basename(radar_path),
+            "hsv_stats": {
+                "h_min":  int(h_vals.min()),  "h_max":  int(h_vals.max()),
+                "h_mean": round(float(_np.mean(h_vals)), 1),
+                "s_min":  int(s_vals.min()),  "s_max":  int(s_vals.max()),
+                "v_min":  int(v_vals.min()),  "v_max":  int(v_vals.max()),
+            },
+            "suggested_range":  suggested,
+            "suggested_label":  auto_label,
+            "already_covered":  already_covered,
+            "preview_rgb":      [r_mean, g_mean, b_mean],
+        })
+
+    except Exception as exc:
+        import traceback
+        return jsonify({"ok": False, "error": str(exc),
+                        "trace": traceback.format_exc()}), 500
+
+
+@app.route("/api/thresholds/add_range", methods=["POST"])
+def api_thresholds_add_range():
+    """
+    Fügt einen einzelnen HSV-Bereich zu FILTER_CONFIG.allowed_hsv_ranges hinzu.
+    Wird vom manuellen Zell-Markieren nach Benutzerbestätigung aufgerufen.
+
+    Eingabe: { "range": [[h_lo, s_lo, v_lo], [h_hi, s_hi, v_hi]],
+               "label": "name_fuer_hsv_band_labels" }
+    """
+    try:
+        data = request.get_json(force=True)
+        new_range = data.get("range")
+        label = str(data.get("label", "manuell"))[:40]
+
+        if not new_range or len(new_range) != 2:
+            return jsonify({"ok": False,
+                            "error": "range muss [[lo],[hi]] sein"}), 400
+        for bound in new_range:
+            if not (isinstance(bound, list) and len(bound) == 3):
+                return jsonify({"ok": False,
+                                "error": "Jede Grenze muss [H,S,V] sein"}), 400
+            if not all(isinstance(c, (int, float)) and 0 <= c <= 255
+                       for c in bound):
+                return jsonify({"ok": False,
+                                "error": f"HSV-Wert außerhalb 0-255: {bound}"}), 400
+
+        fc = dict(runtime_config.get("FILTER_CONFIG",
+                                     {"allowed_hsv_ranges": [],
+                                      "min_object_area": 800,
+                                      "border_mask_px": 10}))
+        existing = list(fc.get("allowed_hsv_ranges", []))
+        existing.append(new_range)
+        fc["allowed_hsv_ranges"] = existing
+        runtime_config.patch({"FILTER_CONFIG": fc})
+
+        # Label in HSV_BAND_LABELS ergänzen
+        labels = list(runtime_config.get("HSV_BAND_LABELS", []))
+        if label not in labels:
+            labels.append(label)
+            runtime_config.patch({"HSV_BAND_LABELS": labels})
+
+        return jsonify({"ok": True, "total_ranges": len(existing)})
+
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=os.getenv("ADMIN_DEBUG") == "1")

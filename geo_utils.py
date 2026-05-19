@@ -138,3 +138,29 @@ def haversine_distance(lat1: float, lon1: float,
          + math.cos(rlat1) * math.cos(rlat2) * math.sin(dlon / 2) ** 2)
     return R * 2 * math.asin(math.sqrt(a))
 
+def geo_to_pixel_in_bbox(lat: float, lon: float,
+                          bbox: dict,
+                          img_width: int,
+                          img_height: int) -> tuple:
+    """
+    Wandelt (lat, lon) in Pixelkoordinaten des verarbeiteten (gecropten +
+    upgeskalten) Radarbilds um. Inverse von pixel_to_geo() für das
+    BBOX-gecropte Bild.
+
+    bbox : {"north": float, "south": float, "east": float, "west": float}
+           == BBOX_KAERNTEN_EXTENDED
+    img_width, img_height : Dimensionen des verarbeiteten Bildes
+                            (nach crop_and_upscale_to_bbox())
+    Rückgabe: (px_x, px_y) als int, geclampt auf [0, img_width/height - 1]
+    """
+    north = float(bbox["north"])
+    south = float(bbox["south"])
+    east  = float(bbox["east"])
+    west  = float(bbox["west"])
+
+    x = int((lon  - west)  / (east  - west)  * img_width)
+    y = int((north - lat)  / (north - south) * img_height)
+    x = max(0, min(img_width  - 1, x))
+    y = max(0, min(img_height - 1, y))
+    return x, y
+
