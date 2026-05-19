@@ -19,12 +19,29 @@ def weighted_average_weather(station_list, lat, lon):
     values = []
     for dist, s in station_list:
         w = 1 / (dist + 1e-6)
-        val = [s.get(k, 0) for k in ["RR", "DD", "FF", "FFX", "GLOW", "P", "RF", "TL", "TP"]]
+        # P=0 ist Sensorausfall/fehlend → als None/NaN behandeln
+        p_val = s.get("P")
+        pressure = float(p_val) if p_val not in (None, 0, "0") else np.nan
+        val = [
+            s.get("RR", 0),
+            s.get("DD", 0),
+            s.get("FF", 0),
+            s.get("FFX", 0),
+            s.get("GLOW", 0),
+            pressure,
+            s.get("RF", 0),
+            s.get("TL", 0),
+            s.get("TP", 0),
+        ]
         weights.append(w)
         values.append(val)
-    weights = np.array(weights)
-    values = np.array(values)
-    avg = np.average(values, axis=0, weights=weights)
+    weights = np.array(weights, dtype=float)
+    values = np.array(values, dtype=float)
+    avg = np.nanmean(values, axis=0)
+    if len(weights) > 0:
+        weighted = np.average(np.nan_to_num(values, nan=0.0), axis=0, weights=weights)
+        nan_mask = np.isnan(avg)
+        avg[~nan_mask] = weighted[~nan_mask]
     return avg.tolist()
 
 
