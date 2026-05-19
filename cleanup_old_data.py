@@ -12,7 +12,8 @@ import os
 import time
 from datetime import datetime, timezone
 
-from config import DATA_CLEANUP_PATHS, DATA_RETENTION_DAYS, SAVE_PATHS
+from config import (DATA_CLEANUP_PATHS, DATA_CLEANUP_RETENTION_OVERRIDE,
+                    DATA_RETENTION_DAYS, SAVE_PATHS)
 from debug_utils import debug_log
 
 _LOG_FILE = os.path.join(
@@ -33,18 +34,24 @@ def cleanup_old_data() -> dict:
       dirs_checked   — Anzahl geprüfter Verzeichnisse
       errors         — Liste aufgetretener Fehler (max. 10)
     """
-    cutoff_ts = time.time() - DATA_RETENTION_DAYS * 86400
     deleted_count = 0
     freed_bytes = 0
     errors: list = []
+    # Retention-Override: bestimmte Verzeichnisse haben kuerzere Aufbewahrungszeit.
+    # Fallback: DATA_RETENTION_DAYS (Standard 90 Tage).
+    _override = DATA_CLEANUP_RETENTION_OVERRIDE
 
     for rel_path in DATA_CLEANUP_PATHS:
-        # Pfad relativ zum Projektstamm auflösen
+        # Per-Verzeichnis Retention bestimmen
+        retention_days = _override.get(rel_path, DATA_RETENTION_DAYS)
+        cutoff_ts = time.time() - retention_days * 86400
+
+        # Pfad relativ zum Projektstamm aufloesen
         abs_path = os.path.normpath(
             os.path.join(_PROJECT_ROOT, rel_path.lstrip("/"))
         )
         if not os.path.isdir(abs_path):
-            debug_log(f"[CLEANUP] Verzeichnis nicht gefunden, übersprungen: {abs_path}")
+            debug_log(f"[CLEANUP] Verzeichnis nicht gefunden, uebersprungen: {abs_path}")
             continue
 
         try:
@@ -70,6 +77,7 @@ def cleanup_old_data() -> dict:
         "deleted_count": deleted_count,
         "freed_mb": round(freed_bytes / 1_048_576, 2),
         "retention_days": DATA_RETENTION_DAYS,
+        "retention_overrides": _override,
         "dirs_checked": len(DATA_CLEANUP_PATHS),
         "errors": errors[:10],  # max. 10 Fehler protokollieren
     }

@@ -392,18 +392,28 @@ if [[ "$MODE" == "full" ]]; then
     echo "║   ALLE TRAININGSMODELLE UND RADAR-DATEN WERDEN GELÖSCHT!    ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo ""
-    echo "Folgende Verzeichnisse werden geleert:"
-    echo "  ~/wetterprojekt/train_data/models/"
-    echo "  ~/wetterprojekt/train_data/radar/"
-    echo "  ~/wetterprojekt/train_data/objects/"
-    echo "  ~/wetterprojekt/train_data/dataset/"
-    echo "  ~/wetterprojekt/train_data/weather/"
-    echo "  ~/wetterprojekt/train_data/dem_cache/"
+    echo "Folgende Verzeichnisse werden vollstaendig geloescht:"
+    echo "  train_data/models/      (ML-Modelle)"
+    echo "  train_data/radar/       (Trainings-Radarbilder)"
+    echo "  train_data/objects/     (Tracking-Daten)"
+    echo "  train_data/dataset/     (ML-Dataset)"
+    echo "  train_data/weather/     (Wetterdaten-Cache)"
+    echo "  train_data/arome/       (AROME-Gitterpunktdaten)"
+    echo "  train_data/api_cache/   (API-Response-Cache)"
+    echo "  train_data/wind/        (700-hPa-Winddaten)"
+    echo "  train_data/cape/        (CAPE-Daten)"
+    echo "  train_data/cloud/       (Wolkenhoehendaten)"
+    echo "  train_data/lightning/   (Blitzdaten)"
+    echo "  train_data/ir/          (IR-Satellitenbilder)"
+    echo "  train_data/ir_cells/    (IR-Zell-Schnitte)"
+    echo "  train_data/evaluation/  (Logs und Genauigkeits-Historie)"
+    echo "  data/radar/             (Live-Radarbilder fuer Animation)"
+    echo "  data/overlay.png, latest.png, latest.kml, forecast.kmz"
     echo ""
-    echo "NICHT gelöscht werden:"
-    echo "  train_data/evaluation/   (Logs, Genauigkeits-Historie)"
-    echo "  train_data/runtime_overrides.json"
-    echo "  .env (FTP-Zugangsdaten)"
+    echo "NICHT geloescht werden:"
+    echo "  train_data/dem/         (Copernicus DEM — grosser Einmal-Download)"
+    echo "  .env                    (Zugangsdaten: FTP, Blitzortung, Twilio)"
+    echo "  runtime_overrides.json  (Admin-Panel-Einstellungen)"
     echo ""
     printf "Fortfahren? Tippe 'ja' und drücke Enter: "
     read -r CONFIRM
@@ -417,25 +427,52 @@ if [[ "$MODE" == "full" ]]; then
     sudo systemctl stop wetterprojekt wetterprojekt-scheduler wetterprojekt-admin 2>/dev/null || true
     sudo systemctl disable wetterprojekt wetterprojekt-scheduler wetterprojekt-admin 2>/dev/null || true
 
-    echo "[FULL] Lösche Trainingsmodelle..."
-    rm -rf "${TARGET}/train_data/models/"
+    # ── train_data: alle Datenverzeichnisse loeschen (NICHT dem/) ──────────────
+    FULL_DELETE_DIRS=(
+        "${TARGET}/train_data/models"
+        "${TARGET}/train_data/radar"
+        "${TARGET}/train_data/objects"
+        "${TARGET}/train_data/dataset"
+        "${TARGET}/train_data/weather"
+        "${TARGET}/train_data/arome"
+        "${TARGET}/train_data/api_cache"
+        "${TARGET}/train_data/wind"
+        "${TARGET}/train_data/cape"
+        "${TARGET}/train_data/cloud"
+        "${TARGET}/train_data/lightning"
+        "${TARGET}/train_data/ir"
+        "${TARGET}/train_data/ir_cells"
+        "${TARGET}/train_data/evaluation"
+        "${TARGET}/train_data/dem_cache"
+    )
+    for _dir in "${FULL_DELETE_DIRS[@]}"; do
+        if [[ -d "$_dir" ]]; then
+            echo "[FULL] Loesche: $(basename $_dir)/"
+            rm -rf "$_dir"
+        fi
+    done
 
-    echo "[FULL] Lösche Radar-Rohdaten..."
-    rm -rf "${TARGET}/train_data/radar/"
+    # ── data/: Live-Dateien loeschen ───────────────────────────────────────────
+    echo "[FULL] Loesche data/radar/ ..."
+    rm -rf "${TARGET}/data/radar/"
+    echo "[FULL] Loesche data/overlay.png, latest.png, latest.kml ..."
+    rm -f  "${TARGET}/data/overlay.png"            "${TARGET}/data/latest.png"             "${TARGET}/data/latest.kml"             "${TARGET}/data/.kmz_last_modified"
+    rm -f  "${TARGET}/forecast.kmz"            "${TARGET}/movement.gif"
 
-    echo "[FULL] Lösche Object-Tracking-Daten..."
-    rm -rf "${TARGET}/train_data/objects/"
+    # ── venv und Frontend-Build loeschen (werden in Phase 5/7 neu gebaut) ──────
+    echo "[FULL] Loesche venv/ ..."
+    rm -rf "${TARGET}/venv"
+    echo "[FULL] Loesche frontend/dist/ und frontend/node_modules/ ..."
+    rm -rf "${TARGET}/frontend/dist"
+    rm -rf "${TARGET}/frontend/node_modules"
 
-    echo "[FULL] Lösche Dataset..."
-    rm -rf "${TARGET}/train_data/dataset/"
+    # ── DEM-Tiles bleiben erhalten ─────────────────────────────────────────────
+    if [[ -d "${TARGET}/train_data/dem" ]]; then
+        _dem_count=$(find "${TARGET}/train_data/dem" -name "*.tif" 2>/dev/null | wc -l)
+        log_info "DEM-Tiles behalten: ${_dem_count} .tif-Dateien (Einmal-Download, ~1.4 GB)"
+    fi
 
-    echo "[FULL] Lösche Weather-Cache..."
-    rm -rf "${TARGET}/train_data/weather/"
-
-    echo "[FULL] Lösche DEM-Tile-Cache (werden beim Start neu geladen)..."
-    rm -rf "${TARGET}/train_data/dem_cache/"
-
-    echo "[FULL] Alte Daten gelöscht. Weiter mit vollständiger Installation..."
+    echo "[FULL] Alle Daten geloescht. Weiter mit vollstaendiger Installation..."
     echo ""
 else
     log_info "Upgrade-Modus: Trainingsdaten und Modelle bleiben erhalten."
@@ -512,12 +549,24 @@ CURRENT_PHASE="Phase 6 — Verzeichnisstruktur"
 log_step "Phase 6 — Verzeichnisstruktur und .env"
 
 DIRS=(
-    train_data/radar train_data/objects train_data/weather
-    train_data/wind train_data/cape train_data/dataset
-    train_data/models train_data/ir train_data/lightning
-    train_data/evaluation train_data/cloud
-    train_data/arome          # NEU: AROME icon_d2 Gitterpunktdaten
-    data logs
+    train_data/radar
+    train_data/objects
+    train_data/weather
+    train_data/wind
+    train_data/cape
+    train_data/dataset
+    train_data/models
+    train_data/ir
+    train_data/ir_cells
+    train_data/lightning
+    train_data/evaluation
+    train_data/cloud
+    train_data/arome
+    train_data/api_cache
+    train_data/dem
+    data/radar
+    data
+    logs
 )
 for d in "${DIRS[@]}"; do
     mkdir -p "$TARGET/$d"

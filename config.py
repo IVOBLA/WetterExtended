@@ -432,7 +432,13 @@ DATA_CLEANUP_CRON_HOUR: int = 4
 DATA_CLEANUP_CRON_MINUTE: int = 30
 # Verzeichnisse die rotiert werden (relative Pfade vom Projektstamm).
 # NICHT rotiert: train_data/models/, train_data/evaluation/, train_data/dataset/
+# Verzeichnisse mit abweichender Aufbewahrungszeit (ueberschreiben DATA_RETENTION_DAYS).
+# data/radar/ braucht nur 2 Tage — Frontend-Animation nutzt max. 24h.
+DATA_CLEANUP_RETENTION_OVERRIDE: dict = {
+    "data/radar/": 2,          # 2 Tage — ~580 Dateien × 10 KB = ~6 MB/Tag
+}
 DATA_CLEANUP_PATHS: list = [
+    "data/radar/",             # Live-Radarbilder fuer Frontend-Animation (kurze Retention!)
     "train_data/radar/",
     "train_data/objects/",
     "train_data/weather/",
