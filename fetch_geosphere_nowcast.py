@@ -15,13 +15,20 @@ HEAVY_RAIN_MM_PER_H = 25.0
 def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
     for obj in objects: obj.update(_DEFAULT)
     valid=[(i,o) for i,o in enumerate(objects) if o.get("lat") is not None and o.get("lon") is not None]
-    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M")
+    from datetime import timedelta as _td
+    _now   = datetime.now(timezone.utc)
+    _floor = _now.replace(minute=(_now.minute // 15) * 15,
+                          second=0, microsecond=0)
+    _end   = _floor + _td(minutes=15)
+    _start_str  = _floor.strftime("%Y-%m-%dT%H:%M:00Z")
+    _end_str    = _end.strftime("%Y-%m-%dT%H:%M:00Z")
+    _cache_hour = _floor.strftime("%Y-%m-%dT%H")
     for _, obj in valid:
         lat, lon = round(float(obj['lat']),3), round(float(obj['lon']),3)
-        ck=cache_key("geosphere:nowcast", lat, lon, now_str[:13])
+        ck=cache_key("geosphere:nowcast", lat, lon, _cache_hour)
         cached=cache_get(ck, ttl_seconds=_TTL)
         if cached is not None: obj.update(cached); continue
-        url=f"{_BASE_URL}?lat={lat}&lon={lon}&parameters={_PARAMS}&start={now_str}:00Z&end={now_str}:00Z"
+        url=f"{_BASE_URL}?lat={lat}&lon={lon}&parameters={_PARAMS}&start={_start_str}&end={_end_str}"
         try:
             r=requests.get(url, timeout=_TIMEOUT, headers={"Accept":"application/json"})
             r.raise_for_status(); data=r.json()

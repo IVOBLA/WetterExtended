@@ -413,13 +413,16 @@ def run_analysis(cfg: Optional[dict] = None) -> Optional[dict]:
         f"[ANALYZER] Report erstellt ({len(report_json)} Zeichen), sende an Anthropic API..."
     )
 
+    import re as _re
+
     try:
         import anthropic
 
         client = anthropic.Anthropic(api_key=api_key)
+        max_tok = cfg.get("max_tokens", 3000)
         message = client.messages.create(
             model=cfg.get("model", "claude-sonnet-4-6"),
-            max_tokens=cfg.get("max_tokens", 1500),
+            max_tokens=max_tok,
             system=_SYSTEM_PROMPT,
             messages=[
                 {
@@ -435,7 +438,22 @@ def run_analysis(cfg: Optional[dict] = None) -> Optional[dict]:
         except Exception:
             pass
         raw = message.content[0].text if message.content else ""
-        debug_log(f"[ANALYZER] Antwort empfangen ({len(raw)} Zeichen)")
+        stop_reason = getattr(message, "stop_reason", None)
+        debug_log(f"[ANALYZER] Antwort empfangen ({len(raw)} Zeichen, stop_reason={stop_reason})")
+
+        if stop_reason == "max_tokens":
+            debug_log(
+                f"[ANALYZER][WARN] Antwort durch max_tokens={max_tok} abgeschnitten! "
+                f"max_tokens in AI_ANALYSIS_CONFIG erhoehen."
+            )
+            log_api_failure(
+                "Anthropic-API",
+                "https://api.anthropic.com/v1/messages",
+                f"stop_reason=max_tokens — Antwort abgeschnitten (max_tokens={max_tok})",
+                fallback_used=False,
+            )
+            return None
+
     except Exception as exc:
         log_api_failure(
             "Anthropic-API",
@@ -447,11 +465,10 @@ def run_analysis(cfg: Optional[dict] = None) -> Optional[dict]:
 
     try:
         clean = raw.strip()
-        if clean.startswith("```"):
-            clean = clean.split("```")[1]
-            if clean.startswith("json"):
-                clean = clean[4:]
-        result = json.loads(clean.strip())
+        fence_match = _re.match(r"^```(?:json)?\s*\n?(.*?)\n?```\s*$", clean, _re.DOTALL)
+        if fence_match:
+            clean = fence_match.group(1).strip()
+        result = json.loads(clean)
     except Exception as exc:
         log_api_failure(
             "Anthropic-API",
@@ -459,7 +476,7 @@ def run_analysis(cfg: Optional[dict] = None) -> Optional[dict]:
             f"JSON-Parse-Fehler: {exc}",
             fallback_used=False,
         )
-        debug_log(f"[ANALYZER] Roh-Antwort: {raw[:500]}")
+        debug_log(f"[ANALYZER] Roh-Antwort (erste 800 Zeichen): {raw[:800]}")
         return None
 
     result["report_snapshot"] = {
