@@ -1,3 +1,4 @@
+import base64 as _b64
 import glob
 import json
 import os
@@ -643,18 +644,56 @@ def api_ai_analysis_chat():
             "Antworte auf Deutsch. Sei konkret und praxisnah."
         )
 
-        user_content = "\n\n".join(parts)
-        user_content += (f"\n\n=== FRAGE ===\n{question}" if user_content else question)
+        full_text = "\n\n".join(parts)
+        full_text += (f"\n\n=== FRAGE ===\n{question}" if full_text else question)
+
+        # --- Optionales Radarbild voranstellen ---
+        include_radar = bool(data.get("include_radar", False))
+        radar_block   = None
+        radar_ts_info = ""
+        if include_radar:
+            import glob as _gl
+            radar_files = sorted(_gl.glob(os.path.join("data", "radar", "radar_*.png")))
+            if radar_files:
+                try:
+                    with open(radar_files[-1], "rb") as _rf:
+                        _raw = _rf.read()
+                    radar_b64   = _b64.b64encode(_raw).decode("ascii")
+                    radar_block = {
+                        "type": "image",
+                        "source": {
+                            "type":       "base64",
+                            "media_type": "image/png",
+                            "data":       radar_b64,
+                        },
+                    }
+                    # Timestamp aus Dateiname extrahieren fuer KI-Kontext
+                    _rname     = os.path.basename(radar_files[-1])
+                    _rts       = _rname.replace("radar_", "").replace(".png", "")
+                    radar_ts_info = f"\n[Radarbild-Zeitstempel: {_rts} (Lokalzeit Wien)]"
+                except Exception as _re:
+                    app.logger.warning(f"[CHAT] Radarbild konnte nicht gelesen werden: {_re}")
+            else:
+                app.logger.warning("[CHAT] include_radar=True aber kein Radarbild in data/radar/ vorhanden")
+
+        # Timestamp in Fragetext einbetten wenn Radarbild vorhanden
+        if radar_ts_info:
+            full_text = full_text + radar_ts_info
+
+        # Content-Array: Radarbild (falls vorhanden) → user-uploads → Text
+        leading = ([radar_block] if radar_block else [])
+        image_blocks = []
+        content: list = leading + image_blocks + [{"type": "text", "text": full_text}]
 
         client  = anthropic.Anthropic(api_key=api_key)
         message = client.messages.create(
             model=model_id,
             max_tokens=2000,
             system=system_prompt,
-            messages=[{"role": "user", "content": user_content}],
+            messages=[{"role": "user", "content": content}],
         )
         answer = message.content[0].text if message.content else "(keine Antwort)"
-        return jsonify({"ok": True, "answer": answer, "model": model_id})
+        return jsonify({"ok": True, "answer": answer, "model": model_id, "image_count": len(leading)})
 
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
