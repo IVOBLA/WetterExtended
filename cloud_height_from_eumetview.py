@@ -285,26 +285,31 @@ def assign_cloud_top_height(
     # ── TIFF einlesen, kalibrieren, Wolkenhöhe berechnen ────────────────────
     try:
         with rasterio.open(tif_path) as src:
-            bt_uint8 = src.read(1)  # Band 1 (Rot-Kanal), uint8 0–255
+            bt_uint8 = src.read(1).astype(np.float32)
             raster_rows, raster_cols = bt_uint8.shape
 
-            # BUG 1 FIX: uint8-Pixelwerte → Brightness Temperature Kelvin
-            bt_k = _uint8_to_bt_kelvin(bt_uint8)
+            # FIX: uint8-Pixelwerte → Brightness Temperature Kelvin konvertieren
+            # FEHLER WAR: bt_uint8 direkt als Kelvin verwendet → Höhen 20000-24000m (Stratosphäre)
+            # KORREKT: BT_K = BT_MAX - (BT_MAX-BT_MIN)/255 * pixel
+            bt_k = bt_uint8.copy()
+            bt_k[bt_k <= EUMETVIEW_NODATA_PIXEL] = np.nan
+            scale = (EUMETVIEW_BT_MAX_K - EUMETVIEW_BT_MIN_K) / 255.0
+            bt_k = EUMETVIEW_BT_MAX_K - scale * bt_k  # nun in Kelvin (180-330 K)
 
-            # Diagnose
-            valid = bt_k[~np.isnan(bt_k)]
-            if len(valid) > 0:
+            valid_bt = bt_k[~np.isnan(bt_k)]
+            if len(valid_bt) > 0:
                 print(
                     f"[DEBUG] BT nach Kalibrierung: "
-                    f"min={valid.min():.1f}K max={valid.max():.1f}K "
-                    f"mean={valid.mean():.1f}K | T_surface={T_surface:.1f}K"
+                    f"min={valid_bt.min():.1f}K max={valid_bt.max():.1f}K "
+                    f"mean={valid_bt.mean():.1f}K | T_surface={T_surface:.1f}K"
                 )
             else:
-                print("[WARNUNG] Alle Pixel sind NaN nach Kalibrierung!")
+                print("[WARNUNG] Alle Pixel sind NaN nach BT-Kalibrierung!")
 
+            # Höhenberechnung: h_km = (T_surface - BT_K) / LAPSE_RATE(K/km)
+            # Negative Höhen (BT > T_surface = wolkenfrei) → NaN
             height_km = (T_surface - bt_k) / LAPSE_RATE
             height_msl = altitude_m + (height_km * 1000.0)
-            # Negative Höhen (BT > T_surface = wolkenfrei): als NaN markieren
             height_msl[height_msl < 0] = np.nan
 
             # Cache-JSON speichern
@@ -318,6 +323,7 @@ def assign_cloud_top_height(
                         "calibration": {
                             "bt_max_k": EUMETVIEW_BT_MAX_K,
                             "bt_min_k": EUMETVIEW_BT_MIN_K,
+                            "nodata_threshold": EUMETVIEW_NODATA_PIXEL,
                             "source": "uint8_linear",
                         },
                         "grid": height_msl.tolist(),
@@ -328,8 +334,7 @@ def assign_cloud_top_height(
 
             assigned = 0
             for obj in objects:
-                lat = obj.get("lat")
-                lon = obj.get("lon")
+                lat, lon = obj.get("lat"), obj.get("lon")
                 if lat is None or lon is None:
                     obj["cloud_top_height_msl"] = -1.0
                     obj["cloud_height_missing"] = 1.0
@@ -337,11 +342,10 @@ def assign_cloud_top_height(
                 try:
                     row, col = rowcol(src.transform, lon, lat)
 
-                    # BUG 3 FIX: Bounds-Check vor Array-Zugriff
                     if row < 0 or col < 0 or row >= raster_rows or col >= raster_cols:
                         print(
-                            f"[WARNUNG] Koordinate lat={lat}, lon={lon} außerhalb Raster "
-                            f"(row={row}, col={col}, shape={raster_rows}x{raster_cols})"
+                            f"[WARNUNG] Koordinate lat={lat},lon={lon} außerhalb Raster "
+                            f"(row={row},col={col},shape={raster_rows}x{raster_cols})"
                         )
                         obj["cloud_top_height_msl"] = -1.0
                         obj["cloud_height_missing"] = 1.0
@@ -349,9 +353,8 @@ def assign_cloud_top_height(
 
                     value = height_msl[row, col]
                     if np.isnan(value):
-                        # wolkenfrei oder nodata → kein messbarer Wolkendeckel
                         obj["cloud_top_height_msl"] = -1.0
-                        obj["cloud_height_missing"] = 0.0  # kein Fehler, nur kein Deckel
+                        obj["cloud_height_missing"] = 0.0  # kein Fehler, wolkenfrei
                     else:
                         obj["cloud_top_height_msl"] = round(float(value), 1)
                         obj["cloud_height_missing"] = 0.0
@@ -379,4 +382,5 @@ def assign_cloud_top_height(
             obj["cloud_top_height_msl"] = -1.0
             obj["cloud_height_missing"] = 1.0
 
+    write_last_timestamp(timestamp_wms)
     return objects
