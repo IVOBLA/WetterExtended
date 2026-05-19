@@ -12,7 +12,7 @@ import requests
 from datetime import datetime
 
 from config import SAVE_PATHS
-from debug_utils import debug_log, log_api_failure
+from debug_utils import debug_log, log_api_failure, log_api_call
 from api_cache import cache_key, cache_get, cache_set, get_ttl
 
 # Credentials aus Umgebungsvariablen (in .env definiert)
@@ -59,6 +59,8 @@ def fetch_and_save_lightning(timestamp: str) -> None:
         with open(save_path, "w", encoding="utf-8") as f:
             json.dump(cached_strikes, f, indent=2)
         debug_log(f"[LIGHTNING] Cache-HIT — {len(cached_strikes)} Blitze (kein HTTP-Request).")
+        # Cache-HIT zählt als Datenabruf (aus Cache bedient, kein echter HTTP-Request)
+        log_api_call("blitzortung", url, 200)
         return
 
     try:
@@ -69,21 +71,25 @@ def fetch_and_save_lightning(timestamp: str) -> None:
         )
         response.raise_for_status()
     except requests.exceptions.Timeout:
-        log_api_failure("Blitzortung", _BASE_URL, "timeout", fallback_used=True)
+        log_api_call("blitzortung", url, 408)
+        log_api_failure("blitzortung", _BASE_URL, "timeout", fallback_used=True)
         debug_log("[LIGHTNING] Timeout beim Abrufen der Blitzdaten.")
         return
     except requests.exceptions.HTTPError as exc:
-        status = getattr(exc.response, "status_code", None)
-        log_api_failure("Blitzortung", _BASE_URL,
+        status = getattr(exc.response, "status_code", None) or 0
+        log_api_call("blitzortung", url, status)
+        log_api_failure("blitzortung", _BASE_URL,
                         f"http-{status}", fallback_used=True, http_status=status)
         debug_log(f"[LIGHTNING] HTTP-Fehler {status}.")
         return
     except Exception as exc:
-        log_api_failure("Blitzortung", _BASE_URL,
+        log_api_call("blitzortung", url, 0)
+        log_api_failure("blitzortung", _BASE_URL,
                         f"{type(exc).__name__}: {exc}", fallback_used=True)
         debug_log(f"[LIGHTNING] Fehler: {exc}")
         return
 
+    log_api_call("blitzortung", url, response.status_code)
     strikes = []
     for line in response.text.strip().splitlines():
         line = line.strip()
@@ -116,10 +122,11 @@ def fetch_and_save_lightning(timestamp: str) -> None:
         except (json.JSONDecodeError, KeyError, ValueError, TypeError):
             continue
 
+    # Cache befüllen damit bei nächstem Aufruf kein redundanter HTTP-Request nötig
+    cache_set(ck, strikes)
     save_path = os.path.join(_SAVE_DIR, f"{timestamp}.json")
     with open(save_path, "w", encoding="utf-8") as f:
         json.dump(strikes, f, indent=2)
-    cache_set(ck, strikes)
     debug_log(f"[LIGHTNING] {len(strikes)} Blitzereignisse gespeichert: {save_path}")
 
 

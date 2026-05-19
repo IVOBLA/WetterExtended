@@ -4,6 +4,14 @@ import {
   MapContainer, TileLayer, CircleMarker,
   Polyline, Polygon, Circle, Popup, ImageOverlay, Tooltip,
 } from 'react-leaflet'
+import {
+  MAP_CENTER_KAERNTEN,
+  MAP_ZOOM_FULLSCREEN,
+  MAP_ZOOM_MIN,
+  MAP_ZOOM_MAX,
+  MAP_TILE_URL,
+  MAP_TILE_ATTRIBUTION,
+} from '../constants/mapDefaults.js'
 import api from '../api.js'
 
 const lineageColor = {
@@ -317,13 +325,15 @@ export default function MapFullscreen() {
       </div>
 
       <MapContainer
-        center={[46.62, 14.31]}
-        zoom={8}
+        center={MAP_CENTER_KAERNTEN}
+        zoom={MAP_ZOOM_FULLSCREEN}
+        minZoom={MAP_ZOOM_MIN}
+        maxZoom={MAP_ZOOM_MAX}
         style={{ width: '100%', height: '100%' }}
       >
         <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution="© OpenStreetMap"
+          url={MAP_TILE_URL}
+          attribution={MAP_TILE_ATTRIBUTION}
         />
 
         {showRadar && radarBounds && (
