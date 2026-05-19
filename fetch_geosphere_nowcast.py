@@ -17,12 +17,14 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
     valid=[(i,o) for i,o in enumerate(objects) if o.get("lat") is not None and o.get("lon") is not None]
     from datetime import timedelta as _td
     _now   = datetime.now(timezone.utc)
-    _floor = _now.replace(minute=(_now.minute // 15) * 15,
-                          second=0, microsecond=0)
-    _end   = _floor + _td(minutes=15)
-    _start_str  = _floor.strftime("%Y-%m-%dT%H:%M:00Z")
+    # Nowcast-API: nur Zukunft gültig → nächsten 15-min-Slot verwenden
+    _floor  = _now.replace(minute=(_now.minute // 15) * 15,
+                           second=0, microsecond=0)
+    _start  = _floor + _td(minutes=15)   # nächster Slot → immer in der Zukunft
+    _end    = _start + _td(minutes=15)
+    _start_str  = _start.strftime("%Y-%m-%dT%H:%M:00Z")
     _end_str    = _end.strftime("%Y-%m-%dT%H:%M:00Z")
-    _cache_hour = _floor.strftime("%Y-%m-%dT%H")
+    _cache_hour = _start.strftime("%Y-%m-%dT%H")
     for _, obj in valid:
         lat, lon = round(float(obj['lat']),3), round(float(obj['lon']),3)
         ck=cache_key("geosphere:nowcast", lat, lon, _cache_hour)
