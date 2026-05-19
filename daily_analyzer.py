@@ -106,6 +106,75 @@ def _git_recently_changed(repo_dir: str = ".", n: int = _MAX_GIT_CHANGED) -> lis
         return []
 
 
+def _load_recent_objects(n_frames: int = 5) -> list:
+    """
+    Lädt die letzten n_frames Objekt-JSON-Dateien aus SAVE_PATHS['objects'].
+    Gibt eine Liste von Frame-Dicts zurück:
+      [{"timestamp": "...", "cell_count": N, "cells": [...]}, ...]
+    Jede Zelle wird auf relevante Felder gekürzt (Token-Budget).
+    """
+    objects_dir = SAVE_PATHS.get("objects", "data/objects")
+    if not os.path.isdir(objects_dir):
+        return []
+
+    files = sorted(
+        [f for f in os.listdir(objects_dir) if f.endswith(".json")],
+        reverse=True,
+    )[:n_frames]
+
+    frames = []
+    for fname in reversed(files):
+        fpath = os.path.join(objects_dir, fname)
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                raw_cells = json.load(f)
+        except Exception as exc:
+            debug_log(f"[ANALYZER] Objekt-Lesefehler {fname}: {exc}")
+            continue
+
+        ts = fname.replace(".json", "")
+
+        cell_keys = (
+            "id",
+            "lat",
+            "lon",
+            "size",
+            "core_ratio",
+            "vx",
+            "vy",
+            "missing",
+            "lineage",
+            "cape",
+            "cloud_top_height_m",
+            "lightning_count_10km",
+            "of_magnitude",
+            "of_angle",
+            "arome_precip_mm",
+            "arome_cape",
+            "intensity",
+            "intensity_label",
+        )
+        slim_cells = []
+        for cell in raw_cells:
+            slim = {k: cell[k] for k in cell_keys if k in cell}
+            for h in (10, 20, 30):
+                for ax in ("lat", "lon"):
+                    key = f"forecast_{ax}_{h}"
+                    if key in cell:
+                        slim[key] = cell[key]
+            slim_cells.append(slim)
+
+        frames.append(
+            {
+                "timestamp": ts,
+                "cell_count": len(slim_cells),
+                "cells": slim_cells,
+            }
+        )
+
+    return frames
+
+
 def _file_inventory(repo_dir: str = ".") -> list:
     """
     Erstellt ein kompaktes Inventar aller .py-Dateien:
@@ -318,23 +387,39 @@ def build_system_report(since_hours: int = 24) -> dict:
         debug_log(f"[ANALYZER] Source-Kontext Fehler: {exc}")
         report["source_context"] = {}
 
+    recent_objects = _load_recent_objects(n_frames=5)
+    report["recent_objects"] = {
+        "description": (
+            "Zuletzt erkannte Sturmzellen aus HSV-Segmentierung + Kalman-Tracking. "
+            "Felder: id, lat/lon, size (px), core_ratio, vx/vy (px/frame), "
+            "cape (J/kg), cloud_top_height_m, lightning_count_10km, "
+            "of_magnitude/of_angle (optischer Fluss), arome_precip_mm, "
+            "intensity/intensity_label, forecast_lat/lon_10/20/30."
+        ),
+        "frames": recent_objects,
+        "frame_count": len(recent_objects),
+    }
+
     return report
 
 
-_SYSTEM_PROMPT = """Du bist ein automatischer Qualitätsanalyst für das
-WetterExtended-System (Raspberry Pi 5, Hailo-8, Kärnten/Österreich).
-Das System erkennt Gewitterzellen auf ARSO-Radarbildern und macht
-ML-basierte Positionsvorhersagen.
+_SYSTEM_PROMPT = """Du bist ein autonomer Code-, Daten- und Wetteranalyse-Experte für das
+WetterExtended-Sturmzell-Tracking-System in Kärnten/Österreich.
+Das System läuft auf einem Raspberry Pi 5 mit Hailo-8 AI (26 TOPS).
+Radardaten: ARSO INCA (Slowenien/Kärnten), 5-min-Takt.
+Zielgebiet: Klagenfurt, Villach, Wolfsberg, Spittal, St. Veit.
 
-Du erhältst täglich einen Report mit zwei Teilen:
-1) METRIKEN: Vorhersagegenauigkeit, API-Fehler, Modellqualität, System
-2) QUELLCODE: Datei-Inventar, Git-Log, erste 80 Zeilen der Schlüsseldateien
-   und zuletzt geänderter Dateien
+Der Report enthält jetzt auch `recent_objects` — die letzten 5 erkannten
+Radar-Frames mit allen Sturmzellen und ihren ML-Features.
 
-Analysiere BEIDE Teile gemeinsam. Erkenne:
+Erkenne:
 - Metrisch: schlechte MAE/Hit-Rate, häufige API-Ausfälle, Modell-Drift
 - Im Code: Bugs, fehlende Fehlerbehandlung, hardcodierte Werte,
   inkonsistente Logik, verbesserbare Algorithmen, fehlende Validierung
+- In den Objektdaten: unplausible Werte (z.B. vx/vy außerhalb ±50 px/frame,
+  cape > 5000 J/kg, Koordinaten außerhalb Kärnten lat 46.3–47.1 / lon 13.0–15.2),
+  fehlende Features (alle None), plötzliche Intensitätssprünge,
+  Zellen mit hohem CAPE + hoher Blitzdichte als potenzielle Gewitterwarnung
 - Zusammenhänge: z.B. API-Fehler im Code der zum bekannten Dienst passt
 
 Antworte AUSSCHLIESSLICH mit einem validen JSON-Objekt —
@@ -344,11 +429,17 @@ JSON-Schema (strikt einhalten):
 {
   "analysis_date": "ISO-Datum",
   "overall_status": "ok|warning|critical",
-  "summary": "Max. 2 Sätze Gesamtbewertung (Metriken UND Code).",
+  "summary": "Max. 2 Sätze Gesamtbewertung (Metriken, Code UND Wetterlage).",
+  "weather_situation": {
+    "active_cells": <Anzahl aktiver Zellen im letzten Frame>,
+    "max_intensity": "<intensity_label der stärksten Zelle oder null>",
+    "severe_risk": true|false,
+    "note": "Max. 1 Satz zur aktuellen Wetterlage in Kärnten."
+  },
   "suggestions": [
     {
       "priority": "high|medium|low",
-      "category": "accuracy|api|model|data|system|config|code",
+      "category": "accuracy|api|model|data|system|config|code|weather",
       "title": "Kurztitel (max. 60 Zeichen)",
       "description": "Problembeschreibung mit Dateiname/Zeilennummer falls möglich (max. 200 Zeichen)",
       "action": "Konkrete Handlungsempfehlung inkl. Code-Snippet falls sinnvoll (max. 300 Zeichen)"
@@ -356,9 +447,8 @@ JSON-Schema (strikt einhalten):
   ]
 }
 
-Maximal 6 Vorschläge, sortiert nach Priorität (code-Kategorie ist
-gleichwertig zu anderen). Nur echte Probleme melden. Bei Code-Befunden:
-Dateiname und betroffene Funktion/Zeile angeben.
+Maximal 8 Vorschläge, sortiert nach Priorität. Kategorie 'weather' für
+Befunde aus den Objektdaten. Nur echte Probleme melden.
 Wenn alles in Ordnung ist, suggestions = [].
 """
 
