@@ -12,6 +12,8 @@ Datenschutz: Es werden ausschließlich anonymisierte Metriken gesendet
 import glob
 import json
 import os
+import urllib.request
+import urllib.error
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -26,92 +28,87 @@ import runtime_config
 
 
 # ---------------------------------------------------------------------------
-# Quellcode-Kontext für KI-Analyse
+# Quellcode-Kontext — ausschliesslich von GitHub (autoritäre Quelle)
 # ---------------------------------------------------------------------------
 
-# Python-Dateien die IMMER einbezogen werden (erste N Zeilen).
-_ALWAYS_INCLUDE = [
-    "config.py",
-    "object_tracking.py",
-    "prediction.py",
-    "accuracy_tracker.py",
-    "dataset_builder.py",
-    "scheduler.py",
-]
-# Maximale Zeilen pro Datei (Token-Budget schonen).
-_MAX_LINES_PER_FILE = 80
-# Maximale Anzahl zusätzlicher Dateien aus Git-Log.
-_MAX_GIT_CHANGED = 3
-
-
-def _read_file_head(path: str, max_lines: int = _MAX_LINES_PER_FILE) -> str:
-    """Liest die ersten max_lines Zeilen einer Datei."""
+def _fetch_github_file(repo: str, branch: str, filepath: str,
+                       token: str = "", max_lines: int = 120) -> tuple:
+    """
+    Holt eine Datei von raw.githubusercontent.com.
+    Gibt (content: str, status: str) zurück.
+    status: 'ok' | 'not_found' | 'auth_error' | 'rate_limit' | 'network_error'
+    """
+    url = f"https://raw.githubusercontent.com/{repo}/{branch}/{filepath}"
+    req = urllib.request.Request(url)
+    if token:
+        req.add_header("Authorization", f"token {token}")
+    req.add_header("User-Agent", "WetterExtended-Analyzer/1.0")
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            lines = []
-            for i, line in enumerate(f):
-                if i >= max_lines:
-                    lines.append(f"... ({i} weitere Zeilen gekürzt)\n")
-                    break
-                lines.append(line)
-        return "".join(lines)
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+            lines = raw.splitlines(keepends=True)
+            if len(lines) > max_lines:
+                content = "".join(lines[:max_lines])
+                content += f"\n... ({len(lines) - max_lines} weitere Zeilen gekürzt)\n"
+            else:
+                content = raw
+            return content, "ok"
+    except urllib.error.HTTPError as exc:
+        codes = {404: "not_found", 401: "auth_error", 403: "rate_limit"}
+        return f"[GitHub HTTP {exc.code}: {filepath}]", codes.get(exc.code, "network_error")
     except Exception as exc:
-        return f"[Lesefehler: {exc}]"
+        return f"[GitHub Fehler: {exc}]", "network_error"
 
 
-def _git_log_summary(repo_dir: str = ".") -> str:
-    """Letzten 5 Git-Commits als kompakte Zusammenfassung."""
-    import subprocess
-
-    try:
-        out = subprocess.check_output(
-            ["git", "-C", repo_dir, "log", "--oneline", "--no-merges", "-5"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        )
-        return out.strip()
-    except Exception:
-        return "(kein Git-Log verfügbar)"
-
-
-def _git_recently_changed(repo_dir: str = ".", n: int = _MAX_GIT_CHANGED) -> list:
+def _collect_source_context() -> dict:
     """
-    Gibt Liste der zuletzt geänderten .py-Dateien zurück (aus Git-Log).
-    Maximal n Dateien, dedupliziert, ohne _ALWAYS_INCLUDE.
+    Holt Quellcode aller konfigurierten Dateien ausschliesslich von GitHub.
+    Kein Zugriff auf lokale Dateien. GitHub-Stand ist die einzige Quelle.
     """
-    import subprocess
+    from config import GITHUB_VERIFY_CONFIG
+    gh = runtime_config.get("GITHUB_VERIFY_CONFIG", GITHUB_VERIFY_CONFIG)
 
-    try:
-        out = subprocess.check_output(
-            ["git", "-C", repo_dir, "log", "--name-only", "--pretty=format:", "--diff-filter=M", "-10"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        )
-        seen = set()
-        result = []
-        for line in out.splitlines():
-            fname = line.strip()
-            if (
-                fname.endswith(".py")
-                and fname not in seen
-                and fname not in _ALWAYS_INCLUDE
-                and os.path.isfile(fname)
-            ):
-                seen.add(fname)
-                result.append(fname)
-                if len(result) >= n:
-                    break
-        return result
-    except Exception:
-        return []
+    repo      = gh.get("repo",   "IVOBLA/WetterExtended")
+    branch    = gh.get("branch", "main")
+    token     = gh.get("token",  "")
+    files     = gh.get("files",  [])
+    max_lines = gh.get("max_lines_per_file", 120)
 
+    ctx = {
+        "source":  "github",
+        "repo":    repo,
+        "branch":  branch,
+        "files":   {},
+        "errors":  [],
+    }
+
+    ok_count  = 0
+    err_count = 0
+    for fname in files:
+        content, status = _fetch_github_file(repo, branch, fname, token, max_lines)
+        ctx["files"][fname] = {"content": content, "status": status}
+        if status == "ok":
+            ok_count += 1
+        else:
+            err_count += 1
+            ctx["errors"].append({"file": fname, "reason": status})
+
+    debug_log(
+        f"[ANALYZER] GitHub-Source: {ok_count} Dateien geladen, "
+        f"{err_count} Fehler (repo={repo}, branch={branch})"
+    )
+    return ctx
+
+
+# ---------------------------------------------------------------------------
+# Erkannte Sturmzellen — letzte N Frames für KI-Analyse
+# ---------------------------------------------------------------------------
 
 def _load_recent_objects(n_frames: int = 5) -> list:
     """
     Lädt die letzten n_frames Objekt-JSON-Dateien aus SAVE_PATHS['objects'].
-    Gibt eine Liste von Frame-Dicts zurück:
-      [{"timestamp": "...", "cell_count": N, "cells": [...]}, ...]
-    Jede Zelle wird auf relevante Felder gekürzt (Token-Budget).
+    Gibt Liste von Frames zurück: [{"timestamp": str, "cell_count": int, "cells": [...]}]
+    Felder pro Zelle werden auf KI-relevante Keys reduziert (Token-Budget).
     """
     objects_dir = SAVE_PATHS.get("objects", "data/objects")
     if not os.path.isdir(objects_dir):
@@ -121,6 +118,15 @@ def _load_recent_objects(n_frames: int = 5) -> list:
         [f for f in os.listdir(objects_dir) if f.endswith(".json")],
         reverse=True,
     )[:n_frames]
+
+    _CELL_KEYS = (
+        "id", "lat", "lon", "size", "core_ratio",
+        "vx", "vy", "missing", "lineage",
+        "cape", "cloud_top_height_m", "lightning_count_10km",
+        "of_magnitude", "of_angle",
+        "arome_precip_mm", "arome_cape",
+        "intensity", "intensity_label",
+    )
 
     frames = []
     for fname in reversed(files):
@@ -132,31 +138,9 @@ def _load_recent_objects(n_frames: int = 5) -> list:
             debug_log(f"[ANALYZER] Objekt-Lesefehler {fname}: {exc}")
             continue
 
-        ts = fname.replace(".json", "")
-
-        cell_keys = (
-            "id",
-            "lat",
-            "lon",
-            "size",
-            "core_ratio",
-            "vx",
-            "vy",
-            "missing",
-            "lineage",
-            "cape",
-            "cloud_top_height_m",
-            "lightning_count_10km",
-            "of_magnitude",
-            "of_angle",
-            "arome_precip_mm",
-            "arome_cape",
-            "intensity",
-            "intensity_label",
-        )
         slim_cells = []
         for cell in raw_cells:
-            slim = {k: cell[k] for k in cell_keys if k in cell}
+            slim = {k: cell[k] for k in _CELL_KEYS if k in cell}
             for h in (10, 20, 30):
                 for ax in ("lat", "lon"):
                     key = f"forecast_{ax}_{h}"
@@ -164,73 +148,13 @@ def _load_recent_objects(n_frames: int = 5) -> list:
                         slim[key] = cell[key]
             slim_cells.append(slim)
 
-        frames.append(
-            {
-                "timestamp": ts,
-                "cell_count": len(slim_cells),
-                "cells": slim_cells,
-            }
-        )
+        frames.append({
+            "timestamp":  fname.replace(".json", ""),
+            "cell_count": len(slim_cells),
+            "cells":      slim_cells,
+        })
 
     return frames
-
-
-def _file_inventory(repo_dir: str = ".") -> list:
-    """
-    Erstellt ein kompaktes Inventar aller .py-Dateien:
-    [{name, lines, size_kb, mtime}]
-    """
-    import glob as _glob
-    from datetime import datetime as _dt2
-
-    inventory = []
-    for path in sorted(_glob.glob(os.path.join(repo_dir, "*.py"))):
-        try:
-            stat = os.stat(path)
-            with open(path, encoding="utf-8", errors="replace") as f:
-                line_count = sum(1 for _ in f)
-            inventory.append(
-                {
-                    "file": os.path.basename(path),
-                    "lines": line_count,
-                    "size_kb": round(stat.st_size / 1024, 1),
-                    "mtime": _dt2.utcfromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
-                }
-            )
-        except Exception:
-            continue
-    return inventory
-
-
-def _collect_source_context(repo_dir: str = ".") -> dict:
-    """
-    Sammelt Quellcode-Kontext für die KI-Analyse:
-    - Datei-Inventar (alle .py-Dateien)
-    - Git-Log (letzte 5 Commits)
-    - Immer einbezogene Schlüsseldateien (erste 80 Zeilen)
-    - Zuletzt geänderte Dateien aus Git (erste 80 Zeilen)
-    """
-    ctx = {
-        "inventory": _file_inventory(repo_dir),
-        "git_log": _git_log_summary(repo_dir),
-        "key_files": {},
-        "recently_changed": {},
-    }
-
-    # Schlüsseldateien einlesen
-    for fname in _ALWAYS_INCLUDE:
-        fpath = os.path.join(repo_dir, fname)
-        if os.path.isfile(fpath):
-            ctx["key_files"][fname] = _read_file_head(fpath, _MAX_LINES_PER_FILE)
-        else:
-            ctx["key_files"][fname] = "[nicht gefunden]"
-
-    # Zuletzt geänderte Dateien (aus Git-Log, nicht in key_files)
-    for fname in _git_recently_changed(repo_dir):
-        fpath = os.path.join(repo_dir, fname)
-        ctx["recently_changed"][fname] = _read_file_head(fpath, _MAX_LINES_PER_FILE)
-
-    return ctx
 
 
 # ---------------------------------------------------------------------------
@@ -374,53 +298,65 @@ def build_system_report(since_hours: int = 24) -> dict:
     except Exception:
         pass
 
-    # --- Quellcode-Kontext ---
+    # --- Quellcode von GitHub ---
     try:
-        report["source_context"] = _collect_source_context(".")
-        total_files = len(report["source_context"].get("key_files", {}))
-        total_changed = len(report["source_context"].get("recently_changed", {}))
-        debug_log(
-            f"[ANALYZER] Source-Kontext: "
-            f"{total_files} Key-Files + {total_changed} geänderte Dateien"
-        )
+        report["source_context"] = _collect_source_context()
     except Exception as exc:
         debug_log(f"[ANALYZER] Source-Kontext Fehler: {exc}")
-        report["source_context"] = {}
+        report["source_context"] = {"source": "error", "error": str(exc)}
 
-    recent_objects = _load_recent_objects(n_frames=5)
-    report["recent_objects"] = {
-        "description": (
-            "Zuletzt erkannte Sturmzellen aus HSV-Segmentierung + Kalman-Tracking. "
-            "Felder: id, lat/lon, size (px), core_ratio, vx/vy (px/frame), "
-            "cape (J/kg), cloud_top_height_m, lightning_count_10km, "
-            "of_magnitude/of_angle (optischer Fluss), arome_precip_mm, "
-            "intensity/intensity_label, forecast_lat/lon_10/20/30."
-        ),
-        "frames": recent_objects,
-        "frame_count": len(recent_objects),
-    }
+    # --- Erkannte Sturmzellen (letzte 5 Frames) ---
+    try:
+        recent = _load_recent_objects(n_frames=5)
+        report["recent_objects"] = {
+            "description": (
+                "Letzte 5 erkannte Radar-Frames. Felder je Zelle: "
+                "id, lat/lon, size(px), core_ratio, vx/vy(px/frame), "
+                "cape(J/kg), cloud_top_height_m, lightning_count_10km, "
+                "of_magnitude/angle, arome_precip_mm, intensity_label, "
+                "forecast_lat/lon_10/20/30."
+            ),
+            "frames":      recent,
+            "frame_count": len(recent),
+        }
+    except Exception as exc:
+        debug_log(f"[ANALYZER] recent_objects Fehler: {exc}")
+        report["recent_objects"] = {"frames": [], "frame_count": 0}
 
     return report
 
 
-_SYSTEM_PROMPT = """Du bist ein autonomer Code-, Daten- und Wetteranalyse-Experte für das
+_SYSTEM_PROMPT = """
+Du bist ein autonomer Code-, Daten- und Wetteranalyse-Experte für das
 WetterExtended-Sturmzell-Tracking-System in Kärnten/Österreich.
-Das System läuft auf einem Raspberry Pi 5 mit Hailo-8 AI (26 TOPS).
-Radardaten: ARSO INCA (Slowenien/Kärnten), 5-min-Takt.
-Zielgebiet: Klagenfurt, Villach, Wolfsberg, Spittal, St. Veit.
+Hardware: Raspberry Pi 5, Hailo-8 AI (26 TOPS), 16 GB RAM. OS: Raspbian.
+Radardaten: ARSO INCA (5-min-Takt). Zielgebiet: Klagenfurt, Villach,
+Wolfsberg, Spittal, St. Veit (lat 46.3–47.1 / lon 13.0–15.2).
 
-Der Report enthält jetzt auch `recent_objects` — die letzten 5 erkannten
-Radar-Frames mit allen Sturmzellen und ihren ML-Features.
+Der Report enthält:
 
-Erkenne:
-- Metrisch: schlechte MAE/Hit-Rate, häufige API-Ausfälle, Modell-Drift
-- Im Code: Bugs, fehlende Fehlerbehandlung, hardcodierte Werte,
-  inkonsistente Logik, verbesserbare Algorithmen, fehlende Validierung
-- In den Objektdaten: unplausible Werte (z.B. vx/vy außerhalb ±50 px/frame,
-  cape > 5000 J/kg, Koordinaten außerhalb Kärnten lat 46.3–47.1 / lon 13.0–15.2),
-  fehlende Features (alle None), plötzliche Intensitätssprünge,
-  Zellen mit hohem CAPE + hoher Blitzdichte als potenzielle Gewitterwarnung
-- Zusammenhänge: z.B. API-Fehler im Code der zum bekannten Dienst passt
+1) source_context.files — Quellcode direkt von GitHub (repo IVOBLA/WetterExtended).
+   Dies ist der OFFIZIELLE, committete Stand. Kein lokaler Code.
+   Jede Datei: {"content": "<erste 120 Zeilen>", "status": "ok|not_found|..."}
+   source_context.errors — Dateien die nicht von GitHub geladen werden konnten.
+
+2) recent_objects — letzte 5 erkannte Radar-Frames mit Sturmzellen.
+   Felder je Zelle: id, lat, lon, size(px), core_ratio, vx, vy,
+   cape(J/kg), cloud_top_height_m, lightning_count_10km,
+   of_magnitude, of_angle, arome_precip_mm, arome_cape,
+   intensity, intensity_label, forecast_lat/lon_10/20/30.
+
+3) Metriken: accuracy (MAE/hit-rate je Horizont), api_health, model_quality,
+   data_quality, system (RAM, Disk).
+
+Analysiere ALLE Teile. Erkenne:
+- CODE: Bugs, fehlende Fehlerbehandlung, hardcodierte Werte, inkonsistente
+  Logik, API-Aufrufe mit falschen Parametern (URLs, Query-Params, Auth).
+  Dateiname + Funktion/Zeile bei Befunden angeben.
+- METRIKEN: schlechte MAE/Hit-Rate, API-Ausfälle, Modell-Drift.
+- WETTERLAGE: unplausible Objektwerte (vx/vy > ±50 px/frame, cape > 5000),
+  fehlende Features (alle None), Gewitterrisiko (hohes CAPE + Blitzdichte).
+- ZUSAMMENHÄNGE: z.B. API-Fehler + fehlerhafter Code für diesen Dienst.
 
 Antworte AUSSCHLIESSLICH mit einem validen JSON-Objekt —
 kein Text davor oder danach, keine Markdown-Backticks.
@@ -429,27 +365,26 @@ JSON-Schema (strikt einhalten):
 {
   "analysis_date": "ISO-Datum",
   "overall_status": "ok|warning|critical",
-  "summary": "Max. 2 Sätze Gesamtbewertung (Metriken, Code UND Wetterlage).",
+  "summary": "Max. 2 Sätze Gesamtbewertung (Code, Metriken, Wetterlage).",
   "weather_situation": {
-    "active_cells": <Anzahl aktiver Zellen im letzten Frame>,
+    "active_cells": <int — Anzahl Zellen im letzten Frame>,
     "max_intensity": "<intensity_label der stärksten Zelle oder null>",
     "severe_risk": true|false,
-    "note": "Max. 1 Satz zur aktuellen Wetterlage in Kärnten."
+    "note": "Max. 1 Satz zur aktuellen Wetterlage."
   },
   "suggestions": [
     {
       "priority": "high|medium|low",
       "category": "accuracy|api|model|data|system|config|code|weather",
       "title": "Kurztitel (max. 60 Zeichen)",
-      "description": "Problembeschreibung mit Dateiname/Zeilennummer falls möglich (max. 200 Zeichen)",
-      "action": "Konkrete Handlungsempfehlung inkl. Code-Snippet falls sinnvoll (max. 300 Zeichen)"
+      "description": "Problembeschreibung mit Dateiname/Funktion (max. 200 Zeichen)",
+      "action": "Konkrete Massnahme inkl. Code-Snippet falls sinnvoll (max. 300 Zeichen)"
     }
   ]
 }
 
-Maximal 8 Vorschläge, sortiert nach Priorität. Kategorie 'weather' für
-Befunde aus den Objektdaten. Nur echte Probleme melden.
-Wenn alles in Ordnung ist, suggestions = [].
+Maximal 8 Vorschläge, sortiert nach Priorität.
+Nur echte Probleme melden. suggestions = [] wenn alles in Ordnung.
 """
 
 

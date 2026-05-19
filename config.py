@@ -249,6 +249,32 @@ RUNTIME_OVERRIDES_PATH = "train_data/runtime_overrides.json"
 # KI-Analyse-Pipeline (Anthropic API)
 # --------------------------------------
 # Default: deaktiviert. Aktivierung über Admin-Panel oder runtime_overrides.json.
+# ---------------------------------------------------------------------------
+# GitHub-Konfiguration — Quellcode-Quelle für KI-Analyse
+# ---------------------------------------------------------------------------
+GITHUB_VERIFY_CONFIG = {
+    "repo":   "IVOBLA/WetterExtended",
+    "branch": "main",
+    "token":  _os.environ.get("GITHUB_TOKEN", ""),   # leer = public repo
+    "files": [
+        "config.py",
+        "main.py",
+        "object_tracking.py",
+        "prediction.py",
+        "accuracy_tracker.py",
+        "dataset_builder.py",
+        "scheduler.py",
+        "daily_analyzer.py",
+        "blitz_api.py",
+        "fetch_arome_openmeteo.py",
+        "model_training.py",
+        "radar_convlstm.py",
+        "assign_cape_from_forecast.py",
+        "cloud_height_from_eumetview.py",
+    ],
+    "max_lines_per_file": 120,
+}
+
 AI_ANALYSIS_CONFIG = {
     "enabled": False,           # Master-Schalter
     "cron_hour": 6,             # Uhrzeit des täglichen Analyselaufs

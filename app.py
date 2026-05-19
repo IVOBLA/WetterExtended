@@ -586,11 +586,11 @@ def api_ai_analysis_chat():
                 f"=== SYSTEM-DATEN (letzte {since_h}h) ===\n"
                 + json.dumps(report, ensure_ascii=False, indent=1)
             )
-
         if include_source:
-            ctx = _collect_source_context(repo_dir=".")
+            from daily_analyzer import _collect_source_context
+            ctx = _collect_source_context()
             parts.append(
-                "=== QUELLCODE-KONTEXT ===\n"
+                "=== QUELLCODE-KONTEXT (GitHub) ===\n"
                 + json.dumps(ctx, ensure_ascii=False, indent=1)
             )
 
