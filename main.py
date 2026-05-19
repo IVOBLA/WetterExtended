@@ -297,8 +297,8 @@ def main_loop():
         else:
             debug_log("Keine vollständigen Daten → Keine Speicherung")
             save_forecast_as_kmz({}, {})
-            create_movement_gif("movement.gif")
 
+        create_movement_gif("movement.gif")
         create_visualized_radar()
 
         # Uploads
