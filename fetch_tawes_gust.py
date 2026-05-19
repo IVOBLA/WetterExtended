@@ -24,9 +24,26 @@ def fetch_tawes_stations() -> list:
     out=[]
     for feat in data.get('features',[]):
         props=feat.get('properties',{}); geom=feat.get('geometry',{}); coords=geom.get('coordinates',[0,0])
+        params_raw = props.get('parameters', {})
         def _p(key):
-            v=props.get(key); v=v.get('value') if isinstance(v,dict) else v; return float(v) if v is not None else 0.0
-        out.append({"station_id":str(props.get('station',{}).get('id','?')),"name":str(props.get('station',{}).get('name','?')),"lat":float(coords[1]) if len(coords)>1 else 0.0,"lon":float(coords[0]) if coords else 0.0,"ffx_kmh":round(_p('FFX')*3.6,1),"ff_kmh":round(_p('FF')*3.6,1),"rr_mm":round(_p('RR'),3),"tl_c":round(_p('TL'),1)})
+            entry = params_raw.get(key, {})
+            if isinstance(entry, dict):
+                data = entry.get('data', [None])
+                v = data[0] if data else None
+            else:
+                v = entry
+            return float(v) if v is not None else 0.0
+        station_meta = props.get('station', {})
+        out.append({
+            "station_id": str(station_meta.get('id', '?')),
+            "name":       str(station_meta.get('name', '?')),
+            "lat":        float(coords[1]) if len(coords) > 1 else 0.0,
+            "lon":        float(coords[0]) if coords else 0.0,
+            "ffx_kmh":    round(_p('FFX') * 3.6, 1),
+            "ff_kmh":     round(_p('FF')  * 3.6, 1),
+            "rr_mm":      round(_p('RR'),  3),
+            "tl_c":       round(_p('TL'),  1),
+        })
     cache_set(ck,out); return out
 
 def max_gust_near(lat: float, lon: float, stations: list, radius_km: float = 30.0) -> float:
