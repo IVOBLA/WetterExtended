@@ -31,6 +31,9 @@ export default function AiSuggestions() {
   const [chatAnswer,     setChatAnswer]     = useState(null)
   const [chatLoading,    setChatLoading]    = useState(false)
   const [chatError,      setChatError]      = useState(null)
+  const [chatImages,     setChatImages]     = useState([])   // [{name,media_type,data,url}]
+  const [dragOver,       setDragOver]       = useState(false)
+  const fileInputRef = React.useRef(null)
 
   useEffect(() => {
     api.get('/api/ai_analysis/config').then(setCfg).catch(() => {})
@@ -69,6 +72,42 @@ export default function AiSuggestions() {
     setRunning(false)
   }
 
+  function _fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload  = () => resolve(reader.result.split(',')[1])
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+  }
+
+  async function addImages(files) {
+    const allowed = Array.from(files).filter(f => f.type.startsWith('image/'))
+    if (!allowed.length) return
+    const remaining = 5 - chatImages.length
+    const toAdd = allowed.slice(0, remaining)
+    const entries = await Promise.all(toAdd.map(async f => ({
+      name:       f.name,
+      media_type: f.type,
+      data:       await _fileToBase64(f),
+      url:        URL.createObjectURL(f),
+    })))
+    setChatImages(prev => [...prev, ...entries])
+  }
+
+  function removeImage(idx) {
+    setChatImages(prev => {
+      URL.revokeObjectURL(prev[idx].url)
+      return prev.filter((_, i) => i !== idx)
+    })
+  }
+
+  function handleDrop(e) {
+    e.preventDefault()
+    setDragOver(false)
+    addImages(e.dataTransfer.files)
+  }
+
   async function sendChat() {
     if (!chatQuestion.trim()) return
     setChatLoading(true)
@@ -80,9 +119,14 @@ export default function AiSuggestions() {
         include_data:   includeData,
         include_source: includeSource,
         model:          selectedModel,
+        images:         chatImages.map(({ media_type, data }) => ({ media_type, data })),
       })
-      if (r.ok) setChatAnswer(r.answer)
-      else setChatError(r.error || 'Unbekannter Fehler')
+      if (r.ok) {
+        setChatAnswer(r.answer)
+        setChatImages([])
+      } else {
+        setChatError(r.error || 'Unbekannter Fehler')
+      }
     } catch (e) {
       setChatError(String(e))
     } finally {
@@ -216,6 +260,66 @@ export default function AiSuggestions() {
           </label>
         </div>
 
+        {/* Bild-Upload — Drag & Drop Zone */}
+        <div
+          className={`mb-3 border-2 border-dashed rounded-lg p-3 text-sm text-center
+                      transition-colors cursor-pointer
+                      ${dragOver
+                        ? 'border-blue-400 bg-blue-50'
+                        : 'border-gray-300 hover:border-blue-300 hover:bg-gray-50'}`}
+          onClick={() => fileInputRef.current?.click()}
+          onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={e => addImages(e.target.files)}
+          />
+          {chatImages.length === 0 ? (
+            <span className="text-gray-400">
+              📎 Bilder hier ablegen oder klicken zum Auswählen
+              <span className="block text-xs mt-1">PNG, JPG, WebP, GIF · max. 5 Bilder · max. 5 MB pro Bild</span>
+            </span>
+          ) : (
+            <span className="text-blue-600 text-xs">
+              + weitere Bilder hinzufügen ({chatImages.length}/5)
+            </span>
+          )}
+        </div>
+
+        {/* Bild-Vorschau */}
+        {chatImages.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-3">
+            {chatImages.map((img, idx) => (
+              <div key={idx} className="relative group">
+                <img
+                  src={img.url}
+                  alt={img.name}
+                  className="h-20 w-20 object-cover rounded border border-gray-300"
+                  title={img.name}
+                />
+                <button
+                  onClick={() => removeImage(idx)}
+                  className="absolute -top-1.5 -right-1.5 bg-red-500 text-white
+                             rounded-full w-5 h-5 text-xs flex items-center justify-center
+                             opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Bild entfernen"
+                >
+                  ×
+                </button>
+                <div className="text-xs text-gray-400 text-center truncate w-20 mt-0.5">
+                  {img.name}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Eingabe */}
         <div className="flex gap-2 items-end">
           <textarea
@@ -224,7 +328,7 @@ export default function AiSuggestions() {
             placeholder={
               'Frage stellen, z.B.:\n' +
               '• Warum ist die Hit-Rate so niedrig?\n' +
-              '• Welche Verbesserungen empfiehlst du für den Tracker?\n' +
+              '• Was zeigt dieses Radar-Bild?\n' +
               '• Strg+Enter zum Senden'
             }
             value={chatQuestion}
@@ -236,7 +340,11 @@ export default function AiSuggestions() {
             onClick={sendChat}
             disabled={chatLoading || !chatQuestion.trim()}
           >
-            {chatLoading ? '⏳…' : 'Senden'}
+            {chatLoading
+              ? '⏳…'
+              : chatImages.length > 0
+                ? `Senden (${chatImages.length} 🖼)`
+                : 'Senden'}
           </button>
         </div>
 
@@ -255,6 +363,7 @@ export default function AiSuggestions() {
           </div>
         )}
       </div>
+
 
     </div>
   )
