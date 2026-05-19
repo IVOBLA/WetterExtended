@@ -47,9 +47,14 @@ def get_weather_data(include_all_stations=True):
             for k in params:
                 try:
                     val = props.get("parameters", {}).get(k, {}).get("data", [None])[0]
-                    station[k] = float(val) if val is not None else 0
+                    if k == "P":
+                        # P=0 ist Sensorausfall/fehlend → als None behandeln
+                        p_val = val
+                        station[k] = float(p_val) if p_val not in (None, 0, "0") else None
+                    else:
+                        station[k] = float(val) if val is not None else 0
                 except Exception:
-                    station[k] = 0
+                    station[k] = None if k == "P" else 0
 
             stations.append(station)
 

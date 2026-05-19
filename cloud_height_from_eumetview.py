@@ -258,7 +258,7 @@ def assign_cloud_top_height(
             tl_values = [
                 float(s["TL"])
                 for s in stations
-                if isinstance(s, dict) and s.get("TL") not in (None, 0)
+                if isinstance(s, dict) and s.get("TL") not in (None, 0, "0")
             ]
             if tl_values:
                 T_surface = sum(tl_values) / len(tl_values) + 273.15
@@ -272,7 +272,7 @@ def assign_cloud_top_height(
             tl_values = [
                 float(s["TL"])
                 for s in stations
-                if isinstance(s, dict) and s.get("TL") not in (None, 0)
+                if isinstance(s, dict) and s.get("TL") not in (None, 0, "0")
             ]
             if tl_values:
                 T_surface = sum(tl_values) / len(tl_values) + 273.15
