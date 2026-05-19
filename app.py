@@ -294,6 +294,16 @@ def api_forecast():
                     "kinematic_source": o.get("kinematic_source"),
                     "has_arrow":       has_arrow,
                     "speed_kmh":       round(speed_kmh, 1),
+                    # q10/q90 Unsicherheitspositionen (F23/F25)
+                    "forecast_lat_q10": o.get(f"forecast_lat_{h}_q10"),
+                    "forecast_lon_q10": o.get(f"forecast_lon_{h}_q10"),
+                    "forecast_lat_q90": o.get(f"forecast_lat_{h}_q90"),
+                    "forecast_lon_q90": o.get(f"forecast_lon_{h}_q90"),
+                    # Diagnose-Felder für Frontend (F28, F43)
+                    "hail_warning":      o.get("hail_warning", False),
+                    "hail_prob":         o.get("hail_prob", 0.0),
+                    "stationary_marker": o.get("stationary_marker", False),
+                    "stationary_risk":   o.get("stationary_risk", 0.0),
                 },
             })
     return jsonify({"type": "FeatureCollection", "features": feats})

@@ -145,6 +145,18 @@ API_CACHE_TTL_SECONDS: dict = {
 # treffen denselben Cache-Eintrag und sparen so weitere Requests.
 API_CACHE_GRID_ROUND_DEG: float = 0.02
 
+# ── Warnschwellwerte ──────────────────────────────────────────────────────────
+# Hagelwarnung wird ausgelöst wenn hail_prob diesen Wert überschreitet.
+HAIL_WARN_THRESHOLD: float = 0.45
+# Stationärrisiko-Marker auf Karte wird angezeigt ab diesem Schwellwert.
+STATIONARY_RISK_MARKER_THRESHOLD: float = 0.60
+# Maximale physikalisch plausible Zellgeschwindigkeit (km/h). Kalman-Werte
+# über diesem Limit werden auf diesen Wert geclampt (Plausibilitätsprüfung F14).
+MAX_CELL_SPEED_KMH: float = 150.0
+# Maximale Geschwindigkeitsänderung pro 5-min-Zyklus (km/h). Verhindert
+# Kalman-Sprünge bei Mess-Artefakten (Plausibilitätsprüfung F14).
+MAX_SPEED_CHANGE_PER_CYCLE_KMH: float = 60.0
+
 # --------------------------------------
 # ML-Konfiguration (Single Source of Truth)
 # --------------------------------------
@@ -195,6 +207,12 @@ ML_CELL_FEATURES = [
     "terrain_blocking_score",  # Gelände blockiert Zugbahn (0-1)
     "orographic_lift_score",   # Staulage/Hebung (0-1)
     "stationary_risk",         # Stationärrisiko (0-1)
+    # ── Windscherung (F16) ───────────────────────────────────────────────────
+    "wind_shear_speed",        # Betrag Scherung 10m→700hPa (km/h)
+    "wind_shear_dir_cos",      # cos(Scherungsvektor-Richtung)
+    "wind_shear_dir_sin",      # sin(Scherungsvektor-Richtung)
+    # ── Hagelindikator (F06/F43) ─────────────────────────────────────────────
+    "hail_prob",               # Hagelwahrscheinlichkeit 0.0-1.0
 ]
 
 ML_STATION_FEATURES = [
@@ -209,6 +227,8 @@ ML_TIME_FEATURES = [
 ]
 
 ML_NUM_FEATURES = len(ML_CELL_FEATURES) + len(ML_STATION_FEATURES) + len(ML_TIME_FEATURES)
+# Hinweis: Wird durch config.py zur Laufzeit berechnet. Bei Feature-Änderungen
+# müssen Modelle neu trainiert werden (model_training.py).
 ML_SEQUENCE_LENGTH = 6
 ML_FORECAST_HORIZONS_MIN = [10, 20, 30, 40, 60]
 # Pfeilfarben pro Forecast-Horizont (HEX inkl. #).
