@@ -15,8 +15,8 @@
  */
 
 export const MAP_CENTER_KAERNTEN  = [46.62, 14.31]   // Klagenfurt-Bereich
-export const MAP_ZOOM_DEFAULT     = 8                 // MapView (70vh) — ganz Kärnten + Rand
-export const MAP_ZOOM_FULLSCREEN  = 8                 // MapFullscreen (100vh) — ganz Kärnten
+export const MAP_ZOOM_DEFAULT     = 10                 // MapView (70vh) — ganz Kärnten + Rand
+export const MAP_ZOOM_FULLSCREEN  = 10                 // MapFullscreen (100vh) — ganz Kärnten
 export const MAP_ZOOM_MIN         = 6                 // Zoom-Untergrenze
 export const MAP_ZOOM_MAX         = 14                // Zoom-Obergrenze
 
