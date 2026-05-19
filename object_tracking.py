@@ -351,7 +351,10 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             used_ids.add(obj_id)
             kf = previous_snapshot[obj_id]["kf"]
             kf.predict()
+            _prev_vx = float(kf.x[2])
+            _prev_vy = float(kf.x[3])
             kf.update([original_cx, original_cy])
+            _clamp_kalman_velocity(kf, _prev_vx, _prev_vy)
             vx, vy = kf.x[2], kf.x[3]
         else:
             if obj_id is None:
