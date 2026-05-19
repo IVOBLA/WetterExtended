@@ -711,8 +711,42 @@ def api_ai_analysis_chat():
         full_text   = (text_prefix + f"\n\n=== FRAGE ===\n{question}"
                        if text_prefix else question)
 
-        # Content-Array: erst Bilder, dann Text
-        content: list = image_blocks + [{"type": "text", "text": full_text}]
+        # --- Optionales Radarbild voranstellen ---
+        include_radar = bool(data.get("include_radar", False))
+        radar_block   = None
+        radar_ts_info = ""
+        if include_radar:
+            import glob as _gl
+            radar_files = sorted(_gl.glob(os.path.join("data", "radar", "radar_*.png")))
+            if radar_files:
+                try:
+                    with open(radar_files[-1], "rb") as _rf:
+                        _raw = _rf.read()
+                    radar_b64   = _b64.b64encode(_raw).decode("ascii")
+                    radar_block = {
+                        "type": "image",
+                        "source": {
+                            "type":       "base64",
+                            "media_type": "image/png",
+                            "data":       radar_b64,
+                        },
+                    }
+                    # Timestamp aus Dateiname extrahieren fuer KI-Kontext
+                    _rname     = os.path.basename(radar_files[-1])
+                    _rts       = _rname.replace("radar_", "").replace(".png", "")
+                    radar_ts_info = f"\n[Radarbild-Zeitstempel: {_rts} (Lokalzeit Wien)]"
+                except Exception as _re:
+                    debug_log(f"[CHAT] Radarbild konnte nicht gelesen werden: {_re}")
+            else:
+                debug_log("[CHAT] include_radar=True aber kein Radarbild in data/radar/ vorhanden")
+
+        # Timestamp in Fragetext einbetten wenn Radarbild vorhanden
+        if radar_ts_info:
+            full_text = full_text + radar_ts_info
+
+        # Content-Array: Radarbild (falls vorhanden) → user-uploads → Text
+        leading = ([radar_block] if radar_block else [])
+        content: list = leading + image_blocks + [{"type": "text", "text": full_text}]
 
         client  = anthropic.Anthropic(api_key=api_key)
         message = client.messages.create(

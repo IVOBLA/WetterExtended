@@ -61,6 +61,7 @@ export default function AiSuggestions() {
   const [selectedModel,  setSelectedModel]  = useState('claude-sonnet-4-6')
   const [includeData,    setIncludeData]    = useState(true)
   const [includeSource,  setIncludeSource]  = useState(false)
+  const [includeRadar,   setIncludeRadar]   = useState(false)
   const [chatQuestion,   setChatQuestion]   = useState('')
   const [chatAnswer,     setChatAnswer]     = useState(null)
   const [chatLoading,    setChatLoading]    = useState(false)
@@ -172,6 +173,7 @@ export default function AiSuggestions() {
         question:       chatQuestion,
         include_data:   includeData,
         include_source: includeSource,
+        include_radar:  includeRadar,
         model:          selectedModel,
         images:         chatImages.map(({ media_type, data }) => ({ media_type, data })),
       })
@@ -311,6 +313,12 @@ export default function AiSuggestions() {
               onChange={e => setIncludeSource(e.target.checked)} />
             Quellcode einbeziehen
             <span className="text-xs text-gray-400">(langsamer)</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={includeRadar}
+              onChange={e => setIncludeRadar(e.target.checked)} />
+            Aktuelles Radarbild senden
+            <span className="text-xs text-gray-400">(letztes ARSO-Frame)</span>
           </label>
         </div>
 
