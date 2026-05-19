@@ -592,13 +592,16 @@ def api_ai_analysis_models():
 @app.route("/api/ai_analysis/chat", methods=["POST"])
 def api_ai_analysis_chat():
     """
-    Freier KI-Chat mit optionalem System-Daten- und Quellcode-Kontext.
+    Freier KI-Chat mit optionalem System-Daten-, Quellcode-Kontext und Bildern.
     Body JSON:
-      question       (str)  — Pflichtfeld
-      include_data   (bool) — System-Metriken aus build_system_report() (default true)
-      include_source (bool) — Quellcode-Kontext (default false, langsamer/mehr Token)
-      model          (str)  — Claude-Modell-ID (default claude-sonnet-4-6)
+      question       (str)        — Pflichtfeld
+      include_data   (bool)       — System-Metriken (default true)
+      include_source (bool)       — Quellcode-Kontext (default false)
+      model          (str)        — Claude-Modell-ID (default claude-sonnet-4-6)
+      images         (list)       — optional, max. 5 Eintraege
+                                    [{media_type: "image/png", data: "<base64>"}]
     """
+    import base64 as _b64
     try:
         data     = request.get_json(force=True) or {}
         question = str(data.get("question", "")).strip()
@@ -608,18 +611,47 @@ def api_ai_analysis_chat():
         include_data   = bool(data.get("include_data", True))
         include_source = bool(data.get("include_source", False))
         model_id       = str(data.get("model", "claude-sonnet-4-6"))
+        images_raw     = data.get("images", [])
+
+        # --- Bild-Validierung ---
+        if not isinstance(images_raw, list):
+            return jsonify({"ok": False, "error": "'images' muss eine Liste sein"}), 400
+        if len(images_raw) > 5:
+            return jsonify({"ok": False, "error": "Maximal 5 Bilder erlaubt"}), 400
+
+        _MAX_B64_LEN = 7_000_000  # ~5 MB unkomprimiert
+        image_blocks = []
+        for idx, img in enumerate(images_raw):
+            mt   = str(img.get("media_type", "")).strip()
+            b64  = str(img.get("data", "")).strip()
+            if not mt.startswith("image/"):
+                return jsonify({"ok": False,
+                                "error": f"Bild {idx+1}: ungültiger media_type '{mt}'"}), 400
+            if len(b64) > _MAX_B64_LEN:
+                return jsonify({"ok": False,
+                                "error": f"Bild {idx+1} ueberschreitet 5 MB"}), 400
+            # Base64-Gueltigkeit pruefen
+            try:
+                _b64.b64decode(b64, validate=True)
+            except Exception:
+                return jsonify({"ok": False,
+                                "error": f"Bild {idx+1}: ungueltige Base64-Kodierung"}), 400
+            image_blocks.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": mt, "data": b64},
+            })
 
         api_key = os.environ.get("ANTHROPIC_API_KEY", "")
         if not api_key:
             return jsonify({"ok": False, "error": "ANTHROPIC_API_KEY nicht gesetzt"}), 500
 
         import anthropic
-        from daily_analyzer import build_system_report, _collect_source_context
         from config import AI_ANALYSIS_CONFIG as _def_cfg
 
         parts = []
 
         if include_data:
+            from daily_analyzer import build_system_report
             cfg     = dict(_def_cfg)
             cfg.update(runtime_config.get("AI_ANALYSIS_CONFIG", {}))
             since_h = cfg.get("since_hours", 24)
@@ -637,24 +669,34 @@ def api_ai_analysis_chat():
             )
 
         system_prompt = (
-            "Du bist Experte für das WetterExtended-Sturmzell-Tracking-System "
-            "in Kärnten/Österreich (Raspberry Pi 5, Hailo-8 AI, ARSO-Radar). "
-            "Beantworte die Frage präzise auf Basis des bereitgestellten Kontexts. "
+            "Du bist Experte fuer das WetterExtended-Sturmzell-Tracking-System "
+            "in Kaernten/Oesterreich (Raspberry Pi 5, Hailo-8 AI, ARSO-Radar). "
+            "Beantworte die Frage praezise auf Basis des bereitgestellten Kontexts. "
             "Antworte auf Deutsch. Sei konkret und praxisnah."
         )
 
-        user_content = "\n\n".join(parts)
-        user_content += (f"\n\n=== FRAGE ===\n{question}" if user_content else question)
+        # Kontext-Text aufbauen
+        text_prefix = "\n\n".join(parts)
+        full_text   = (text_prefix + f"\n\n=== FRAGE ===\n{question}"
+                       if text_prefix else question)
+
+        # Content-Array: erst Bilder, dann Text
+        content: list = image_blocks + [{"type": "text", "text": full_text}]
 
         client  = anthropic.Anthropic(api_key=api_key)
         message = client.messages.create(
             model=model_id,
             max_tokens=2000,
             system=system_prompt,
-            messages=[{"role": "user", "content": user_content}],
+            messages=[{"role": "user", "content": content}],
         )
         answer = message.content[0].text if message.content else "(keine Antwort)"
-        return jsonify({"ok": True, "answer": answer, "model": model_id})
+        return jsonify({
+            "ok":         True,
+            "answer":     answer,
+            "model":      model_id,
+            "image_count": len(image_blocks),
+        })
 
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
