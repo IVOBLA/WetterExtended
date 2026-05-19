@@ -79,8 +79,11 @@ CORE_HSV_RANGES = [
 #   Grün      = zmerne  36–41 dBZ  HSV-Hue ~60–90
 #   GelbGrün  = močne   42–47 dBZ  HSV-Hue ~40–60
 STRATIFORM_HSV_RANGES = [
-    (( 55,  50,  60), ( 92, 255, 255)),  # Grün      36–41 dBZ
-    (( 38,  50,  60), ( 55, 255, 255)),  # GelbGrün  42–47 dBZ
+    (( 55,  50,  60), ( 92, 255, 255)),  # Grün          36–41 dBZ  (H:55-92)
+    (( 28,  50,  60), ( 55, 255, 255)),  # Gelb/GelbGrün 42–48 dBZ  (H:28-55)
+    # H:28-37 war Lücke zwischen Orange-Konvektiv (endet H:27) und GelbGrün (begann H:38).
+    # 594 Pixel/Frame betroffen → strat_area_px für Zellen mit gelbem Rand systematisch
+    # zu niedrig. Fix: Band beginnt jetzt bei H:28 (nahtlos an Orange anschließend).
 ]
 # Suchradius im hochskalierten Bild (UPSCALE_FACTOR=3.0).
 # 60 px ≈ 20 km — ausreichend für Umgebungskontext.

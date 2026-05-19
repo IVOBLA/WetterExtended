@@ -154,7 +154,10 @@ def preprocess_image(image_path):
     for lower, upper in FILTER_CONFIG["allowed_hsv_ranges"]:
         mask |= cv2.inRange(hsv, np.array(lower), np.array(upper))
 
-    kernel = np.ones((7, 7), np.uint8)
+    # Morphologisches Closing — identisch mit detect_and_track_objects()
+    _close_size = int(_rc.get("MORPH_CLOSE_SIZE", 7))
+    kernel = np.ones((_close_size, _close_size), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     merged = merge_close_contours(contours, hsv.shape[:2], min_touch=MIN_CONTOUR_TOUCH)
@@ -561,6 +564,15 @@ def detect_and_track_objects(image_path=None, weather_data=None):
         mask[-border_px:, :] = 0
         mask[:, :border_px] = 0
         mask[:, -border_px:] = 0
+    # Morphologisches Closing — HSV-Lücken (JPEG-Artefakte, Farbinterpolation)
+    # schließen. Ohne Closing → Kontur zersplittert in Fragmente < min_object_area
+    # → Zellen ohne Rotkern werden verworfen (core_ratio < 0.05-Bypass greift nicht).
+    # MORPH_CLOSE_SIZE=7 bei UPSCALE=3 ≈ 2.3 km Closing-Radius.
+    # Überschreibbar via Admin-Panel: runtime_overrides.json "MORPH_CLOSE_SIZE": 9
+    _close_size = int(_rc.get("MORPH_CLOSE_SIZE", 7))
+    _kernel = np.ones((_close_size, _close_size), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, _kernel, iterations=2)
+
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     merged = merge_close_contours(contours, hsv.shape[:2], min_touch=MIN_CONTOUR_TOUCH)
 
