@@ -331,6 +331,10 @@ export default function MapFullscreen() {
                   {o.cape != null && <div>CAPE: {o.cape?.toFixed(0)} J/kg</div>}
                   {o.lightning_count_10km > 0 &&
                     <div>⚡ {o.lightning_count_10km} Blitze &lt;10 km</div>}
+                  {o.gust_warning && <div className="font-bold text-orange-600">💨 Böenwarnung ({o.nowcast_ffx_kmh || o.wind_gust_10m_kmh} km/h)</div>}
+                  {o.heavy_rain_warning && <div className="font-bold text-blue-700">🌧 Starkregen ({o.nowcast_rain_rate_1h} mm/h)</div>}
+                  {o.lpi > 5 && <div className="text-yellow-600">⚡ LPI: {o.lpi?.toFixed(1)}</div>}
+                  {o.tawes_max_gust_kmh > 30 && <div className="text-gray-500 text-xs">Station-Böe: {o.tawes_max_gust_kmh} km/h</div>}
                   {o.intensification_prob != null &&
                     <div>Intensivierung: {(o.intensification_prob * 100).toFixed(0)}%</div>}
                 </Popup>

@@ -1,0 +1,49 @@
+import requests
+from datetime import datetime, timezone
+
+from debug_utils import debug_log, log_api_failure
+from api_cache import cache_key, cache_get, cache_set
+
+_BASE_URL = "https://dataset.api.hub.geosphere.at/v1/timeseries/forecast/nowcast-v1-15min-1km"
+_PARAMS = "rr,ff,ffx"
+_TIMEOUT = 12
+_TTL = 720
+_DEFAULT = {"nowcast_rr_mm15":0.0,"nowcast_ff_kmh":0.0,"nowcast_ffx_kmh":0.0,"nowcast_rain_rate_1h":0.0,"gust_warning":False,"heavy_rain_warning":False}
+GUST_WARN_KMH = 60.0
+HEAVY_RAIN_MM_PER_H = 25.0
+
+def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
+    for obj in objects: obj.update(_DEFAULT)
+    valid=[(i,o) for i,o in enumerate(objects) if o.get("lat") is not None and o.get("lon") is not None]
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M")
+    for _, obj in valid:
+        lat, lon = round(float(obj['lat']),3), round(float(obj['lon']),3)
+        ck=cache_key("geosphere:nowcast", lat, lon, now_str[:13])
+        cached=cache_get(ck, ttl_seconds=_TTL)
+        if cached is not None: obj.update(cached); continue
+        url=f"{_BASE_URL}?lat={lat}&lon={lon}&parameters={_PARAMS}&start={now_str}:00Z&end={now_str}:00Z"
+        try:
+            r=requests.get(url, timeout=_TIMEOUT, headers={"Accept":"application/json"})
+            r.raise_for_status(); data=r.json()
+        except requests.exceptions.Timeout:
+            log_api_failure("geosphere_nowcast", url, "timeout", fallback_used=True); continue
+        except Exception as exc:
+            log_api_failure("geosphere_nowcast", url, str(exc)[:80], fallback_used=True); continue
+        result=_parse_nowcast(data); cache_set(ck,result); obj.update(result)
+    return objects
+
+def _parse_nowcast(data: dict) -> dict:
+    result=dict(_DEFAULT)
+    try:
+        features=data.get('features',[])
+        if not features: return result
+        params=features[0].get('properties',{}).get('parameters',{})
+        def _first(key):
+            vals=params.get(key,{}).get('data',[None]); v=vals[0] if vals else None
+            return float(v) if v is not None else 0.0
+        rr,ff,ffx=_first('rr'),_first('ff'),_first('ffx')
+        ff_kmh,ffx_kmh,rate_1h=round(ff*3.6,1),round(ffx*3.6,1),round(rr*4,2)
+        result.update({"nowcast_rr_mm15":round(rr,3),"nowcast_ff_kmh":ff_kmh,"nowcast_ffx_kmh":ffx_kmh,"nowcast_rain_rate_1h":rate_1h,"gust_warning":ffx_kmh>=GUST_WARN_KMH,"heavy_rain_warning":rate_1h>=HEAVY_RAIN_MM_PER_H})
+    except Exception as exc:
+        debug_log(f"[NOWCAST] Parse-Fehler: {exc}")
+    return result

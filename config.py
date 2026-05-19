@@ -115,7 +115,11 @@ MIN_MOVEMENT_FOR_ARROW_KMH = 5.0
 
 AROME_BASE_URL = "https://dataset.api.hub.geosphere.at/v1/grid/forecast/nwp-v1-1h-2500m"
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
-LIGHTNING_DATA_URL = "https://www.lightningmaps.org/live_data/geojson/1.json"
+LIGHTNING_DATA_URL = "https://www.lightningmaps.org/live_data/geojson/1.json"  # Bug B12: nicht produktionsreif
+
+GEOSPHERE_NOWCAST_URL = "https://dataset.api.hub.geosphere.at/v1/timeseries/forecast/nowcast-v1-15min-1km"
+GEOSPHERE_TAWES_URL = "https://dataset.api.hub.geosphere.at/v1/station/current/tawes-v1-10min"
+TAWES_STATION_IDS_KAERNTEN = "11330,11301,11315,11320,11350"
 
 # --------------------------------------
 # API-Cache TTLs (Sekunden) — vermeidet unnötige Requests an Fremdsysteme.
@@ -139,6 +143,9 @@ API_CACHE_TTL_SECONDS: dict = {
     "geosphere_cape":         1800,  # 30 Min (Modell alle 3 h)
     "eumetview_capabilities":  600,  # 10 Min (Scan alle 15 Min)
     "blitzortung":              60,  # 60 s   (Update alle 1 Min)
+    "openmeteo_extended":      900,
+    "geosphere_nowcast":       720,
+    "geosphere_tawes":         600,
 }
 
 # Räumliche Rundung beim Cache-Schlüssel: 0,02° ≈ 2 km — kleine Zellbewegungen
@@ -150,6 +157,8 @@ API_CACHE_GRID_ROUND_DEG: float = 0.02
 HAIL_WARN_THRESHOLD: float = 0.45
 # Stationärrisiko-Marker auf Karte wird angezeigt ab diesem Schwellwert.
 STATIONARY_RISK_MARKER_THRESHOLD: float = 0.60
+GUST_WARN_KMH: float = 60.0
+HEAVY_RAIN_WARN_MM_PER_H: float = 25.0
 # Maximale physikalisch plausible Zellgeschwindigkeit (km/h). Kalman-Werte
 # über diesem Limit werden auf diesen Wert geclampt (Plausibilitätsprüfung F14).
 MAX_CELL_SPEED_KMH: float = 150.0
@@ -213,6 +222,17 @@ ML_CELL_FEATURES = [
     "wind_shear_dir_sin",      # sin(Scherungsvektor-Richtung)
     # ── Hagelindikator (F06/F43) ─────────────────────────────────────────────
     "hail_prob",               # Hagelwahrscheinlichkeit 0.0-1.0
+    "wind_gust_10m_kmh",
+    "lpi",
+    "wind_speed_500hPa",
+    "wind_dir_500_cos",
+    "wind_dir_500_sin",
+    "wind_speed_850hPa",
+    "wind_dir_850_cos",
+    "wind_dir_850_sin",
+    "nowcast_rr_mm15",
+    "nowcast_ffx_kmh",
+    "nowcast_rain_rate_1h",
 ]
 
 ML_STATION_FEATURES = [
