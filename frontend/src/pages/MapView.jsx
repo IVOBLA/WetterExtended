@@ -544,10 +544,26 @@ export default function MapView() {
           const borderColor = lineageColor[o.lineage] || '#888'
           return (
             <React.Fragment key={'cell_' + o.id}>
-              <Polygon positions={outerPos}
-                pathOptions={{ color:borderColor, weight:2, fillColor:'#ff8800', fillOpacity:0.15 }}>
-                <Popup>
+              <Polygon
+                positions={outerPos}
+                pathOptions={{ color:borderColor, weight:2, fillColor:'#ff8800', fillOpacity:0.25, interactive:true }}
+                eventHandlers={{ click: (e) => { e.target.openPopup() } }}
+              >
+                <Popup autoPan={true} keepInView={true}>
                   <div><strong>{o.id}</strong> ({o.lineage})</div>
+                  {o.first_seen && (
+                    <div style={{fontSize:'0.8em',color:'#666'}}>
+                      Erstmals: {(() => { try {
+                        const d = new Date(o.first_seen.replace(/_/g,'-').replace(/(\d{4}-\d{2}-\d{2})-(\d{2})-(\d{2})-(\d{2})/, '$1T$2:$3:$4'))
+                        return d.toLocaleTimeString('de-AT', {hour:'2-digit',minute:'2-digit'})
+                      } catch { return o.first_seen } })()}
+                    </div>
+                  )}
+                  {o.active_frames != null && (
+                    <div style={{fontSize:'0.8em',color:'#666'}}>
+                      Aktiv: {o.active_frames} Frames (~{Math.round(o.active_frames * 2)} min)
+                    </div>
+                  )}
                   <div>core_ratio: {(o.core_ratio||0).toFixed(2)}</div>
                   {o.cape != null && <div>CAPE: {o.cape?.toFixed(0)} J/kg</div>}
                   {o.lightning_count_10km > 0 && <div>⚡ {o.lightning_count_10km} Blitze &lt;10km</div>}

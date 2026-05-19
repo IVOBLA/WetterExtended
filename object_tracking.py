@@ -462,6 +462,10 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             obj_clean = obj.copy(); obj_clean.pop("kf", None); obj_clean["history"] = updated_history
             if not isinstance(obj_clean.get("lineage"), str): obj_clean["lineage"] = "new"
             obj_clean.setdefault("parents", []); obj_clean.setdefault("children", []); obj_clean.setdefault("lineage_end", None)
+            # F-FS: first_seen aus Vorperiode übernehmen oder jetzt setzen
+            prev_first_seen = previous_snapshot.get(obj_id, {}).get("first_seen")
+            obj_clean["first_seen"] = prev_first_seen if prev_first_seen else timestamp
+            obj_clean["active_frames"] = len(obj_clean.get("history", []))
             objects.append({"id": obj_id, **obj_clean})
     return objects
 

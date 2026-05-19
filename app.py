@@ -148,17 +148,19 @@ def api_radar_image():
     from flask import send_file, make_response
     import io
 
+    # Bestimme Pfad zum auszuliefernden Radarbild
     ts_param = request.args.get("ts")
     if ts_param:
-        specific = os.path.join("data", "radar", f"radar_{ts_param}.png")
-        if not os.path.exists(specific):
-            return jsonify({"error": f"Frame {ts_param} nicht gefunden"}), 404
-        latest = specific
+        candidate = os.path.join("data", "radar", f"radar_{ts_param}.png")
+        latest = candidate if os.path.exists(candidate) else None
     else:
-        radar_files = sorted(_gl.glob(os.path.join("data", "radar", "radar_*.png")))
-        if not radar_files:
-            return jsonify({"error": "Kein Radarbild verfügbar"}), 404
-        latest = radar_files[-1]
+        # Neustes gecroptes Radar-File
+        import glob as _rgl
+        _rfiles = sorted(_rgl.glob(os.path.join("data", "radar", "radar_*.png")))
+        latest = _rfiles[-1] if _rfiles else None
+    if not latest:
+        # Fallback auf Originalbild (kein gecroptes vorhanden)
+        latest = os.path.join("data", "latest.png")
 
     try:
         from PIL import Image
