@@ -411,6 +411,16 @@ LAPSE_RATE = 6.5  # K/km
 DEFAULT_SURFACE_TEMP_K = 290.0
 DEFAULT_ALTITUDE_M = 600.0
 
+# EUMETView IR108 uint8-Kalibrierung → Brightness Temperature Kelvin
+# EUMETView liefert image/geotiff als visualisiertes uint8-RGBA-Farbbild.
+# Standardskala (invertiert linear):
+#   Pixelwert   0 → EUMETVIEW_BT_MAX_K (warme Oberfläche, wolkenfrei)
+#   Pixelwert 255 → EUMETVIEW_BT_MIN_K (sehr hohe, kalte Wolke)
+#   BT_K = EUMETVIEW_BT_MAX_K - ((MAX_K - MIN_K) / 255.0) * pixel
+EUMETVIEW_BT_MAX_K: float = 330.0   # Kelvin bei Pixelwert 0
+EUMETVIEW_BT_MIN_K: float = 180.0   # Kelvin bei Pixelwert 255
+EUMETVIEW_NODATA_PIXEL: int = 5     # Pixelwerte <= 5 = nodata (EUMETView Randbereiche)
+
 # -------------------------------------------------------
 # Daten-Rotation (Task A4)
 # -------------------------------------------------------
