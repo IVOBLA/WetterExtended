@@ -4,6 +4,14 @@ import {
   Polygon, Circle, Popup, ImageOverlay, Tooltip,
 } from 'react-leaflet'
 import api from '../api.js'
+import {
+  MAP_CENTER_KAERNTEN,
+  MAP_ZOOM_DEFAULT,
+  MAP_ZOOM_MIN,
+  MAP_ZOOM_MAX,
+  MAP_TILE_URL,
+  MAP_TILE_ATTRIBUTION,
+} from '../constants/mapDefaults.js'
 
 const lineageColor = {
   new: 'green', continued: 'blue', merged: 'orange', split: 'magenta',
@@ -234,8 +242,13 @@ export default function MapView() {
           className="text-xs text-blue-600 hover:text-blue-800 underline ml-auto">↺ Neu laden</button>
       </div>
 
-      <MapContainer center={[46.62, 14.31]} zoom={8} style={{ height:'70vh', borderRadius:8 }}>
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap" />
+      <MapContainer
+        center={MAP_CENTER_KAERNTEN}
+        zoom={MAP_ZOOM_DEFAULT}
+        minZoom={MAP_ZOOM_MIN}
+        maxZoom={MAP_ZOOM_MAX}
+        style={{ height:'70vh', borderRadius:8 }}>
+        <TileLayer url={MAP_TILE_URL} attribution={MAP_TILE_ATTRIBUTION} />
 
         {showRadar && radarBounds && (
           <ImageOverlay

@@ -5,7 +5,7 @@ import requests
 import json
 import debug_utils
 from datetime import datetime
-from debug_utils import debug_log
+from debug_utils import debug_log, log_api_call, log_api_failure
 
 def get_weather_data(include_all_stations=True):
     url = (
@@ -21,6 +21,7 @@ def get_weather_data(include_all_stations=True):
     try:
         response = requests.get(url, timeout=15)
         response.raise_for_status()
+        log_api_call("geosphere_tawes", url, response.status_code)
         data = response.json()
         params = ["RR", "DD", "FF", "FFX", "GLOW", "P", "RF", "TL", "TP"]
 
@@ -65,17 +66,17 @@ def get_weather_data(include_all_stations=True):
         return stations
 
     except requests.exceptions.Timeout:
-        from debug_utils import log_api_failure
-        log_api_failure("GeoSphere-TAWES", url, "timeout", fallback_used=True)
+        log_api_call("geosphere_tawes", url, 408)
+        log_api_failure("geosphere_tawes", url, "timeout", fallback_used=True)
         return []
     except requests.exceptions.HTTPError as e:
-        from debug_utils import log_api_failure
-        status = getattr(e.response, "status_code", None)
-        log_api_failure("GeoSphere-TAWES", url, f"http-error: {e}",
+        status = getattr(e.response, "status_code", None) or 0
+        log_api_call("geosphere_tawes", url, status)
+        log_api_failure("geosphere_tawes", url, f"http-error: {e}",
                         fallback_used=True, http_status=status)
         return []
     except Exception as e:
-        from debug_utils import log_api_failure
-        log_api_failure("GeoSphere-TAWES", url, f"{type(e).__name__}: {e}",
+        log_api_call("geosphere_tawes", url, 0)
+        log_api_failure("geosphere_tawes", url, f"{type(e).__name__}: {e}",
                         fallback_used=True)
         return []

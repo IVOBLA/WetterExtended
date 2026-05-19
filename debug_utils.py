@@ -113,8 +113,9 @@ def log_api_call(service: str, url: str = "", status_code: int = 200) -> None:
       "openmeteo_icon_d2"   — fetch_arome_openmeteo.py
       "openmeteo_icon_global"— fetch_synoptic_features.py / 700hPa
       "geosphere_cape"      — assign_cape_from_forecast.py
+      "geosphere_tawes"     — weather_api.py (Stationsdaten TAWES)
       "eumetview_wms"       — cloud_height_from_eumetview.py
-      "blitzortung"         — blitzortung.py / lightning-Loader
+      "blitzortung"         — blitz_api.py
       "anthropic_api"       — daily_analyzer.py
     """
     import datetime as _dt, json as _jc, os as _oc
