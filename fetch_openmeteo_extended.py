@@ -12,7 +12,8 @@ _MODEL_15MIN = "icon_d2"
 _MODEL_PRESSURE = "icon_global"
 _TIMEZONE = "UTC"
 _TIMEOUT = 15
-_MINUTELY_PARAMS = "wind_gusts_10m,lightning_potential_index"
+_MINUTELY_PARAMS = "wind_gusts_10m"
+_HOURLY_LPI_PARAMS = "lightning_potential_index"   # icon_d2 hourly (kein minutely_15)
 _PRESSURE_PARAMS = (
     "wind_speed_500hPa,wind_direction_500hPa,"
     "wind_speed_850hPa,wind_direction_850hPa"
@@ -100,15 +101,38 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
             log_api_failure("openmeteo_extended_pressure", url_b, str(exc)[:80], fallback_used=True)
             data_b = None
 
-    _apply(data_a, data_b, valid, objects)
+    # ── Request C: hourly LPI (icon_d2) — lightning_potential_index ist
+    #    kein minutely_15-Parameter, nur als hourly verfügbar. ──────────────
+    url_c = (
+        f"{OPEN_METEO_URL}?latitude={lats}&longitude={lons}"
+        f"&hourly={_HOURLY_LPI_PARAMS}"
+        f"&models={_MODEL_15MIN}&timezone={_TIMEZONE}&forecast_days=1"
+    )
+    ck_c = cache_key("openmeteo:extended_lpi", lats[:60], _nearest_hour_str())
+    data_c = cache_get(ck_c, ttl_seconds=get_ttl("openmeteo_extended", 900))
+    if data_c is None:
+        try:
+            r = requests.get(url_c, timeout=_TIMEOUT)
+            r.raise_for_status()
+            data_c = r.json()
+            cache_set(ck_c, data_c)
+        except requests.exceptions.Timeout:
+            log_api_failure("openmeteo_extended_lpi", url_c, "timeout", fallback_used=True)
+            data_c = None
+        except Exception as exc:
+            log_api_failure("openmeteo_extended_lpi", url_c, str(exc)[:80], fallback_used=True)
+            data_c = None
+
+    _apply(data_a, data_b, data_c, valid, objects)
     return objects
 
 
-def _apply(data_a, data_b, valid: list, objects: list) -> None:
+def _apply(data_a, data_b, data_c, valid: list, objects: list) -> None:
     now_utc = datetime.now(timezone.utc)
 
     entries_a = (data_a if isinstance(data_a, list) else [data_a]) if data_a else []
     entries_b = (data_b if isinstance(data_b, list) else [data_b]) if data_b else []
+    entries_c = (data_c if isinstance(data_c, list) else [data_c]) if data_c else []
 
     for idx, (_, obj) in enumerate(valid):
         result = dict(_DEFAULT)
@@ -118,7 +142,6 @@ def _apply(data_a, data_b, valid: list, objects: list) -> None:
             m15 = entries_a[idx].get("minutely_15", {})
             times_15 = m15.get("time", [])
             gusts = m15.get("wind_gusts_10m", [])
-            lpis = m15.get("lightning_potential_index", [])
             best_idx, min_diff = 0, float("inf")
             for j, t_str in enumerate(times_15):
                 try:
@@ -134,7 +157,6 @@ def _apply(data_a, data_b, valid: list, objects: list) -> None:
                 return float(lst[i]) if i < len(lst) and lst[i] is not None else 0.0
 
             result["wind_gust_10m_kmh"] = round(_val(gusts, best_idx), 1)
-            result["lpi"] = round(_val(lpis, best_idx), 4)
 
         # ── hourly Druckflächen ───────────────────────────────────────────
         if idx < len(entries_b):
@@ -172,5 +194,16 @@ def _apply(data_a, data_b, valid: list, objects: list) -> None:
                     "wind_dir_850_sin": sin850,
                 }
             )
+
+        # ── LPI aus hourly icon_d2 (Request C) ───────────────────────────
+        if idx < len(entries_c):
+            h_lpi = entries_c[idx].get("hourly", {})
+            lpi_times = h_lpi.get("time", [])
+            lpi_vals = h_lpi.get("lightning_potential_index", [])
+            now_hour = now_utc.strftime("%Y-%m-%dT%H:00")
+            lpi_idx = 0
+            if now_hour in lpi_times:
+                lpi_idx = lpi_times.index(now_hour)
+            result["lpi"] = round(float(lpi_vals[lpi_idx]) if lpi_idx < len(lpi_vals) and lpi_vals[lpi_idx] is not None else 0.0, 2)
 
         obj.update(result)
