@@ -115,9 +115,15 @@ def api_radar_timing():
     next_fetch_utc = None
     if last_radar_dt is not None:
         try:
-            from datetime import timezone as _tz2, timedelta as _td
-            _base_dt = last_radar_dt if last_radar_dt.tzinfo else                        last_radar_dt.replace(tzinfo=_tz2.utc)
-            _next          = _base_dt + _td(seconds=interval_s)
+            from datetime import timezone as _tz2, timedelta as _td, datetime as _dtnow
+            _base_dt = last_radar_dt if last_radar_dt.tzinfo else \
+                       last_radar_dt.replace(tzinfo=_tz2.utc)
+            _next = _base_dt + _td(seconds=interval_s)
+            _now  = _dtnow.now(_tz2.utc)
+            # Falls ueberfaellig (ARSO hatte noch kein neues Bild):
+            # Zeige "in 20s" damit Frontend bald wieder pollt.
+            if _next < _now:
+                _next = _now + _td(seconds=20)
             next_fetch_utc = _next.isoformat(timespec="seconds").replace("+00:00", "Z")
         except Exception:
             pass
