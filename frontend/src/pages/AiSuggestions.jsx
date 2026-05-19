@@ -17,7 +17,7 @@ const STATUS_COLOR = {
 export default function AiSuggestions() {
   const [cfg, setCfg] = useState({
     enabled: false, cron_hour: 6, cron_minute: 0,
-    since_hours: 24, max_tokens: 1500,
+    since_hours: 24, max_tokens: 3000,
   })
   const [suggestions, setSuggestions] = useState([])
   const [running, setRunning] = useState(false)
@@ -136,7 +136,7 @@ export default function AiSuggestions() {
             <label className="label">Max. Tokens pro Analyse</label>
             <input className="input" type="number" min="500" max="4000" step="100"
               value={cfg.max_tokens}
-              onChange={e => setCfg({ ...cfg, max_tokens: parseInt(e.target.value) || 1500 })} />
+              onChange={e => setCfg({ ...cfg, max_tokens: parseInt(e.target.value) || 3000 })} />
           </div>
         </div>
         <div className="flex gap-3 mt-4">
