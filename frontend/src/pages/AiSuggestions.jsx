@@ -1,6 +1,40 @@
 import React, { useEffect, useState } from 'react'
 import api from '../api.js'
 
+function ClaudeCodeBlock({ content }) {
+  const [copied, setCopied] = React.useState(false)
+  function copy() {
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+  return (
+    <div className="border border-gray-300 rounded-lg overflow-hidden text-sm">
+      <div className="flex items-center justify-between px-3 py-2
+                      bg-gray-800 text-gray-200">
+        <span className="font-mono font-semibold text-xs tracking-wide">
+          ⚡ Claude Code Prompt
+        </span>
+        <button
+          onClick={copy}
+          className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+            copied
+              ? 'bg-green-600 text-white'
+              : 'bg-gray-600 hover:bg-gray-500 text-gray-200'
+          }`}
+        >
+          {copied ? '✓ Kopiert!' : 'Kopieren'}
+        </button>
+      </div>
+      <pre className="p-4 bg-gray-900 text-gray-100 text-xs leading-relaxed
+                      overflow-x-auto whitespace-pre-wrap">
+        {content}
+      </pre>
+    </div>
+  )
+}
+
 const PRIORITY_COLOR = {
   high: 'bg-red-100 border-red-400 text-red-800',
   medium: 'bg-yellow-100 border-yellow-400 text-yellow-800',
@@ -70,6 +104,26 @@ export default function AiSuggestions() {
       setMsg('Fehler: ' + e.message)
     }
     setRunning(false)
+  }
+
+  function _parseAnswer(raw) {
+    // Zerlegt die KI-Antwort in Textabschnitte und claudecode-Bloecke.
+    // Gibt Array von {type: 'text'|'claudecode', content: string} zurueck.
+    const parts = []
+    const pattern = /```claudecode\n([\s\S]*?)```/g
+    let last = 0
+    let match
+    while ((match = pattern.exec(raw)) !== null) {
+      if (match.index > last) {
+        const txt = raw.slice(last, match.index).trim()
+        if (txt) parts.push({ type: 'text', content: txt })
+      }
+      parts.push({ type: 'claudecode', content: match[1].trim() })
+      last = match.index + match[0].length
+    }
+    const tail = raw.slice(last).trim()
+    if (tail) parts.push({ type: 'text', content: tail })
+    return parts.length ? parts : [{ type: 'text', content: raw }]
   }
 
   function _fileToBase64(file) {
@@ -357,9 +411,18 @@ export default function AiSuggestions() {
 
         {/* Antwort */}
         {chatAnswer && (
-          <div className="mt-3 p-4 bg-green-50 border border-green-200 rounded text-sm
-                          whitespace-pre-wrap leading-relaxed">
-            {chatAnswer}
+          <div className="mt-3 space-y-3">
+            {_parseAnswer(chatAnswer).map((part, i) =>
+              part.type === 'claudecode'
+                ? <ClaudeCodeBlock key={i} content={part.content} />
+                : (
+                  <div key={i}
+                       className="p-4 bg-green-50 border border-green-200 rounded text-sm
+                                  whitespace-pre-wrap leading-relaxed">
+                    {part.content}
+                  </div>
+                )
+            )}
           </div>
         )}
       </div>
