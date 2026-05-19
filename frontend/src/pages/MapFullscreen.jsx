@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
 import {
   MapContainer, TileLayer, CircleMarker,
-  Polyline, Polygon, Circle, Popup, ImageOverlay,
+  Polyline, Polygon, Circle, Popup, ImageOverlay, Tooltip,
 } from 'react-leaflet'
 import api from '../api.js'
 
@@ -348,6 +348,28 @@ export default function MapFullscreen() {
                 <CircleMarker center={[o.lat, o.lon]} radius={3}
                   pathOptions={{ color: borderColor, fillColor: borderColor, fillOpacity: 1, weight: 1 }} />
               )}
+
+              {(o.history || []).length >= 2 && (() => {
+                const pts = (o.history || []).filter(h => h.lat != null && h.lon != null).slice(-6).map(h => [h.lat, h.lon])
+                if (pts.length < 2) return null
+                return <Polyline key={'hist_' + o.id} positions={pts} pathOptions={{ color: '#999', weight: 1.5, dashArray: '3,4', opacity: 0.5 }} />
+              })()}
+
+              {o.stationary_marker && o.lat && o.lon && (
+                <CircleMarker center={[o.lat, o.lon]} radius={14}
+                  pathOptions={{ color:'#b45309', weight:2, fillColor:'#fef3c7', fillOpacity:0.6, dashArray:'4,3' }}>
+                  <Tooltip permanent direction="top" offset={[0,-14]}>⊕</Tooltip>
+                </CircleMarker>
+              )}
+
+              {o.hail_warning && o.lat && o.lon && (
+                <CircleMarker center={[o.lat, o.lon]} radius={18}
+                  pathOptions={{ color:'#dc2626', weight:3, fillOpacity:0, dashArray:'6,3' }}>
+                  <Tooltip permanent direction="top" offset={[0,-18]}>
+                    🧊 Hagel {o.hail_prob != null ? (o.hail_prob*100).toFixed(0)+'%' : ''}
+                  </Tooltip>
+                </CircleMarker>
+              )}
             </React.Fragment>
           )
         })}
@@ -363,17 +385,36 @@ export default function MapFullscreen() {
             const pathOpts = isKinematic
               ? { color: '#888888', weight: 1.5, dashArray: '6,5', opacity: 0.7 }
               : { color: p.color || '#888', weight: style.weight || 2, dashArray: style.dash || '' }
+            const q10Lat = p.forecast_lat_q10
+            const q10Lon = p.forecast_lon_q10
+            const q90Lat = p.forecast_lat_q90
+            const q90Lon = p.forecast_lon_q90
+            const hasQ = q10Lat != null && q10Lon != null && q90Lat != null && q90Lon != null
+
             return (
-              <Polyline key={'a' + i}
-                positions={[[a[1], a[0]], [b[1], b[0]]]}
-                pathOptions={pathOpts}>
-                <Popup>
-                  {isKinematic
-                    ? `Bewegungsschätzung (${p.kinematic_source || '?'}) — ${p.id}`
-                    : `+${p.horizon} min KI — ${p.cell_id || p.id}`}
-                  <div>{p.speed_kmh != null ? `${p.speed_kmh} km/h` : ''}</div>
-                </Popup>
-              </Polyline>
+              <React.Fragment key={'arrow_grp_' + i}>
+                <Polyline
+                  positions={[[a[1], a[0]], [b[1], b[0]]]}
+                  pathOptions={pathOpts}>
+                  <Popup>
+                    <div>Zelle: <strong>{p.cell_id || p.id}</strong></div>
+                    <div>+{p.horizon} min {isKinematic ? '(Schätzung)' : '(KI)'}</div>
+                    {p.speed_kmh != null && <div>{p.speed_kmh} km/h</div>}
+                    {p.hail_warning && <div className="text-red-600 font-bold">🧊 Hagelwarnung</div>}
+                  </Popup>
+                </Polyline>
+
+                {hasQ && !isKinematic && (
+                  <>
+                    <Polyline positions={[[a[1],a[0]],[q10Lat,q10Lon]]} pathOptions={{ color: pathOpts.color, weight:1, dashArray:'3,5', opacity:0.45 }} />
+                    <Polyline positions={[[a[1],a[0]],[q90Lat,q90Lon]]} pathOptions={{ color: pathOpts.color, weight:1, dashArray:'3,5', opacity:0.45 }} />
+                  </>
+                )}
+
+                {hasQ && !isKinematic && (
+                  <Polygon positions={[[b[1],b[0]],[q10Lat,q10Lon],[q90Lat,q90Lon]]} pathOptions={{ color: pathOpts.color, weight:0.5, fillColor:pathOpts.color, fillOpacity:0.10, dashArray:'2,4' }} />
+                )}
+              </React.Fragment>
             )
           })
         }

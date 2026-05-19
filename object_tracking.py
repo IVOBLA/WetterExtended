@@ -460,6 +460,46 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
     return objects
 
 
+import math as _math
+
+def _clamp_kalman_velocity(kf, prev_vx: float, prev_vy: float) -> None:
+    """
+    Plausibilitätsprüfung (F14): Klemmt Kalman-Geschwindigkeit auf physikalisch
+    sinnvolle Werte. Verhindert Sprünge durch Mess-Artefakte oder kurzzeitige
+    Zellverwechslungen.
+
+    Grenzen aus config.py:
+      MAX_CELL_SPEED_KMH       — absolute Obergrenze Zellgeschwindigkeit
+      MAX_SPEED_CHANGE_PER_CYCLE_KMH — max. Änderung pro 5-min-Zyklus
+    """
+    try:
+        from config import MAX_CELL_SPEED_KMH, MAX_SPEED_CHANGE_PER_CYCLE_KMH
+    except ImportError:
+        MAX_CELL_SPEED_KMH = 150.0
+        MAX_SPEED_CHANGE_PER_CYCLE_KMH = 60.0
+
+    # Pixel/Frame zu km/h umrechnen (1 px ≈ 1 km bei UPSCALE_FACTOR=3)
+    PIXEL_TO_KMH = 12.0  # empirisch: 1 px/Frame ≈ 12 km/h
+
+    vx = float(kf.x[2])
+    vy = float(kf.x[3])
+    speed = _math.hypot(vx, vy) * PIXEL_TO_KMH
+
+    # 1. Absolute Geschwindigkeitsobergrenze
+    if speed > MAX_CELL_SPEED_KMH:
+        scale = (MAX_CELL_SPEED_KMH / PIXEL_TO_KMH) / max(_math.hypot(vx, vy), 1e-9)
+        kf.x[2] = vx * scale
+        kf.x[3] = vy * scale
+
+    # 2. Maximale Beschleunigung pro Zyklus
+    dvx = float(kf.x[2]) - prev_vx
+    dvy = float(kf.x[3]) - prev_vy
+    delta_speed = _math.hypot(dvx, dvy) * PIXEL_TO_KMH
+    if delta_speed > MAX_SPEED_CHANGE_PER_CYCLE_KMH:
+        scale = (MAX_SPEED_CHANGE_PER_CYCLE_KMH / PIXEL_TO_KMH) / max(_math.hypot(dvx, dvy), 1e-9)
+        kf.x[2] = prev_vx + dvx * scale
+        kf.x[3] = prev_vy + dvy * scale
+
 def detect_and_track_objects(image_path=None, weather_data=None):
     FILTER_CONFIG = _rc.get("FILTER_CONFIG", _DEFAULT_FILTER_CONFIG)
     CORE_HSV_RANGES = _rc.get("CORE_HSV_RANGES", _DEFAULT_CORE_HSV_RANGES)

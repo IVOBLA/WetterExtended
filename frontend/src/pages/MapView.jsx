@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
 import {
   MapContainer, TileLayer, CircleMarker, Polyline,
-  Polygon, Circle, Popup, ImageOverlay,
+  Polygon, Circle, Popup, ImageOverlay, Tooltip,
 } from 'react-leaflet'
 import api from '../api.js'
 
@@ -43,7 +43,7 @@ function AnimationBar({ frames, currentIdx, playing, speed,
 
 function Legend({ horizons, colors }) {
   return (
-    <div className="bg-white border rounded p-2 mb-2 shadow-sm text-sm flex flex-wrap gap-3 items-center">
+    <div className="bg-white border rounded p-2 mb-2 shadow-sm text-sm flex flex-wrap gap-4 items-center">
       <strong>Horizonte:</strong>
       {horizons.map(h => (
         <span key={h} className="flex items-center gap-1">
@@ -52,6 +52,31 @@ function Legend({ horizons, colors }) {
           +{h} min
         </span>
       ))}
+      <span className="border-l pl-3 flex items-center gap-2 text-xs text-gray-500">
+        <strong>Intensität:</strong>
+        <span className="flex items-center gap-1">
+          <span style={{ display:'inline-block', width:12, height:12, borderRadius:2, background:'#6a1b9a', opacity:0.85 }}/>
+          Sehr stark
+        </span>
+        <span className="flex items-center gap-1">
+          <span style={{ display:'inline-block', width:12, height:12, borderRadius:2, background:'#c62828', opacity:0.75 }}/>
+          Stark
+        </span>
+        <span className="flex items-center gap-1">
+          <span style={{ display:'inline-block', width:12, height:12, borderRadius:2, background:'#f9a825', opacity:0.65 }}/>
+          Mittel
+        </span>
+      </span>
+      <span className="border-l pl-3 flex items-center gap-2 text-xs text-gray-500">
+        <span style={{ display:'inline-block', width:16, height:2, background:'#888', borderTop:'2px dashed #888' }}/>
+        Schätzpfeil
+        <span style={{ display:'inline-block', width:16, height:2, borderTop:'2px dashed #6a1b9a' }}/>
+        Unsicherheit
+        <span className="text-purple-700 font-bold text-base leading-none">⊕</span>
+        Stationär
+        <span className="text-red-600 font-bold">🧊</span>
+        Hagel
+      </span>
     </div>
   )
 }
@@ -223,6 +248,42 @@ export default function MapView() {
                 <CircleMarker center={[o.lat,o.lon]} radius={3}
                   pathOptions={{ color:borderColor, fillColor:borderColor, fillOpacity:1, weight:1 }} />
               )}
+
+              {/* Vergangene Zugbahn (F24) — letzte bis zu 6 Positionen */}
+              {(o.history || []).length >= 2 && (() => {
+                const pts = (o.history || [])
+                  .filter(h => h.lat != null && h.lon != null)
+                  .slice(-6)
+                  .map(h => [h.lat, h.lon])
+                if (pts.length < 2) return null
+                return (
+                  <Polyline key={'hist_'+o.id}
+                    positions={pts}
+                    pathOptions={{ color:'#999', weight:1.5, dashArray:'3,4', opacity:0.5 }} />
+                )
+              })()}
+
+              {/* Stationär-Marker (F28): Kreuz-Symbol für stationary_risk >= Schwellwert */}
+              {o.stationary_marker && o.lat && o.lon && (
+                <CircleMarker center={[o.lat, o.lon]} radius={14}
+                  pathOptions={{ color:'#b45309', weight:2, fillColor:'#fef3c7', fillOpacity:0.6, dashArray:'4,3' }}>
+                  <Tooltip permanent direction="top" offset={[0,-14]}
+                    className="text-xs font-bold text-amber-800 bg-transparent border-0 shadow-none">
+                    ⊕
+                  </Tooltip>
+                </CircleMarker>
+              )}
+
+              {/* Hagelwarnung (F43): roter Rahmen wenn hail_prob hoch */}
+              {o.hail_warning && o.lat && o.lon && (
+                <CircleMarker center={[o.lat, o.lon]} radius={18}
+                  pathOptions={{ color:'#dc2626', weight:3, fillOpacity:0, dashArray:'6,3' }}>
+                  <Tooltip permanent direction="top" offset={[0,-18]}
+                    className="text-xs font-bold text-red-700 bg-transparent border-0 shadow-none">
+                    🧊 Hagel {o.hail_prob != null ? (o.hail_prob*100).toFixed(0)+'%' : ''}
+                  </Tooltip>
+                </CircleMarker>
+              )}
             </React.Fragment>
           )
         })}
@@ -238,14 +299,46 @@ export default function MapView() {
               const pathOpts = isKin
                 ? { color:'#888888', weight:1.5, dashArray:'6,5', opacity:0.7 }
                 : { color:p.color||'#888', weight:p.weight||2, dashArray:p.dash||'' }
+              const q10Lat = p.forecast_lat_q10
+              const q10Lon = p.forecast_lon_q10
+              const q90Lat = p.forecast_lat_q90
+              const q90Lon = p.forecast_lon_q90
+              const hasQ = q10Lat != null && q10Lon != null && q90Lat != null && q90Lon != null
+
               return (
-                <Polyline key={'a'+i} positions={[[a[1],a[0]],[b[1],b[0]]]} pathOptions={pathOpts}>
-                  <Popup>
-                    <div>Zelle: <strong>{p.cell_id}</strong></div>
-                    <div>+{p.horizon} min</div>
-                    {p.speed_kmh != null && <div>{p.speed_kmh} km/h</div>}
-                  </Popup>
-                </Polyline>
+                <React.Fragment key={'arrow_grp_'+i}>
+                  {/* Hauptpfeil */}
+                  <Polyline positions={[[a[1],a[0]],[b[1],b[0]]]} pathOptions={pathOpts}>
+                    <Popup>
+                      <div>Zelle: <strong>{p.cell_id}</strong></div>
+                      <div>+{p.horizon} min {isKin ? '(Schätzung)' : '(KI)'}</div>
+                      {p.speed_kmh != null && <div>{p.speed_kmh} km/h</div>}
+                      {p.hail_warning && <div className="text-red-600 font-bold">🧊 Hagelwarnung</div>}
+                    </Popup>
+                  </Polyline>
+
+                  {/* q10/q90 alternative Pfeile (F25) */}
+                  {hasQ && !isKin && (
+                    <>
+                      <Polyline
+                        positions={[[a[1],a[0]],[q10Lat,q10Lon]]}
+                        pathOptions={{ color: pathOpts.color, weight:1, dashArray:'3,5', opacity:0.45 }} />
+                      <Polyline
+                        positions={[[a[1],a[0]],[q90Lat,q90Lon]]}
+                        pathOptions={{ color: pathOpts.color, weight:1, dashArray:'3,5', opacity:0.45 }} />
+                    </>
+                  )}
+
+                  {/* Unsicherheitskorridor als Dreieck q10→zentrum→q90 (F23) */}
+                  {hasQ && !isKin && (
+                    <Polygon
+                      positions={[[b[1],b[0]],[q10Lat,q10Lon],[q90Lat,q90Lon]]}
+                      pathOptions={{
+                        color: pathOpts.color, weight:0.5, fillColor: pathOpts.color,
+                        fillOpacity: 0.10, dashArray:'2,4'
+                      }} />
+                  )}
+                </React.Fragment>
               )
             })
         }

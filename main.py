@@ -25,8 +25,10 @@ from optical_flow_features import assign_optical_flow_to_objects
 from fetch_arome_openmeteo import assign_arome_to_objects
 from fetch_synoptic_features import assign_synoptic_features
 from orographic_module import assign_orographic_scores
+import math as _math_main
 import runtime_config
 from locations_check import annotate_locations
+from config import (HAIL_WARN_THRESHOLD, STATIONARY_RISK_MARKER_THRESHOLD)
 
 _ROI_CACHE = None
 
@@ -48,10 +50,60 @@ def _count_lightning_near(lat: float, lon: float,
     return count
 
 
+def _compute_hail_prob(obj: dict) -> float:
+    """
+    Hagelwahrscheinlichkeit 0.0–1.0 aus vorhandenen Features (F06/F43).
+
+    Formel: hail_prob = core_factor * cape_factor * height_factor
+      core_factor  : core_ratio (0-1) — kompakter Kern = Hagelindiz
+      cape_factor  : CAPE / 1500 J/kg, max 1.0 — viel Energie = Hagelmöglich
+      height_factor: 1.0 wenn Gefriergrenze < 3000 m MSL,
+                     linear 0.0 bei 4500 m (hohe Gefriergrenze = kein Hagel)
+    """
+    core_ratio = float(obj.get("core_ratio", 0.0))
+    cape       = float(obj.get("cape", 0.0))
+    fl_height  = float(obj.get("arome_fl_height", 4000.0))  # m MSL
+
+    core_factor  = min(core_ratio, 1.0)
+    cape_factor  = min(cape / 1500.0, 1.0) if cape > 0 else 0.0
+    height_factor = 1.0 if fl_height <= 3000 else max(0.0, (4500.0 - fl_height) / 1500.0)
+
+    return round(core_factor * cape_factor * height_factor, 3)
+
+
+def _compute_wind_shear(obj: dict) -> tuple:
+    """
+    Windscherung zwischen Boden (10m) und 700 hPa (ca. 3000m) (F16).
+    Rückgabe: (wind_shear_speed_kmh, wind_shear_dir_cos, wind_shear_dir_sin)
+    """
+    speed_700 = float(obj.get("wind_speed_700hPa", 0.0))
+    dir_cos_700 = float(obj.get("wind_dir_cos", 0.0))
+    dir_sin_700 = float(obj.get("wind_dir_sin", 0.0))
+    speed_10m = float(obj.get("arome_ff10m", 0.0))
+    dir_cos_10m = float(obj.get("arome_dd_cos", 0.0))
+    dir_sin_10m = float(obj.get("arome_dd_sin", 0.0))
+
+    vx_700 = speed_700 * dir_cos_700
+    vy_700 = speed_700 * dir_sin_700
+    vx_10m = speed_10m * dir_cos_10m
+    vy_10m = speed_10m * dir_sin_10m
+
+    dvx = vx_700 - vx_10m
+    dvy = vy_700 - vy_10m
+    shear_speed = _math_main.hypot(dvx, dvy)
+    angle = _math_main.atan2(dvy, dvx) if shear_speed > 0 else 0.0
+    return (
+        round(shear_speed, 2),
+        round(_math_main.cos(angle), 4),
+        round(_math_main.sin(angle), 4),
+    )
+
+
 def main_loop():
     image_path = "data/latest.png"
 
     _prev_radar_path = None
+    _prev_location_hit_names: set = set()  # F47: Auto-Entwarnung
 
     while True:
         runtime_config.reload_overrides()
@@ -174,6 +226,20 @@ def main_loop():
             colors = runtime_config.get("FORECAST_ARROW_COLORS", _DEFAULT_COLORS)
             save_forecast_as_kmz(dict(zip(horizons, forecasts_per_horizon)), colors)
 
+            # ── Windscherung und Hagelwahrscheinlichkeit (F16, F06/F43) ──────────
+            for _obj in objects:
+                _shear_speed, _shear_cos, _shear_sin = _compute_wind_shear(_obj)
+                _obj["wind_shear_speed"]   = _shear_speed
+                _obj["wind_shear_dir_cos"] = _shear_cos
+                _obj["wind_shear_dir_sin"] = _shear_sin
+
+                _hp = _compute_hail_prob(_obj)
+                _obj["hail_prob"]    = _hp
+                _obj["hail_warning"] = bool(_hp >= HAIL_WARN_THRESHOLD)
+
+                _sr = float(_obj.get("stationary_risk", 0.0))
+                _obj["stationary_marker"] = bool(_sr >= STATIONARY_RISK_MARKER_THRESHOLD)
+
             # Orte-Markierung bei Pfad-Durchquerung
             locations = runtime_config.get("LOCATIONS_WATCHLIST", [])
             location_hits = annotate_locations(objects, locations, horizons, colors)
@@ -181,6 +247,20 @@ def main_loop():
             with open(os.path.join(SAVE_PATHS["evaluation"], f"locations_{timestamp}.json"), "w", encoding="utf-8") as f:
                 json.dump(location_hits, f, indent=2, ensure_ascii=False)
             debug_log(f"Ort-Hits: {len(location_hits)} betroffene Orte")
+
+            # ── Auto-Entwarnung (F47) ─────────────────────────────────────────
+            _current_hit_names = {h["name"] for h in location_hits}
+            _cleared = _prev_location_hit_names - _current_hit_names
+            if _cleared:
+                try:
+                    from sms_notifier import send_sms
+                    for _loc_name in sorted(_cleared):
+                        _msg = f"ENTWARNUNG: Kein Gewitter mehr in Richtung {_loc_name}."
+                        send_sms(_msg)
+                        debug_log(f"[SMS] Entwarnung gesendet: {_loc_name}")
+                except Exception as _e:
+                    debug_log(f"[SMS] Entwarnung fehlgeschlagen: {_e}")
+            _prev_location_hit_names = _current_hit_names
 
         else:
             debug_log("Keine vollständigen Daten → Keine Speicherung")
