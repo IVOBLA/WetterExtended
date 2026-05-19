@@ -227,6 +227,14 @@ fi
 # Raspberry Pi 5 erkennen
 PI_MODEL=""
 [[ -f /proc/device-tree/model ]] && PI_MODEL=$(cat /proc/device-tree/model 2>/dev/null || true)
+# Generische Pi-Erkennung (alle Modelle — für piwheels u.a.)
+if echo "$PI_MODEL" | grep -qi "Raspberry Pi"; then
+    IS_PI=true
+else
+    IS_PI=false
+fi
+
+# Pi 5-spezifische Erkennung (Hailo, PCIe Gen3)
 if echo "$PI_MODEL" | grep -q "Raspberry Pi 5"; then
     check_ok "Hardware: $PI_MODEL"
     IS_PI5=true
