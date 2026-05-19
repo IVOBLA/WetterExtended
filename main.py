@@ -255,7 +255,20 @@ def main_loop():
 
             # Orte-Markierung bei Pfad-Durchquerung
             locations = runtime_config.get("LOCATIONS_WATCHLIST", [])
-            location_hits = annotate_locations(objects, locations, horizons, colors)
+            from config import (
+                MIN_MOVEMENT_FOR_ARROW_KMH as _MIN_ARROW_KMH,
+                SLOW_CELL_MAX_KMH as _SLOW_MAX_KMH,
+                SLOW_CELL_RADIUS_FACTOR as _SLOW_FACTOR,
+            )
+            _min_speed   = runtime_config.get("MIN_MOVEMENT_FOR_ARROW_KMH", _MIN_ARROW_KMH)
+            _slow_max    = runtime_config.get("SLOW_CELL_MAX_KMH",          _SLOW_MAX_KMH)
+            _slow_factor = runtime_config.get("SLOW_CELL_RADIUS_FACTOR",    _SLOW_FACTOR)
+            location_hits = annotate_locations(
+                objects, locations, horizons, colors,
+                min_speed_kmh=_min_speed,
+                slow_cell_max_kmh=_slow_max,
+                slow_radius_factor=_slow_factor,
+            )
             os.makedirs(SAVE_PATHS["evaluation"], exist_ok=True)
             with open(os.path.join(SAVE_PATHS["evaluation"], f"locations_{timestamp}.json"), "w", encoding="utf-8") as f:
                 json.dump(location_hits, f, indent=2, ensure_ascii=False)

@@ -109,6 +109,19 @@ MIN_CONTOUR_TOUCH = 5
 # Überschreibbar via runtime_overrides.json: "MIN_MOVEMENT_FOR_ARROW_KMH": 8.0
 MIN_MOVEMENT_FOR_ARROW_KMH = 5.0
 
+# px/Frame → km/h (UPSCALE=3, ~2 km/px orig., Zyklus 120 s).
+# Einzelne Quelle der Wahrheit — wird von app.py, locations_check.py
+# und LiveDaten.jsx verwendet. Empirisch kalibriert auf Kärnten-Gitter.
+PX_TO_KMH: float = 10.0
+
+# Langsam ziehende Zellen: höheres Unwetterpotential durch längere
+# Verweilzeit → erweiterter Warnradius und eigenständiger Bedrohungstyp.
+# Meteorologische Grundlage: Zellen < 15 km/h verursachen den Großteil
+# der Überflutungs- und Hagelereignisse in Kärnten (kurze Verlagerung,
+# hohe Niederschlagssumme am Ort).
+SLOW_CELL_MAX_KMH: float = 15.0          # Obergrenze "langsam ziehend"
+SLOW_CELL_RADIUS_FACTOR: float = 1.5     # Ortsradius-Faktor für slow_approach
+
 # --------------------------------------
 # Datenquellen
 # --------------------------------------

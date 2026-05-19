@@ -461,18 +461,77 @@ export default function MapFullscreen() {
           </Circle>
         ))}
 
-        {(locations.hits || []).map((h, i) => {
-          const hzs = Object.keys(h.hits || {}).map(Number).sort((a, b) => a - b)
-          const color = locations.colors[hzs[0]] || locations.colors[String(hzs[0])] || '#e33'
+        {(locations.hits || []).map((loc, i) => {
+          const hitEntries = Object.entries(loc.hits || {})
+          if (hitEntries.length === 0) return null
+
+          // Bedrohungstyp mit höchster Priorität bestimmen
+          const allTypes = hitEntries.map(([, v]) => v.hit_type)
+          const hasCurrent      = allTypes.includes('current')
+          const hasSlowApproach = allTypes.includes('slow_approach')
+
+          // Darstellung nach Priorität:
+          //   current       → rot, groß, solide    (Zelle JETZT im Ort)
+          //   slow_approach → orange, mittel        (langsam ziehend, Starkregen)
+          //   forecast      → Horizont-Farbe, klein (Pfad trifft Ort)
+          const markerColor  = hasCurrent ? '#dc2626'
+                             : hasSlowApproach ? '#f97316'
+                             : (hitEntries.find(([k]) => Number(k) > 0)?.[1]?.color || '#e33')
+          const markerRadius = hasCurrent ? 14 : hasSlowApproach ? 12 : 10
+          const markerWeight = hasCurrent ? 4  : hasSlowApproach ? 3  : 2
+          const markerFill   = hasCurrent ? 0.80 : hasSlowApproach ? 0.65 : 0.60
+
+          // Forecast-Hits für Popup (Horizon > 0)
+          const forecastHits = hitEntries
+            .filter(([k]) => Number(k) > 0)
+            .sort(([a], [b]) => Number(a) - Number(b))
+
+          const currentHit      = hitEntries.find(([k]) => Number(k) === 0)?.[1]
+          const slowApproachHit = hitEntries.find(([, v]) => v.hit_type === 'slow_approach')?.[1]
+
           return (
-            <CircleMarker key={'h' + i} center={[h.lat, h.lon]} radius={10}
-              pathOptions={{ color, fillColor: color, fillOpacity: 0.7, weight: 3 }}>
+            <CircleMarker key={'h' + i} center={[loc.lat, loc.lon]}
+              radius={markerRadius}
+              pathOptions={{
+                color:       markerColor,
+                fillColor:   markerColor,
+                fillOpacity: markerFill,
+                weight:      markerWeight,
+              }}>
               <Popup>
-                <b>{h.name}</b>
-                <div>⚠ betroffen ab +{hzs[0]} min</div>
-                {hzs.map(hz => (
-                  <div key={hz}>+{hz}m: {h.hits[hz].cell_id} ({h.hits[hz].distance_km} km)</div>
-                ))}
+                <b>{loc.name}</b>
+
+                {currentHit && (
+                  <div style={{ color: '#dc2626', fontWeight: 'bold', marginTop: 4 }}>
+                    ⚠ Zelle JETZT im Ort
+                    <div style={{ fontWeight: 'normal', fontSize: 11 }}>
+                      ID: {currentHit.cell_id} · {currentHit.distance_km} km ·{' '}
+                      {currentHit.speed_kmh} km/h
+                    </div>
+                  </div>
+                )}
+
+                {!currentHit && slowApproachHit && (
+                  <div style={{ color: '#ea580c', fontWeight: 'bold', marginTop: 4 }}>
+                    🌧 Langsam ziehende Zelle ({slowApproachHit.speed_kmh} km/h)
+                    <div style={{ fontWeight: 'normal', fontSize: 11 }}>
+                      Erhöhtes Starkregenpotential · erweiterter Warnradius aktiv
+                    </div>
+                  </div>
+                )}
+
+                {forecastHits.length > 0 && (
+                  <div style={{ marginTop: 4, fontSize: 11 }}>
+                    {forecastHits.map(([hz, entry]) => (
+                      <div key={hz}>
+                        +{hz} min · ID {entry.cell_id} ·{' '}
+                        {entry.distance_km} km ·{' '}
+                        {entry.speed_kmh} km/h
+                        {entry.hit_type === 'slow_approach' && ' 🌧'}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </Popup>
             </CircleMarker>
           )
