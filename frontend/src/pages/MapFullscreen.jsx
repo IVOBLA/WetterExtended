@@ -111,9 +111,10 @@ export default function MapFullscreen() {
   const [panelOpen,    setPanelOpen]    = useState(false)
   const [loading,      setLoading]      = useState(false)
 
-  const timerRef   = useRef(null)
-  const pollRef    = useRef(null)
-  const lastImgRef = useRef(null)
+  const timerRef       = useRef(null)
+  const pollRef        = useRef(null)
+  const lastImgRef     = useRef(null)
+  const frameLoadTimer = useRef(null)
 
   const currentFrame = frames[currentIdx] ?? null
   const radarUrl = currentFrame
@@ -157,9 +158,8 @@ export default function MapFullscreen() {
   async function load() {
     setLoading(true)
     try {
-      const [a, b, c, d, timing, bounds, framesData, lightningData] = await Promise.all([
-        api.get('/api/objects'),
-        api.get('/api/forecast'),
+      // Schritt 1: Metadaten + Frames parallel laden
+      const [c, d, timing, bounds, framesData, lightningData] = await Promise.all([
         api.get('/api/locations'),
         api.get('/api/horizons'),
         api.get('/api/radar_timing').catch(() => null),
@@ -167,7 +167,7 @@ export default function MapFullscreen() {
         api.get('/api/radar_frames').catch(() => null),
         api.get(`/api/lightning?max_age_min=${lightningAge}`).catch(() => null),
       ])
-      setObjects(a); setForecast(b); setLocations(c); setHorizons(d)
+      setLocations(c); setHorizons(d)
       if (timing) {
         setRadarTiming(timing)
         const newTs = timing.last_radar_image_utc
@@ -181,10 +181,21 @@ export default function MapFullscreen() {
       }
       if (bounds?.bounds) setRadarBounds(bounds.bounds)
       if (lightningData?.strikes) setLightning(lightningData.strikes)
-      if (framesData?.frames) {
+
+      // Schritt 2: Frame-Timestamp bestimmen, objects/forecast synchron laden
+      let latestTs = null
+      if (framesData?.frames?.length) {
+        const latestIdx = framesData.latest_idx ?? framesData.frames.length - 1
+        latestTs = framesData.frames[latestIdx]?.ts ?? null
         setFrames(framesData.frames)
-        setCurrentIdx(framesData.latest_idx ?? framesData.frames.length - 1)
+        setCurrentIdx(latestIdx)
       }
+      const [objs, fc] = await Promise.all([
+        api.get(latestTs ? `/api/objects?ts=${latestTs}` : '/api/objects'),
+        api.get(latestTs ? `/api/forecast?ts=${latestTs}` : '/api/forecast'),
+      ])
+      setObjects(objs)
+      setForecast(fc)
       setLastTs(new Date().toLocaleTimeString('de-AT'))
     } catch (e) {
       console.error(e)
@@ -203,6 +214,25 @@ export default function MapFullscreen() {
       if (timerRef.current) clearInterval(timerRef.current)
     }
   }, [])
+
+  // Frame-Sync für Animation: bei Scrubbing objects/forecast für den
+  // angezeigten Frame laden. 200ms Debounce verhindert API-Flood.
+  useEffect(() => {
+    if (!frames.length || currentIdx < 0) return
+    const frame = frames[currentIdx]
+    if (!frame?.ts) return
+    if (frameLoadTimer.current) clearTimeout(frameLoadTimer.current)
+    frameLoadTimer.current = setTimeout(() => {
+      Promise.all([
+        api.get(`/api/objects?ts=${frame.ts}`),
+        api.get(`/api/forecast?ts=${frame.ts}`),
+      ]).then(([objs, fc]) => {
+        setObjects(objs)
+        setForecast(fc)
+      }).catch(() => {})
+    }, 200)
+    return () => { if (frameLoadTimer.current) clearTimeout(frameLoadTimer.current) }
+  }, [currentIdx, frames])
 
   const fmtTime = utcStr => utcStr
     ? new Date(utcStr).toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })

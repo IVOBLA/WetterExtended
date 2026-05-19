@@ -184,6 +184,12 @@ MAX_CELL_SPEED_KMH: float = 150.0
 # Kalman-Sprünge bei Mess-Artefakten (Plausibilitätsprüfung F14).
 MAX_SPEED_CHANGE_PER_CYCLE_KMH: float = 60.0
 
+# was_active Flag: True sobald core_ratio diesen Schwellwert je überschritten hat.
+# Sticky — bleibt True bis Zelle aus Tracking fällt. Missing-Limit bleibt 10 für alle.
+# core_ratio = Anteil orange/rot/violett Pixel an Gesamtzelle.
+# 0.25 = 25% konvektiver Kern → eindeutig konvektiv, kein Rauschen.
+WAS_ACTIVE_CORE_RATIO_THRESHOLD: float = 0.25
+
 # --------------------------------------
 # ML-Konfiguration (Single Source of Truth)
 # --------------------------------------

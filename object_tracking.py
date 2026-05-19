@@ -265,6 +265,9 @@ def calculate_core_ratio(hsv, contour):
 
 def update_tracking_memory(hsv, contours, weather_data, timestamp):
     FILTER_CONFIG = _rc.get("FILTER_CONFIG", _DEFAULT_FILTER_CONFIG)
+    # was_active-Schwellwert — runtime-überschreibbar über Admin-Panel
+    from config import WAS_ACTIVE_CORE_RATIO_THRESHOLD as _WAT_CFG
+    _was_active_threshold = float(_rc.get("WAS_ACTIVE_CORE_RATIO_THRESHOLD", _WAT_CFG))
     # F7-FIX: BBOX live aus runtime_config — Admin-Panel-Änderungen wirken sofort.
     from config import BBOX_KAERNTEN_EXTENDED as _DEFAULT_BBOX
     _BBOX_LIVE = _rc.get("BBOX_KAERNTEN_EXTENDED", _DEFAULT_BBOX)
@@ -454,6 +457,12 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
     tracking_memory = new_memory
     for obj_id, obj in new_memory.items():
         if obj.get("missing", 0) == 0:
+            # was_active: sticky Flag — True sobald core_ratio Schwellwert je erreicht.
+            # Prüft auch previous_snapshot (carry-forward) falls Matching-Code das Flag
+            # nicht automatisch übernimmt. Ermöglicht MISSING_LIMIT_ACTIVE statt DEFAULT.
+            _prev_was_active = previous_snapshot.get(obj_id, {}).get("was_active", False)
+            if _prev_was_active or float(obj.get("core_ratio", 0.0)) >= _was_active_threshold:
+                obj["was_active"] = True  # setzt auch tracking_memory[obj_id] (gleiche Referenz)
             # F2-FIX: History aus previous_snapshot lesen (vor Überschreiben),
             # nicht aus tracking_memory (= new_memory, hat noch kein "history"-Key).
             previous_history = previous_snapshot.get(obj_id, {}).get("history", [])
