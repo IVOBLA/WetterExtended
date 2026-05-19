@@ -39,6 +39,24 @@ def _latest_objects():
         return []
 
 
+def _objects_for_ts(ts: str | None) -> list:
+    """
+    Liest Objekte für einen spezifischen Radar-Frame-Timestamp.
+    Gibt [] zurück wenn kein passendes JSON existiert (keine Zellen in diesem Frame).
+    Fällt auf _latest_objects() zurück wenn ts=None (Live-Ansicht).
+    """
+    if not ts:
+        return _latest_objects()
+    path = os.path.join(SAVE_PATHS["objects"], f"{ts}.json")
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
 def _latest_location_hits():
     files = sorted(glob.glob(os.path.join(SAVE_PATHS["evaluation"], "locations_*.json")))
     if not files:
@@ -255,7 +273,8 @@ def api_git():
 
 @app.route("/api/objects")
 def api_objects():
-    return jsonify(_latest_objects())
+    ts = request.args.get("ts")  # z.B. ?ts=2025-05-19_19-21-00
+    return jsonify(_objects_for_ts(ts))
 
 
 @app.route("/api/forecast")
@@ -267,8 +286,9 @@ def api_forecast():
     styles   = runtime_config.get("FORECAST_ARROW_STYLE", FORECAST_ARROW_STYLE)
     min_kmh  = runtime_config.get("MIN_MOVEMENT_FOR_ARROW_KMH", MIN_MOVEMENT_FOR_ARROW_KMH)
     # PX_TO_KMH aus config.py — Single Source of Truth
+    ts = request.args.get("ts")  # Frame-Sync: gleicher Timestamp wie Radarbild
     feats = []
-    for o in _latest_objects():
+    for o in _objects_for_ts(ts):
         if o.get("lat") is None or o.get("lon") is None:
             continue
         vx = float(o.get("vx") or 0.0)

@@ -327,7 +327,8 @@ export default function MapView() {
   const [currentIdx, setCurrentIdx] = useState(-1)
   const [playing,    setPlaying]    = useState(false)
   const [speed,      setSpeed]      = useState(500)
-  const timerRef = useRef(null)
+  const timerRef        = useRef(null)
+  const frameLoadTimer  = useRef(null)
 
   // ── Manuelles Zell-Markieren ──────────────────────────────────────────────
   const [cellMarkActive,   setCellMarkActive]   = useState(false)
@@ -363,9 +364,8 @@ export default function MapView() {
 
   async function load() {
     try {
-      const [a, b, c, d, timing, bounds, framesData, lightningData] = await Promise.all([
-        api.get('/api/objects'),
-        api.get('/api/forecast'),
+      // Schritt 1: Metadaten + Frames parallel laden
+      const [c, d, timing, bounds, framesData, lightningData] = await Promise.all([
         api.get('/api/locations'),
         api.get('/api/horizons'),
         api.get('/api/radar_timing').catch(() => null),
@@ -373,14 +373,27 @@ export default function MapView() {
         api.get('/api/radar_frames').catch(() => null),
         api.get(`/api/lightning?max_age_min=${lightningAge}`).catch(() => null),
       ])
-      setObjects(a); setForecast(b); setLocations(c); setHorizons(d)
+      setLocations(c); setHorizons(d)
       if (timing) setRadarTiming(timing)
       if (bounds?.bounds) setRadarBounds(bounds.bounds)
       if (lightningData?.strikes) setLightning(lightningData.strikes)
-      if (framesData?.frames) {
+
+      // Schritt 2: Frame-Timestamp bestimmen, objects/forecast synchron laden.
+      // Auch ohne Animation wird immer der neueste Frame-Timestamp verwendet —
+      // garantiert dass angezeigte Zellen zum angezeigten Radarbild passen.
+      let latestTs = null
+      if (framesData?.frames?.length) {
+        const latestIdx = framesData.latest_idx ?? framesData.frames.length - 1
+        latestTs = framesData.frames[latestIdx]?.ts ?? null
         setFrames(framesData.frames)
-        setCurrentIdx(framesData.latest_idx ?? framesData.frames.length - 1)
+        setCurrentIdx(latestIdx)
       }
+      const [objs, fc] = await Promise.all([
+        api.get(latestTs ? `/api/objects?ts=${latestTs}` : '/api/objects'),
+        api.get(latestTs ? `/api/forecast?ts=${latestTs}` : '/api/forecast'),
+      ])
+      setObjects(objs)
+      setForecast(fc)
       setRadarTs(Date.now())
     } catch (e) { console.error(e) }
   }
@@ -390,6 +403,25 @@ export default function MapView() {
     const t = setInterval(load, 60000)
     return () => clearInterval(t)
   }, [])
+
+  // Frame-Sync für Animation: bei Scrubbing objects/forecast für den
+  // angezeigten Frame laden. 200ms Debounce verhindert API-Flood.
+  useEffect(() => {
+    if (!frames.length || currentIdx < 0) return
+    const frame = frames[currentIdx]
+    if (!frame?.ts) return
+    if (frameLoadTimer.current) clearTimeout(frameLoadTimer.current)
+    frameLoadTimer.current = setTimeout(() => {
+      Promise.all([
+        api.get(`/api/objects?ts=${frame.ts}`),
+        api.get(`/api/forecast?ts=${frame.ts}`),
+      ]).then(([objs, fc]) => {
+        setObjects(objs)
+        setForecast(fc)
+      }).catch(() => {})
+    }, 200)
+    return () => { if (frameLoadTimer.current) clearTimeout(frameLoadTimer.current) }
+  }, [currentIdx, frames])
 
   const fmtTime = utcStr => utcStr
     ? new Date(utcStr).toLocaleTimeString('de-AT', { hour:'2-digit', minute:'2-digit' })
@@ -537,8 +569,8 @@ export default function MapView() {
           />
         )}
 
-        {/* Zellen — nur beim neuesten Frame anzeigen */}
-        {(currentIdx === frames.length - 1 || frames.length === 0) && objects.map(o => {
+        {/* Zellen: frame-synchron — objects enthält bereits nur Zellen des angezeigten Frames */}
+        {objects.map(o => {
           if (!o.contour_geo || o.contour_geo.length < 3) return null
           const outerPos    = o.contour_geo.map(p => [p[1], p[0]])
           const borderColor = lineageColor[o.lineage] || '#888'
