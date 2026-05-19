@@ -389,11 +389,11 @@ SAVE_PATHS = {
     "cape": "train_data/cape/",
     "dataset": "train_data/dataset/",
     "models": "train_data/models/",
-    "ir": "train_data/ir/",
+    "ir": "train_data/cloud/",       # FIX: TIFFs landen in cloud/, nicht ir/
     "lightning": "train_data/lightning/",
     "evaluation": "train_data/evaluation/",
     "dem": "train_data/dem/",
-    "arome": "train_data/arome/",   # NEU: AROME icon_d2 Gitterpunktdaten
+    "arome": "train_data/arome/",
     "ir_cells": "train_data/ir_cells/",
 }
 # Ausgabeauflösung in Pixeln (z. B. für GeoTIFF via WMS)
@@ -439,9 +439,8 @@ DATA_CLEANUP_PATHS: list = [
     "train_data/wind/",
     "train_data/cape/",
     "train_data/lightning/",
-    "train_data/ir/",
     "train_data/ir_cells/",
-    "train_data/cloud/",
+    "train_data/cloud/",      # enthält sowohl TIFFs (ir108_*.tif) als auch JSONs
     "train_data/arome/",
 ]
 
