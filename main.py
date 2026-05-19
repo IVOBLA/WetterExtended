@@ -25,10 +25,14 @@ from optical_flow_features import assign_optical_flow_to_objects
 from fetch_arome_openmeteo import assign_arome_to_objects
 from fetch_synoptic_features import assign_synoptic_features
 from orographic_module import assign_orographic_scores
+from fetch_openmeteo_extended import assign_extended_openmeteo
+from fetch_geosphere_nowcast import assign_nowcast_to_objects
+from fetch_tawes_gust import fetch_tawes_stations, max_gust_near
 import math as _math_main
 import runtime_config
 from locations_check import annotate_locations
-from config import (HAIL_WARN_THRESHOLD, STATIONARY_RISK_MARKER_THRESHOLD)
+from config import (HAIL_WARN_THRESHOLD, STATIONARY_RISK_MARKER_THRESHOLD,
+                    GUST_WARN_KMH, HEAVY_RAIN_WARN_MM_PER_H)
 
 _ROI_CACHE = None
 
@@ -139,6 +143,15 @@ def main_loop():
             _prev_radar_path = curr_scaled_path
             objects = assign_arome_to_objects(objects, timestamp)
             objects = assign_synoptic_features(objects, timestamp)
+            objects = assign_extended_openmeteo(objects, timestamp)
+            objects = assign_nowcast_to_objects(objects, timestamp)
+            _tawes_stations = fetch_tawes_stations()
+            for _obj in objects:
+                if _obj.get("lat") is not None and _obj.get("lon") is not None:
+                    _measured_gust = max_gust_near(_obj["lat"], _obj["lon"], _tawes_stations, 30.0)
+                    _obj["tawes_max_gust_kmh"] = _measured_gust
+                    _obj["gust_warning"] = float(_obj.get("nowcast_ffx_kmh",0.0)) >= GUST_WARN_KMH or _measured_gust >= GUST_WARN_KMH
+                    _obj["heavy_rain_warning"] = float(_obj.get("nowcast_rain_rate_1h",0.0)) >= HEAVY_RAIN_WARN_MM_PER_H
             debug_log(f"Gefundene Objekte: {len(objects)}")
             # ── Strukturiertes Cell-Log (JSONL) ──────────────────────────
             _cell_log_path = os.path.join(
@@ -247,6 +260,12 @@ def main_loop():
             with open(os.path.join(SAVE_PATHS["evaluation"], f"locations_{timestamp}.json"), "w", encoding="utf-8") as f:
                 json.dump(location_hits, f, indent=2, ensure_ascii=False)
             debug_log(f"Ort-Hits: {len(location_hits)} betroffene Orte")
+            _gust_cells  = [o["id"] for o in objects if o.get("gust_warning")]
+            _rain_cells  = [o["id"] for o in objects if o.get("heavy_rain_warning")]
+            _hail_cells  = [o["id"] for o in objects if o.get("hail_warning")]
+            if _gust_cells: debug_log(f"[WARN] Böen >= {GUST_WARN_KMH} km/h: {_gust_cells}")
+            if _rain_cells: debug_log(f"[WARN] Starkregen >= {HEAVY_RAIN_WARN_MM_PER_H} mm/h: {_rain_cells}")
+            if _hail_cells: debug_log(f"[WARN] Hagelwarnung: {_hail_cells}")
 
             # ── Auto-Entwarnung (F47) ─────────────────────────────────────────
             _current_hit_names = {h["name"] for h in location_hits}
