@@ -68,6 +68,12 @@ function Legend({ horizons, colors }) {
         </span>
       </span>
       <span className="border-l pl-3 flex items-center gap-2 text-xs text-gray-500">
+        <span style={{ display:'inline-block', width:8, height:8, borderRadius:'50%', background:'#fbbf24' }}/>
+        Blitz (−)
+        <span style={{ display:'inline-block', width:8, height:8, borderRadius:'50%', background:'#f97316' }}/>
+        Blitz (+)
+      </span>
+      <span className="border-l pl-3 flex items-center gap-2 text-xs text-gray-500">
         <span style={{ display:'inline-block', width:16, height:2, background:'#888', borderTop:'2px dashed #888' }}/>
         Schätzpfeil
         <span style={{ display:'inline-block', width:16, height:2, borderTop:'2px dashed #6a1b9a' }}/>
@@ -90,7 +96,10 @@ export default function MapView() {
   const [radarBounds,  setRadarBounds]  = useState(null)
   const [radarOpacity, setRadarOpacity] = useState(0.65)
   const [showRadar,    setShowRadar]    = useState(true)
-  const [radarTs,      setRadarTs]      = useState(0)
+  const [radarTs,        setRadarTs]        = useState(0)
+  const [lightning,      setLightning]      = useState([])
+  const [showLightning,  setShowLightning]  = useState(true)
+  const [lightningAge,   setLightningAge]   = useState(30)  // Minuten
 
   // Animation
   const [frames,     setFrames]     = useState([])
@@ -127,7 +136,7 @@ export default function MapView() {
 
   async function load() {
     try {
-      const [a, b, c, d, timing, bounds, framesData] = await Promise.all([
+      const [a, b, c, d, timing, bounds, framesData, lightningData] = await Promise.all([
         api.get('/api/objects'),
         api.get('/api/forecast'),
         api.get('/api/locations'),
@@ -135,10 +144,12 @@ export default function MapView() {
         api.get('/api/radar_timing').catch(() => null),
         api.get('/api/radar_bounds').catch(() => null),
         api.get('/api/radar_frames').catch(() => null),
+        api.get(`/api/lightning?max_age_min=${lightningAge}`).catch(() => null),
       ])
       setObjects(a); setForecast(b); setLocations(c); setHorizons(d)
       if (timing) setRadarTiming(timing)
       if (bounds?.bounds) setRadarBounds(bounds.bounds)
+      if (lightningData?.strikes) setLightning(lightningData.strikes)
       if (framesData?.frames) {
         setFrames(framesData.frames)
         setCurrentIdx(framesData.latest_idx ?? framesData.frames.length - 1)
@@ -205,6 +216,20 @@ export default function MapView() {
             onSetIdx={setCurrentIdx} onPlay={handlePlay} onPause={handlePause} onSpeed={setSpeed}
           />
         )}
+        <label className="flex items-center gap-1 cursor-pointer select-none text-xs">
+          <input type="checkbox" checked={showLightning}
+            onChange={e => setShowLightning(e.target.checked)}
+            className="accent-yellow-500" />
+          <span>⚡ Blitze</span>
+          <select value={lightningAge}
+            onChange={e => setLightningAge(Number(e.target.value))}
+            className="text-xs border rounded px-1 py-0 ml-1"
+            title="Blitze der letzten N Minuten anzeigen">
+            {[10, 20, 30, 60].map(m => (
+              <option key={m} value={m}>{m} min</option>
+            ))}
+          </select>
+        </label>
         <button onClick={load}
           className="text-xs text-blue-600 hover:text-blue-800 underline ml-auto">↺ Neu laden</button>
       </div>
@@ -360,6 +385,34 @@ export default function MapView() {
             <Popup><strong>⚠️ {hit.name}</strong><div>Zelle {hit.cell_id} in {hit.eta_min} min</div></Popup>
           </Circle>
         ))}
+        {/* Blitz-Layer (F50) — deaktivierbar, nur letzter Frame */}
+        {showLightning && (currentIdx === frames.length - 1 || frames.length === 0) &&
+          lightning.map((s, i) => {
+            const isNeg = (s.pol ?? -1) < 0
+            // Negativ (häufig, cloud-to-ground): gelb
+            // Positiv (selten, stark): orange-rot
+            const color = isNeg ? '#fbbf24' : '#f97316'
+            return (
+              <CircleMarker key={'bolt_' + i}
+                center={[s.lat, s.lon]}
+                radius={4}
+                pathOptions={{
+                  color,
+                  fillColor: color,
+                  fillOpacity: 0.85,
+                  weight: 1,
+                }}>
+                <Tooltip direction="top" offset={[0, -4]} opacity={0.9}>
+                  <div className="text-xs">
+                    <div>⚡ {isNeg ? 'Negativ' : 'Positiv'}</div>
+                    <div>{s.timestamp}</div>
+                    {s.alt > 0 && <div>{s.alt} m</div>}
+                  </div>
+                </Tooltip>
+              </CircleMarker>
+            )
+          })
+        }
       </MapContainer>
     </div>
   )

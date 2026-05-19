@@ -86,21 +86,35 @@ def fetch_and_save_lightning(timestamp: str) -> None:
 
     strikes = []
     for line in response.text.strip().splitlines():
-        parts = line.strip().split(",")
-        if len(parts) >= 4:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            strike = json.loads(line)
+            lat      = float(strike["lat"])
+            lon      = float(strike["lon"])
+            # pol: Polarität -1 (negativ, häufig) oder +1 (positiv)
+            pol      = int(strike.get("pol", 0))
+            time_ns  = int(strike.get("time", 0))   # UTC-Nanosekunden
+            # Nanosekunden → ISO-Zeitstring
+            time_s   = time_ns / 1e9
             try:
-                time_str = parts[0]
-                lat      = float(parts[1])
-                lon      = float(parts[2])
-                strength = float(parts[3])
-                strikes.append({
-                    "timestamp": time_str,
-                    "lat": lat,
-                    "lon": lon,
-                    "strength": strength,
-                })
-            except ValueError:
-                continue
+                from datetime import datetime, timezone
+                ts_iso = datetime.fromtimestamp(time_s, tz=timezone.utc).strftime(
+                    "%Y-%m-%dT%H:%M:%SZ"
+                )
+            except Exception:
+                ts_iso = str(time_ns)
+            strikes.append({
+                "timestamp": ts_iso,
+                "timestamp_ns": time_ns,
+                "lat": lat,
+                "lon": lon,
+                "pol": pol,          # -1 oder +1
+                "alt": int(strike.get("alt", 0)),
+            })
+        except (json.JSONDecodeError, KeyError, ValueError, TypeError):
+            continue
 
     save_path = os.path.join(_SAVE_DIR, f"{timestamp}.json")
     with open(save_path, "w", encoding="utf-8") as f:

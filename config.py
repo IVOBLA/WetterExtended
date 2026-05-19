@@ -115,7 +115,9 @@ MIN_MOVEMENT_FOR_ARROW_KMH = 5.0
 
 AROME_BASE_URL = "https://dataset.api.hub.geosphere.at/v1/grid/forecast/nwp-v1-1h-2500m"
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
-LIGHTNING_DATA_URL = "https://www.lightningmaps.org/live_data/geojson/1.json"  # Bug B12: nicht produktionsreif
+# LIGHTNING_DATA_URL entfernt (Bug B12) — lightningmaps.org ist inoffiziell
+# und nicht produktionsreif. Blitzdaten kommen ausschließlich über blitz_api.py
+# (Blitzortung.org, HTTP Basic Auth). Gespeichert in SAVE_PATHS["lightning"].
 
 GEOSPHERE_NOWCAST_URL = "https://dataset.api.hub.geosphere.at/v1/timeseries/forecast/nowcast-v1-15min-1km"
 GEOSPHERE_TAWES_URL = "https://dataset.api.hub.geosphere.at/v1/station/current/tawes-v1-10min"

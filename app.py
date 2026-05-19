@@ -309,6 +309,39 @@ def api_forecast():
     return jsonify({"type": "FeatureCollection", "features": feats})
 
 
+@app.route("/api/lightning")
+def api_lightning():
+    """
+    Liefert die zuletzt gespeicherten Blitzeinschläge aus dem Blitzortung-Cache.
+    Filtert auf die letzten max_age_min Minuten (Default: 30).
+    Rückgabe: { "strikes": [...], "count": N, "ts": "...", "max_age_min": 30 }
+    """
+    max_age_min = int(request.args.get("max_age_min", 30))
+    files = sorted(glob.glob(os.path.join(SAVE_PATHS.get("lightning", "train_data/lightning"), "*.json")))
+    if not files:
+        return jsonify({"strikes": [], "count": 0, "ts": None, "max_age_min": max_age_min})
+
+    try:
+        with open(files[-1], encoding="utf-8") as f:
+            all_strikes = json.load(f)
+    except Exception:
+        return jsonify({"strikes": [], "count": 0, "ts": None, "max_age_min": max_age_min})
+
+    # Zeitfilter: nur Einschläge der letzten max_age_min Minuten
+    from datetime import datetime, timezone, timedelta
+    cutoff_ns = (datetime.now(timezone.utc) - timedelta(minutes=max_age_min)).timestamp() * 1e9
+    recent = [s for s in all_strikes if s.get("timestamp_ns", 0) >= cutoff_ns]
+
+    ts_file = os.path.basename(files[-1]).replace(".json", "")
+    return jsonify({
+        "strikes":     recent,
+        "count":       len(recent),
+        "ts":          ts_file,
+        "max_age_min": max_age_min,
+        "total_in_file": len(all_strikes),
+    })
+
+
 @app.route("/api/locations")
 def api_locations():
     return jsonify({
