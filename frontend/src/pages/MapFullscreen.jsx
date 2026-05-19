@@ -92,7 +92,10 @@ export default function MapFullscreen() {
   const [radarOpacity, setRadarOpacity] = useState(0.65)
   const [showRadar,    setShowRadar]    = useState(true)
   const [radarTiming,  setRadarTiming]  = useState(null)
-  const [radarTs,      setRadarTs]      = useState(0)
+  const [radarTs,        setRadarTs]        = useState(0)
+  const [lightning,      setLightning]      = useState([])
+  const [showLightning,  setShowLightning]  = useState(true)
+  const [lightningAge,   setLightningAge]   = useState(30)  // Minuten
   const [frames,       setFrames]       = useState([])
   const [currentIdx,   setCurrentIdx]   = useState(-1)
   const [playing,      setPlaying]      = useState(false)
@@ -146,7 +149,7 @@ export default function MapFullscreen() {
   async function load() {
     setLoading(true)
     try {
-      const [a, b, c, d, timing, bounds, framesData] = await Promise.all([
+      const [a, b, c, d, timing, bounds, framesData, lightningData] = await Promise.all([
         api.get('/api/objects'),
         api.get('/api/forecast'),
         api.get('/api/locations'),
@@ -154,6 +157,7 @@ export default function MapFullscreen() {
         api.get('/api/radar_timing').catch(() => null),
         api.get('/api/radar_bounds').catch(() => null),
         api.get('/api/radar_frames').catch(() => null),
+        api.get(`/api/lightning?max_age_min=${lightningAge}`).catch(() => null),
       ])
       setObjects(a); setForecast(b); setLocations(c); setHorizons(d)
       if (timing) {
@@ -168,6 +172,7 @@ export default function MapFullscreen() {
         schedulePoll(null)
       }
       if (bounds?.bounds) setRadarBounds(bounds.bounds)
+      if (lightningData?.strikes) setLightning(lightningData.strikes)
       if (framesData?.frames) {
         setFrames(framesData.frames)
         setCurrentIdx(framesData.latest_idx ?? framesData.frames.length - 1)
@@ -289,6 +294,20 @@ export default function MapFullscreen() {
                 </span>
               </label>
             )}
+            <label style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer' }}>
+              <input type="checkbox" checked={showLightning}
+                onChange={e => setShowLightning(e.target.checked)}
+                style={{ accentColor: '#fbbf24' }} />
+              <span>⚡ Blitze</span>
+              <select value={lightningAge}
+                onChange={e => setLightningAge(Number(e.target.value))}
+                style={{ fontSize:11, padding:'0 2px', border:'1px solid #555',
+                         background:'#1a1a2e', color:'#fff', borderRadius:3 }}>
+                {[10, 20, 30, 60].map(m => (
+                  <option key={m} value={m}>{m} min</option>
+                ))}
+              </select>
+            </label>
 
             {lastTs && (
               <div style={{ color: '#aaa', fontSize: 11 }}>Stand: {lastTs}</div>
@@ -448,6 +467,34 @@ export default function MapFullscreen() {
             </CircleMarker>
           )
         })}
+        {/* Blitz-Layer (F50) — deaktivierbar, nur letzter Frame */}
+        {showLightning && (currentIdx === frames.length - 1 || frames.length === 0) &&
+          lightning.map((s, i) => {
+            const isNeg = (s.pol ?? -1) < 0
+            // Negativ (häufig, cloud-to-ground): gelb
+            // Positiv (selten, stark): orange-rot
+            const color = isNeg ? '#fbbf24' : '#f97316'
+            return (
+              <CircleMarker key={'bolt_' + i}
+                center={[s.lat, s.lon]}
+                radius={4}
+                pathOptions={{
+                  color,
+                  fillColor: color,
+                  fillOpacity: 0.85,
+                  weight: 1,
+                }}>
+                <Tooltip direction="top" offset={[0, -4]} opacity={0.9}>
+                  <div className="text-xs">
+                    <div>⚡ {isNeg ? 'Negativ' : 'Positiv'}</div>
+                    <div>{s.timestamp}</div>
+                    {s.alt > 0 && <div>{s.alt} m</div>}
+                  </div>
+                </Tooltip>
+              </CircleMarker>
+            )
+          })
+        }
       </MapContainer>
 
       <BottomBar
