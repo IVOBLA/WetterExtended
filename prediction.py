@@ -84,7 +84,13 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
     for horizon in ML_FORECAST_HORIZONS_MIN:
         x_pred = _safe_float(obj.get("x", 0.0)) + avg_vx * horizon
         y_pred = _safe_float(obj.get("y", 0.0)) + avg_vy * horizon
-        lat, lon = pixel_to_geo(x_pred, y_pred)
+        origin_x = _safe_float(obj.get("x", 0.0))
+        origin_y = _safe_float(obj.get("y", 0.0))
+        if origin_x == 0.0 and origin_y == 0.0:
+            lat = _safe_float(obj.get("lat", 0.0))
+            lon = _safe_float(obj.get("lon", 0.0))
+        else:
+            lat, lon = pixel_to_geo(x_pred, y_pred)
         obj[f"forecast_x_{horizon}"]   = float(x_pred)
         obj[f"forecast_y_{horizon}"]   = float(y_pred)
         obj[f"forecast_lat_{horizon}"] = float(lat)
