@@ -14,7 +14,7 @@
  * Kärnten Ausdehnung: ca. 12,65°E–15,65°E (3° Breite), 46,37°N–47,12°N
  */
 
-export const MAP_CENTER_KAERNTEN  = [46.62, 14.31]   // Klagenfurt-Bereich
+export const MAP_CENTER_KAERNTEN  = [46.7525, 13.8617]   // Klagenfurt-Bereich
 export const MAP_ZOOM_DEFAULT     = 10                 // MapView (70vh) — ganz Kärnten + Rand
 export const MAP_ZOOM_FULLSCREEN  = 10                 // MapFullscreen (100vh) — ganz Kärnten
 export const MAP_ZOOM_MIN         = 6                 // Zoom-Untergrenze
