@@ -477,6 +477,31 @@ if [[ "$MODE" == "full" ]]; then
 else
     log_info "Upgrade-Modus: Trainingsdaten und Modelle bleiben erhalten."
 fi
+
+# Bei full-Modus: Journal + Evaluation-Logs leeren (sonst sieht /logs nach
+# Neuinstallation noch alle Logs der alten Installation)
+if [[ "$MODE" == "full" ]]; then
+    log_info "Leere systemd Journal-Logs für Wetterprojekt-Services..."
+    sudo journalctl --rotate 2>/dev/null || true
+    for _unit in wetterprojekt wetterprojekt-scheduler wetterprojekt-admin; do
+        sudo journalctl --vacuum-time=1s --unit="$_unit" 2>/dev/null || true
+    done
+    # Globaler Vacuum als Fallback (ältere systemd-Versionen)
+    sudo journalctl --vacuum-size=1K 2>/dev/null || true
+    log_info "Journal geleert."
+
+    _eval_dir="$TARGET/train_data/evaluation"
+    if [[ -d "$_eval_dir" ]]; then
+        log_info "Leere Evaluation-Logs in $_eval_dir ..."
+        rm -f \
+            "$_eval_dir/api_health.jsonl" \
+            "$_eval_dir/cleanup_log.jsonl" \
+            "$_eval_dir/api_calls.jsonl" \
+            "$_eval_dir/cells_log.jsonl"
+        log_info "Evaluation-Logs geleert."
+    fi
+fi
+
 echo "[INSTALL] Modus: $MODE | no-hailo: $NO_HAILO | no-node: $NO_NODE"
 
 # ==============================================================================
@@ -501,11 +526,26 @@ if [[ "$SYSTEM_DEPS_ENABLED" == true ]]; then
         ffmpeg                         # movement.gif
         nginx                          # Reverse-Proxy für Flask-API + React-Frontend
         apache2-utils                  # htpasswd für nginx Basic-Auth
+        ca-certificates                # TLS-Root-Zertifikate aktuell halten
+        openssl                        # SSL-Bibliothek
+        ntp                            # Zeitsynchronisation (verhindert TLS-Fehler)
     )
 
     log_info "Installiere APT-Pakete: ${APT_PKGS[*]}"
     sudo apt-get install -y "${APT_PKGS[@]}" 2>&1 | grep -E "^(Inst|Err)" || true
     log_info "APT-Pakete installiert."
+
+    # Zeitsync erzwingen — falsches Systemdatum bricht TLS-Verbindungen
+    log_info "Synchronisiere Systemzeit (NTP)..."
+    sudo systemctl enable ntp --now 2>/dev/null || true
+    sudo ntpdate -u pool.ntp.org 2>/dev/null \
+        || sudo timedatectl set-ntp true 2>/dev/null \
+        || log_warn "Zeitsync nicht möglich — bitte manuell prüfen: timedatectl"
+    log_info "Systemzeit: $(date)"
+
+    # CA-Zertifikate neu aufbauen
+    log_info "Aktualisiere CA-Zertifikate..."
+    sudo update-ca-certificates --fresh 2>/dev/null || true
 else
     log_warn "APT übersprungen (--no-system-deps)."
 fi
@@ -524,12 +564,94 @@ else
     log_info "venv vorhanden: $VENV"
 fi
 
-"$VENV/bin/pip" install --upgrade pip wheel setuptools -q
+# ------------------------------------------------------------------------------
+# pip_bootstrap: ersetzt veraltetes pip-Bundle im venv via get-pip.py
+# ------------------------------------------------------------------------------
+_PIP_BOOTSTRAPPED=false
+pip_bootstrap() {
+    if [[ "$_PIP_BOOTSTRAPPED" == true ]]; then return 0; fi
+    log_warn "Versuche pip-Bootstrap via get-pip.py..."
+    local GET_PIP_TMP="$TARGET/get-pip.py"
+    if curl -fsSL --retry 3 --retry-delay 2 \
+            --cacert /etc/ssl/certs/ca-certificates.crt \
+            "https://bootstrap.pypa.io/get-pip.py" -o "$GET_PIP_TMP" 2>/dev/null; then
+        log_info "get-pip.py heruntergeladen (mit CA-Verify)."
+    else
+        log_warn "curl mit SSL fehlgeschlagen — versuche ohne Zertifikatsprüfung..."
+        curl -fsSL --retry 3 --insecure \
+            "https://bootstrap.pypa.io/get-pip.py" -o "$GET_PIP_TMP" || {
+            log_error "get-pip.py Download fehlgeschlagen."
+            return 1
+        }
+    fi
+    "$VENV/bin/python3" "$GET_PIP_TMP" --no-cache-dir \
+        --trusted-host pypi.org \
+        --trusted-host pypi.python.org \
+        --trusted-host files.pythonhosted.org \
+        2>&1 | tail -3
+    rm -f "$GET_PIP_TMP"
+    _PIP_BOOTSTRAPPED=true
+    log_info "pip-Bootstrap abgeschlossen."
+}
 
+# ------------------------------------------------------------------------------
+# pip_install_safe: 3-stufiger Fallback
+#   Stufe 1: normaler Aufruf
+#   Stufe 2: --trusted-host (SSL-Verify für PyPI-Endpunkte deaktiviert)
+#   Stufe 3: get-pip.py Bootstrap + Stufe 2 wiederholen
+# ------------------------------------------------------------------------------
+pip_install_safe() {
+    local ARGS=("$@")
+
+    log_info "pip install (Stufe 1 — normal): ${ARGS[*]}"
+    if "$VENV/bin/pip" install --no-cache-dir "${ARGS[@]}" 2>&1 | tail -5; then
+        return 0
+    fi
+
+    log_warn "Stufe 1 fehlgeschlagen — versuche mit --trusted-host..."
+    if "$VENV/bin/pip" install --no-cache-dir \
+            --trusted-host pypi.org \
+            --trusted-host pypi.python.org \
+            --trusted-host files.pythonhosted.org \
+            "${ARGS[@]}" 2>&1 | tail -5; then
+        log_warn "Installation mit --trusted-host erfolgreich (SSL-Bypass aktiv)."
+        return 0
+    fi
+
+    log_warn "Stufe 2 fehlgeschlagen — Bootstrap-Versuch..."
+    if pip_bootstrap; then
+        if "$VENV/bin/pip" install --no-cache-dir \
+                --trusted-host pypi.org \
+                --trusted-host pypi.python.org \
+                --trusted-host files.pythonhosted.org \
+                "${ARGS[@]}" 2>&1 | tail -5; then
+            log_warn "Installation nach Bootstrap erfolgreich."
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+# --- pip / wheel / setuptools aktualisieren -----------------------------------
+log_info "Aktualisiere pip, wheel, setuptools im venv..."
+if ! pip_install_safe --upgrade pip wheel setuptools; then
+    log_warn "pip-Upgrade fehlgeschlagen — fahre mit vorhandener Version fort."
+    note_manual "source $VENV/bin/activate && pip install --upgrade pip wheel setuptools --trusted-host pypi.org --trusted-host files.pythonhosted.org"
+    note_manual "Zeitsync prüfen: sudo timedatectl set-ntp true && date"
+fi
+
+# --- piwheels (Pi-spezifische Wheels) -----------------------------------------
+PIWHEELS_EXTRA=""
+if [[ "$IS_PI" == "true" ]]; then
+    PIWHEELS_EXTRA="--extra-index-url https://www.piwheels.org/simple"
+    log_info "piwheels als zusätzliche Index-Quelle aktiviert."
+fi
+
+# --- requirements.txt ---------------------------------------------------------
 log_info "Installiere requirements.txt..."
-if "$VENV/bin/pip" install -r "$TARGET/requirements.txt" \
-        --extra-index-url https://www.piwheels.org/simple \
-        2>&1 | tail -5; then
+# shellcheck disable=SC2086
+if pip_install_safe -r "$TARGET/requirements.txt" $PIWHEELS_EXTRA; then
     log_info "pip-Pakete installiert."
     echo ""
     echo "[INFO] DEM-Höhendaten (Copernicus 30m) werden beim ersten Start"
@@ -539,7 +661,8 @@ if "$VENV/bin/pip" install -r "$TARGET/requirements.txt" \
     echo ""
 else
     log_warn "pip install hatte Fehler — bitte manuell prüfen:"
-    note_manual "cd $TARGET && source venv/bin/activate && pip install -r requirements.txt"
+    note_manual "cd $TARGET && source venv/bin/activate && pip install -r requirements.txt --trusted-host pypi.org --trusted-host files.pythonhosted.org"
+    note_manual "Zeitsync: sudo timedatectl set-ntp true && sudo ntpdate -u pool.ntp.org"
 fi
 
 # ==============================================================================
