@@ -33,10 +33,11 @@ def fetch_tawes_stations() -> list:
             else:
                 v = entry
             return float(v) if v is not None else 0.0
-        station_meta = props.get('station', {})
+        station_id_raw   = props.get('station', '?')
+        station_name_raw = props.get('name', f'Station {station_id_raw}')
         out.append({
-            "station_id": str(station_meta.get('id', '?')),
-            "name":       str(station_meta.get('name', '?')),
+            "station_id": str(station_id_raw),
+            "name":       str(station_name_raw),
             "lat":        float(coords[1]) if len(coords) > 1 else 0.0,
             "lon":        float(coords[0]) if coords else 0.0,
             "ffx_kmh":    round(_p('FFX') * 3.6, 1),
