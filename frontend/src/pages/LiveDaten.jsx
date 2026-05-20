@@ -2,10 +2,11 @@ import React, { useEffect, useState } from 'react'
 import api from '../api.js'
 
 // Hilfsfunktion: 0.0 = Fallback-Wert → grau markieren
-function Val({ v, unit = '', decimals = 1, zeroIsEmpty = false }) {
+function Val({ v, unit = '', decimals = 1, zeroIsEmpty = false, negativeIsEmpty = false }) {
   if (v === null || v === undefined) return <span className="text-gray-300">—</span>
   const num = parseFloat(v)
   if (zeroIsEmpty && num === 0.0) return <span className="text-gray-300">0</span>
+  if (negativeIsEmpty && num < 0) return <span className="text-gray-300">—</span>
   return (
     <span className={Math.abs(num) < 0.001 && zeroIsEmpty ? 'text-gray-400' : ''}>
       {num.toFixed(decimals)}{unit && <span className="text-gray-400 text-xs ml-0.5">{unit}</span>}
@@ -189,7 +190,7 @@ export default function LiveDaten() {
                       )}
                     </td>
                     <td className="p-2 text-right">
-                      <Val v={o.cloud_top_height_msl} unit="m" decimals={0} zeroIsEmpty />
+                      <Val v={o.cloud_top_height_msl} unit="m" decimals={0} zeroIsEmpty negativeIsEmpty />
                     </td>
                     <td className="p-2 text-right">
                       <Val v={o.lightning_count_10km} decimals={0} zeroIsEmpty />
@@ -234,7 +235,7 @@ export default function LiveDaten() {
                   {' '}{windDirDeg(sel.wind_dir_cos, sel.wind_dir_sin)}
                 </Group>
                 <Group label="Wolke & Blitze">
-                  Wolkentop: <Val v={sel.cloud_top_height_msl} unit="m MSL" decimals={0} zeroIsEmpty /><br />
+                  Wolkentop: <Val v={sel.cloud_top_height_msl} unit="m MSL" decimals={0} zeroIsEmpty negativeIsEmpty /><br />
                   Blitze &lt;10km: <Val v={sel.lightning_count_10km} decimals={0} />
                 </Group>
                 <Group label="Optical Flow">
