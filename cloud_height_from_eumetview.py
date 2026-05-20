@@ -398,13 +398,21 @@ def assign_cloud_top_height(
                         obj["cloud_height_missing"] = 1.0
                         continue
 
-                    value = height_msl[row, col]
+                    value   = height_msl[row, col]
+                    bt_val  = bt_k[row, col]
+
                     if np.isnan(value):
-                        obj["cloud_top_height_msl"] = -1.0
-                        obj["cloud_height_missing"] = 0.0  # kein Fehler, wolkenfrei
+                        if np.isnan(bt_val):
+                            # bt_k war Nodata/korrupt → fehlende Satellitendaten
+                            obj["cloud_top_height_msl"]  = -1.0
+                            obj["cloud_height_missing"]  = 1.0
+                        else:
+                            # bt_k > nan_threshold → Pixel ist wolkenfrei (kein Fehler)
+                            obj["cloud_top_height_msl"]  = -1.0
+                            obj["cloud_height_missing"]  = 0.0
                     else:
-                        obj["cloud_top_height_msl"] = round(float(value), 1)
-                        obj["cloud_height_missing"] = 0.0
+                        obj["cloud_top_height_msl"]       = round(float(value), 1)
+                        obj["cloud_height_missing"]        = 0.0
                         obj["cloud_top_height_timestamp"] = timestamp_file
                         assigned += 1
 

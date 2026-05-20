@@ -14,6 +14,20 @@ function Val({ v, unit = '', decimals = 1, zeroIsEmpty = false, negativeIsEmpty 
   )
 }
 
+// Wolkenhöhe: unterscheidet zwischen fehlenden Daten (missing=1) und wolkenfrei (missing=0, height<0)
+function CloudHeight({ height, missing, short = false }) {
+  if (missing === 1 || missing === undefined || missing === null) {
+    return <span className="text-gray-300">—</span>
+  }
+  const h = parseFloat(height)
+  if (isNaN(h) || h < 0) {
+    return <span className="text-blue-300 text-xs" title="Wolkenfrei laut MSG IR108">{short ? '☀' : 'wolkenfrei'}</span>
+  }
+  return (
+    <span>{Math.round(h)}<span className="text-gray-400 text-xs ml-0.5">m</span></span>
+  )
+}
+
 function Group({ label, children }) {
   return (
     <div className="mb-1">
@@ -190,7 +204,7 @@ export default function LiveDaten() {
                       )}
                     </td>
                     <td className="p-2 text-right">
-                      <Val v={o.cloud_top_height_msl} unit="m" decimals={0} zeroIsEmpty negativeIsEmpty />
+                      <CloudHeight height={o.cloud_top_height_msl} missing={o.cloud_height_missing} />
                     </td>
                     <td className="p-2 text-right">
                       <Val v={o.lightning_count_10km} decimals={0} zeroIsEmpty />
@@ -235,7 +249,7 @@ export default function LiveDaten() {
                   {' '}{windDirDeg(sel.wind_dir_cos, sel.wind_dir_sin)}
                 </Group>
                 <Group label="Wolke & Blitze">
-                  Wolkentop: <Val v={sel.cloud_top_height_msl} unit="m MSL" decimals={0} zeroIsEmpty negativeIsEmpty /><br />
+                  Wolkentop: <CloudHeight height={sel.cloud_top_height_msl} missing={sel.cloud_height_missing} /><br />
                   Blitze &lt;10km: <Val v={sel.lightning_count_10km} decimals={0} />
                 </Group>
                 <Group label="Optical Flow">
