@@ -51,8 +51,10 @@ const STATUS_COLOR = {
 export default function AiSuggestions() {
   const [cfg, setCfg] = useState({
     enabled: false, cron_hour: 6, cron_minute: 0,
-    since_hours: 24, max_tokens: 3000,
+    since_hours: 24, max_tokens: 3000, report_email: '',
   })
+  const [testEmailStatus, setTestEmailStatus] = useState(null)  // null | 'sending' | 'ok' | 'error'
+  const [testEmailMsg,    setTestEmailMsg]    = useState('')
   const [suggestions, setSuggestions] = useState([])
   const [running, setRunning] = useState(false)
   const [msg, setMsg] = useState('')
@@ -86,6 +88,20 @@ export default function AiSuggestions() {
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     } catch (e) { setMsg('Fehler: ' + e.message) }
+  }
+
+  async function testEmail() {
+    setTestEmailStatus('sending')
+    setTestEmailMsg('')
+    try {
+      const r = await api.post('/api/ai_analysis/test_email', {})
+      setTestEmailStatus(r.ok ? 'ok' : 'error')
+      setTestEmailMsg(r.ok ? r.message : (r.error || 'Fehler'))
+    } catch (e) {
+      setTestEmailStatus('error')
+      setTestEmailMsg(e.message)
+    }
+    setTimeout(() => setTestEmailStatus(null), 6000)
   }
 
   async function runNow() {
@@ -239,6 +255,36 @@ export default function AiSuggestions() {
               onChange={e => setCfg({ ...cfg, max_tokens: parseInt(e.target.value) || 3000 })} />
           </div>
         </div>
+        <div className="mt-3">
+          <label className="label">Report-E-Mail</label>
+          <div className="flex gap-2 items-center">
+            <input
+              className="input flex-1"
+              type="email"
+              placeholder="bericht@example.com (leer = kein E-Mail-Versand)"
+              value={cfg.report_email || ''}
+              onChange={e => setCfg({ ...cfg, report_email: e.target.value })}
+            />
+            <button
+              className="btn-secondary whitespace-nowrap"
+              onClick={testEmail}
+              disabled={testEmailStatus === 'sending' || !cfg.report_email}
+              title={!cfg.report_email ? 'Zuerst E-Mail-Adresse eingeben und speichern' : ''}
+            >
+              {testEmailStatus === 'sending' ? '⟳ Sende…' : '✉ Test senden'}
+            </button>
+          </div>
+          {testEmailStatus === 'ok' && (
+            <div className="text-green-700 text-xs mt-1">✓ {testEmailMsg}</div>
+          )}
+          {testEmailStatus === 'error' && (
+            <div className="text-red-600 text-xs mt-1">✗ {testEmailMsg}</div>
+          )}
+          <p className="text-xs text-gray-400 mt-1">
+            Nach jeder abgeschlossenen KI-Analyse wird der Report automatisch an diese Adresse gesendet.
+          </p>
+        </div>
+
         <div className="flex gap-3 mt-4">
           <button className="btn-primary" onClick={saveCfg}>Speichern</button>
           <button className="btn-secondary" onClick={runNow} disabled={running}>
