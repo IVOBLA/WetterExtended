@@ -523,9 +523,14 @@ if [[ "$MODE" == "full" ]]; then
         log_info "Leere Evaluation-Logs in $_eval_dir ..."
         rm -f \
             "$_eval_dir/api_health.jsonl" \
+            "$_eval_dir/api_call_counts.jsonl" \
             "$_eval_dir/cleanup_log.jsonl" \
-            "$_eval_dir/api_calls.jsonl" \
             "$_eval_dir/cells_log.jsonl"
+        # KI-Analyse-Vorschläge (ai_suggestions/) ebenfalls leeren
+        if [[ -d "$_eval_dir/ai_suggestions" ]]; then
+            rm -f "$_eval_dir/ai_suggestions"/*.json 2>/dev/null || true
+            log_info "ai_suggestions geleert."
+        fi
         log_info "Evaluation-Logs geleert."
     fi
 fi
