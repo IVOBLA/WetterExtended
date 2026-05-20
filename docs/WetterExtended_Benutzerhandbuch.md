@@ -57,7 +57,7 @@ Dieses Dokument ist das offizielle Benutzerhandbuch für das WetterExtended-Syst
 13. [NEU: Windscherung und Hagelindikator](#13-neu-windscherung-und-hagelindikator)
 14. [NEU: Atmosphären-Seite und Großwetterlage 500 hPa](#14-neu-atmosphären-seite-und-großwetterlage-500-hpa)
 15. [NEU: GeoSphere TAWES und Nowcast-Daten](#15-neu-geosphere-tawes-und-nowcast-daten)
-16. [NEU: SMS-Benachrichtigungen (Twilio)](#16-neu-sms-benachrichtigungen-twilio)
+16. [NEU: E-Mail-Benachrichtigungen](#16-neu-e-mail-benachrichtigungen)
 17. [NEU: Daten-Rotation (cleanup_old_data.py)](#17-neu-daten-rotation-cleanup_old_datapy)
 18. [NEU: Disk-Monitoring im Dashboard](#18-neu-disk-monitoring-im-dashboard)
 19. [NEU: Admin-Panel Authentifizierung (nginx)](#19-neu-admin-panel-authentifizierung-nginx)
@@ -372,7 +372,7 @@ Die folgende Tabelle fasst alle nach Version v1.0 eingeführten Erweiterungen zu
 | 13 | Windscherung + Hagelindikator | `main.py`, `config.py` | A |
 | 14 | Atmosphären-Seite + Großwetterlage 500 hPa | `Atmosphaere.jsx`, `fetch_synoptic_features.py` | A |
 | 15 | GeoSphere TAWES + Nowcast-Daten | `fetch_geosphere_nowcast.py`, `fetch_tawes_gust.py` | A |
-| 16 | SMS-Benachrichtigungen (Twilio) | `sms_notifier.py`, `main.py` | A |
+| 16 | E-Mail-Benachrichtigungen (SMTP) | `email_notifier.py`, `main.py` | A |
 | 17 | Daten-Rotation / Cleanup | `cleanup_old_data.py`, `scheduler.py` | A |
 | 18 | Disk-Monitoring im Dashboard | `app.py`, `Dashboard.jsx` | A |
 | 19 | Admin-Panel Authentifizierung (nginx) | `install.sh` | A |
@@ -518,28 +518,45 @@ Der GeoSphere-Nowcast liefert kurzzeitige Vorhersagen für Niederschlag (mm/15mi
 
 ---
 
-# 16 NEU: SMS-Benachrichtigungen (Twilio)
+# 16 NEU: E-Mail-Benachrichtigungen
 
-**Modul:** `sms_notifier.py`  
-**Dienst:** Twilio (kostenpflichtiger Account erforderlich)
+**Modul:** `email_notifier.py`
+**Protokoll:** SMTP mit STARTTLS (Standard-Bibliothek, keine Abhängigkeiten)
 
-Bei Ortsdurchquerungen durch Sturmzellen wird automatisch eine SMS an konfigurierte Nummern gesendet. Außerdem werden Entwarnungen gesendet, wenn eine Zelle den Umkreis eines Ortes verlässt.
+Bei Ortsdurchquerungen durch Sturmzellen wird automatisch eine HTML-Warnmail
+an konfigurierte Empfaenger gesendet. Pro Ort koennen mehrere
+E-Mail-Adressen durch ";" getrennt angegeben werden.
 
-| Ereignis | SMS-Inhalt |
-|---|---|
-| Ortsdurchquerung erkannt | `WARNUNG: Zelle {ID} durchquert {Ort} in {Horizont} min (Farbe: {Farbe})` |
-| Entwarnung | `ENTWARNUNG: Kein Gewitter mehr in Richtung {Ort}.` |
+| Ereignis | Betreff | Inhalt |
+|---|---|---|
+| Neue Zelle trifft Ort | `⚡ GEWITTERWARNUNG {Ort}` | Tabelle mit Horizont, Zell-ID, Distanz, Geschwindigkeit + Link zur Karte |
+| Zelle verlaesst Ort | `✅ Entwarnung {Ort}` | Kurzmeldung + Link zur Karte |
 
-Konfiguration in `.env`:
+Der E-Mail-Body enthaelt immer einen direkten Link zur oeffentlichen Karte:
+`http://blasolar.ddns.net:81/karte`
 
+**Cooldown** verhindert Mail-Flut: max. 1 Warnung pro Ort / 15 Minuten,
+max. 1 Entwarnung pro Ort / 5 Minuten (Reset bei Service-Neustart).
+
+**Konfiguration in `.env`:**
 ```env
-TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxx
-TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxx
-TWILIO_FROM=+43xxxxxxxx
-TWILIO_TO=+43xxxxxxxxx
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=deine-adresse@gmail.com
+SMTP_PASS=app-passwort
+SMTP_FROM=WetterExtended <deine-adresse@gmail.com>
 ```
 
-> **Hinweis:** SMS-Versand ist standardmäßig deaktiviert und muss über die `.env` aktiviert werden. Schlägt der SMS-Versand fehl, wird dies geloggt aber der Live-Loop nicht unterbrochen.
+> **Hinweis fuer Gmail:** Unter "Google-Konto → Sicherheit" ein App-Passwort
+> generieren (2FA muss aktiviert sein). Das normale Gmail-Passwort
+> funktioniert NICHT fuer SMTP.
+
+**Empfaenger-Konfiguration im Admin-Panel:**
+Unter "Orte" kann pro Eintrag ein E-Mail-Feld befuellt werden.
+Mehrere Adressen durch Semikolon trennen: `user1@x.at;user2@y.at`
+
+> **Hinweis:** Ist das E-Mail-Feld fuer einen Ort leer oder SMTP nicht
+> konfiguriert, wird still uebersprungen — kein Fehler, kein Loop-Abbruch.
 
 ---
 
@@ -788,7 +805,8 @@ Alle Parameter werden in `config.py` als Python-Konstanten definiert und können
 | Modelle nicht vorhanden | Erster Start, Training noch nicht gelaufen | Unter `/training` manuelles Training starten; System läuft im kinematischen Fallback |
 | Disk kritisch (> 90%) | Trainingsdaten wachsen unbegrenzt | Sofortiger Cleanup: `python3 cleanup_old_data.py`; `DATA_RETENTION_DAYS` reduzieren |
 | `hailo_inference.py` Fehler | Hailo-Treiber Fehler (Phase A: erwartet) | Ignorieren — CPU-Fallback ist aktiv. Phase B Hailo-Integration noch ausstehend. |
-| SMS nicht gesendet | TWILIO-Credentials fehlen oder ungültig | `.env` prüfen; Twilio-Konto und Guthaben prüfen |
+| E-Mail nicht gesendet | SMTP-Credentials fehlen oder falsch | `.env` prüfen (SMTP_HOST, SMTP_USER, SMTP_PASS); bei Gmail App-Passwort verwenden |
+| /karte verlangt Login | nginx Konfiguration veraltet | `sudo nginx -t && sudo systemctl reload nginx`; oder `install.sh --mode=upgrade` |
 | KI-Analyse schlägt fehl | `ANTHROPIC_API_KEY` fehlt oder abgelaufen | `.env` prüfen; KI-Analyse in `config.py` deaktivieren wenn nicht benötigt |
 | Open-Meteo Limit erreicht | Zu viele Requests (> 10000/Tag) | Bulk-Query in `fetch_arome_openmeteo.py` aktiviert? TTL erhöhen in `API_CACHE_TTL_SECONDS` |
 | Admin-Passwort vergessen | `/etc/nginx/.htpasswd` fehlt | `cat /home/ki-pi/wetterprojekt/.admin_password` — oder `install.sh --mode=upgrade` |
