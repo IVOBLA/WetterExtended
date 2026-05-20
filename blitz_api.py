@@ -59,8 +59,7 @@ def fetch_and_save_lightning(timestamp: str) -> None:
         with open(save_path, "w", encoding="utf-8") as f:
             json.dump(cached_strikes, f, indent=2)
         debug_log(f"[LIGHTNING] Cache-HIT — {len(cached_strikes)} Blitze (kein HTTP-Request).")
-        # Cache-HIT zählt als Datenabruf (aus Cache bedient, kein echter HTTP-Request)
-        log_api_call("blitzortung", url, 200)
+        # Cache-HITs NICHT als HTTP-200 zählen — verfälscht Erfolgsquote in api_health
         return
 
     try:
