@@ -43,7 +43,7 @@ def _count_lightning_near(lat: float, lon: float,
         return 0
     count = 0
     lat_deg = radius_km / 111.0
-    lon_deg = radius_km / (111.0 * abs(__import__('math').cos(__import__('math').radians(lat))) + 1e-9)
+    lon_deg = radius_km / (111.0 * abs(_math_main.cos(_math_main.radians(lat))) + 1e-9)
     for bolt in lightning_data:
         blat = bolt.get("lat") or bolt.get("y")
         blon = bolt.get("lon") or bolt.get("x")
