@@ -517,9 +517,15 @@ LOCAL_TRAINING: bool = True
 #   {"STATIC_EXCLUSION_ZONES": [{"name": "...", "lat": ..., "lon": ..., "radius_km": ...}]}
 STATIC_EXCLUSION_ZONES: list = [
     {
-        "name": "Radarstation Koralpe (Reinischkogel)",
-        "lat": 46.874,
-        "lon": 14.963,
-        "radius_km": 5.0,
+        # Radar-Komplex auf dem Großen Speikkogel (2.140 m MSL), höchster
+        # Gipfel der Koralpe, Grenze Kärnten/Steiermark.
+        # Betreiber: Austro Control (Sekundärradar Flugsicherung) +
+        #            Bundesheer (Goldhaube-Luftraumüberwachung).
+        # Die Antennenanlagen reflektieren das ARSO-Niederschlagsradar und
+        # erzeugen einen permanenten Falsch-Echo im Radarbild.
+        "name": "Großer Speikkogel – Radaranlagen Koralpe",
+        "lat": 46.7925,
+        "lon": 14.9825,
+        "radius_km": 8.0,
     },
 ]
