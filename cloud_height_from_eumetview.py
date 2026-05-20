@@ -131,12 +131,27 @@ def build_tiff_url(timestamp: str) -> str:
 
 
 def get_adaptive_nan_threshold(utc_hour: int) -> float:
+    """
+    BT-Schwelle (Kelvin) ÜBER der kein Konvektionswolkentop angenommen wird.
+    Nach _uint8_to_bt_kelvin liegt bt_k zwischen 180 K (Pixelwert 255, hohe
+    Wolke) und 330 K (Pixelwert 0, warme Erdoberfläche).
+
+    Physikalische Referenz MSG IR108:
+      < 220 K  = sehr hohe Wolke (Cb-Amboss)
+      220–250 K = hohe Wolke (Ci, hoher Cu)
+      250–265 K = mittelhohe Konvektionswolke
+      > 265 K  = warme Erdoberfläche oder tiefe Wolke → kein Wolkentop
+
+    Tagsüber (6–18 UTC): 265 K
+    Dämmerung (3–6 / 18–21 UTC): 260 K
+    Nachts: 255 K (IR-Kontrast besser, strengerer Threshold sinnvoll)
+    """
     if 6 <= utc_hour <= 18:
-        return 150.0
+        return 265.0
     elif 3 <= utc_hour < 6 or 18 < utc_hour <= 21:
-        return 140.0
+        return 260.0
     else:
-        return 130.0
+        return 255.0
 
 
 def find_matching_weather_file(timestamp_wms_str: str, weather_dir: str) -> str | None:
