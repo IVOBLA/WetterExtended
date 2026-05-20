@@ -1162,5 +1162,181 @@ def api_thresholds_add_range():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+# ── Gewitterrisiko-Grid ───────────────────────────────────────────────────────
+
+@app.route("/api/risk_grid")
+def api_risk_grid():
+    """
+    Berechnet ein Gewitterrisiko-Raster fuer Kaernten aus 3 unabhaengigen Quellen:
+      1. Aktive Sturmzellen + alle Forecast-Horizonte (Distanz-gewichtet)
+      2. Blitzdichte der letzten 20 Minuten (aus Blitzortung-Cache)
+      3. Atmosphaerische Instabilitaet (LI aus atmosphere_latest.json)
+    Das Grid ist UNABHAENGIG von erkannten Zellen.
+
+    Returns:
+      {
+        "grid_step": 0.05,
+        "cells": [{"lat":..., "lon":..., "risk":1-3, "color":"#..."}],
+        "ts": "YYYY-MM-DD_HH-MM-SS",
+        "sources": {"active_cells":N, "lightning":N, "atm_locations":N}
+      }
+    """
+    import math as _m
+    import glob as _g
+    from datetime import datetime, timezone, timedelta
+
+    GRID_STEP  = 0.05
+    LAT_MIN    = 46.15
+    LAT_MAX    = 47.20
+    LON_MIN    = 12.80
+    LON_MAX    = 15.45
+    CELL_RANGE = 60.0
+    BOLT_RANGE = 30.0
+    ATM_RANGE  = 45.0
+    RISK_COLORS = {1: "#facc15", 2: "#f97316", 3: "#dc2626"}
+    INT_WEIGHT  = {"leicht": 1.0, "maessig": 2.0, "stark": 3.0, "extrem": 4.0}
+    INT_WEIGHT_ALT = {"leicht": 1.0, "mäßig": 2.0, "stark": 3.0, "extrem": 4.0}
+
+    def _hav(la1, lo1, la2, lo2):
+        R    = 6371.0
+        dlat = _m.radians(la2 - la1)
+        dlon = _m.radians(lo2 - lo1)
+        a    = (_m.sin(dlat / 2) ** 2 +
+                _m.cos(_m.radians(la1)) * _m.cos(_m.radians(la2)) *
+                _m.sin(dlon / 2) ** 2)
+        return R * 2 * _m.atan2(_m.sqrt(a), _m.sqrt(1 - a))
+
+    # ── Quelle 1: Aktive Sturmzellen ──────────────────────────────────────────
+    obj_dir   = SAVE_PATHS.get("objects", "train_data/objects")
+    obj_files = sorted(_g.glob(os.path.join(obj_dir, "*.json")))
+    active_cells = []
+    last_ts = None
+    if obj_files:
+        last_ts = os.path.basename(obj_files[-1]).replace(".json", "")
+        try:
+            with open(obj_files[-1], encoding="utf-8") as _f:
+                all_objs = json.load(_f)
+            active_cells = [
+                o for o in all_objs
+                if o.get("missing", 0) == 0
+                and o.get("lat") is not None
+                and o.get("lon") is not None
+            ]
+        except Exception:
+            pass
+
+    # ── Quelle 2: Blitze der letzten 20 Min ──────────────────────────────────
+    bolt_dir   = SAVE_PATHS.get("lightning", "train_data/lightning")
+    bolt_files = sorted(_g.glob(os.path.join(bolt_dir, "*.json")))
+    strikes    = []
+    if bolt_files:
+        cutoff_ns = (datetime.now(timezone.utc) - timedelta(minutes=20)).timestamp() * 1e9
+        try:
+            with open(bolt_files[-1], encoding="utf-8") as _f:
+                raw = json.load(_f)
+            strikes = [
+                s for s in raw
+                if s.get("timestamp_ns", 0) >= cutoff_ns
+                and s.get("lat") is not None
+                and s.get("lon") is not None
+            ]
+        except Exception:
+            pass
+
+    # ── Quelle 3: Atmosphaerischer Snapshot (LI) ─────────────────────────────
+    atm_path = os.path.join(
+        SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/"),
+        "atmosphere_latest.json",
+    )
+    atm_locs = []
+    if os.path.exists(atm_path):
+        try:
+            with open(atm_path, encoding="utf-8") as _f:
+                snap = json.load(_f)
+            atm_locs = [
+                loc for loc in snap.get("locations", [])
+                if loc.get("lat") is not None
+                and loc.get("lon") is not None
+                and loc.get("li") is not None
+            ]
+        except Exception:
+            pass
+
+    # ── Grid berechnen ────────────────────────────────────────────────────────
+    cells_out = []
+    lat = LAT_MIN
+    while lat <= LAT_MAX + 1e-9:
+        lon = LON_MIN
+        while lon <= LON_MAX + 1e-9:
+            score = 0.0
+
+            # Sturmzellen + Forecast-Positionen
+            for cell in active_cells:
+                label = cell.get("intensity_label", "leicht")
+                iw = INT_WEIGHT_ALT.get(label, INT_WEIGHT.get(label, 1.0))
+
+                d = _hav(lat, lon, cell["lat"], cell["lon"])
+                if d < CELL_RANGE:
+                    score += iw * (1.0 - d / CELL_RANGE) ** 1.5
+
+                for hz, wt in ((10, 0.80), (20, 0.60), (30, 0.40), (40, 0.25)):
+                    flat = cell.get(f"forecast_lat_{hz}")
+                    flon = cell.get(f"forecast_lon_{hz}")
+                    if flat is None or flon is None:
+                        continue
+                    d = _hav(lat, lon, float(flat), float(flon))
+                    if d < CELL_RANGE:
+                        score += iw * wt * (1.0 - d / CELL_RANGE) ** 1.5
+
+            # Blitzdichte
+            for bolt in strikes:
+                d = _hav(lat, lon, float(bolt["lat"]), float(bolt["lon"]))
+                if d < BOLT_RANGE:
+                    score += 0.15 * (1.0 - d / BOLT_RANGE)
+
+            # Atmosphaerische Instabilitaet (LI)
+            for aloc in atm_locs:
+                d = _hav(lat, lon, float(aloc["lat"]), float(aloc["lon"]))
+                if d < ATM_RANGE:
+                    li = float(aloc["li"])
+                    w  = 1.0 - d / ATM_RANGE
+                    if li < -3.0:
+                        score += 0.80 * w
+                    elif li < -1.0:
+                        score += 0.40 * w
+
+            # Score → Risikostufe
+            if score >= 2.5:
+                risk = 3
+            elif score >= 1.0:
+                risk = 2
+            elif score >= 0.3:
+                risk = 1
+            else:
+                lon = round(lon + GRID_STEP, 6)
+                continue
+
+            cells_out.append({
+                "lat":   round(lat, 4),
+                "lon":   round(lon, 4),
+                "risk":  risk,
+                "color": RISK_COLORS[risk],
+            })
+
+            lon = round(lon + GRID_STEP, 6)
+        lat = round(lat + GRID_STEP, 6)
+
+    return jsonify({
+        "grid_step": GRID_STEP,
+        "cells":     cells_out,
+        "ts":        last_ts,
+        "sources": {
+            "active_cells":  len(active_cells),
+            "lightning":     len(strikes),
+            "atm_locations": len(atm_locs),
+        },
+    })
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=os.getenv("ADMIN_DEBUG") == "1")
