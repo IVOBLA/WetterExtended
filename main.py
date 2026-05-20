@@ -283,16 +283,50 @@ def main_loop():
 
             # ── Auto-Entwarnung (F47) ─────────────────────────────────────────
             _current_hit_names = {h["name"] for h in location_hits}
-            _cleared = _prev_location_hit_names - _current_hit_names
-            if _cleared:
+            _new_hit_names = _current_hit_names - _prev_location_hit_names
+            _cleared       = _prev_location_hit_names - _current_hit_names
+
+            # ── E-Mail: Neue Orts-Treffer ─────────────────────────────────
+            if _new_hit_names:
+                _loc_email_map = {
+                    loc.get("name", ""): loc.get("email", "")
+                    for loc in locations
+                    if loc.get("email", "").strip()
+                }
                 try:
-                    from sms_notifier import send_sms
-                    for _loc_name in sorted(_cleared):
-                        _msg = f"ENTWARNUNG: Kein Gewitter mehr in Richtung {_loc_name}."
-                        send_sms(_msg)
-                        debug_log(f"[SMS] Entwarnung gesendet: {_loc_name}")
+                    from email_notifier import send_warning_email
+                    for _loc_hit in location_hits:
+                        if _loc_hit["name"] not in _new_hit_names:
+                            continue
+                        _emails = _loc_email_map.get(_loc_hit["name"], "")
+                        if _emails:
+                            send_warning_email(
+                                _loc_hit["name"],
+                                _loc_hit["hits"],
+                                _emails,
+                                timestamp,
+                            )
+                            debug_log(f"[EMAIL] Warnung gesendet: {_loc_hit['name']}")
                 except Exception as _e:
-                    debug_log(f"[SMS] Entwarnung fehlgeschlagen: {_e}")
+                    debug_log(f"[EMAIL] Warnung fehlgeschlagen: {_e}")
+
+            # ── E-Mail: Entwarnung ────────────────────────────────────────
+            if _cleared:
+                _loc_email_map = {
+                    loc.get("name", ""): loc.get("email", "")
+                    for loc in locations
+                    if loc.get("email", "").strip()
+                }
+                try:
+                    from email_notifier import send_allclear_email
+                    for _loc_name in sorted(_cleared):
+                        _emails = _loc_email_map.get(_loc_name, "")
+                        if _emails:
+                            send_allclear_email(_loc_name, _emails)
+                            debug_log(f"[EMAIL] Entwarnung gesendet: {_loc_name}")
+                except Exception as _e:
+                    debug_log(f"[EMAIL] Entwarnung fehlgeschlagen: {_e}")
+
             _prev_location_hit_names = _current_hit_names
 
         else:
