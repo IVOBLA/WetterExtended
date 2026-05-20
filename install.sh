@@ -173,8 +173,9 @@ while [[ $# -gt 0 ]]; do
                           echo "                     ~/wetterprojekt/train_data/dataset/"
                           echo "                     ~/wetterprojekt/train_data/weather/"
                           echo "                     ~/wetterprojekt/train_data/dem_cache/"
-                          echo "                   Konfiguration (runtime_overrides.json) und"
-                          echo "                   evaluation/-Logs bleiben erhalten."
+                          echo "                   Konfiguration (.env, runtime_overrides.json)"
+                          echo "                   und DEM-Tiles bleiben erhalten."
+                          echo "                   evaluation/-Logs und systemd-Journal werden geleert."
                           echo ""
                           echo "  --no-hailo       Hailo-apt-Pakete nicht installieren"
                           echo "  --no-node        Node.js/npm nicht installieren (kein Frontend-Build)"
@@ -484,7 +485,26 @@ if [[ "$MODE" == "full" ]]; then
     echo ""
 else
     log_info "Upgrade-Modus: Trainingsdaten und Modelle bleiben erhalten."
+
+    # Laufende Services stoppen — neuer Code + neue pip-Pakete werden erst
+    # nach Neustart des Prozesses wirksam. Gestoppte Services werden am
+    # Ende von Phase 8 automatisch wieder gestartet.
+    _RUNNING_SERVICES=()
+    for _svc in wetterprojekt wetterprojekt-scheduler wetterprojekt-admin; do
+        if systemctl is-active --quiet "$_svc" 2>/dev/null; then
+            _RUNNING_SERVICES+=("$_svc")
+        fi
+    done
+    if [[ ${#_RUNNING_SERVICES[@]} -gt 0 ]]; then
+        log_info "Stoppe Services vor Upgrade: ${_RUNNING_SERVICES[*]}"
+        sudo systemctl stop "${_RUNNING_SERVICES[@]}" 2>/dev/null || true
+        _RESTART_AFTER_UPGRADE=true
+    else
+        _RESTART_AFTER_UPGRADE=false
+    fi
 fi
+# full-Modus: Flag initialisieren (Services werden über ENABLE_SERVICES behandelt)
+[[ "$MODE" == "full" ]] && _RESTART_AFTER_UPGRADE=false
 
 # Bei full-Modus: Journal + Evaluation-Logs leeren (sonst sieht /logs nach
 # Neuinstallation noch alle Logs der alten Installation)
@@ -518,7 +538,7 @@ echo "[INSTALL] Modus: $MODE | no-hailo: $NO_HAILO | no-node: $NO_NODE"
 CURRENT_PHASE="Phase 4 — System-Dependencies"
 log_step "Phase 4 — System-Dependencies"
 
-if [[ "$SYSTEM_DEPS_ENABLED" == true ]]; then
+if [[ "$SYSTEM_DEPS_ENABLED" == true && ( "$MODE" == "full" || "${UPDATE_DEPS:-false}" == "true" ) ]]; then
     log_info "Aktualisiere Paketliste..."
     sudo apt-get update -qq && APT_UPDATED=true
 
@@ -543,13 +563,20 @@ if [[ "$SYSTEM_DEPS_ENABLED" == true ]]; then
     sudo apt-get install -y "${APT_PKGS[@]}" 2>&1 | grep -E "^(Inst|Err)" || true
     log_info "APT-Pakete installiert."
 
-    # Zeitsync erzwingen — falsches Systemdatum bricht TLS-Verbindungen
-    log_info "Synchronisiere Systemzeit (NTP)..."
-    sudo systemctl enable ntp --now 2>/dev/null || true
-    sudo ntpdate -u pool.ntp.org 2>/dev/null \
-        || sudo timedatectl set-ntp true 2>/dev/null \
-        || log_warn "Zeitsync nicht möglich — bitte manuell prüfen: timedatectl"
-    log_info "Systemzeit: $(date)"
+    # Zeitsync erzwingen — Bookworm nutzt systemd-timesyncd statt ntpdate
+    log_info "Synchronisiere Systemzeit..."
+    sudo timedatectl set-ntp true 2>/dev/null || true
+    for _i in 1 2 3 4 5; do
+        _sync=$(timedatectl show --property=NTPSynchronized --value 2>/dev/null || echo "no")
+        if [[ "$_sync" == "yes" ]]; then break; fi
+        sleep 1
+    done
+    _sync_status=$(timedatectl show --property=NTPSynchronized --value 2>/dev/null || echo "unbekannt")
+    if [[ "$_sync_status" == "yes" ]]; then
+        log_info "Systemzeit synchronisiert: $(date)"
+    else
+        log_warn "NTP-Sync ausstehend (läuft im Hintergrund) — Systemzeit: $(date)"
+    fi
 
     # CA-Zertifikate neu aufbauen
     log_info "Aktualisiere CA-Zertifikate..."
@@ -1157,7 +1184,25 @@ if [[ "$ENABLE_SERVICES" == true ]]; then
     done
 else
     log_warn "Services werden nicht aktiviert (--enable-services nicht gesetzt)."
-    note_manual "sudo systemctl daemon-reload && sudo systemctl enable --now wetterprojekt wetterprojekt-scheduler wetterprojekt-admin"
+    # Im upgrade-Modus: vorher gestoppte Services automatisch neu starten
+    if [[ "${_RESTART_AFTER_UPGRADE:-false}" == "true" && ${#_RUNNING_SERVICES[@]} -gt 0 ]]; then
+        log_info "Starte Services nach Upgrade neu..."
+        sudo systemctl daemon-reload 2>/dev/null || true
+        for _svc in "${_RUNNING_SERVICES[@]}"; do
+            sudo systemctl reset-failed "$_svc" 2>/dev/null || true
+            if sudo systemctl start "$_svc" 2>/dev/null; then
+                sleep 2
+                systemctl is-active --quiet "$_svc" \
+                    && check_ok "$_svc neu gestartet" \
+                    || check_warn "$_svc gestartet aber nicht aktiv — prüfen: journalctl -u $_svc -n 20"
+            else
+                log_warn "$_svc konnte nicht gestartet werden"
+                note_manual "sudo systemctl start $_svc && journalctl -u $_svc -n 30"
+            fi
+        done
+    else
+        note_manual "sudo systemctl daemon-reload && sudo systemctl enable --now wetterprojekt wetterprojekt-scheduler wetterprojekt-admin"
+    fi
 fi
 
 # ==============================================================================
