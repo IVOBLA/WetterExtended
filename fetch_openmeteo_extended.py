@@ -10,10 +10,14 @@ from api_cache import cache_key, cache_get, cache_set, get_ttl
 _MODEL_15MIN = "icon_d2"
 # icon_global: Globales Modell, hat 500/850-hPa-Druckflächen
 _MODEL_PRESSURE = "icon_global"
+# icon_eu: Einzige Open-Meteo-Quelle für lightning_potential_index.
+# icon_d2 liefert LPI NICHT → HTTP 400 bei Verwendung von icon_d2.
+# Verifiziert: Open-Meteo API-Dokumentation, Stand 2026-05.
+_MODEL_LPI = "icon_eu"
 _TIMEZONE = "UTC"
 _TIMEOUT = 15
 _MINUTELY_PARAMS = "wind_gusts_10m"
-_HOURLY_LPI_PARAMS = "lightning_potential_index"   # icon_d2 hourly (kein minutely_15)
+_HOURLY_LPI_PARAMS = "lightning_potential_index"   # icon_eu hourly
 _PRESSURE_PARAMS = (
     "wind_speed_500hPa,wind_direction_500hPa,"
     "wind_speed_850hPa,wind_direction_850hPa"
@@ -101,12 +105,12 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
             log_api_failure("openmeteo_extended_pressure", url_b, str(exc)[:80], fallback_used=True)
             data_b = None
 
-    # ── Request C: hourly LPI (icon_d2) — lightning_potential_index ist
-    #    kein minutely_15-Parameter, nur als hourly verfügbar. ──────────────
+    # ── Request C: hourly LPI (icon_eu) — lightning_potential_index ist
+    #    nur in icon_eu verfügbar (icon_d2 liefert es nicht → HTTP 400).
     url_c = (
         f"{OPEN_METEO_URL}?latitude={lats}&longitude={lons}"
         f"&hourly={_HOURLY_LPI_PARAMS}"
-        f"&models={_MODEL_15MIN}&timezone={_TIMEZONE}&forecast_days=1"
+        f"&models={_MODEL_LPI}&timezone={_TIMEZONE}&forecast_days=1"
     )
     ck_c = cache_key("openmeteo:extended_lpi", lats[:60], _nearest_hour_str())
     data_c = cache_get(ck_c, ttl_seconds=get_ttl("openmeteo_extended", 900))
