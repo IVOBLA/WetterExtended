@@ -415,7 +415,7 @@ export default function MapFullscreen() {
               <Polygon
                 positions={outerPos}
                 pathOptions={{ color: borderColor, weight: 2, fillColor: '#ff8800', fillOpacity: 0.25, interactive:true }}
-                eventHandlers={{ click: (e) => { e.target.openPopup() } }}
+                eventHandlers={{ click: (e) => { e.target.openPopup(e.latlng) } }}
               >
                 <Popup autoPan={true} keepInView={true}>
                   <div><b>{o.id}</b> ({o.lineage})</div>
