@@ -642,6 +642,53 @@ def api_logs():
     })
 
 
+@app.route("/api/logs/clear", methods=["POST"])
+def api_logs_clear():
+    """
+    Löscht alle JSONL-Log-Dateien in train_data/evaluation/.
+    Wird vom Logs-Frontend über den 'Alle Logs löschen'-Button aufgerufen.
+
+    Gelöscht:  api_health.jsonl, api_call_counts.jsonl, cells_log.jsonl, cleanup_log.jsonl
+    Erhalten:  Modelle, Trainingsdaten, accuracy_*.json, ai_suggestions/, atmosphere_latest.json
+    """
+    _eval_dir = SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/")
+    _log_files = [
+        "api_health.jsonl",
+        "api_call_counts.jsonl",
+        "cells_log.jsonl",
+        "cleanup_log.jsonl",
+    ]
+    deleted = []
+    errors  = []
+    for fname in _log_files:
+        fpath = os.path.join(_eval_dir, fname)
+        try:
+            if os.path.exists(fpath):
+                os.remove(fpath)
+                deleted.append(fname)
+        except Exception as exc:
+            errors.append(f"{fname}: {exc}")
+
+    # systemd-Journal für Wetterprojekt-Services leeren
+    journal_ok = True
+    try:
+        for _unit in ["wetterprojekt", "wetterprojekt-scheduler", "wetterprojekt-admin"]:
+            subprocess.run(
+                ["sudo", "journalctl", "--vacuum-time=1s", f"--unit={_unit}"],
+                check=False, capture_output=True,
+            )
+    except Exception as exc:
+        journal_ok = False
+        errors.append(f"journalctl: {exc}")
+
+    return jsonify({
+        "ok":         len(errors) == 0,
+        "deleted":    deleted,
+        "journal_ok": journal_ok,
+        "errors":     errors,
+    })
+
+
 
 # ---------- KI-Analyse-Pipeline ----------
 @app.route("/api/ai_analysis/config")
