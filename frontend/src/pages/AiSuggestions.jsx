@@ -52,6 +52,8 @@ export default function AiSuggestions() {
   const [cfg, setCfg] = useState({
     enabled: false, cron_hour: 6, cron_minute: 0,
     since_hours: 24, max_tokens: 3000, report_email: '',
+    cron_days: 'mon,tue,wed,thu,fri,sat,sun',
+    only_if_cells: false,
   })
   const [testEmailStatus, setTestEmailStatus] = useState(null)  // null | 'sending' | 'ok' | 'error'
   const [testEmailMsg,    setTestEmailMsg]    = useState('')
@@ -253,6 +255,27 @@ export default function AiSuggestions() {
             <input className="input" type="number" min="500" max="4000" step="100"
               value={cfg.max_tokens}
               onChange={e => setCfg({ ...cfg, max_tokens: parseInt(e.target.value) || 3000 })} />
+          </div>
+          <div className="md:col-span-2">
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <div
+                onClick={() => setCfg({ ...cfg, only_if_cells: !cfg.only_if_cells })}
+                className={`w-11 h-6 rounded-full transition-colors flex items-center px-0.5
+                  ${cfg.only_if_cells ? 'bg-blue-600' : 'bg-gray-300'}`}
+              >
+                <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform
+                  ${cfg.only_if_cells ? 'translate-x-5' : 'translate-x-0'}`} />
+              </div>
+              <div>
+                <span className="font-medium text-sm">
+                  Nur ausführen wenn heute Sturmzellen erkannt wurden
+                </span>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  An ruhigen Tagen ohne Radar-Treffer wird die Analyse (und E-Mail)
+                  übersprungen. Spart API-Kosten.
+                </p>
+              </div>
+            </label>
           </div>
         </div>
         <div className="mt-3">
