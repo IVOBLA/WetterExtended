@@ -2,7 +2,7 @@ import glob
 import json
 import os
 from datetime import datetime
-from math import cos, pi, sin
+from math import cos, pi, radians, sin
 
 import importlib
 import importlib.util
@@ -87,8 +87,21 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
         origin_x = _safe_float(obj.get("x", 0.0))
         origin_y = _safe_float(obj.get("y", 0.0))
         if origin_x == 0.0 and origin_y == 0.0:
-            lat = _safe_float(obj.get("lat", 0.0))
-            lon = _safe_float(obj.get("lon", 0.0))
+            base_lat = _safe_float(obj.get("lat", 0.0))
+            base_lon = _safe_float(obj.get("lon", 0.0))
+            if base_lat == 0.0 and base_lon == 0.0:
+                lat, lon = 0.0, 0.0
+            else:
+                # Kinematische Verschiebung auf lat/lon-Basis.
+                # avg_vx/vy: Pixel/Minute (Kalman), horizon: Minuten.
+                # ARSO nativ ~2 km/Pixel, UPSCALE_FACTOR=3 → 0.667 km/px.
+                _KM_PER_PX = 2.0 / 3.0
+                _dlat = -(avg_vy * horizon * _KM_PER_PX) / 111.0
+                _dlon = (avg_vx * horizon * _KM_PER_PX) / (
+                    111.0 * cos(radians(max(abs(base_lat), 0.001)))
+                )
+                lat = base_lat + _dlat
+                lon = base_lon + _dlon
         else:
             lat, lon = pixel_to_geo(x_pred, y_pred)
         obj[f"forecast_x_{horizon}"]   = float(x_pred)
