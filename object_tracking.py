@@ -107,10 +107,15 @@ def calculate_shape_features(contour):
     area = cv2.contourArea(contour)
     perimeter = cv2.arcLength(contour, True)
     if area == 0:
-        eccentricity = 0
+        eccentricity = 0.0
+    elif len(contour) >= 5:
+        # fitEllipse erfordert ≥5 Punkte
+        (x, y), (MA, ma), angle = cv2.fitEllipse(contour)
+        eccentricity = ma / MA if MA > 0 else 1.0
     else:
-        (x, y), (MA, ma), angle = cv2.fitEllipse(contour) if len(contour) >= 5 else ((0, 0), (0, 0), 0)
-        eccentricity = ma / MA if MA > 0 else 0
+        # <5 Punkte → kein Ellipsen-Fit möglich → kreisförmig annehmen (1.0)
+        # 0 wäre physikalisch falsch und würde data_quality.py-Filter auslösen
+        eccentricity = 1.0
     return area, eccentricity
 
 def merge_close_contours(contours, image_shape, min_touch=3):
