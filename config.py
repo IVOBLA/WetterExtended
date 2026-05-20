@@ -353,6 +353,8 @@ AI_ANALYSIS_CONFIG = {
     "enabled": False,           # Master-Schalter
     "cron_hour": 6,             # Uhrzeit des täglichen Analyselaufs
     "cron_minute": 0,
+    "cron_days": "mon,tue,wed,thu,fri,sat,sun",  # Wochentage (APScheduler-Format, leer = alle)
+    "only_if_cells": False,  # True = Analyse nur wenn heute Sturmzellen erkannt wurden
     "model": "claude-sonnet-4-6",
     "max_tokens": 3000,         # mind. 2500 fuer vollstaendiges JSON mit 8 Suggestions
     "since_hours": 24,          # Datenfenster für den Report
