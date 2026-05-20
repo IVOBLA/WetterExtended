@@ -357,6 +357,7 @@ AI_ANALYSIS_CONFIG = {
     "max_tokens": 3000,         # mind. 2500 fuer vollstaendiges JSON mit 8 Suggestions
     "since_hours": 24,          # Datenfenster für den Report
     "save_suggestions": True,   # Vorschläge als JSON persistieren
+    "report_email": "",         # E-Mail-Empfänger für täglichen KI-Report (leer = kein Versand)
 }
 AI_SUGGESTIONS_DIR = "train_data/evaluation/ai_suggestions"
 
