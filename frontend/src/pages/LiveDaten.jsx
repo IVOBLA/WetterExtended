@@ -33,6 +33,21 @@ function windDirDeg(cos_val, sin_val) {
 // px/Frame → km/h (Upscale-Faktor 3, ~2 km/px, Zyklus 120s)
 const PX_TO_KMH = (1 / 3.0) * 2.0 * (3600 / 120)
 
+// Timestamp "YYYY-MM-DD_HH-MM-SS" → Date
+const parseTs = ts => {
+  if (!ts) return null
+  const [date, time] = ts.split('_')
+  if (!date || !time) return null
+  return new Date(`${date}T${time.replace(/-/g, ':')}`)
+}
+
+// Dauer in Minuten seit einem Timestamp
+const durMin = ts => {
+  const d = parseTs(ts)
+  if (!d) return null
+  return Math.round((Date.now() - d.getTime()) / 60000)
+}
+
 export default function LiveDaten() {
   const [objects, setObjects]   = useState([])
   const [lastTs, setLastTs]     = useState(null)
@@ -88,6 +103,7 @@ export default function LiveDaten() {
               <thead>
                 <tr className="border-b text-xs text-gray-500 uppercase">
                   <th className="p-2 text-left">ID</th>
+                  <th className="p-2 text-left">Seit</th>
                   <th className="p-2 text-left">Position</th>
                   <th className="p-2 text-right">Größe</th>
                   <th className="p-2 text-right">Core</th>
@@ -112,6 +128,24 @@ export default function LiveDaten() {
                     onClick={() => setSelected(selected === o.id ? null : o.id)}
                   >
                     <td className="p-2 font-mono font-semibold text-blue-700">{o.id}</td>
+                    <td className="p-2 text-xs">
+                      {o.first_seen
+                        ? (() => {
+                            const d = parseTs(o.first_seen)
+                            const m = durMin(o.first_seen)
+                            return (
+                              <>
+                                <span className="font-medium">
+                                  {d ? d.toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                                </span>
+                                {m != null && (
+                                  <span className="text-gray-400 ml-1">({m} min)</span>
+                                )}
+                              </>
+                            )
+                          })()
+                        : <span className="text-gray-300">—</span>}
+                    </td>
                     <td className="p-2 text-xs text-gray-600">
                       {o.lat?.toFixed(3)}°N {o.lon?.toFixed(3)}°E
                     </td>
@@ -214,6 +248,25 @@ export default function LiveDaten() {
                   dBZ-Gradient: <Val v={sel.strat_dbz_gradient} decimals={4} />
                 </Group>
                 <Group label="Tracking">
+                  {sel.first_seen && (() => {
+                    const d = parseTs(sel.first_seen)
+                    const m = durMin(sel.first_seen)
+                    return (
+                      <>
+                        Seit:{' '}
+                        <span className="font-medium">
+                          {d ? d.toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                        </span><br />
+                        Dauer:{' '}
+                        {m != null ? `${m} min` : '—'}
+                        {sel.total_active_frames != null && (
+                          <span className="text-gray-500 ml-1">
+                            · {sel.total_active_frames} Frame{sel.total_active_frames !== 1 ? 's' : ''}
+                          </span>
+                        )}<br />
+                      </>
+                    )
+                  })()}
                   Lineage: {sel.lineage ?? '—'}<br />
                   Trend: {sel.trend === 1 ? '↑ Intensivierung' : sel.trend === -1 ? '↓ Abschwächung' : '→ Stabil'}<br />
                   Missing: {sel.missing ?? 0} Frames
