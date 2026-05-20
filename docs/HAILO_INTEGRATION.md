@@ -64,24 +64,33 @@ nur Abschnitt ersetzt wird, mit exakten Such-/Ersatz-Strings.
 - **Raspberry Pi OS Bookworm 64-bit** mit Kernel ≥ 6.6
 - **PCIe Gen3** aktiviert in `/boot/firmware/config.txt`
 
-### 2.2 Was NICHT vorhanden ist
-- Kein zweiter Raspberry Pi (auch keiner geplant)
-- Kein x86-Linux-Rechner — wird am Übergang **Phase A → B** angeschafft
+### 2.2 Linux-Trainer-Rechner (vorhanden ab Mai 2026)
 
-### 2.3 Geplante Rollenverteilung
+**Lenovo ThinkCentre M910q Tiny**
+- CPU: Intel Core i7-6700T @ 2,8 GHz (4 Kerne / 8 Threads)
+- RAM: 16 GB
+- SSD: 512 GB
+- OS: **Ubuntu Linux** (x86-64)
+
+Hailo DFC läuft **nativ** auf diesem Rechner — kein WSL2, kein Docker-Umweg nötig.
+
+**Setup-Reihenfolge für Phase B (einmalig):**
+1. Hailo DFC installieren: `pip install hailo-dataflow-compiler` (x86-Linux-only Paket)
+2. Python-Trainingsumgebung: `pip install torch lightgbm onnx`
+3. SSH-Key Pi → M910q einrichten für rsync-Transfer
+4. Modell-Sync-Script: `rsync -avz models/ ki-pi@<pi-ip>:~/wetterprojekt/train_data/models/`
+
+### 2.3 Rollenverteilung
 
 | Rechner | Rolle | Phase | Hauptaufgaben |
 |---------|-------|-------|---------------|
 | **Raspberry Pi 5 + Hailo-8** | Edge | A + B + C | Live-Loop, Inferenz, Datensammlung, Admin-Panel |
-| **x86-Linux-Rechner** | **Trainer + DFC-Build** | B + C | Modell-Training (LSTM/LGBM/ConvLSTM/U-Net), ONNX-Export, Hailo DFC-Build (HEF), kein Live-Loop |
+| **Lenovo M910q (Ubuntu)** | **Trainer (only)** | B + C | Modell-Training, ONNX-Export, DFC-Build nativ, kein Live-Loop |
 
-**Wichtig:** Der Linux-Rechner hat zwei gleichwertige Aufgaben:
-1. **Training** — alle Modelle (LSTM, LightGBM, ConvLSTM, U-Net) auf schnellerer Hardware
-2. **Hailo DFC-Build** — Hailo Dataflow Compiler läuft **physisch nur auf x86-Linux**, nicht auf ARM/Pi
-
-Der Linux-Rechner übernimmt keine Inferenz und keine Live-Loop-Funktionen.
-Im Falle eines Pi-Ausfalls ist KEIN Failover auf den Linux-Rechner vorgesehen —
-der Pi ist die einzige Inferenz-Instanz.
+**Wichtig:** Der Linux-Rechner ist ausschließlich Trainer. Er übernimmt keine
+Inferenz und keine Live-Loop-Funktionen. Im Falle eines Pi-Ausfalls ist KEIN
+Failover auf den Linux-Rechner vorgesehen — der Pi ist die einzige
+Inferenz-Instanz.
 
 ---
 
@@ -117,7 +126,7 @@ rechtfertigt nur Modelle die ohne Hailo zu langsam wären.
 
 ### Pre-Conditions
 - ✅ Phase B startet erst NACH vollständiger Phase A → **Phase A ist abgeschlossen**
-- ⏳ Linux-Rechner-Anschaffung am Übergang A → B (steht noch aus)
+- ✅ Linux-Rechner (Lenovo M910q, Ubuntu) vorhanden — Hailo DFC direkt installierbar
 - ✅ Phase A hat alle Hooks für Linux-Rechner vorbereitet (`LOCAL_TRAINING`-Flag, rsync-Skripte, `/api/hailo/reload`)
 
 ---
