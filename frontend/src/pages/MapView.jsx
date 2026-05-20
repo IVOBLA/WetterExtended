@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react'
 import {
   MapContainer, TileLayer, CircleMarker, Polyline,
   Polygon, Circle, Popup, ImageOverlay, Tooltip,
-  useMapEvents,
+  useMapEvents, Rectangle,
 } from 'react-leaflet'
 import api from '../api.js'
 import {
@@ -320,6 +320,8 @@ export default function MapView() {
   const [radarTs,        setRadarTs]        = useState(0)
   const [lightning,      setLightning]      = useState([])
   const [showLightning,  setShowLightning]  = useState(true)
+  const [showRisk,      setShowRisk]      = useState(false)
+  const [riskGrid,      setRiskGrid]      = useState([])
   const [lightningAge,   setLightningAge]   = useState(30)  // Minuten
 
   // Animation
@@ -468,6 +470,18 @@ export default function MapView() {
     setHitlLoading(false)
   }, [])
 
+  // Risiko-Grid laden — alle 60 s, unabhaengig von frames/lightning
+  useEffect(() => {
+    function loadRisk() {
+      api.get('/api/risk_grid')
+        .then(d => setRiskGrid(d.cells || []))
+        .catch(() => {})
+    }
+    loadRisk()
+    const t = setInterval(loadRisk, 60_000)
+    return () => clearInterval(t)
+  }, [])
+
   return (
     <div>
       <h1 className="text-2xl font-bold mb-3">Live-Karte</h1>
@@ -529,6 +543,12 @@ export default function MapView() {
               <option key={m} value={m}>{m} min</option>
             ))}
           </select>
+        </label>
+        <label className="flex items-center gap-1 cursor-pointer select-none text-xs">
+          <input type="checkbox" checked={showRisk}
+            onChange={e => setShowRisk(e.target.checked)}
+            className="accent-red-500" />
+          <span>🌩 Risikozonen</span>
         </label>
         <button onClick={load}
           className="text-xs text-blue-600 hover:text-blue-800 underline ml-auto">↺ Neu laden</button>
@@ -792,6 +812,23 @@ export default function MapView() {
             </CircleMarker>
           )
         })}
+        {/* Gewitterrisiko-Grid — farbige Flaechen ohne Rand, unabhaengig von Zellen */}
+        {showRisk && riskGrid.map((cell, i) => (
+          <Rectangle
+            key={'risk_' + i}
+            bounds={[
+              [cell.lat - 0.025, cell.lon - 0.025],
+              [cell.lat + 0.025, cell.lon + 0.025],
+            ]}
+            pathOptions={{
+              weight:      0,
+              stroke:      false,
+              fillColor:   cell.color,
+              fillOpacity: cell.risk === 3 ? 0.55 : cell.risk === 2 ? 0.45 : 0.35,
+            }}
+          />
+        ))}
+
         {/* Blitz-Layer (F50) — deaktivierbar, nur letzter Frame */}
         {showLightning && (currentIdx === frames.length - 1 || frames.length === 0) &&
           lightning.map((s, i) => {

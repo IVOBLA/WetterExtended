@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
 import {
   MapContainer, TileLayer, CircleMarker,
-  Polyline, Polygon, Circle, Popup, ImageOverlay, Tooltip,
+  Polyline, Polygon, Circle, Popup, ImageOverlay, Tooltip, Rectangle,
 } from 'react-leaflet'
 import {
   MAP_CENTER_KAERNTEN,
@@ -103,6 +103,8 @@ export default function MapFullscreen() {
   const [radarTs,        setRadarTs]        = useState(0)
   const [lightning,      setLightning]      = useState([])
   const [showLightning,  setShowLightning]  = useState(true)
+  const [showRisk,      setShowRisk]      = useState(false)
+  const [riskGrid,      setRiskGrid]      = useState([])
   const [lightningAge,   setLightningAge]   = useState(30)  // Minuten
   const [frames,       setFrames]       = useState([])
   const [currentIdx,   setCurrentIdx]   = useState(-1)
@@ -234,6 +236,18 @@ export default function MapFullscreen() {
     return () => { if (frameLoadTimer.current) clearTimeout(frameLoadTimer.current) }
   }, [currentIdx, frames])
 
+  // Risiko-Grid laden — alle 60 s, unabhaengig von frames/lightning
+  useEffect(() => {
+    function loadRisk() {
+      api.get('/api/risk_grid')
+        .then(d => setRiskGrid(d.cells || []))
+        .catch(() => {})
+    }
+    loadRisk()
+    const t = setInterval(loadRisk, 60_000)
+    return () => clearInterval(t)
+  }, [])
+
   const fmtTime = utcStr => utcStr
     ? new Date(utcStr).toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })
     : '—'
@@ -345,6 +359,12 @@ export default function MapFullscreen() {
                   <option key={m} value={m}>{m} min</option>
                 ))}
               </select>
+            </label>
+            <label style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer' }}>
+              <input type="checkbox" checked={showRisk}
+                onChange={e => setShowRisk(e.target.checked)}
+                style={{ accentColor: '#ef4444' }} />
+              <span>🌩 Risikozonen</span>
             </label>
 
             {lastTs && (
@@ -582,6 +602,23 @@ export default function MapFullscreen() {
             </CircleMarker>
           )
         })}
+        {/* Gewitterrisiko-Grid — farbige Flaechen ohne Rand, unabhaengig von Zellen */}
+        {showRisk && riskGrid.map((cell, i) => (
+          <Rectangle
+            key={'risk_' + i}
+            bounds={[
+              [cell.lat - 0.025, cell.lon - 0.025],
+              [cell.lat + 0.025, cell.lon + 0.025],
+            ]}
+            pathOptions={{
+              weight:      0,
+              stroke:      false,
+              fillColor:   cell.color,
+              fillOpacity: cell.risk === 3 ? 0.55 : cell.risk === 2 ? 0.45 : 0.35,
+            }}
+          />
+        ))}
+
         {/* Blitz-Layer (F50) — deaktivierbar, nur letzter Frame */}
         {showLightning && (currentIdx === frames.length - 1 || frames.length === 0) &&
           lightning.map((s, i) => {
