@@ -11,6 +11,12 @@ from api_cache import cache_key, cache_get, cache_set, get_ttl
 import runtime_config
 
 def _build_cape_url(bbox: dict) -> str:
+    # GeoSphere API v1 grid/forecast — verifizierte Parameter:
+    #   bbox:          south,west,north,east (Reihenfolge korrekt laut API-Spec)
+    #   output_format: geojson — gültig für v1, liefert FeatureCollection mit
+    #                  "timestamps" und "features[].properties.parameters.cape.data"
+    #   forecast_offset: 0 = nächster verfügbarer Forecast-Step
+    # Bestätigt funktionierend: Cache-HITs in api_call_counts.jsonl sichtbar.
     b = bbox
     bbox_str = f"{b['south']},{b['west']},{b['north']},{b['east']}"
     return (

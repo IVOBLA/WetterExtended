@@ -30,7 +30,11 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
         ck=cache_key("geosphere:nowcast", lat, lon, _cache_hour)
         cached=cache_get(ck, ttl_seconds=_TTL)
         if cached is not None: obj.update(cached); continue
-        # GeoSphere FastAPI erwartet wiederholte Parameter (nicht kommasepariert)
+        # GeoSphere FastAPI erwartet WIEDERHOLTE Query-Parameter für "parameters"
+        # — NICHT kommasepariert! ?parameters=rr&parameters=ff&parameters=ffx
+        # Kommasepariert (?parameters=rr,ff,ffx) liefert HTTP 422 (Validation Error).
+        # requests.get(..., params=[(...), (...)]) baut automatisch die korrekte URL.
+        # Verifiziert: GeoSphere Nowcast v1 API-Spec (dataset.api.hub.geosphere.at).
         _qparams = [
             ("lat",        lat),
             ("lon",        lon),

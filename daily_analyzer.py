@@ -218,6 +218,22 @@ def build_system_report(since_hours: int = 24) -> dict:
     except Exception as exc:
         debug_log(f"[ANALYZER] accuracy Fehler: {exc}")
 
+    # --- API-Erfolgs-Nachweis (verhindert False Findings durch fehlenden Kontext) ---
+    try:
+        from debug_utils import api_call_summary
+        calls = api_call_summary(since_hours=since_hours)
+        report["api_success_evidence"] = {
+            svc: {"calls": info.get("calls", 0), "errors": info.get("errors", 0),
+                  "success_rate": round(
+                      (info.get("calls", 0) - info.get("errors", 0)) /
+                      max(info.get("calls", 0), 1) * 100, 1
+                  )}
+            for svc, info in calls.get("by_service", {}).items()
+            if info.get("calls", 0) > 0
+        }
+    except Exception as exc:
+        debug_log(f"[ANALYZER] api_success_evidence Fehler: {exc}")
+
     # --- API-Health ---
     try:
         from debug_utils import api_health_summary

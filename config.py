@@ -188,9 +188,12 @@ MAX_CELL_SPEED_KMH: float = 150.0
 MAX_SPEED_CHANGE_PER_CYCLE_KMH: float = 60.0
 
 # was_active Flag: True sobald core_ratio diesen Schwellwert je überschritten hat.
-# Sticky — bleibt True bis Zelle aus Tracking fällt. Missing-Limit bleibt 10 für alle.
-# core_ratio = Anteil orange/rot/violett Pixel an Gesamtzelle.
-# 0.25 = 25% konvektiver Kern → eindeutig konvektiv, kein Rauschen.
+# Sticky — bleibt True bis Zelle aus Tracking fällt. Missing-Limit bleibt 10.
+# core_ratio = Anteil Rot+Violett (≥54 dBZ) Pixel an Gesamtzelle.
+# Orange (48-51 dBZ) ist NICHT im Kern — siehe CORE_HSV_RANGES (3 Einträge).
+# 0.25 = 25% echter Kern → eindeutig konvektiv-intensiv, kein reiner Regen.
+# Bei nur Rot+Violett ist 0.25 realistisch für Gewitterzellen (früher war
+# Orange eingeschlossen → threshold konnte leichter erreicht werden).
 WAS_ACTIVE_CORE_RATIO_THRESHOLD: float = 0.25
 
 # Wie lange inaktive Zellen (missing > 0) weitergetrackt werden.

@@ -25,6 +25,9 @@ _OUT_FILE       = os.path.join(
 )
 
 # icon_d2 liefert keinen nativen lifted_index — nur regional verfügbare Parameter
+# Open-Meteo icon_d2 AROME-Parameter — alle verifiziert, liefern echte Werte
+# (sichtbar auf Atmosphäre-Seite /atmosphaere mit realen Messwerten).
+# "dewpoint_2m" ist der korrekte Parametername (nicht "dew_point_2m").
 _AROME_PARAMS = ",".join([
     "temperature_2m", "dewpoint_2m",
     "wind_speed_10m", "wind_direction_10m",
