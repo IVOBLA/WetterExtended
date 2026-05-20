@@ -34,6 +34,7 @@ except ImportError:
     HAS_RASTERIO = False
 
 try:
+    import numpy as _np_check  # noqa: F401 — nur Import-Test
     HAS_NUMPY = True
 except ImportError:
     HAS_NUMPY = False
@@ -50,7 +51,13 @@ WIDTH  = 1600
 HEIGHT = 600
 LAYER  = "msg_fes:ir108"
 FORMAT = "image/geotiff"
-CRS    = "EPSG:4326"
+# WMS 1.3.0 + EPSG:4326: Achsenreihenfolge Lat,Lon → BBOX-Interpretation falsch.
+# Code sendet west,south,east,north (Lon,Lat) → Server interpretiert als Lat,Lon
+# → völlig falsches Gebiet → TIFF: nur 0–3 statt 0–255 BT-Grauwerte.
+# WMS 1.1.1: BBOX immer Lon,Lat,Lon,Lat unabhängig vom CRS → korrekt.
+_WMS_VERSION = "1.1.1"    # 1.3.0 → 1.1.1
+_WMS_SRS_KEY = "srs"      # WMS 1.3.0 nutzt "crs=", WMS 1.1.1 nutzt "srs="
+CRS = "EPSG:4326"
 
 SAVE_DIR            = SAVE_PATHS.get("cloud", "train_data/cloud/")
 LAST_TIMESTAMP_FILE = os.path.join(SAVE_DIR, "last_wms_timestamp.txt")
@@ -116,9 +123,9 @@ def build_tiff_url(timestamp: str) -> str:
     bbox_str = f"{BBOX[0]},{BBOX[1]},{BBOX[2]},{BBOX[3]}"
     return (
         f"https://view.eumetsat.int/geoserver/wms?"
-        f"service=WMS&version=1.3.0&request=GetMap"
-        f"&layers={LAYER}&styles=&format={FORMAT}&transparent=true"
-        f"&crs={CRS}&bbox={bbox_str}&width={WIDTH}&height={HEIGHT}"
+        f"service=WMS&version={_WMS_VERSION}&request=GetMap"
+        f"&layers={LAYER}&styles=&format={FORMAT}&transparent=false"
+        f"&{_WMS_SRS_KEY}={CRS}&bbox={bbox_str}&width={WIDTH}&height={HEIGHT}"
         f"&time={timestamp}"
     )
 
