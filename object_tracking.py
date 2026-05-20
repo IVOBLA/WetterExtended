@@ -485,6 +485,9 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             prev_first_seen = previous_snapshot.get(obj_id, {}).get("first_seen")
             obj_clean["first_seen"] = prev_first_seen if prev_first_seen else timestamp
             obj_clean["active_frames"] = len(obj_clean.get("history", []))
+            # total_active_frames: unbegrenzter Zähler seit first_seen (history_len gekappt)
+            _prev_total = previous_snapshot.get(obj_id, {}).get("total_active_frames", 0)
+            obj_clean["total_active_frames"] = _prev_total + 1
             objects.append({"id": obj_id, **obj_clean})
     return objects
 
