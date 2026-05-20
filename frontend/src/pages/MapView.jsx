@@ -331,6 +331,7 @@ export default function MapView() {
   const [speed,      setSpeed]      = useState(500)
   const timerRef        = useRef(null)
   const frameLoadTimer  = useRef(null)
+  const frameDataCache  = useRef({})
 
   // ── Manuelles Zell-Markieren ──────────────────────────────────────────────
   const [cellMarkActive,   setCellMarkActive]   = useState(false)
@@ -365,6 +366,7 @@ export default function MapView() {
   const handlePause = useCallback(() => setPlaying(false), [])
 
   async function load() {
+    frameDataCache.current = {}
     try {
       // Schritt 1: Metadaten + Frames parallel laden
       const [c, d, timing, bounds, framesData, lightningData] = await Promise.all([
@@ -407,17 +409,25 @@ export default function MapView() {
   }, [])
 
   // Frame-Sync für Animation: bei Scrubbing objects/forecast für den
-  // angezeigten Frame laden. 200ms Debounce verhindert API-Flood.
+  // angezeigten Frame laden.
+  // Cache verhindert Re-Fetch bei Animation (sonst ~8 Req/s bei Auto-Play).
   useEffect(() => {
     if (!frames.length || currentIdx < 0) return
     const frame = frames[currentIdx]
     if (!frame?.ts) return
+    const cached = frameDataCache.current[frame.ts]
+    if (cached) {
+      setObjects(cached.objects)
+      setForecast(cached.forecast)
+      return
+    }
     if (frameLoadTimer.current) clearTimeout(frameLoadTimer.current)
     frameLoadTimer.current = setTimeout(() => {
       Promise.all([
         api.get(`/api/objects?ts=${frame.ts}`),
         api.get(`/api/forecast?ts=${frame.ts}`),
       ]).then(([objs, fc]) => {
+        frameDataCache.current[frame.ts] = { objects: objs, forecast: fc }
         setObjects(objs)
         setForecast(fc)
       }).catch(() => {})
