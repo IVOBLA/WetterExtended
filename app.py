@@ -852,7 +852,9 @@ def api_ai_analysis_test_email():
         cfg = dict(_default)
         cfg.update(runtime_config.get("AI_ANALYSIS_CONFIG", {}))
 
-        report_email = cfg.get("report_email", "").strip()
+        # E-Mail aus Request-Body hat Vorrang (Test vor dem Speichern möglich)
+        body = request.get_json(force=True, silent=True) or {}
+        report_email = body.get("report_email", "").strip() or cfg.get("report_email", "").strip()
         if not report_email:
             return jsonify({"ok": False,
                             "error": "Keine E-Mail-Adresse konfiguriert (report_email leer)"}), 400

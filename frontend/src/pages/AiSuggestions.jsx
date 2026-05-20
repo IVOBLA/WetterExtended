@@ -96,7 +96,9 @@ export default function AiSuggestions() {
     setTestEmailStatus('sending')
     setTestEmailMsg('')
     try {
-      const r = await api.post('/api/ai_analysis/test_email', {})
+      const r = await api.post('/api/ai_analysis/test_email', {
+        report_email: cfg.report_email || '',
+      })
       setTestEmailStatus(r.ok ? 'ok' : 'error')
       setTestEmailMsg(r.ok ? r.message : (r.error || 'Fehler'))
     } catch (e) {
