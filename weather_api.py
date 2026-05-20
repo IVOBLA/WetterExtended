@@ -59,8 +59,13 @@ def get_weather_data(include_all_stations=True):
 
             stations.append(station)
 
-        if include_all_stations:
-            debug_log(f"{len(stations)} Wetterstationen geladen")
+        if not stations:
+            log_api_failure("geosphere_tawes", url,
+                            "stations-empty: HTTP 200 aber keine Stationen mit "
+                            "gültigen Koordinaten in Response",
+                            fallback_used=True)
+        elif include_all_stations:
+            debug_log(f"{len(stations)} GeoSphere-TAWES-Stationen geladen")
 
 
         return stations
