@@ -1040,7 +1040,7 @@ server {
     # Regex-Match deckt /karte, /karte/ und /karte/* ab (Trailing-Slash-Fix)
     location ~ ^/karte(/.*)?$ {
         auth_basic off;
-        try_files $uri /index.html;
+        try_files \$uri /index.html;
         add_header Cache-Control "no-cache";
     }
 
