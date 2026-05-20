@@ -194,6 +194,16 @@ def _apply_data_to_objects(data, valid, objects, timestamp):
         obj.update(arome_vals)
         results[obj.get("id")] = arome_vals
 
+    # Stille Datenfehler: wenn ALLE Objekte 0.0 für T2m haben →
+    # API hat HTTP 200 geliefert aber keine gültigen Werte im Ziel-Zeitslot
+    if results and all(
+        v.get("arome_t2m", 0.0) == 0.0 for v in results.values()
+    ):
+        log_api_failure("Open-Meteo-icon_d2", bulk_url,
+                        "arome_t2m: alle Werte 0.0 — icon_d2 liefert keine Daten "
+                        "für diesen Zeitslot (Ziel-Zeit nicht in Response)",
+                        fallback_used=True)
+
     _save_results(results, timestamp)
     debug_log(f"[AROME] {len(valid)} Objekte in 1 API-Call/Cache-Hit verarbeitet.")
 
