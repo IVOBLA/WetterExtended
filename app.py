@@ -841,6 +841,59 @@ def api_ai_analysis_run():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/ai_analysis/test_email", methods=["POST"])
+def api_ai_analysis_test_email():
+    """Sendet eine Test-E-Mail um SMTP-Konfiguration und report_email zu prüfen."""
+    try:
+        from email_notifier import _is_configured, _send_smtp
+        from config import AI_ANALYSIS_CONFIG as _default
+        from datetime import datetime as _dt
+
+        cfg = dict(_default)
+        cfg.update(runtime_config.get("AI_ANALYSIS_CONFIG", {}))
+
+        report_email = cfg.get("report_email", "").strip()
+        if not report_email:
+            return jsonify({"ok": False,
+                            "error": "Keine E-Mail-Adresse konfiguriert (report_email leer)"}), 400
+        if not _is_configured():
+            return jsonify({"ok": False,
+                            "error": "SMTP nicht konfiguriert — SMTP_HOST/USER/PASS in .env prüfen"}), 400
+
+        ts = _dt.utcnow().strftime("%d.%m.%Y %H:%M UTC")
+        html = f"""<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8"></head>
+<body style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;
+             padding:16px;background:#f5f5f5">
+  <div style="background:#2563eb;color:white;padding:16px 20px;
+              border-radius:8px 8px 0 0">
+    <h2 style="margin:0;font-size:18px">✅ SMTP-Test erfolgreich</h2>
+    <p style="margin:4px 0 0;opacity:.9">WetterExtended — {ts}</p>
+  </div>
+  <div style="background:#fff;padding:20px;border:1px solid #ddd;
+              border-radius:0 0 8px 8px">
+    <p>Die E-Mail-Konfiguration funktioniert korrekt.</p>
+    <p style="font-size:13px;color:#6b7280">
+      Tägliche KI-Reports werden automatisch an diese Adresse gesendet,
+      sobald die KI-Analyse aktiviert ist und eine Analyse abgeschlossen wurde.
+    </p>
+    <hr style="border:none;border-top:1px solid #eee;margin:16px 0">
+    <p style="font-size:11px;color:#aaa;margin:0">
+      WetterExtended &bull; Kärnten Radar-Tracking
+    </p>
+  </div>
+</body></html>"""
+
+        ok = _send_smtp([report_email],
+                        f"✅ WetterExtended SMTP-Test {ts}", html)
+        if ok:
+            return jsonify({"ok": True,
+                            "message": f"Test-Mail gesendet an {report_email}"})
+        return jsonify({"ok": False, "error": "SMTP-Fehler beim Senden — Logs prüfen"}), 500
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
 @app.route("/api/dataset_stats")
 def api_dataset_stats():
     """Statistik über gesammelte Trainingsdaten und Dataset-Größe."""
