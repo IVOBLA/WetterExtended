@@ -308,66 +308,54 @@ def send_ai_report_email(result: dict, email_str: str) -> bool:
     mae_str      = f"{model_mae:.2f} km" if isinstance(model_mae, (int, float)) else "n/a"
     n_sug        = len(suggestions)
 
-    html = f"""<!DOCTYPE html>
-<html lang="de"><head><meta charset="utf-8"></head>
-<body style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;
-             padding:16px;background:#f5f5f5">
+    # Suggestions-Block vorab aufbauen (kein verschachteltes f-string)
+    _failure_color = '#dc2626' if api_failures > 0 else '#16a34a'
+    if n_sug == 0:
+        _sug_html = '<p style="color:#16a34a;font-weight:bold">&#10003; Keine Probleme erkannt.</p>'
+    else:
+        _sug_html = (
+            '<table style="width:100%;border-collapse:collapse;font-size:13px">'
+            '<thead><tr style="background:#f0f0f0">'
+            '<th style="padding:6px 8px;text-align:left;width:70px">Priorit&#228;t</th>'
+            '<th style="padding:6px 8px;text-align:left">Titel</th>'
+            '<th style="padding:6px 8px;text-align:left">Beschreibung</th>'
+            '<th style="padding:6px 8px;text-align:left">Ma&#223;nahme</th>'
+            '</tr></thead>'
+            f'<tbody>{rows}</tbody>'
+            '</table>'
+        )
 
-  <div style="background:{hdr_color};color:white;padding:16px 20px;
-              border-radius:8px 8px 0 0">
-    <h2 style="margin:0;font-size:20px">🤖 WetterExtended KI-Report</h2>
-    <p style="margin:4px 0 0;font-size:15px;opacity:.9">
-      {ts_date} &bull; Status: {status_label}
-    </p>
-  </div>
+    _admin_url = _MAP_URL.replace('/karte', '')
 
-  <div style="background:#fff;padding:20px;border:1px solid #ddd;
-              border-radius:0 0 8px 8px">
-
-    <table style="width:100%;border-collapse:collapse;margin-bottom:16px;
-                  font-size:13px">
-      <tr>
-        <td style="padding:4px 8px;color:#6b7280">API-Fehler (24h)</td>
-        <td style="padding:4px 8px;font-weight:bold;
-                   color:{'#dc2626' if api_failures > 0 else '#16a34a'}">
-          {api_failures}
-        </td>
-        <td style="padding:4px 8px;color:#6b7280">Modell MAE</td>
-        <td style="padding:4px 8px;font-weight:bold">{mae_str}</td>
-        <td style="padding:4px 8px;color:#6b7280">Vorschläge</td>
-        <td style="padding:4px 8px;font-weight:bold">{n_sug}</td>
-      </tr>
-    </table>
-
-    {'<p style="color:#16a34a;font-weight:bold">✓ Keine Probleme erkannt.</p>' if n_sug == 0 else
-     f"""<table style="width:100%;border-collapse:collapse;font-size:13px">
-      <thead>
-        <tr style="background:#f0f0f0">
-          <th style="padding:6px 8px;text-align:left;width:70px">Priorität</th>
-          <th style="padding:6px 8px;text-align:left">Titel</th>
-          <th style="padding:6px 8px;text-align:left">Beschreibung</th>
-          <th style="padding:6px 8px;text-align:left">Maßnahme</th>
-        </tr>
-      </thead>
-      <tbody>{rows}</tbody>
-    </table>"""}
-
-    <div style="margin-top:20px;text-align:center">
-      <a href="{_MAP_URL.replace('/karte','')}"
-         style="display:inline-block;background:#2563eb;color:white;
-                padding:10px 24px;border-radius:6px;text-decoration:none;
-                font-weight:bold;font-size:14px">
-        🖥 Admin-Panel öffnen
-      </a>
-    </div>
-
-    <hr style="border:none;border-top:1px solid #eee;margin:20px 0">
-    <p style="font-size:11px;color:#aaa;margin:0">
-      WetterExtended &bull; Kärnten Radar-Tracking &bull;
-      Automatischer Tagesbericht
-    </p>
-  </div>
-</body></html>"""
+    html = (
+        '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"></head>'
+        '<body style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;'
+        'padding:16px;background:#f5f5f5">'
+        f'<div style="background:{hdr_color};color:white;padding:16px 20px;'
+        'border-radius:8px 8px 0 0">'
+        '<h2 style="margin:0;font-size:20px">&#129302; WetterExtended KI-Report</h2>'
+        f'<p style="margin:4px 0 0;font-size:15px;opacity:.9">'
+        f'{ts_date} &bull; Status: {status_label}</p></div>'
+        '<div style="background:#fff;padding:20px;border:1px solid #ddd;'
+        'border-radius:0 0 8px 8px">'
+        '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:13px"><tr>'
+        '<td style="padding:4px 8px;color:#6b7280">API-Fehler (24h)</td>'
+        f'<td style="padding:4px 8px;font-weight:bold;color:{_failure_color}">{api_failures}</td>'
+        '<td style="padding:4px 8px;color:#6b7280">Modell MAE</td>'
+        f'<td style="padding:4px 8px;font-weight:bold">{mae_str}</td>'
+        '<td style="padding:4px 8px;color:#6b7280">Vorschl&#228;ge</td>'
+        f'<td style="padding:4px 8px;font-weight:bold">{n_sug}</td>'
+        '</tr></table>'
+        + _sug_html +
+        f'<div style="margin-top:20px;text-align:center">'
+        f'<a href="{_admin_url}" style="display:inline-block;background:#2563eb;'
+        'color:white;padding:10px 24px;border-radius:6px;text-decoration:none;'
+        'font-weight:bold;font-size:14px">&#128421; Admin-Panel &#246;ffnen</a></div>'
+        '<hr style="border:none;border-top:1px solid #eee;margin:20px 0">'
+        '<p style="font-size:11px;color:#aaa;margin:0">'
+        'WetterExtended &bull; K&#228;rnten Radar-Tracking &bull; '
+        'Automatischer Tagesbericht</p></div></body></html>'
+    )
 
     subject = f"🤖 WetterExtended KI-Report {ts_date} — {status_label}"
     return _send_smtp(recipients, subject, html)
