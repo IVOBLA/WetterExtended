@@ -180,6 +180,31 @@ Systemstatus auf einen Blick: Anzahl aktiver Zellen, letzter Radar-Zeitstempel, 
 
 Interaktive Leaflet-Karte mit Sturmzellen (Kontur + ID-Label), Vorhersage-Pfeilen (farbcodiert nach Horizont), Ortsdurchquerungs-Markierungen, Bewegungspfad-Historie, Hagelwarnungs-Rahmen (rot) und Stationär-Marker (⊕ amber). Farblegende unten links.
 
+
+### Gewitterrisiko-Layer (🌩 Risikozonen)
+
+Der Risikozonen-Layer überlagert die Karte mit farbigen Flächen,
+die das Gewitterrisiko für jedes ~5×5 km Gebiet in Kärnten anzeigen.
+Der Layer ist **unabhängig von erkannten Zellen** — er wird auch bei
+reiner Blitzaktivität oder atmosphärischer Instabilität ohne Radar-Treffer aktiv.
+
+**Aktivierung:** Checkbox „🌩 Risikozonen" in der Overlay-Leiste (standardmäßig aus).
+
+**Farbskala:**
+
+| Farbe | Risikostufe | Typische Ursache |
+|-------|-------------|------------------|
+| 🟡 Gelb | Niedrig (1) | LI < −1 °C oder einzelne Blitze in der Nähe |
+| 🟠 Orange | Mäßig (2) | Aktive Zelle in 30–60 km oder mittlere Blitzdichte |
+| 🔴 Rot | Hoch (3) | Direkte Zelle + Forecast-Pfad oder LI < −3 °C + Blitze |
+
+**Datenquellen (alle lokal, kein zusätzlicher API-Call):**
+- Aktive Sturmzellen inkl. Forecast-Positionen (+10/+20/+30/+40 min)
+- Blitzortung-Cache (letzte 20 Minuten)
+- Atmosphärischer Snapshot: Lifted Index (LI) für Kärnten-Referenzpunkte
+
+**Aktualisierung:** alle 60 Sekunden automatisch (API-Endpoint `/api/risk_grid`).
+
 ## 4.3 Live-Daten (`/live`)
 
 Tabelle aller aktuell erkannten Zellen mit allen ML-Features: Position, Geschwindigkeit, CAPE, Wolkenhöhe, Blitze, Optical-Flow, AROME-Werte, Hagelwahrscheinlichkeit, Windscherung.
