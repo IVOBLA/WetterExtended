@@ -76,12 +76,51 @@ def run_convlstm_weekly_job():
         debug_log(f"[SCHEDULER] Job convlstm_weekly Fehler: {exc}")
 
 
+def _cells_detected_today() -> bool:
+    """
+    Prüft ob heute (Europe/Vienna) mindestens eine Sturmzelle erkannt wurde.
+    Liest cells_log.jsonl — jeder Eintrag hat ts (YYYY-MM-DD_HH-MM-SS) und count.
+    Gibt True zurück sobald ein Eintrag mit count > 0 für heute gefunden wird.
+    """
+    import json as _j
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo
+    from config import SAVE_PATHS as _SP
+    import os as _o
+
+    today = _dt.now(ZoneInfo("Europe/Vienna")).strftime("%Y-%m-%d")
+    log_path = _o.path.join(
+        _SP.get("evaluation", "train_data/evaluation"), "cells_log.jsonl"
+    )
+    if not _o.path.exists(log_path):
+        return False
+    try:
+        with open(log_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = _j.loads(line)
+                    # ts-Format: "2026-05-20_12-40-02"
+                    if entry.get("ts", "").startswith(today) and entry.get("count", 0) > 0:
+                        return True
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    return False
+
+
 def run_ai_analysis_job():
     """Tägliche KI-Analyse (nur wenn AI_ANALYSIS_CONFIG.enabled == True)."""
     runtime_config.reload_overrides()
     cfg = runtime_config.get("AI_ANALYSIS_CONFIG", AI_ANALYSIS_CONFIG)
     if not cfg.get("enabled", False):
         debug_log("[SCHEDULER] Job ai_analysis übersprungen (deaktiviert)")
+        return
+    if cfg.get("only_if_cells", False) and not _cells_detected_today():
+        debug_log("[SCHEDULER] Job ai_analysis übersprungen (only_if_cells=True, heute keine Zellen erkannt)")
         return
     debug_log("[SCHEDULER] Job ai_analysis gestartet")
     try:
