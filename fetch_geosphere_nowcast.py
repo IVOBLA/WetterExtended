@@ -48,14 +48,18 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
             log_api_failure("geosphere_nowcast", url, "timeout", fallback_used=True); continue
         except Exception as exc:
             log_api_failure("geosphere_nowcast", str(url), str(exc)[:80], fallback_used=True); continue
-        result=_parse_nowcast(data); cache_set(ck,result); obj.update(result)
+        result=_parse_nowcast(data, str(url)); cache_set(ck,result); obj.update(result)
     return objects
 
-def _parse_nowcast(data: dict) -> dict:
+def _parse_nowcast(data: dict, url: str = "") -> dict:
     result=dict(_DEFAULT)
     try:
         features=data.get('features',[])
-        if not features: return result
+        if not features:
+            log_api_failure("geosphere_nowcast", url,
+                            "features-list-empty: GeoSphere Nowcast liefert keine Gitterpunkte",
+                            fallback_used=True)
+            return result
         params=features[0].get('properties',{}).get('parameters',{})
         def _first(key):
             vals=params.get(key,{}).get('data',[None]); v=vals[0] if vals else None
