@@ -112,9 +112,12 @@ def _build_model():
                 return_sequences=True,
             ),
             layers.BatchNormalization(),
+            # kernel_size=(1,3,3): nur räumliche Faltung (Höhe×Breite).
+            # (3,3,3) würde Zeitschritte in der Output-Schicht ungewollt mischen —
+            # jeder der 4 vorhergesagten Frames soll zeitlich unabhängig sein.
             layers.Conv3D(
                 filters=1,
-                kernel_size=(3, 3, 3),
+                kernel_size=(1, 3, 3),
                 activation="sigmoid",
                 padding="same",
             ),
