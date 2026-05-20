@@ -15,7 +15,7 @@ if np is None:
         "Bitte ausführen: pip3 install numpy --break-system-packages"
     )
 
-from config import ML_CELL_FEATURES as CELL_KEYS, ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, ML_STATION_FEATURES as STATION_KEYS, SAVE_PATHS
+from config import ML_CELL_FEATURES as CELL_KEYS, ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, ML_STATION_FEATURES as STATION_KEYS, PX_TO_KMH, SAVE_PATHS
 from dataset_builder import load_scalers
 from model_training import load_lgbm_models, load_lstm
 
@@ -93,9 +93,10 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
                 lat, lon = 0.0, 0.0
             else:
                 # Kinematische Verschiebung auf lat/lon-Basis.
-                # avg_vx/vy: Pixel/Minute (Kalman), horizon: Minuten.
-                # ARSO nativ ~2 km/Pixel, UPSCALE_FACTOR=3 → 0.667 km/px.
-                _KM_PER_PX = 2.0 / 3.0
+                # avg_vx/vy: px/Frame (Kalman), horizon: Minuten.
+                # PX_TO_KMH = 10.0 km/h pro px/Frame (config, empirisch kalibriert).
+                # km-Verschiebung = avg_vx * horizon * PX_TO_KMH / 60
+                _KM_PER_PX = PX_TO_KMH / 60.0  # ≈ 0.167 km/(px·min)
                 _dlat = -(avg_vy * horizon * _KM_PER_PX) / 111.0
                 _dlon = (avg_vx * horizon * _KM_PER_PX) / (
                     111.0 * cos(radians(max(abs(base_lat), 0.001)))
