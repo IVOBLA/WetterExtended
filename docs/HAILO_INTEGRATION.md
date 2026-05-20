@@ -832,8 +832,10 @@ _hailo_available: Optional[bool] = None
 - `LOCAL_TRAINING`-Flag in config, scheduler, install.sh, app.py, Training.jsx
 - `/api/hailo/reload` Endpoint für rsync-Post-Hook
 - API-Requests-Statistik im Dashboard (`/api/api_calls`)
+- Gewitterrisiko-Grid-Layer in MapView + MapFullscreen (`/api/risk_grid`):
+  Grid 0.05° über Kärnten, 3 Quellen (Zellen, Blitze, LI), farbige
+  Flächen ohne Rand (gelb/orange/rot), Toggle standardmäßig aus
 
-### 14.2 Was noch nicht funktioniert / fehlt
 - Hailo-Inferenz nicht produktionsreif (`hailo_inference.py` ist Stub — Phase B: Task B5)
 - U-Net nicht implementiert — Phase B: Task B8
 - Linux-Rechner nicht angeschafft — Phase B: Voraussetzung
