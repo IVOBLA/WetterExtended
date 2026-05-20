@@ -65,9 +65,12 @@ FILTER_CONFIG = {
     "border_mask_px": 10,
 }
 
-# Kernbereiche: Rot und Violett = Zellkern
+# Kernbereiche: NUR Rot + Violett (≥54 dBZ) = echter konvektiver Kern.
+# Orange (48–51 dBZ) bewusst ausgeschlossen: starker Regen, aber kein
+# Hagelkern — würde core_ratio für reine Orange-Zellen auf 1.0 setzen
+# und hail_prob fälschlicherweise maximieren.
+# WAS_ACTIVE_CORE_RATIO_THRESHOLD=0.25 ist auf diese 3-Range-Definition kalibriert.
 CORE_HSV_RANGES = [
-    ([ 10, 120, 100], [ 27, 255, 255]),  # Orange       48–51 dBZ
     ([  0, 100, 120], [ 10, 255, 255]),  # Rot 1        54    dBZ
     ([165, 100, 120], [179, 255, 255]),  # Rot 2 (wrap) 54    dBZ
     ([125, 100, 120], [155, 255, 255]),  # Violett      57    dBZ
