@@ -16,7 +16,8 @@ export default function Dashboard() {
   const [progress, setProgress] = useState({ versions: [] })
   const [git, setGit] = useState({})
   const [disk, setDisk] = useState(null)
-  const [apiCalls, setApiCalls] = useState(null)
+  const [apiCalls,  setApiCalls]  = useState(null)
+  const [apiHealth, setApiHealth] = useState(null)
 
   useEffect(() => {
     Promise.all([
@@ -25,6 +26,7 @@ export default function Dashboard() {
       api.get('/api/git').then(setGit).catch(() => {}),
       api.get('/api/disk').then(setDisk).catch(() => setDisk(null)),
       api.get('/api/api_calls?hours=24').then(setApiCalls).catch(() => {}),
+      api.get('/api/api_health?hours=24').then(setApiHealth).catch(() => {}),
     ])
   }, [])
 
@@ -48,6 +50,24 @@ export default function Dashboard() {
         <div className="bg-red-100 border border-red-400 text-red-900 p-3 rounded mb-4 text-sm">
           <strong>⚠ Kritischer Speicherstand:</strong> {disk.used_pct}% belegt —
           Daten-Cleanup prüfen oder DATA_RETENTION_DAYS reduzieren.
+        </div>
+      )}
+
+      {apiHealth?.total > 0 && (
+        <div className="bg-orange-50 border border-orange-300 text-orange-900 p-3 rounded mb-4 text-sm">
+          <div className="font-semibold mb-1">
+            ⚠ {apiHealth.total} API-Fehler in den letzten 24h —{' '}
+            <a href="/logs" className="underline">Details unter Logs → API-Fehler</a>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(apiHealth.by_service || {})
+              .sort((a, b) => b[1].count - a[1].count)
+              .map(([svc, info]) => (
+                <span key={svc} className="bg-orange-100 px-2 py-0.5 rounded text-xs font-mono">
+                  {svc}: {info.count}×
+                </span>
+              ))}
+          </div>
         </div>
       )}
 
