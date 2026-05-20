@@ -30,8 +30,10 @@ _AROME_PARAMS = ",".join([
     "wind_speed_10m", "wind_direction_10m",
     "freezing_level_height",
 ])
-# lifted_index kommt von icon_global (synoptisches Modell, liefert LI nativ)
-_WIND_PARAMS = "wind_speed_700hPa,wind_direction_700hPa,lifted_index"
+_WIND_PARAMS = "wind_speed_700hPa,wind_direction_700hPa"
+# LI kommt von GFS Global — DWD ICON (d2/eu/global) liefert lifted_index nicht
+_LI_PARAMS = "lifted_index"
+_LI_MODEL  = "gfs_seamless"
 
 
 def _nearest_hour_str() -> str:
@@ -99,6 +101,13 @@ def fetch_atmospheric_snapshot() -> dict:
     )
     wind_data = _bulk_get(wind_url, "Open-Meteo-Atmosphere-700hPa")
 
+    # --- Lifted Index bulk (GFS Global) ---
+    li_url = (
+        f"{_OPEN_METEO_URL}?latitude={lats}&longitude={lons}"
+        f"&hourly={_LI_PARAMS}&models={_LI_MODEL}&timezone={_TZ}&forecast_days=1"
+    )
+    li_data = _bulk_get(li_url, "Open-Meteo-Atmosphere-LI")
+
     result_locations = []
     for i, loc in enumerate(locations):
         name = loc.get("name", f"Ort_{i}")
@@ -112,10 +121,9 @@ def fetch_atmospheric_snapshot() -> dict:
             t2m   = _extract_slot(h, "temperature_2m",      target_time)
             td2m  = _extract_slot(h, "dewpoint_2m",          target_time)
             ff10m = _extract_slot(h, "wind_speed_10m",       target_time)
-            li    = _extract_slot(h, "lifted_index",         target_time)
             fl_h  = _extract_slot(h, "freezing_level_height",target_time)
 
-        # 700 hPa Wind + Lifted Index (beide aus icon_global)
+        # 700 hPa Wind (ICON Global)
         w_speed = w_dir_cos = w_dir_sin = 0.0
         if wind_data and i < len(wind_data):
             h = wind_data[i].get("hourly", {})
@@ -124,8 +132,10 @@ def fetch_atmospheric_snapshot() -> dict:
             rad     = radians(w_dir)
             w_dir_cos = round(cos(rad), 4)
             w_dir_sin = round(sin(rad), 4)
-            # Lifted Index von icon_global (icon_d2 liefert kein LI)
-            li = _extract_slot(h, "lifted_index", target_time)
+        # Lifted Index von GFS Global (icon_d2/eu/global liefern kein LI)
+        if li_data and i < len(li_data):
+            h_li = li_data[i].get("hourly", {})
+            li = _extract_slot(h_li, "lifted_index", target_time)
 
         result_locations.append({
             "name":             name,
