@@ -24,12 +24,14 @@ _OUT_FILE       = os.path.join(
     "atmosphere_latest.json",
 )
 
+# icon_d2 liefert keinen nativen lifted_index — nur regional verfügbare Parameter
 _AROME_PARAMS = ",".join([
     "temperature_2m", "dewpoint_2m",
     "wind_speed_10m", "wind_direction_10m",
-    "lifted_index", "freezing_level_height",
+    "freezing_level_height",
 ])
-_WIND_PARAMS = "wind_speed_700hPa,wind_direction_700hPa"
+# lifted_index kommt von icon_global (synoptisches Modell, liefert LI nativ)
+_WIND_PARAMS = "wind_speed_700hPa,wind_direction_700hPa,lifted_index"
 
 
 def _nearest_hour_str() -> str:
@@ -113,7 +115,7 @@ def fetch_atmospheric_snapshot() -> dict:
             li    = _extract_slot(h, "lifted_index",         target_time)
             fl_h  = _extract_slot(h, "freezing_level_height",target_time)
 
-        # 700 hPa Wind
+        # 700 hPa Wind + Lifted Index (beide aus icon_global)
         w_speed = w_dir_cos = w_dir_sin = 0.0
         if wind_data and i < len(wind_data):
             h = wind_data[i].get("hourly", {})
@@ -122,6 +124,8 @@ def fetch_atmospheric_snapshot() -> dict:
             rad     = radians(w_dir)
             w_dir_cos = round(cos(rad), 4)
             w_dir_sin = round(sin(rad), 4)
+            # Lifted Index von icon_global (icon_d2 liefert kein LI)
+            li = _extract_slot(h, "lifted_index", target_time)
 
         result_locations.append({
             "name":             name,
