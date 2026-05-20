@@ -108,6 +108,35 @@ def fetch_atmospheric_snapshot() -> dict:
     )
     li_data = _bulk_get(li_url, "Open-Meteo-Atmosphere-LI")
 
+    # --- Datenqualitäts-Check: stille None-Fehler sichtbar machen ---
+    def _all_none(dataset, key):
+        if not dataset:
+            return False  # bereits durch _bulk_get als Fehler geloggt
+        sample = dataset[0].get("hourly", {}).get(key, [])
+        return len(sample) > 0 and all(v is None for v in sample[:6])
+
+    if _all_none(arome_data, "temperature_2m"):
+        log_api_failure(
+            "Open-Meteo-Atmosphere-AROME",
+            arome_url,
+            "temperature_2m: alle Werte None — icon_d2 liefert Parameter nicht",
+            fallback_used=True,
+        )
+    if _all_none(wind_data, "wind_speed_700hPa"):
+        log_api_failure(
+            "Open-Meteo-Atmosphere-700hPa",
+            wind_url,
+            "wind_speed_700hPa: alle Werte None — icon_global liefert Parameter nicht",
+            fallback_used=True,
+        )
+    if _all_none(li_data, "lifted_index"):
+        log_api_failure(
+            "Open-Meteo-Atmosphere-LI",
+            li_url,
+            f"lifted_index: alle Werte None — Modell '{_LI_MODEL}' liefert Parameter nicht",
+            fallback_used=True,
+        )
+
     result_locations = []
     for i, loc in enumerate(locations):
         name = loc.get("name", f"Ort_{i}")
