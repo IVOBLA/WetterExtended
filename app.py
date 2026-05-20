@@ -253,9 +253,63 @@ def api_radar_bounds():
     """
     BBOX des Radarbilds für Leaflet ImageOverlay.
     Format: { "bounds": [[south, west], [north, east]] }
+
+    Berechnet die TATSÄCHLICHEN Crop-Grenzen unter Berücksichtigung der
+    Integer-Truncation in geo_to_pixel (int() statt round()).
+    Ohne Korrektur: Radar-Overlay bis zu ~1 km südlich der Zellenmarkierungen,
+    da BBOX_KAERNTEN_EXTENDED die Sollgrenzen angibt, das Bild aber am
+    nächsten ganzzahligen Pixel endet.
     """
+    import cv2 as _cv2
+    import os as _os
+    from xml.etree import ElementTree as _ET
     from config import BBOX_KAERNTEN_EXTENDED
+
     bbox = runtime_config.get("BBOX_KAERNTEN_EXTENDED", BBOX_KAERNTEN_EXTENDED)
+
+    try:
+        kml_path = "data/latest.kml"
+        img_path = "data/latest.png"
+        if _os.path.exists(kml_path) and _os.path.exists(img_path):
+            _ns   = {"kml": "http://www.opengis.net/kml/2.2"}
+            _tree = _ET.parse(kml_path)
+            _box  = _tree.find(".//kml:LatLonBox", _ns)
+            _img  = _cv2.imread(img_path)
+
+            if _box is not None and _img is not None:
+                kn = float(_box.find("kml:north", _ns).text)
+                ks = float(_box.find("kml:south", _ns).text)
+                ke = float(_box.find("kml:east",  _ns).text)
+                kw = float(_box.find("kml:west",  _ns).text)
+                oh, ow = _img.shape[:2]       # z.B. 537, 1170 (ARSO-Original)
+                span_lon = ke - kw            # z.B. 5.34°
+                span_lat = kn - ks            # z.B. 2.75°
+
+                # Gleiche Integer-Mathematik wie in geo_to_pixel:
+                # Truncation statt Rundung, damit Pixelgrenzen identisch sind.
+                _x1 = int((bbox["west"]  - kw) / span_lon * ow)
+                _y1 = int((kn - bbox["north"]) / span_lat * oh)
+                _x2 = int((bbox["east"]  - kw) / span_lon * ow)
+                _y2 = int((kn - bbox["south"]) / span_lat * oh)
+
+                # Tatsächliche Geo-Bounds aus exakten Pixelpositionen
+                actual = {
+                    "west":  round(kw + (_x1 / ow) * span_lon, 6),
+                    "east":  round(kw + (_x2 / ow) * span_lon, 6),
+                    "north": round(kn - (_y1 / oh) * span_lat, 6),
+                    "south": round(kn - (_y2 / oh) * span_lat, 6),
+                }
+                return jsonify({
+                    "bounds": [
+                        [actual["south"], actual["west"]],
+                        [actual["north"], actual["east"]],
+                    ],
+                    "bbox": actual,
+                })
+    except Exception as _exc:
+        pass  # Fallback auf BBOX_KAERNTEN_EXTENDED
+
+    # Fallback: BBOX_KAERNTEN_EXTENDED (sub-km-Fehler durch Truncation sichtbar)
     return jsonify({
         "bounds": [
             [bbox["south"], bbox["west"]],
