@@ -495,6 +495,17 @@ def run_analysis(cfg: Optional[dict] = None) -> Optional[dict]:
         except Exception as exc:
             debug_log(f"[ANALYZER] Speichern fehlgeschlagen: {exc}")
 
+    # E-Mail-Report senden (wenn report_email konfiguriert)
+    _report_email = cfg.get("report_email", "").strip()
+    if _report_email and result:
+        try:
+            from email_notifier import send_ai_report_email
+
+            ok = send_ai_report_email(result, _report_email)
+            debug_log(f"[ANALYZER] E-Mail-Report {'gesendet' if ok else 'fehlgeschlagen'}: {_report_email}")
+        except Exception as _exc:
+            debug_log(f"[ANALYZER] E-Mail-Versand Fehler: {_exc}")
+
     return result
 
 
