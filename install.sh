@@ -1037,9 +1037,10 @@ server {
     }
 
     # Vollbild-Karte: ohne Authentifizierung erreichbar
-    location = /karte {
+    # Regex-Match deckt /karte, /karte/ und /karte/* ab (Trailing-Slash-Fix)
+    location ~ ^/karte(/.*)?$ {
         auth_basic off;
-        try_files /index.html =404;
+        try_files $uri /index.html;
         add_header Cache-Control "no-cache";
     }
 
