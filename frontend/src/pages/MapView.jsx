@@ -501,7 +501,7 @@ export default function MapView() {
             </strong>
           </span>
           <span className={radarTiming.cells_active ? 'text-red-600 font-semibold' : 'text-gray-400'}>
-            {radarTiming.cells_active ? '⚡ Zellen aktiv' : '✓ Keine aktiven Zellen'}
+            {radarTiming.cells_active ? '⚡ Zellen aktiv' : '✓ Keine aktiven Schwergewitter-Zellen'}
           </span>
         </div>
       )}
