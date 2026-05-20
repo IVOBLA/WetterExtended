@@ -233,15 +233,22 @@ def create_scheduler() -> BlockingScheduler:
     sched = BlockingScheduler(timezone="Europe/Vienna")
 
     # --- immer aktiv: KI-Analyse ---
-    _ai_cfg = runtime_config.get("AI_ANALYSIS_CONFIG", AI_ANALYSIS_CONFIG)
+    _ai_cfg  = runtime_config.get("AI_ANALYSIS_CONFIG", AI_ANALYSIS_CONFIG)
+    _ai_days = _ai_cfg.get("cron_days", "mon,tue,wed,thu,fri,sat,sun").strip()
+    _ai_days = _ai_days if _ai_days else "mon,tue,wed,thu,fri,sat,sun"
     sched.add_job(
         run_ai_analysis_job,
         trigger=CronTrigger(
+            day_of_week=_ai_days,
             hour=_ai_cfg.get("cron_hour", 6),
             minute=_ai_cfg.get("cron_minute", 0),
             timezone="Europe/Vienna",
         ),
         id="ai_analysis", max_instances=1, coalesce=True,
+    )
+    debug_log(
+        f"[SCHEDULER] KI-Analyse: {_ai_days} "
+        f"um {_ai_cfg.get('cron_hour', 6):02d}:{_ai_cfg.get('cron_minute', 0):02d}"
     )
 
     # --- immer aktiv: Accuracy-Eval ---
