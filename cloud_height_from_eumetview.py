@@ -319,7 +319,30 @@ def assign_cloud_top_height(
             utc_hour = datetime.utcnow().hour
             nan_threshold = get_adaptive_nan_threshold(utc_hour)
 
-            bt_k       = _uint8_to_bt_kelvin(band)
+            # dtype-adaptiver Pfad: EUMETView liefert je nach Konfiguration
+            # entweder uint8-Visualisierungsbild (Pixelwert 0–255) oder
+            # float32-Physikwerte direkt in Kelvin (~180–330 K).
+            debug_log(
+                f"[CLOUD] TIFF: dtype={band.dtype}, shape={band.shape}, "
+                f"min={float(band.min()):.2f}, max={float(band.max()):.2f}, "
+                f"zeros={int((band == 0).sum())}, nan_threshold={nan_threshold}"
+            )
+
+            if np.issubdtype(band.dtype, np.floating):
+                # Float32-Physikwerte direkt in Kelvin
+                bt_k = band.astype(np.float32)
+                # Ungültige Werte (0 oder extrem) maskieren
+                bt_k[bt_k <= 0] = np.nan
+                bt_k[bt_k > 400] = np.nan
+                debug_log(f"[CLOUD] Float32-Modus: {np.nanmean(bt_k):.1f} K Mittel")
+            else:
+                # uint8-Visualisierungsbild → Kalibrierung via config
+                bt_k = _uint8_to_bt_kelvin(band)
+                debug_log(
+                    f"[CLOUD] uint8-Modus: bt_k min={float(np.nanmin(bt_k)):.1f} K, "
+                    f"max={float(np.nanmax(bt_k)):.1f} K, "
+                    f"nan_threshold={nan_threshold} K"
+                )
             lapse_rate = runtime_config.get("LAPSE_RATE", 6.5) / 1000.0  # K/m
             height_msl = (T_surface - bt_k) / lapse_rate + altitude_m
 
