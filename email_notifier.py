@@ -251,6 +251,128 @@ def send_allclear_email(loc_name: str, email_str: str) -> bool:
     return ok
 
 
+def send_ai_report_email(result: dict, email_str: str) -> bool:
+    """
+    Sendet den täglichen KI-Analyse-Report per E-Mail.
+    Kein Cooldown — wird maximal einmal täglich vom Scheduler ausgelöst.
+
+    Parameters:
+        result    : Ergebnis von run_analysis() — overall_status, suggestions, report_snapshot
+        email_str : ";"-getrennte Empfängeradressen
+    """
+    if not _is_configured():
+        debug_log("[EMAIL] SMTP nicht konfiguriert — KI-Report nicht gesendet.")
+        return False
+
+    recipients = _parse_recipients(email_str)
+    if not recipients:
+        return False
+
+    status      = result.get("overall_status", "ok")
+    suggestions = result.get("suggestions", [])
+    snapshot    = result.get("report_snapshot", {})
+    ts_date     = (snapshot.get("generated_utc") or _now_str())[:10]
+
+    hdr_color = {"ok": "#16a34a", "warning": "#ca8a04", "critical": "#dc2626"}.get(
+        status, "#2563eb"
+    )
+    status_label = {"ok": "✅ OK", "warning": "⚠ WARNUNG", "critical": "🔴 KRITISCH"}.get(
+        status, status.upper()
+    )
+
+    _PRI_STYLE = {
+        "high":   "background:#fee2e2;color:#991b1b",
+        "medium": "background:#fef9c3;color:#854d0e",
+        "low":    "background:#dbeafe;color:#1e40af",
+    }
+
+    rows = ""
+    for s in suggestions[:8]:
+        pri   = s.get("priority", "low")
+        style = _PRI_STYLE.get(pri, "background:#f3f4f6;color:#374151")
+        rows += (
+            f'<tr style="border-bottom:1px solid #e5e7eb">'
+            f'<td style="padding:6px 8px;{style};font-weight:bold;white-space:nowrap">'
+            f'{pri.upper()}</td>'
+            f'<td style="padding:6px 8px;font-weight:bold;font-size:13px">'
+            f'{s.get("title","")}</td>'
+            f'<td style="padding:6px 8px;font-size:12px;color:#6b7280">'
+            f'{s.get("description","")}</td>'
+            f'<td style="padding:6px 8px;font-size:12px">'
+            f'{s.get("action","")}</td>'
+            f'</tr>'
+        )
+
+    api_failures = snapshot.get("api_health", {}).get("total_failures", 0)
+    model_mae    = snapshot.get("model_quality", {}).get("mae_total")
+    mae_str      = f"{model_mae:.2f} km" if isinstance(model_mae, (int, float)) else "n/a"
+    n_sug        = len(suggestions)
+
+    html = f"""<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8"></head>
+<body style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;
+             padding:16px;background:#f5f5f5">
+
+  <div style="background:{hdr_color};color:white;padding:16px 20px;
+              border-radius:8px 8px 0 0">
+    <h2 style="margin:0;font-size:20px">🤖 WetterExtended KI-Report</h2>
+    <p style="margin:4px 0 0;font-size:15px;opacity:.9">
+      {ts_date} &bull; Status: {status_label}
+    </p>
+  </div>
+
+  <div style="background:#fff;padding:20px;border:1px solid #ddd;
+              border-radius:0 0 8px 8px">
+
+    <table style="width:100%;border-collapse:collapse;margin-bottom:16px;
+                  font-size:13px">
+      <tr>
+        <td style="padding:4px 8px;color:#6b7280">API-Fehler (24h)</td>
+        <td style="padding:4px 8px;font-weight:bold;
+                   color:{'#dc2626' if api_failures > 0 else '#16a34a'}">
+          {api_failures}
+        </td>
+        <td style="padding:4px 8px;color:#6b7280">Modell MAE</td>
+        <td style="padding:4px 8px;font-weight:bold">{mae_str}</td>
+        <td style="padding:4px 8px;color:#6b7280">Vorschläge</td>
+        <td style="padding:4px 8px;font-weight:bold">{n_sug}</td>
+      </tr>
+    </table>
+
+    {'<p style="color:#16a34a;font-weight:bold">✓ Keine Probleme erkannt.</p>' if n_sug == 0 else
+     f"""<table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="background:#f0f0f0">
+          <th style="padding:6px 8px;text-align:left;width:70px">Priorität</th>
+          <th style="padding:6px 8px;text-align:left">Titel</th>
+          <th style="padding:6px 8px;text-align:left">Beschreibung</th>
+          <th style="padding:6px 8px;text-align:left">Maßnahme</th>
+        </tr>
+      </thead>
+      <tbody>{rows}</tbody>
+    </table>"""}
+
+    <div style="margin-top:20px;text-align:center">
+      <a href="{_MAP_URL.replace('/karte','')}"
+         style="display:inline-block;background:#2563eb;color:white;
+                padding:10px 24px;border-radius:6px;text-decoration:none;
+                font-weight:bold;font-size:14px">
+        🖥 Admin-Panel öffnen
+      </a>
+    </div>
+
+    <hr style="border:none;border-top:1px solid #eee;margin:20px 0">
+    <p style="font-size:11px;color:#aaa;margin:0">
+      WetterExtended &bull; Kärnten Radar-Tracking &bull;
+      Automatischer Tagesbericht
+    </p>
+  </div>
+</body></html>"""
+
+    subject = f"🤖 WetterExtended KI-Report {ts_date} — {status_label}"
+    return _send_smtp(recipients, subject, html)
+
+
 if __name__ == "__main__":
     # Schnelltest: Konfiguration pruefen
     print(f"SMTP konfiguriert: {_is_configured()}")
