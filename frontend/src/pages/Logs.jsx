@@ -1,36 +1,168 @@
 import React, { useEffect, useState } from 'react'
 import api from '../api.js'
 
-export default function Logs() {
-  const [logs, setLogs] = useState({ wetterprojekt: [], scheduler: [], admin: [] })
-  const [active, setActive] = useState('wetterprojekt')
+function severityColor(reason = '') {
+  if (reason.includes('timeout'))                                    return 'text-orange-600'
+  if (reason.includes('http-5'))                                     return 'text-red-700'
+  if (reason.includes('http-4'))                                     return 'text-yellow-700'
+  if (reason.includes('None') || reason.includes('empty') ||
+      reason.includes('0.0'))                                        return 'text-purple-700'
+  return 'text-red-600'
+}
 
-  async function load() {
-    try { setLogs(await api.get('/api/logs')) }
-    catch (e) { console.error(e) }
+export default function Logs() {
+  const [logs,      setLogs]      = useState({ wetterprojekt: [], scheduler: [], admin: [] })
+  const [rawHealth, setRawHealth] = useState({ entries: [], total: 0 })
+  const [summary,   setSummary]   = useState({ total: 0, by_service: {} })
+  const [active,    setActive]    = useState('wetterprojekt')
+  const [hours,     setHours]     = useState(24)
+
+  async function loadLogs() {
+    try { setLogs(await api.get('/api/logs')) } catch (e) { console.error(e) }
+  }
+
+  async function loadHealth() {
+    try {
+      const [raw, agg] = await Promise.all([
+        api.get(`/api/api_health_raw?hours=${hours}&n=200`),
+        api.get(`/api/api_health?hours=${hours}`),
+      ])
+      setRawHealth(raw)
+      setSummary(agg)
+    } catch (e) { console.error(e) }
   }
 
   useEffect(() => {
-    load()
-    const t = setInterval(load, 30000)
+    loadLogs()
+    const t = setInterval(loadLogs, 30000)
     return () => clearInterval(t)
   }, [])
 
+  useEffect(() => {
+    if (active === 'api_fehler') loadHealth()
+  }, [active, hours])
+
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-4">Logs (Auto-Refresh 30s)</h1>
-      <div className="flex gap-2 mb-3">
-        {['wetterprojekt', 'scheduler', 'admin'].map(k => (
+      <h1 className="text-2xl font-bold mb-4">Logs</h1>
+
+      <div className="flex gap-2 mb-3 flex-wrap">
+        {['wetterprojekt', 'scheduler', 'admin', 'api_fehler'].map(k => (
           <button key={k} onClick={() => setActive(k)}
             className={active === k ? 'btn-primary' : 'btn-secondary'}>
-            {k}
+            {k === 'api_fehler'
+              ? `⚠ API-Fehler${summary.total > 0 ? ` (${summary.total})` : ''}`
+              : k}
           </button>
         ))}
-        <button onClick={load} className="btn-secondary">Reload</button>
+        <button onClick={active === 'api_fehler' ? loadHealth : loadLogs}
+          className="btn-secondary ml-auto">↺ Reload</button>
       </div>
-      <pre className="bg-slate-900 text-slate-100 p-3 rounded overflow-auto" style={{ maxHeight: '70vh' }}>
-        {(logs[active] || []).join('\n')}
-      </pre>
+
+      {/* Systemlogs */}
+      {active !== 'api_fehler' && (
+        <pre className="bg-slate-900 text-slate-100 p-3 rounded overflow-auto text-xs"
+          style={{ maxHeight: '70vh' }}>
+          {(logs[active] || []).join('\n')}
+        </pre>
+      )}
+
+      {/* API-Fehler Tab */}
+      {active === 'api_fehler' && (
+        <div>
+          <div className="flex items-center gap-2 mb-3 text-sm">
+            <span className="text-gray-500">Zeitraum:</span>
+            {[6, 24, 48, 168].map(h => (
+              <button key={h} onClick={() => setHours(h)}
+                className={hours === h ? 'btn-primary' : 'btn-secondary'}>
+                {h < 48 ? `${h}h` : `${h/24}d`}
+              </button>
+            ))}
+          </div>
+
+          {/* Zusammenfassung */}
+          {summary.total > 0 && (
+            <div className="card mb-3">
+              <h2 className="text-sm font-semibold mb-2 text-gray-700">
+                Zusammenfassung — {summary.total} Fehler in {hours}h
+              </h2>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b text-gray-500 uppercase">
+                    <th className="p-1 text-left">Service</th>
+                    <th className="p-1 text-right">Fehler</th>
+                    <th className="p-1 text-right">Fallback</th>
+                    <th className="p-1 text-left">Häufigster Grund</th>
+                    <th className="p-1 text-left">Letzter Fehler</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(summary.by_service || {})
+                    .sort((a, b) => b[1].count - a[1].count)
+                    .map(([svc, info]) => {
+                      const top = Object.entries(info.reasons || {})
+                        .sort((a, b) => b[1] - a[1])[0]
+                      return (
+                        <tr key={svc} className="border-b hover:bg-red-50">
+                          <td className="p-1 font-mono font-semibold">{svc}</td>
+                          <td className="p-1 text-right text-red-600 font-bold">{info.count}</td>
+                          <td className="p-1 text-right text-gray-400">{info.fallback_count}</td>
+                          <td className={`p-1 ${severityColor(top?.[0])}`}>
+                            {top ? `${top[0]} (${top[1]}×)` : '—'}
+                          </td>
+                          <td className="p-1 text-gray-400 text-xs">
+                            {info.last_ts?.slice(0,19).replace('T',' ') || '—'}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Einzeleinträge */}
+          <div className="card">
+            <h2 className="text-sm font-semibold mb-2 text-gray-700">
+              Einzelereignisse ({rawHealth.entries.length} von {rawHealth.total})
+            </h2>
+            {rawHealth.entries.length === 0 ? (
+              <div className="text-sm text-green-700 py-2">✅ Keine API-Fehler im Zeitraum.</div>
+            ) : (
+              <div className="overflow-auto" style={{ maxHeight: '55vh' }}>
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-white">
+                    <tr className="border-b text-gray-500 uppercase">
+                      <th className="p-1 text-left">Zeit UTC</th>
+                      <th className="p-1 text-left">Service</th>
+                      <th className="p-1 text-left">Grund</th>
+                      <th className="p-1 text-center">HTTP</th>
+                      <th className="p-1 text-center">Fallback</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rawHealth.entries.map((e, i) => (
+                      <tr key={i} className="border-b hover:bg-gray-50">
+                        <td className="p-1 font-mono whitespace-nowrap">
+                          {e.ts_utc?.slice(0,19).replace('T',' ')}
+                        </td>
+                        <td className="p-1 font-mono font-semibold">{e.service}</td>
+                        <td className={`p-1 ${severityColor(e.reason)}`}>{e.reason}</td>
+                        <td className="p-1 text-center text-gray-400">{e.http_status || '—'}</td>
+                        <td className="p-1 text-center">
+                          {e.fallback_used
+                            ? <span className="text-orange-500">✓</span>
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
