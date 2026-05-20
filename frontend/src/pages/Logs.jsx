@@ -11,11 +11,13 @@ function severityColor(reason = '') {
 }
 
 export default function Logs() {
-  const [logs,      setLogs]      = useState({ wetterprojekt: [], scheduler: [], admin: [] })
-  const [rawHealth, setRawHealth] = useState({ entries: [], total: 0 })
-  const [summary,   setSummary]   = useState({ total: 0, by_service: {} })
-  const [active,    setActive]    = useState('wetterprojekt')
-  const [hours,     setHours]     = useState(24)
+  const [logs,        setLogs]        = useState({ wetterprojekt: [], scheduler: [], admin: [] })
+  const [rawHealth,   setRawHealth]   = useState({ entries: [], total: 0 })
+  const [summary,     setSummary]     = useState({ total: 0, by_service: {} })
+  const [active,      setActive]      = useState('wetterprojekt')
+  const [hours,       setHours]       = useState(24)
+  const [clearMsg,    setClearMsg]    = useState(null)   // { ok, text } für 3s-Feedback
+  const [clearing,    setClearing]    = useState(false)
 
   async function loadLogs() {
     try { setLogs(await api.get('/api/logs')) } catch (e) { console.error(e) }
@@ -32,6 +34,37 @@ export default function Logs() {
     } catch (e) { console.error(e) }
   }
 
+  async function clearAllLogs() {
+    if (!window.confirm(
+      'Alle Logs löschen?\n\n' +
+      'Folgende Dateien werden geleert:\n' +
+      '  • api_health.jsonl\n' +
+      '  • api_call_counts.jsonl\n' +
+      '  • cells_log.jsonl\n' +
+      '  • cleanup_log.jsonl\n' +
+      '  • systemd-Journal (wetterprojekt-Services)\n\n' +
+      'Modelle, Trainingsdaten und Accuracy-History bleiben erhalten.'
+    )) return
+
+    setClearing(true)
+    try {
+      const res = await api.post('/api/logs/clear', {})
+      if (res.ok) {
+        setClearMsg({ ok: true, text: `✓ Gelöscht: ${(res.deleted || []).join(', ')}` })
+        // Logs sofort neu laden
+        await loadLogs()
+        if (active === 'api_fehler') await loadHealth()
+      } else {
+        setClearMsg({ ok: false, text: `Fehler: ${(res.errors || []).join(', ')}` })
+      }
+    } catch (e) {
+      setClearMsg({ ok: false, text: `Fehler: ${e.message}` })
+    } finally {
+      setClearing(false)
+      setTimeout(() => setClearMsg(null), 4000)
+    }
+  }
+
   useEffect(() => {
     loadLogs()
     const t = setInterval(loadLogs, 30000)
@@ -46,7 +79,7 @@ export default function Logs() {
     <div>
       <h1 className="text-2xl font-bold mb-4">Logs</h1>
 
-      <div className="flex gap-2 mb-3 flex-wrap">
+      <div className="flex gap-2 mb-3 flex-wrap items-center">
         {['wetterprojekt', 'scheduler', 'admin', 'api_fehler'].map(k => (
           <button key={k} onClick={() => setActive(k)}
             className={active === k ? 'btn-primary' : 'btn-secondary'}>
@@ -57,7 +90,24 @@ export default function Logs() {
         ))}
         <button onClick={active === 'api_fehler' ? loadHealth : loadLogs}
           className="btn-secondary ml-auto">↺ Reload</button>
+        <button
+          onClick={clearAllLogs}
+          disabled={clearing}
+          className="btn-secondary text-red-600 border-red-300 hover:bg-red-50 disabled:opacity-50"
+          title="Alle JSONL-Logs und systemd-Journal leeren">
+          {clearing ? '⌛ Löschen…' : '🗑 Logs löschen'}
+        </button>
       </div>
+
+      {/* Feedback-Banner nach Löschen */}
+      {clearMsg && (
+        <div className={`mb-3 px-3 py-2 rounded text-sm font-medium
+          ${clearMsg.ok
+            ? 'bg-green-50 border border-green-300 text-green-800'
+            : 'bg-red-50  border border-red-300  text-red-800'}`}>
+          {clearMsg.text}
+        </div>
+      )}
 
       {/* Systemlogs */}
       {active !== 'api_fehler' && (
