@@ -16,9 +16,14 @@ def _debug_log(message: str):
     except Exception:
         print(message)
 
-INPUT_FRAMES = 4
-OUTPUT_FRAMES = 4
-SEQUENCE_LENGTH = INPUT_FRAMES + OUTPUT_FRAMES
+INPUT_FRAMES = 4   # Eingabe: letzte 4 Radar-Frames
+OUTPUT_FRAMES = 4  # Ausgabe: nächste 4 vorhergesagte Frames
+# WICHTIG: INPUT_FRAMES == OUTPUT_FRAMES == 4 ist ABSICHTLICH.
+# Conv3D gibt shape (batch, INPUT_FRAMES, H, W, 1) aus, da padding="same".
+# y_data hat shape (batch, OUTPUT_FRAMES, H, W, 1).
+# Shapes sind kompatibel weil INPUT_FRAMES == OUTPUT_FRAMES.
+# Kein Reshape/Slice nötig — kein Shape-Mismatch!
+SEQUENCE_LENGTH = INPUT_FRAMES + OUTPUT_FRAMES  # = 8 Frames pro Sliding-Window
 def _get_model_path() -> str:
     """
     Gibt den aktuellen ConvLSTM-Modellpfad zurück.

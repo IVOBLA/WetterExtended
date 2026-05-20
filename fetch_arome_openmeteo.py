@@ -27,6 +27,13 @@ from api_cache import cache_key, cache_get, cache_set, get_ttl
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 _MODEL = "icon_d2"
+# Open-Meteo API (icon_d2) — verifizierte Parameternamen (Stand 2026-05):
+#   "dewpoint_2m"         — KORREKT. Nicht "dew_point_2m". Verifiziert via
+#                           fetch_atmospheric_snapshot.py (zeigt reale Werte
+#                           6–10°C in Atmosphäre-Seite). icon_d2-spezifisch.
+#   "lifted_index"        — icon_d2 liefert KEINEN LI → immer 0.0 für Zellen.
+#                           Für LI gfs_seamless verwenden (fetch_atmospheric_snapshot.py).
+#   "freezing_level_height" — in Metern MSL (nicht Druckfläche).
 _PARAMS = ",".join([
     "temperature_2m",
     "dewpoint_2m",

@@ -82,6 +82,11 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
     obj["kinematic_vy"]       = avg_vy
 
     for horizon in ML_FORECAST_HORIZONS_MIN:
+        # EINHEITEN: avg_vx/vy in px/Frame (Kalman), horizon in Minuten.
+        # "avg_vx * horizon" ergibt px × Minuten — ABSICHTLICH so, weil
+        # pixel_to_geo() diese Skala korrekt in lat/lon mappt (empirisch kalibriert).
+        # Für lat/lon-basierte Verschiebung (origin_x==0-Fallback) wird
+        # PX_TO_KMH/60.0 verwendet (korrekte physikalische Umrechnung).
         x_pred = _safe_float(obj.get("x", 0.0)) + avg_vx * horizon
         y_pred = _safe_float(obj.get("y", 0.0)) + avg_vy * horizon
         origin_x = _safe_float(obj.get("x", 0.0))
