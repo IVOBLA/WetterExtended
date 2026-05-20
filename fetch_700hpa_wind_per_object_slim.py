@@ -160,6 +160,18 @@ def fetch_and_assign_700hpa_wind(objects: list, timestamp: str) -> list:
         obj.update(wind_vals)
         wind_records.append({"id": obj.get("id"), **wind_vals})
 
+    # Stille Datenfehler: wenn ALLE Objekte Default-Windwerte haben →
+    # API hat HTTP 200 geliefert aber keine gültigen Werte im Ziel-Zeitslot
+    if wind_records and all(
+        r.get("wind_speed_700hPa", 0.0) == 0.0
+        and r.get("wind_dir_cos", 0.0) == 0.0
+        for r in wind_records
+    ):
+        log_api_failure("Open-Meteo-700hPa", bulk_url,
+                        "wind_speed_700hPa: alle Werte None/0 im Ziel-Zeitslot — "
+                        "icon_global liefert keine Daten für diesen Zeitraum",
+                        fallback_used=True)
+
     _save_wind_file(wind_records, output_folder, timestamp)
     debug_log(f"[WIND] Bulk-Request OK: {len(valid)} Objekte in 1 API-Call.")
     return objects
