@@ -541,6 +541,38 @@ def api_api_health():
     return jsonify(api_health_summary(since_hours=hours))
 
 
+@app.route("/api/api_health_raw")
+def api_api_health_raw():
+    """Einzeleinträge aus api_health.jsonl (neueste zuerst) für Logs-Seite."""
+    from datetime import datetime as _dt, timedelta as _td
+    hours  = int(request.args.get("hours", "24"))
+    limit  = min(int(request.args.get("n", "200")), 1000)
+    cutoff = _dt.utcnow() - _td(hours=hours)
+    health_file = os.path.join(
+        SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/"),
+        "api_health.jsonl",
+    )
+    entries = []
+    if os.path.exists(health_file):
+        try:
+            with open(health_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                        ts  = _dt.fromisoformat(rec.get("ts_utc", "").replace("Z", ""))
+                        if ts >= cutoff:
+                            entries.append(rec)
+                    except Exception:
+                        continue
+        except Exception as exc:
+            return jsonify({"entries": [], "total": 0, "error": str(exc)})
+    entries.sort(key=lambda r: r.get("ts_utc", ""), reverse=True)
+    return jsonify({"entries": entries[:limit], "total": len(entries)})
+
+
 @app.route("/api/logs")
 def api_logs():
     def tail(unit):
