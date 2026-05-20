@@ -15,7 +15,7 @@ if np is None:
         "Bitte ausführen: pip3 install numpy --break-system-packages"
     )
 
-from config import ML_CELL_FEATURES as CELL_KEYS, ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, ML_STATION_FEATURES as STATION_KEYS, PX_TO_KMH, SAVE_PATHS
+from config import ML_CELL_FEATURES as CELL_KEYS, ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, ML_STATION_FEATURES as STATION_KEYS, PX_TO_KMH, SAVE_PATHS, UPSCALE_FACTOR as _UF
 from dataset_builder import load_scalers
 from model_training import load_lgbm_models, load_lstm
 
@@ -82,15 +82,18 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
     obj["kinematic_vy"]       = avg_vy
 
     for horizon in ML_FORECAST_HORIZONS_MIN:
-        # EINHEITEN: avg_vx/vy in px/Frame (Kalman), horizon in Minuten.
-        # "avg_vx * horizon" ergibt px × Minuten — ABSICHTLICH so, weil
-        # pixel_to_geo() diese Skala korrekt in lat/lon mappt (empirisch kalibriert).
-        # Für lat/lon-basierte Verschiebung (origin_x==0-Fallback) wird
-        # PX_TO_KMH/60.0 verwendet (korrekte physikalische Umrechnung).
-        x_pred = _safe_float(obj.get("x", 0.0)) + avg_vx * horizon
-        y_pred = _safe_float(obj.get("y", 0.0)) + avg_vy * horizon
-        origin_x = _safe_float(obj.get("x", 0.0))
-        origin_y = _safe_float(obj.get("y", 0.0))
+        # EINHEITEN:
+        # obj["x"]/ ["y"] = Original-Pixel (pre-upscale) — gespeichert von object_tracking.py.
+        # obj["vx"]/ ["vy"] = Original-px/Frame (Kalman-Geschwindigkeit / _UF gespeichert).
+        # Bestätigt durch visualize_radar.py: obj["x"] * UPSCALE_FACTOR = skalierte Position.
+        # pixel_to_geo() erwartet skalierte Koordinaten (teilt intern durch _UF).
+        # Korrekte Formel: (orig_pos + orig_vel * horizon) * _UF → skalierte Zielposition.
+        _x0 = _safe_float(obj.get("x", 0.0))
+        _y0 = _safe_float(obj.get("y", 0.0))
+        x_pred   = (_x0 + avg_vx * horizon) * _UF
+        y_pred   = (_y0 + avg_vy * horizon) * _UF
+        origin_x = _x0 * _UF
+        origin_y = _y0 * _UF
         if origin_x == 0.0 and origin_y == 0.0:
             base_lat = _safe_float(obj.get("lat", 0.0))
             base_lon = _safe_float(obj.get("lon", 0.0))
@@ -319,8 +322,9 @@ def predict_positions(objects: list, timestamp: str, stations: list):
         prediction_q90 = scaler_y.inverse_transform(prediction_q90_scaled.reshape(1, -1))[0] if prediction_q90_scaled is not None else None
 
         for idx, horizon in enumerate(ML_FORECAST_HORIZONS_MIN):
-            x_pred = float(prediction[idx * 2])
-            y_pred = float(prediction[idx * 2 + 1])
+            # ML-Modell trainiert auf pre-upscale obj["x"]/ ["y"] → _UF anwenden
+            x_pred = float(prediction[idx * 2])     * _UF
+            y_pred = float(prediction[idx * 2 + 1]) * _UF
             lat, lon = pixel_to_geo(x_pred, y_pred)
             obj[f"forecast_x_{horizon}"] = x_pred
             obj[f"forecast_y_{horizon}"] = y_pred
