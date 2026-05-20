@@ -54,8 +54,13 @@ def log_api_failure(service: str, url: str, reason: str,
     }
     if http_status is not None:
         rec["http_status"] = int(http_status)
-    debug_log(f"[API-FAIL] {service}: {reason} "
-              f"(fallback={fallback_used}, http={http_status}) URL={url}")
+    # API-Fehler immer ausgeben — unabhängig von DEBUG_MODE
+    # Produktionsfehler müssen in journalctl sichtbar sein
+    print(
+        f"[{_dt.utcnow().isoformat(timespec='seconds')}Z] [API-FAIL] "
+        f"{service}: {reason} (fallback={fallback_used}, http={http_status})",
+        flush=True,
+    )
     try:
         _os.makedirs(_os.path.dirname(_API_HEALTH_FILE), exist_ok=True)
         with open(_API_HEALTH_FILE, "a", encoding="utf-8") as f:
