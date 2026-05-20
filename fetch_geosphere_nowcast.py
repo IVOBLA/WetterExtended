@@ -56,9 +56,11 @@ def _parse_nowcast(data: dict, url: str = "") -> dict:
     try:
         features=data.get('features',[])
         if not features:
-            log_api_failure("geosphere_nowcast", url,
-                            "features-list-empty: GeoSphere Nowcast liefert keine Gitterpunkte",
-                            fallback_used=True)
+            log_api_failure(
+                "geosphere_nowcast", url,
+                "features-list-empty: GeoSphere Nowcast liefert keine Gitterpunkte",
+                fallback_used=True,
+            )
             return result
         params=features[0].get('properties',{}).get('parameters',{})
         def _first(key):
