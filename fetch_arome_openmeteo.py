@@ -134,7 +134,7 @@ def assign_arome_to_objects(objects: list, timestamp: str) -> list:
     if cached is not None:
         debug_log(f"[AROME] Cache-HIT — kein HTTP-Request ({len(valid)} Objekte).")
         data = cached
-        _apply_data_to_objects(data, valid, objects, timestamp)
+        _apply_data_to_objects(data, valid, objects, timestamp, bulk_url)
         return objects
 
     try:
@@ -172,11 +172,11 @@ def assign_arome_to_objects(objects: list, timestamp: str) -> list:
         _save_results({}, timestamp)
         return objects
 
-    _apply_data_to_objects(data, valid, objects, timestamp)
+    _apply_data_to_objects(data, valid, objects, timestamp, bulk_url)
     return objects
 
 
-def _apply_data_to_objects(data, valid, objects, timestamp):
+def _apply_data_to_objects(data, valid, objects, timestamp, bulk_url):
     """Schreibt AROME-Werte aus der API-Response/Cache in die Objekte."""
     # Response normalisieren: Single-Object → Liste
     if isinstance(data, dict):
@@ -194,18 +194,16 @@ def _apply_data_to_objects(data, valid, objects, timestamp):
         obj.update(arome_vals)
         results[obj.get("id")] = arome_vals
 
-    # Stille Datenfehler: wenn ALLE Objekte 0.0 für T2m haben →
-    # API hat HTTP 200 geliefert aber keine gültigen Werte im Ziel-Zeitslot
-    if results and all(
-        v.get("arome_t2m", 0.0) == 0.0 for v in results.values()
-    ):
-        log_api_failure("Open-Meteo-icon_d2", bulk_url,
-                        "arome_t2m: alle Werte 0.0 — icon_d2 liefert keine Daten "
-                        "für diesen Zeitslot (Ziel-Zeit nicht in Response)",
-                        fallback_used=True)
+    # Stille Datenfehler: wenn ALLE Objekte 0.0 für T2m → API liefert keinen Ziel-Zeitslot
+    if results and all(v.get("arome_t2m", 0.0) == 0.0 for v in results.values()):
+        log_api_failure(
+            "Open-Meteo-icon_d2", bulk_url,
+            "arome_t2m: alle Werte 0.0 — icon_d2 liefert keine Daten für diesen Zeitslot",
+            fallback_used=True,
+        )
 
     _save_results(results, timestamp)
-    debug_log(f"[AROME] {len(valid)} Objekte in 1 API-Call/Cache-Hit verarbeitet.")
+    debug_log(f"[AROME] Bulk-Request OK: {len(valid)} Objekte in 1 API-Call.")
 
 
 def _save_results(results: dict, timestamp: str) -> None:
