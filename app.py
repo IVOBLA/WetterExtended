@@ -379,6 +379,9 @@ def api_locations_save():
         assert isinstance(data, list)
         for entry in data:
             assert "name" in entry and "lat" in entry and "lon" in entry and "radius_km" in entry
+            # email ist optional — wird bei Vorhandensein als String gespeichert
+            if "email" in entry:
+                assert isinstance(entry["email"], str), "email muss ein String sein"
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
     runtime_config.patch({"LOCATIONS_WATCHLIST": data})

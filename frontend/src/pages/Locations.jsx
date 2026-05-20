@@ -14,10 +14,10 @@ export default function Locations() {
       .finally(() => setLoading(false))
   }, [])
 
-  function add() { setList([...list, { name: '', lat: 46.62, lon: 14.31, radius_km: 5 }]) }
+  function add() { setList([...list, { name: '', lat: 46.62, lon: 14.31, radius_km: 5, email: '' }]) }
   function update(i, key, val) {
     const next = [...list]
-    next[i] = { ...next[i], [key]: key === 'name' ? val : parseFloat(val) }
+    next[i] = { ...next[i], [key]: key === 'name' || key === 'email' ? val : parseFloat(val) }
     setList(next)
   }
   function remove(i) { setList(list.filter((_, idx) => idx !== i)) }
@@ -47,6 +47,7 @@ export default function Locations() {
             <th className="p-2 text-left">Lat</th>
             <th className="p-2 text-left">Lon</th>
             <th className="p-2 text-left">Radius (km)</th>
+            <th className="p-2 text-left">E-Mail(s)</th>
             <th></th>
           </tr>
         </thead>
@@ -57,6 +58,7 @@ export default function Locations() {
               <td className="p-2"><input className="input" type="number" step="0.0001" value={l.lat} onChange={e => update(i, 'lat', e.target.value)} /></td>
               <td className="p-2"><input className="input" type="number" step="0.0001" value={l.lon} onChange={e => update(i, 'lon', e.target.value)} /></td>
               <td className="p-2"><input className="input" type="number" step="0.1" value={l.radius_km} onChange={e => update(i, 'radius_km', e.target.value)} /></td>
+              <td className="p-2"><input className="input" type="text" value={l.email ?? ''} onChange={e => update(i, 'email', e.target.value)} placeholder="user1@example.com;user2@example.com" /></td>
               <td className="p-2"><button className="btn-danger" onClick={() => remove(i)}>x</button></td>
             </tr>
           ))}
