@@ -29,7 +29,20 @@ def parse_kml_bounds():
                 "north": north, "south": south,
                 "east": east, "west": west
             }
-            debug_log(f"KML LatLonBox gefunden: N={north}, S={south}, E={east}, W={west}")
+            # Originaldimensionen einmalig einlesen und cachen.
+            # pixel_to_geo liest diese Werte direkt statt cv2.imread bei jedem Aufruf.
+            _img_check = cv2.imread("data/latest.png")
+            if _img_check is not None:
+                kml_bounds["orig_height"], kml_bounds["orig_width"] = _img_check.shape[:2]
+                debug_log(
+                    f"KML LatLonBox: N={north}, S={south}, E={east}, W={west} "
+                    f"| Bilddims: {kml_bounds['orig_width']}x{kml_bounds['orig_height']}px"
+                )
+            else:
+                debug_log(
+                    f"KML LatLonBox: N={north}, S={south}, E={east}, W={west} "
+                    f"| WARNUNG: data/latest.png nicht lesbar — orig_width/height noch unbekannt"
+                )
             return
     except Exception as e:
         debug_log(f"KML Parsing Fehler: {e}")
@@ -45,12 +58,21 @@ def pixel_to_geo(x, y):
     x = (x / kml_bounds.get("upscale", 1.0)) + kml_bounds.get("pixel_offset_x", 0)
     y = (y / kml_bounds.get("upscale", 1.0)) + kml_bounds.get("pixel_offset_y", 0)
 
-    img_path = "data/latest.png"
-    try:
-        img = cv2.imread(img_path)
-        img_height, img_width = img.shape[:2]
-    except:
-        img_width, img_height = 512, 512  # fallback
+    # Gecachte Originaldimensionen verwenden — kein cv2.imread bei jedem Aufruf.
+    # cv2.imread gibt None zurück (keine Exception) wenn Datei fehlt →
+    # None.shape → AttributeError → 512×512-Fallback → 125km Positionsfehler.
+    img_width  = kml_bounds.get("orig_width")
+    img_height = kml_bounds.get("orig_height")
+    if img_width is None or img_height is None:
+        # Einmalig nachlesen (z.B. direkt nach parse_kml_bounds ohne crop)
+        _img_fallback = cv2.imread("data/latest.png")
+        if _img_fallback is not None:
+            img_height, img_width = _img_fallback.shape[:2]
+            kml_bounds["orig_width"] = img_width
+            kml_bounds["orig_height"] = img_height
+        else:
+            debug_log("[GEO] WARNUNG: data/latest.png nicht lesbar — Fallback 512x512 aktiv, Positionen ungenau!")
+            img_width, img_height = 512, 512
 
     lon = kml_bounds["west"] + (x / img_width) * (kml_bounds["east"] - kml_bounds["west"])
     lat = kml_bounds["north"] - (y / img_height) * (kml_bounds["north"] - kml_bounds["south"])
@@ -63,12 +85,16 @@ def geo_to_pixel(lat, lon):
     if not kml_bounds:
         return 0, 0
 
-    img_path = "data/latest.png"
-    try:
-        img = cv2.imread(img_path)
-        img_height, img_width = img.shape[:2]
-    except:
-        img_width, img_height = 512, 512
+    img_width  = kml_bounds.get("orig_width")
+    img_height = kml_bounds.get("orig_height")
+    if img_width is None or img_height is None:
+        _img_fallback = cv2.imread("data/latest.png")
+        if _img_fallback is not None:
+            img_height, img_width = _img_fallback.shape[:2]
+            kml_bounds["orig_width"] = img_width
+            kml_bounds["orig_height"] = img_height
+        else:
+            img_width, img_height = 512, 512
 
     x = int((lon - kml_bounds["west"]) / (kml_bounds["east"] - kml_bounds["west"]) * img_width)
     y = int((kml_bounds["north"] - lat) / (kml_bounds["north"] - kml_bounds["south"]) * img_height)
@@ -117,8 +143,10 @@ def crop_and_upscale_to_bbox(image_path, bbox, upscale=3.0, save_path=None):
         debug_log(f"[DEBUG] Hochskaliertes Bild gespeichert: {save_path}")
 
     # Update für Geo-Referenzierung
-    kml_bounds["img_width"] = scaled.shape[1]
+    kml_bounds["img_width"] = scaled.shape[1]  # skaliertes Bild (Referenz)
     kml_bounds["img_height"] = scaled.shape[0]
+    kml_bounds["orig_width"] = original_width  # Original ARSO-Dims für pixel_to_geo
+    kml_bounds["orig_height"] = original_height
     kml_bounds["pixel_offset_x"] = x1
     kml_bounds["pixel_offset_y"] = y1
     kml_bounds["upscale"] = upscale
@@ -163,4 +191,3 @@ def geo_to_pixel_in_bbox(lat: float, lon: float,
     x = max(0, min(img_width  - 1, x))
     y = max(0, min(img_height - 1, y))
     return x, y
-
