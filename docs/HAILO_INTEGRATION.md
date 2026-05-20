@@ -833,6 +833,11 @@ _hailo_available: Optional[bool] = None
 - `/api/hailo/reload` Endpoint für rsync-Post-Hook
 - API-Requests-Statistik im Dashboard (`/api/api_calls`)
 - Gewitterrisiko-Grid-Layer in MapView + MapFullscreen (`/api/risk_grid`):
+- E-Mail-Benachrichtigungen (`email_notifier.py`): SMTP STARTTLS, HTML-Mails
+  mit Karten-Link, pro Ort mehrere Empfaenger (;-getrennt), Cooldown 15/5 min;
+  SMS-Versand (sms_notifier.py) aus main.py entfernt
+- nginx /karte Trailing-Slash-Fix: Regex-Match `~ ^/karte(/.*)?$` statt
+  Exact-Match `= /karte`; live in install.sh und auf System angewendet
   Grid 0.05° über Kärnten, 3 Quellen (Zellen, Blitze, LI), farbige
   Flächen ohne Rand (gelb/orange/rot), Toggle standardmäßig aus
 
