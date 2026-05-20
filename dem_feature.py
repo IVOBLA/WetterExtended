@@ -36,8 +36,15 @@ except Exception:
         print(msg)
 
 from config import SAVE_PATHS
+import runtime_config
 
-DEM_DIR = SAVE_PATHS.get("dem", "train_data/dem/")
+def _get_dem_dir() -> str:
+    """DEM-Verzeichnis — überschreibbar via runtime_overrides.json."""
+    return runtime_config.get(
+        "DEM_DIR",
+        SAVE_PATHS.get("dem", "train_data/dem/")
+    ).rstrip("/") + "/"
+
 
 _DEM_TILES = [
     # N46 – südlicher Bereich Kärnten
@@ -116,10 +123,11 @@ def _ensure_dem():
     if not HAS_RASTERIO or not HAS_NUMPY:
         debug_log("[DEM] rasterio/numpy nicht verfügbar.")
         return False
-    os.makedirs(DEM_DIR, exist_ok=True)
+    _dem_dir = _get_dem_dir()
+    os.makedirs(_dem_dir, exist_ok=True)
     tile_paths = []
     for fn, url in _DEM_TILES:
-        dest_path = os.path.join(DEM_DIR, fn)
+        dest_path = os.path.join(_dem_dir, fn)
         if os.path.exists(dest_path):
             tile_paths.append(dest_path)
             continue
@@ -152,7 +160,7 @@ def _ensure_dem():
         # Verifikation: alle Tiles im Cache vorhanden?
         missing_tiles = [
             fn for fn, _url in _DEM_TILES
-            if not os.path.exists(os.path.join(DEM_DIR, fn))
+            if not os.path.exists(os.path.join(_dem_dir, fn))
         ]
         if missing_tiles:
             debug_log(
