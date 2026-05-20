@@ -316,7 +316,7 @@ export default function MapFullscreen() {
                     color: radarTiming.cells_active ? '#dc2626' : '#6b7280',
                     fontWeight: radarTiming.cells_active ? 700 : 400,
                   }}>
-                    {radarTiming.cells_active ? '⚡ Zellen aktiv' : '✓ Keine aktiven Zellen'}
+                    {radarTiming.cells_active ? '⚡ Zellen aktiv' : '✓ Keine aktiven Schwergewitter-Zellen'}
                   </div>
                 </div>
                 <div style={{ borderTop: '1px solid #e5e7eb' }} />
