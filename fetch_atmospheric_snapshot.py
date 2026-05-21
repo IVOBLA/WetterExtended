@@ -38,12 +38,14 @@ _AROME_PARAMS = ",".join([
 # Open-Meteo API-Spec, Stand 2026-05).
 _WIND_PARAMS = (
     "wind_speed_700hPa,wind_direction_700hPa,"
-    "temperature_500hPa,temperature_700hPa,"
-    "convective_inhibition,precipitable_water"
+    "temperature_500hPa,temperature_700hPa"
 )
-# LI kommt von GFS Global — DWD ICON (d2/eu/global) liefert lifted_index nicht
-_LI_PARAMS = "lifted_index"
-_LI_MODEL  = "gfs_seamless"
+_GFS_URL = "https://api.open-meteo.com/v1/gfs"
+_GFS_CONV_PARAMS = (
+    "lifted_index,"
+    "convective_inhibition,"
+    "total_column_integrated_water_vapour"
+)
 
 
 def _nearest_hour_str() -> str:
@@ -69,7 +71,14 @@ def _bulk_get(url: str, label: str) -> list | None:
         log_api_failure(label, url, "timeout", fallback_used=True)
     except requests.exceptions.HTTPError as exc:
         status = getattr(exc.response, "status_code", None)
-        log_api_failure(label, url, f"http-{status}", fallback_used=True, http_status=status)
+        hint = " (möglicherweise ungültige Open-Meteo-Parameter)" if status == 400 else ""
+        log_api_failure(
+            label,
+            url,
+            f"http-{status}{hint}",
+            fallback_used=True,
+            http_status=status,
+        )
     except Exception as exc:
         log_api_failure(label, url, f"{type(exc).__name__}: {exc}", fallback_used=True)
     return None
@@ -109,14 +118,14 @@ def fetch_atmospheric_snapshot() -> dict:
         f"{_OPEN_METEO_URL}?latitude={lats}&longitude={lons}"
         f"&hourly={_WIND_PARAMS}&models=icon_global&timezone={_TZ}&forecast_days=1"
     )
-    wind_data = _bulk_get(wind_url, "Open-Meteo-Atmosphere-700hPa")
+    wind_data = _bulk_get(wind_url, "Open-Meteo-Atmosphere-Pressure")
 
-    # --- Lifted Index bulk (GFS Global) ---
-    li_url = (
-        f"{_OPEN_METEO_URL}?latitude={lats}&longitude={lons}"
-        f"&hourly={_LI_PARAMS}&models={_LI_MODEL}&timezone={_TZ}&forecast_days=1"
+    # --- GFS bulk (LI/CIN/PW) ---
+    gfs_url = (
+        f"{_GFS_URL}?latitude={lats}&longitude={lons}"
+        f"&hourly={_GFS_CONV_PARAMS}&timezone={_TZ}&forecast_days=1"
     )
-    li_data = _bulk_get(li_url, "Open-Meteo-Atmosphere-LI")
+    gfs_data = _bulk_get(gfs_url, "Open-Meteo-Atmosphere-GFS")
 
     # --- Datenqualitäts-Check: stille None-Fehler sichtbar machen ---
     def _all_none(dataset, key):
@@ -134,28 +143,28 @@ def fetch_atmospheric_snapshot() -> dict:
         )
     if _all_none(wind_data, "wind_speed_700hPa"):
         log_api_failure(
-            "Open-Meteo-Atmosphere-700hPa",
+            "Open-Meteo-Atmosphere-Pressure",
             wind_url,
             "wind_speed_700hPa: alle Werte None — icon_global liefert Parameter nicht",
             fallback_used=True,
         )
     # NEU: Datenqualitaets-Check fuer die 4 neuen Parameter
-    for _p in ("temperature_500hPa", "temperature_700hPa",
-               "convective_inhibition", "precipitable_water"):
+    for _p in ("temperature_500hPa", "temperature_700hPa"):
         if _all_none(wind_data, _p):
             log_api_failure(
-                "Open-Meteo-Atmosphere-icon_global",
+                "Open-Meteo-Atmosphere-Pressure",
                 wind_url,
-                f"{_p}: alle Werte None — icon_global liefert Parameter nicht",
+                f"{_p}: alle Werte None — pressure request liefert Parameter nicht",
                 fallback_used=True,
             )
-    if _all_none(li_data, "lifted_index"):
-        log_api_failure(
-            "Open-Meteo-Atmosphere-LI",
-            li_url,
-            f"lifted_index: alle Werte None — Modell '{_LI_MODEL}' liefert Parameter nicht",
-            fallback_used=True,
-        )
+    for _p in ("lifted_index", "convective_inhibition", "total_column_integrated_water_vapour"):
+        if _all_none(gfs_data, _p):
+            log_api_failure(
+                "Open-Meteo-Atmosphere-GFS",
+                gfs_url,
+                f"{_p}: alle Werte None — GFS liefert Parameter nicht",
+                fallback_used=True,
+            )
 
     result_locations = []
     for i, loc in enumerate(locations):
@@ -172,7 +181,7 @@ def fetch_atmospheric_snapshot() -> dict:
             ff10m = _extract_slot(h, "wind_speed_10m",       target_time)
             fl_h  = _extract_slot(h, "freezing_level_height",target_time)
 
-        # 700 hPa Wind + NEU: T500/T700/CIN/PW aus demselben icon_global-Response
+        # 700 hPa Wind + T500/T700 aus Pressure-Response
         w_speed = w_dir_cos = w_dir_sin = 0.0
         t500_c = t700_c = cin_jkg = pw_mm = 0.0
         if wind_data and i < len(wind_data):
@@ -181,15 +190,16 @@ def fetch_atmospheric_snapshot() -> dict:
             w_dir   = _extract_slot(h, "wind_direction_700hPa",target_time)
             t500_c  = _extract_slot(h, "temperature_500hPa",   target_time)
             t700_c  = _extract_slot(h, "temperature_700hPa",   target_time)
-            cin_jkg = _extract_slot(h, "convective_inhibition",target_time)
-            pw_mm   = _extract_slot(h, "precipitable_water",   target_time)
+
             rad     = radians(w_dir)
             w_dir_cos = round(cos(rad), 4)
             w_dir_sin = round(sin(rad), 4)
-        # Lifted Index von GFS Global (icon_d2/eu/global liefern kein LI)
-        if li_data and i < len(li_data):
-            h_li = li_data[i].get("hourly", {})
-            li = _extract_slot(h_li, "lifted_index", target_time)
+        # LI/CIN/PW von GFS
+        if gfs_data and i < len(gfs_data):
+            h_gfs = gfs_data[i].get("hourly", {})
+            li = _extract_slot(h_gfs, "lifted_index", target_time)
+            cin_jkg = _extract_slot(h_gfs, "convective_inhibition", target_time)
+            pw_mm = _extract_slot(h_gfs, "total_column_integrated_water_vapour", target_time)
 
         # NEU: lapse_700_500 als abgeleitete Groesse mitspeichern (kein zusaetzlicher
         # API-Call). Annahme: Druckdifferenz 700→500 hPa entspricht ~3.0 km in
@@ -219,7 +229,7 @@ def fetch_atmospheric_snapshot() -> dict:
         })
 
     result = {
-        "ts_utc":    datetime.now(timezone.utc).isoformat(timespec="seconds") + "Z",
+        "ts_utc":    datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "locations": result_locations,
     }
 
