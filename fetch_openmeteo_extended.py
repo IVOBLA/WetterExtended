@@ -20,7 +20,12 @@ _MINUTELY_PARAMS = "wind_gusts_10m"
 _HOURLY_LPI_PARAMS = "lightning_potential_index"   # icon_eu hourly
 _PRESSURE_PARAMS = (
     "wind_speed_500hPa,wind_direction_500hPa,"
-    "wind_speed_850hPa,wind_direction_850hPa"
+    "wind_speed_850hPa,wind_direction_850hPa,"
+    # NEU: T500/T700 fuer Lapse-Rate 700-500, CIN+PW fuer hazard-Module.
+    # Alle 4 Parameter sind in icon_global hourly verfuegbar (verifiziert
+    # gegen Open-Meteo API-Spec, Stand 2026-05). Kein neuer HTTP-Request.
+    "temperature_500hPa,temperature_700hPa,"
+    "convective_inhibition,precipitable_water"
 )
 _DEFAULT = {
     "wind_gust_10m_kmh": 0.0,
@@ -31,6 +36,12 @@ _DEFAULT = {
     "wind_speed_850hPa": 0.0,
     "wind_dir_850_cos": 0.0,
     "wind_dir_850_sin": 0.0,
+    # NEU: konvektive Diagnose-Inputs (rohe API-Werte, Derivate in
+    # compute_convective_indices.py).
+    "t500_c": 0.0,    # Temperatur 500 hPa (Grad C)
+    "t700_c": 0.0,    # Temperatur 700 hPa (Grad C)
+    "cin":    0.0,    # Convective Inhibition (J/kg)
+    "pw":     0.0,    # Precipitable Water (mm)
 }
 
 
@@ -170,6 +181,11 @@ def _apply(data_a, data_b, data_c, valid: list, objects: list) -> None:
             wd500 = hourly.get("wind_direction_500hPa", [])
             ws850 = hourly.get("wind_speed_850hPa", [])
             wd850 = hourly.get("wind_direction_850hPa", [])
+            # NEU: T500, T700, CIN, PW aus demselben Response extrahieren.
+            t500 = hourly.get("temperature_500hPa", [])
+            t700 = hourly.get("temperature_700hPa", [])
+            cin = hourly.get("convective_inhibition", [])
+            pw = hourly.get("precipitable_water", [])
             h_idx, min_diff = 0, float("inf")
             for j, t_str in enumerate(times_h):
                 try:
@@ -196,6 +212,11 @@ def _apply(data_a, data_b, data_c, valid: list, objects: list) -> None:
                     "wind_speed_850hPa": round(spd850, 1),
                     "wind_dir_850_cos": cos850,
                     "wind_dir_850_sin": sin850,
+                    # NEU: konvektive Indizes-Inputs
+                    "t500_c": round(_v(t500, h_idx), 2),
+                    "t700_c": round(_v(t700, h_idx), 2),
+                    "cin": round(_v(cin, h_idx), 2),
+                    "pw": round(_v(pw, h_idx), 2),
                 }
             )
 
