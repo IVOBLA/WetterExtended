@@ -27,6 +27,7 @@ from fetch_synoptic_features import assign_synoptic_features
 from orographic_module import assign_orographic_scores
 from fetch_openmeteo_extended import assign_extended_openmeteo
 from fetch_geosphere_nowcast import assign_nowcast_to_objects
+from compute_convective_indices import assign_convective_indices
 from fetch_tawes_gust import fetch_tawes_stations, max_gust_near
 import math as _math_main
 import runtime_config
@@ -146,6 +147,11 @@ def main_loop():
             objects = assign_synoptic_features(objects, timestamp)
             objects = assign_extended_openmeteo(objects, timestamp)
             objects = assign_nowcast_to_objects(objects, timestamp)
+            # NEU: alle konvektiven Indizes rein rechnerisch (kein Netzwerk).
+            # Erwartet bereits gesetzte Felder: cape, t500_c, t700_c, cin, pw,
+            # wind_speed_500hPa, wind_dir_500_*, arome_td2m, arome_ff10m,
+            # arome_dd_*, arome_fl_height, core_ratio, lightning_count_10km.
+            objects = assign_convective_indices(objects, timestamp)
             _tawes_stations = fetch_tawes_stations()
             for _obj in objects:
                 if _obj.get("lat") is not None and _obj.get("lon") is not None:
