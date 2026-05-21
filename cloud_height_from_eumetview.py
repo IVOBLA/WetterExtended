@@ -404,12 +404,23 @@ def assign_cloud_top_height(
                     if np.isnan(value):
                         if np.isnan(bt_val):
                             # bt_k war Nodata/korrupt → fehlende Satellitendaten
-                            obj["cloud_top_height_msl"]  = -1.0
-                            obj["cloud_height_missing"]  = 1.0
+                            obj["cloud_top_height_msl"] = -1.0
+                            obj["cloud_height_missing"] = 1.0
                         else:
-                            # bt_k > nan_threshold → Pixel ist wolkenfrei (kein Fehler)
-                            obj["cloud_top_height_msl"]  = -1.0
-                            obj["cloud_height_missing"]  = 0.0
+                            # bt_k > nan_threshold → Satellit sieht keine kalte Wolke.
+                            # Bei erkannter Gewitterzelle (core_ratio > 0) ist das
+                            # ein Widerspruch (MSG-Scan zu alt, Koordinatenversatz,
+                            # frisch entstehende Konvektion) → Datenfehler, nicht wolkenfrei.
+                            is_convective = float(obj.get("core_ratio", 0.0)) > 0.0
+                            obj["cloud_top_height_msl"] = -1.0
+                            obj["cloud_height_missing"] = 1.0 if is_convective else 0.0
+                            if is_convective:
+                                debug_log(
+                                    f"[CLOUD] Widerspruch: Zelle {obj.get('id','?')} "
+                                    f"core_ratio={obj.get('core_ratio',0):.2f} aber "
+                                    f"bt_k={float(bt_val):.1f} K > threshold={nan_threshold} K"
+                                    f" → cloud_height_missing=1"
+                                )
                     else:
                         obj["cloud_top_height_msl"]       = round(float(value), 1)
                         obj["cloud_height_missing"]        = 0.0

@@ -20,7 +20,7 @@ function CloudHeight({ height, missing, short = false }) {
     return <span className="text-gray-300">—</span>
   }
   const h = parseFloat(height)
-  if (isNaN(h) || h < 0) {
+  if (isNaN(h) || h <= 0) {
     return <span className="text-blue-300 text-xs" title="Wolkenfrei laut MSG IR108">{short ? '☀' : 'wolkenfrei'}</span>
   }
   return (
