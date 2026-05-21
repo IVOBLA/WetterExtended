@@ -39,7 +39,6 @@ _PARAMS = ",".join([
     "dewpoint_2m",
     "wind_speed_10m",
     "wind_direction_10m",
-    "lifted_index",
     "freezing_level_height",
 ])
 _TZ = "Europe/Vienna"
@@ -87,7 +86,7 @@ def _parse_location_response(loc_data: dict, target_time: str) -> dict:
         "arome_ff10m": round(_val("wind_speed_10m"), 2),
         "arome_dd_cos": round(cos(dd_rad), 4),
         "arome_dd_sin": round(sin(dd_rad), 4),
-        "arome_li": round(_val("lifted_index"), 2),
+        "arome_li": 0.0,
         "arome_fl_height": round(_val("freezing_level_height"), 1),
     }
 
