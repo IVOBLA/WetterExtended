@@ -536,8 +536,8 @@ STATIC_EXCLUSION_ZONES: list = [
         # Die Antennenanlagen reflektieren das ARSO-Niederschlagsradar und
         # erzeugen einen permanenten Falsch-Echo im Radarbild.
         "name": "Großer Speikkogel – Radaranlagen Koralpe",
-        "lat": 46.7925,
-        "lon": 14.9825,
-        "radius_km": 10.0,
+        "lat": 46.824,
+        "lon": 14.968,
+        "radius_km": 15.0,
     },
 ]
