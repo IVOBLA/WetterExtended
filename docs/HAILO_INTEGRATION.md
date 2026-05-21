@@ -841,6 +841,32 @@ _hailo_available: Optional[bool] = None
   Grid 0.05° über Kärnten, 3 Quellen (Zellen, Blitze, LI), farbige
   Flächen ohne Rand (gelb/orange/rot), Toggle standardmäßig aus
 
+- **Konvektive Diagnose-Indizes** (`compute_convective_indices.py`):
+  SHIP, Lapse Rate 700-500, 0–6-km-Scherung, CIN, PW, Lightning Jump,
+  hail_prob2 — alle rein rechnerisch ohne neuen API-Aufruf
+- **Risikozonen-Layer mit Hover-Tooltip** (`MapView.jsx`, `MapFullscreen.jsx`):
+  Diagnose-Werte als Tooltip ueber farbigen Flaechen, unterdrueckt wenn
+  Sturmzelle drueber
+- **Forecast-Zugbahn im Risk-Grid** (`/api/risk_grid`): Punkt-zu-Linien-Distanz
+  fuer den gesamten Pfad, Korridor 30 km
+
+### 14.2 Was fehlt noch
+
+#### Konvektive Diagnose — Phasen-Status
+
+| Phase | Inhalt | Status |
+|---|---|---|
+| K1 | Open-Meteo icon_global Pressure-Request um T500/T700/CIN/PW erweitern | ✅ erledigt |
+| K2 | Atmosphaeren-Snapshot um dieselben 4 Parameter erweitern | ✅ erledigt |
+| K3 | `compute_convective_indices.py` (SHIP, Lapse, 0-6-km-Shear, Lightning Jump) | ✅ erledigt |
+| K4 | `ML_CELL_FEATURES` um 11 neue Features erweitert | ✅ erledigt |
+| K5 | `main.py` Pipeline-Integration | ✅ erledigt |
+| K6 | `/api/risk_grid` Forecast-Zugbahn + Hovertext-Daten | ✅ erledigt |
+| K7 | MapView/MapFullscreen Hover-Tooltip auf Risk-Rectangles | ✅ erledigt |
+| K8 | Modelle nach Deployment einmalig neu trainieren | ⏳ automatisch beim naechsten Cron-Slot |
+| K9 | Isotonic-Kalibrierung von hail_prob2 mit Bodendaten | 🔜 Phase D (braucht Schadensdaten) |
+| K10 | Hazard-spezifische Module (Wind/Rain/Tornado getrennt) | 🔜 Phase D |
+| K11 | ALDIS-Blitze (statt Blitzortung.org) | ❌ verworfen — Blitzortung.org bleibt |
 - Hailo-Inferenz nicht produktionsreif (`hailo_inference.py` ist Stub — Phase B: Task B5)
 - U-Net nicht implementiert — Phase B: Task B8
 - Linux-Rechner nicht angeschafft — Phase B: Voraussetzung

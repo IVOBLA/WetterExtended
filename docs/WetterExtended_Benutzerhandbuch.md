@@ -812,6 +812,103 @@ Alle Parameter werden in `config.py` als Python-Konstanten definiert und können
 | Admin-Passwort vergessen | `/etc/nginx/.htpasswd` fehlt | `cat /home/ki-pi/wetterprojekt/.admin_password` — oder `install.sh --mode=upgrade` |
 | Frontend zeigt leere Seite | Frontend-Build veraltet oder fehlt | `cd frontend && npm run build`; `sudo systemctl restart wetterprojekt-admin` |
 
+
+---
+
+# 19 NEU: Konvektive Diagnose-Indizes (SHIP, CIN, PW, Lapse Rate, 0–6-km-Scherung)
+
+**Modul:** `compute_convective_indices.py`
+**Eingangs-Erweiterung:** `fetch_openmeteo_extended.py`, `fetch_atmospheric_snapshot.py`
+**API:** Open-Meteo icon_global hourly (4 neue Parameter — kein zusätzlicher HTTP-Request)
+
+Das System berechnet jetzt sechs zusätzliche wissenschaftlich etablierte
+Diagnose-Indizes für jede Sturmzelle und für den 30-Minuten-Atmosphären-Snapshot.
+Alle Berechnungen sind **rein rechnerisch** auf Basis bereits abgerufener Daten —
+**keine zusätzlichen externen API-Aufrufe**.
+
+## 19.1 Neue Roh-Eingangsfelder (aus icon_global)
+
+| Feld | Einheit | Bedeutung |
+|---|---|---|
+| `t500_c` | °C | Temperatur 500 hPa |
+| `t700_c` | °C | Temperatur 700 hPa |
+| `cin` | J/kg | Convective Inhibition (negative Werte = Deckelung) |
+| `pw` | mm | Precipitable Water (Starkregenpotenzial) |
+
+Diese 4 Parameter werden an den **bestehenden** icon_global-Pressure-Level-Request
+in `fetch_openmeteo_extended.py` angehängt — derselbe HTTP-Request, mehr Parameter.
+
+## 19.2 Abgeleitete Diagnose-Indizes (pure Python)
+
+| Feld | Einheit | Berechnung |
+|---|---|---|
+| `lapse_700_500` | °C/km | `(t700_c − t500_c) / 3.0` (hypsometrische Näherung) |
+| `shear_0_6km_speed` | km/h | Betrag des Differenzvektors 10m → 500 hPa |
+| `shear_0_6km_dir_cos/sin` | — | Richtung des Scherungsvektors |
+| `mixr` | g/kg | Mischungsverhältnis aus Td₂ₘ (Magnus-Tetens) |
+| `ship_index` | dimensionslos | Significant Hail Parameter nach Stull |
+| `lightning_jump` | Faktor | Rate(jetzt) / Rate(−15 min) |
+| `hail_prob2` | 0.0–1.0 | SHIP-basierte Hagel-Wahrscheinlichkeit |
+
+> **Wichtig:** `hail_prob` (alte Heuristik) bleibt unverändert. `hail_prob2` ist additiv —
+> das ML-Modell bekommt beide und gewichtet sie selbst.
+
+## 19.3 SHIP-Formel
+
+$$\text{SHIP} = \frac{\text{CAPE} \cdot \text{MIXR} \cdot \Gamma_{700-500} \cdot (-T_{500}) \cdot \text{Shear}_{0-6km}}{44 \times 10^6}$$
+
+Interpretation nach Stull / NOAA:
+
+| SHIP | Bewertung |
+|---:|---|
+| < 1.0 | Hagel-Umgebung schwach |
+| 1.0 – 1.5 | günstig für signifikanten Hagel |
+| > 1.5 | häufig signifikant |
+| > 4 | sehr hoch |
+
+## 19.4 Risikozonen-Layer: Erweiterungen
+
+Der bestehende Risikozonen-Layer (`/api/risk_grid`) wurde um zwei wichtige Funktionen erweitert:
+
+### Forecast-Zugbahn als Linien-Korridor
+Bisher: Risiko-Score pro Forecast-Position (Punkt).
+Jetzt: Punkt-zu-Linien-Distanz für den gesamten Pfad zwischen aktueller Position
+und allen Forecast-Horizonten. Grid-Zellen entlang der Zugbahn (< 30 km zum Pfad)
+bekommen einen zusätzlichen Risiko-Beitrag, gewichtet nach Zell-Intensität.
+
+### Hover-Tooltip mit Diagnose-Werten
+Beim Hovern über farbige Risikozonen erscheint ein Tooltip mit:
+- Risiko-Stufe (Niedrig / Mäßig / Hoch)
+- Dominierende Quelle (Aktive Zelle / Zugbahn / Blitze / Instabilität)
+- Aktuelle SHIP, CAPE, LI, CIN, PW, Lapse Rate
+- Markierung „⚠ In berechneter Zugbahn" bei Zugbahn-Treffer
+- Blitzanzahl < 10 km
+
+Der Tooltip wird **unterdrückt**, wenn unter dem Grid-Rechteck bereits eine
+markierte Sturmzelle liegt — sonst Konflikt mit dem Zellen-Popup.
+
+## 19.5 ML-Pipeline — Auswirkung
+
+Folgende 11 neuen Features wurden zu `ML_CELL_FEATURES` ergänzt:
+
+`t500_c`, `t700_c`, `cin`, `pw`, `lapse_700_500`, `shear_0_6km_speed`,
+`shear_0_6km_dir_cos`, `shear_0_6km_dir_sin`, `ship_index`, `lightning_jump`,
+`hail_prob2`
+
+> **Modelle müssen nach Deployment neu trainiert werden.** Beim ersten Cron-Slot
+> nach dem Update (03:00) wird das Training automatisch ausgelöst. Manueller
+> Trigger via Admin-Panel → Training → „Jetzt trainieren".
+
+## 19.6 Was NICHT geändert wurde
+
+- Keine neue externe API-Schnittstelle
+- Keine neuen HTTP-Requests pro Live-Loop-Zyklus
+- `hail_prob`, `HAIL_WARN_THRESHOLD`, alle bestehenden Warnschwellen unverändert
+- Blitzortung-Quelle bleibt Blitzortung.org (kein Wechsel auf ALDIS)
+- Alle bestehenden Backend- und Frontend-Komponenten unverändert ausser den 4
+  betroffenen Dateien (`fetch_openmeteo_extended.py`, `fetch_atmospheric_snapshot.py`,
+  `config.py`, `main.py`, `app.py`, `MapView.jsx`, `MapFullscreen.jsx`)
+
 ---
 
 # 27 Änderungshistorie
