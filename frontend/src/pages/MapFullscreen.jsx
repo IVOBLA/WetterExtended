@@ -612,22 +612,96 @@ export default function MapFullscreen() {
             </CircleMarker>
           )
         })}
-        {/* Gewitterrisiko-Grid — farbige Flaechen ohne Rand, unabhaengig von Zellen */}
-        {showRisk && riskGrid.map((cell, i) => (
-          <Rectangle
-            key={'risk_' + i}
-            bounds={[
-              [cell.lat - 0.025, cell.lon - 0.025],
-              [cell.lat + 0.025, cell.lon + 0.025],
-            ]}
-            pathOptions={{
-              weight:      0,
-              stroke:      false,
-              fillColor:   cell.color,
-              fillOpacity: cell.risk === 3 ? 0.55 : cell.risk === 2 ? 0.45 : 0.35,
-            }}
-          />
-        ))}
+        {/* Gewitterrisiko-Grid — farbige Flaechen ohne Rand, Hovertext mit Indizes.
+            Tooltip wird unterdrueckt wenn unter dem Quadrat bereits eine
+            Sturmzelle liegt — sonst Konflikt mit Zellen-Popup. */}
+        {showRisk && riskGrid.map((cell, i) => {
+          // Pruefen ob eine markierte Zelle in diesem Grid-Rechteck liegt
+          const hasCellHere = objects.some(o =>
+            o?.lat != null && o?.lon != null &&
+            Math.abs(o.lat - cell.lat) < 0.025 &&
+            Math.abs(o.lon - cell.lon) < 0.025
+          )
+          const info = cell.info || {}
+          const riskLabel = cell.risk === 3 ? 'Hoch'
+                          : cell.risk === 2 ? 'Maessig'
+                          : 'Niedrig'
+          const dominantLabel = {
+            cell:      '🌩 Aktive Zelle in der Naehe',
+            track:     '📍 In berechneter Zugbahn',
+            lightning: '⚡ Blitzaktivitaet',
+            atm:       '☁ Atmosphaerische Instabilitaet',
+          }[info.dominant] || ''
+          return (
+            <Rectangle
+              key={'risk_' + i}
+              bounds={[
+                [cell.lat - 0.025, cell.lon - 0.025],
+                [cell.lat + 0.025, cell.lon + 0.025],
+              ]}
+              pathOptions={{
+                weight:      0,
+                stroke:      false,
+                fillColor:   cell.color,
+                fillOpacity: cell.risk === 3 ? 0.55
+                           : cell.risk === 2 ? 0.40
+                           : 0.25,
+                interactive: !hasCellHere,
+              }}
+            >
+              {!hasCellHere && (
+                <Tooltip direction="top" sticky opacity={0.95} className="risk-tooltip">
+                  <div style={{ fontSize: 11, lineHeight: 1.35, minWidth: 140 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 2 }}>
+                      <span style={{
+                        display: 'inline-block', width: 10, height: 10,
+                        background: cell.color, borderRadius: 2, marginRight: 5,
+                      }}/>
+                      Risiko: {riskLabel}
+                    </div>
+                    {dominantLabel && (
+                      <div style={{ color: '#555', marginBottom: 2 }}>{dominantLabel}</div>
+                    )}
+                    {info.in_forecast_track && (
+                      <div style={{ color: '#dc2626', fontWeight: 600 }}>
+                        ⚠ In berechneter Zugbahn
+                      </div>
+                    )}
+                    {info.cell_id != null && (
+                      <div>Zelle: <b>{info.cell_id}</b></div>
+                    )}
+                    {info.ship != null && (
+                      <div>SHIP: <b>{info.ship}</b>
+                        <span style={{ color: '#888' }}>{info.ship >= 1.0 ? ' (signifikant)' : ''}</span>
+                      </div>
+                    )}
+                    {info.cape != null && <div>CAPE: <b>{info.cape}</b> J/kg</div>}
+                    {info.li != null && (
+                      <div>LI: <b>{info.li}</b> °C
+                        <span style={{ color: '#888' }}>{info.li < -3 ? ' (sehr instabil)' : info.li < -1 ? ' (instabil)' : ''}</span>
+                      </div>
+                    )}
+                    {info.lapse_700_500 != null && (
+                      <div>Lapse 700–500: <b>{info.lapse_700_500}</b> °C/km</div>
+                    )}
+                    {info.cin != null && Math.abs(info.cin) > 10 && (
+                      <div style={{ color: '#92400e' }}>
+                        CIN: <b>{info.cin}</b> J/kg
+                        {info.cin < -100 ? ' (Deckelung)' : ''}
+                      </div>
+                    )}
+                    {info.pw != null && info.pw > 0 && (
+                      <div>PW: <b>{info.pw}</b> mm</div>
+                    )}
+                    {info.lightning_count > 0 && (
+                      <div>⚡ {info.lightning_count} Blitze &lt;10 km</div>
+                    )}
+                  </div>
+                </Tooltip>
+              )}
+            </Rectangle>
+          )
+        })}
 
         {/* Blitz-Layer (F50) — deaktivierbar, nur letzter Frame */}
         {showLightning && (currentIdx === frames.length - 1 || frames.length === 0) &&
