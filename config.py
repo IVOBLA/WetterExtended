@@ -261,7 +261,7 @@ ML_CELL_FEATURES = [
     "wind_shear_dir_cos",      # cos(Scherungsvektor-Richtung)
     "wind_shear_dir_sin",      # sin(Scherungsvektor-Richtung)
     # ── Hagelindikator (F06/F43) ─────────────────────────────────────────────
-    "hail_prob",               # Hagelwahrscheinlichkeit 0.0-1.0
+    "hail_prob",               # Hagelwahrscheinlichkeit 0.0-1.0 (alte Heuristik)
     "wind_gust_10m_kmh",
     "lpi",
     "wind_speed_500hPa",
@@ -273,6 +273,18 @@ ML_CELL_FEATURES = [
     "nowcast_rr_mm15",
     "nowcast_ffx_kmh",
     "nowcast_rain_rate_1h",
+    # ── NEU: Konvektive Diagnose-Indizes (compute_convective_indices.py) ────
+    "t500_c",                  # Temperatur 500 hPa (Grad C)
+    "t700_c",                  # Temperatur 700 hPa (Grad C)
+    "cin",                     # Convective Inhibition (J/kg) — Deckelung
+    "pw",                      # Precipitable Water (mm) — Starkregenpotenzial
+    "lapse_700_500",           # Lapse Rate 700-500 hPa (Grad C/km)
+    "shear_0_6km_speed",       # 0-6-km-Scherung (km/h) — Literatur-Standard
+    "shear_0_6km_dir_cos",     # cos(Richtung 0-6-km-Scherung)
+    "shear_0_6km_dir_sin",     # sin(Richtung 0-6-km-Scherung)
+    "ship_index",              # Significant Hail Parameter (Stull)
+    "lightning_jump",          # Blitzraten-Anstieg (>2 = Intensivierung)
+    "hail_prob2",              # SHIP-basierte Hagel-Wahrscheinlichkeit
 ]
 
 ML_STATION_FEATURES = [
