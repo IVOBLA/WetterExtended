@@ -538,6 +538,6 @@ STATIC_EXCLUSION_ZONES: list = [
         "name": "Großer Speikkogel – Radaranlagen Koralpe",
         "lat": 46.7925,
         "lon": 14.9825,
-        "radius_km": 8.0,
+        "radius_km": 10.0,
     },
 ]
