@@ -1358,16 +1358,32 @@ def api_thresholds_add_range():
 @app.route("/api/risk_grid")
 def api_risk_grid():
     """
-    Berechnet ein Gewitterrisiko-Raster fuer Kaernten aus 3 unabhaengigen Quellen:
-      1. Aktive Sturmzellen + alle Forecast-Horizonte (Distanz-gewichtet)
+    Berechnet ein Gewitterrisiko-Raster fuer Kaernten aus mehreren Quellen:
+      1. Aktive Sturmzellen + Forecast-Zugbahn (Punkt-zu-Linie-Distanz)
       2. Blitzdichte der letzten 20 Minuten (aus Blitzortung-Cache)
-      3. Atmosphaerische Instabilitaet (LI aus atmosphere_latest.json)
+      3. Atmosphaerische Instabilitaet (LI, SHIP-Proxy, CIN, PW)
+
     Das Grid ist UNABHAENGIG von erkannten Zellen.
+    Jede Grid-Zelle enthaelt Detail-Werte fuer Hover-Tooltip im Frontend.
 
     Returns:
       {
         "grid_step": 0.05,
-        "cells": [{"lat":..., "lon":..., "risk":1-3, "color":"#..."}],
+        "cells": [{
+            "lat":..., "lon":..., "risk":1-3, "color":"#...",
+            "info": {
+              "dominant": "cell|track|lightning|atm",
+              "cell_id":  <id oder null>,
+              "ship":     <float|null>,
+              "cape":     <float|null>,
+              "li":       <float|null>,
+              "cin":      <float|null>,
+              "pw":       <float|null>,
+              "lapse_700_500": <float|null>,
+              "lightning_count": <int>,
+              "in_forecast_track": <bool>
+            }
+        }],
         "ts": "YYYY-MM-DD_HH-MM-SS",
         "sources": {"active_cells":N, "lightning":N, "atm_locations":N}
       }
@@ -1382,6 +1398,7 @@ def api_risk_grid():
     LON_MIN    = 12.80
     LON_MAX    = 15.45
     CELL_RANGE = 60.0
+    TRACK_RANGE = 30.0   # NEU: Korridor um Zugbahn (km, schmaler als CELL_RANGE)
     BOLT_RANGE = 30.0
     ATM_RANGE  = 45.0
     RISK_COLORS = {1: "#facc15", 2: "#f97316", 3: "#dc2626"}
@@ -1396,6 +1413,29 @@ def api_risk_grid():
                 _m.cos(_m.radians(la1)) * _m.cos(_m.radians(la2)) *
                 _m.sin(dlon / 2) ** 2)
         return R * 2 * _m.atan2(_m.sqrt(a), _m.sqrt(1 - a))
+
+    def _point_to_segment_km(plat, plon, alat, alon, blat, blon):
+        """Naeherung Punkt-zu-Segment-Distanz in km (kleine Distanzen).
+        Lokale aequidistante Projektion ist hier ausreichend."""
+        if None in (alat, alon, blat, blon):
+            return _hav(plat, plon, alat or plat, alon or plon)
+        # cos(mean_lat) fuer Laengen-Korrektur
+        mean_lat = _m.radians((plat + alat + blat) / 3.0)
+        kx = 111.32 * _m.cos(mean_lat)
+        ky = 110.57
+        ax = (alon - plon) * kx; ay = (alat - plat) * ky
+        bx = (blon - plon) * kx; by = (blat - plat) * ky
+        # Punkt P liegt im Ursprung. Segment A→B in (a,b).
+        seg_dx = bx - ax; seg_dy = by - ay
+        seg_len2 = seg_dx * seg_dx + seg_dy * seg_dy
+        if seg_len2 < 1e-9:
+            return _m.hypot(ax, ay)
+        # Projektion P-A auf A-B normiert
+        t = -(ax * seg_dx + ay * seg_dy) / seg_len2
+        t = max(0.0, min(1.0, t))
+        cx = ax + t * seg_dx
+        cy = ay + t * seg_dy
+        return _m.hypot(cx, cy)
 
     # ── Quelle 1: Aktive Sturmzellen ──────────────────────────────────────────
     obj_dir   = SAVE_PATHS.get("objects", "train_data/objects")
@@ -1419,58 +1459,88 @@ def api_risk_grid():
     # ── Quelle 2: Blitze der letzten 20 Min ──────────────────────────────────
     bolt_dir   = SAVE_PATHS.get("lightning", "train_data/lightning")
     bolt_files = sorted(_g.glob(os.path.join(bolt_dir, "*.json")))
-    strikes    = []
-    if bolt_files:
-        cutoff_ns = (datetime.now(timezone.utc) - timedelta(minutes=20)).timestamp() * 1e9
+    strikes = []
+    now_utc = datetime.now(timezone.utc)
+    cutoff_utc = now_utc - timedelta(minutes=20)
+    for path in reversed(bolt_files[-12:]):
         try:
-            with open(bolt_files[-1], encoding="utf-8") as _f:
-                raw = json.load(_f)
-            strikes = [
-                s for s in raw
-                if s.get("timestamp_ns", 0) >= cutoff_ns
-                and s.get("lat") is not None
-                and s.get("lon") is not None
-            ]
+            ts_str = os.path.basename(path).replace(".json", "")
+            ts = datetime.strptime(ts_str, "%Y-%m-%d_%H-%M-%S").replace(tzinfo=timezone.utc)
+            if ts < cutoff_utc:
+                break
+            with open(path, encoding="utf-8") as _f:
+                strikes.extend(json.load(_f))
         except Exception:
-            pass
+            continue
 
-    # ── Quelle 3: Atmosphaerischer Snapshot (LI) ─────────────────────────────
-    atm_path = os.path.join(
-        SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/"),
-        "atmosphere_latest.json",
-    )
+    # ── Quelle 3: Atmosphaere-Snapshot (mit neuen Feldern) ───────────────────
     atm_locs = []
-    if os.path.exists(atm_path):
+    atm_file = os.path.join(SAVE_PATHS.get("evaluation", "train_data/evaluation"),
+                            "atmosphere_latest.json")
+    if os.path.exists(atm_file):
         try:
-            with open(atm_path, encoding="utf-8") as _f:
-                snap = json.load(_f)
-            atm_locs = [
-                loc for loc in snap.get("locations", [])
-                if loc.get("lat") is not None
-                and loc.get("lon") is not None
-                and loc.get("li") is not None
-            ]
+            with open(atm_file, encoding="utf-8") as _f:
+                atm_data = json.load(_f)
+            for aloc in atm_data.get("locations", []):
+                if aloc.get("lat") is not None and aloc.get("lon") is not None:
+                    atm_locs.append(aloc)
         except Exception:
             pass
 
-    # ── Grid berechnen ────────────────────────────────────────────────────────
+    # ── Forecast-Pfad-Segmente fuer jede aktive Zelle vorbereiten ────────────
+    # Segmente: now → +10, +10 → +20, +20 → +30, +30 → +40
+    forecast_segments = []  # list of (cell_dict, [(lat0,lon0,lat1,lon1), ...])
+    for cell in active_cells:
+        segs = []
+        prev_lat = cell.get("lat")
+        prev_lon = cell.get("lon")
+        for hz in (10, 20, 30, 40):
+            flat = cell.get(f"forecast_lat_{hz}")
+            flon = cell.get(f"forecast_lon_{hz}")
+            if flat is None or flon is None:
+                continue
+            try:
+                segs.append((float(prev_lat), float(prev_lon),
+                             float(flat),     float(flon)))
+                prev_lat = flat
+                prev_lon = flon
+            except Exception:
+                continue
+        if segs:
+            forecast_segments.append((cell, segs))
+
     cells_out = []
     lat = LAT_MIN
-    while lat <= LAT_MAX + 1e-9:
+    while lat <= LAT_MAX:
         lon = LON_MIN
-        while lon <= LON_MAX + 1e-9:
+        while lon <= LON_MAX:
             score = 0.0
+            # Detail-Tracking fuer Hover
+            best_ship = None
+            best_cape = None
+            nearest_cell_id = None
+            in_track = False
+            bolt_count = 0
 
-            # Sturmzellen + Forecast-Positionen
+            # 1) Aktive Zellen — Distanz-gewichtet (wie vorher)
             for cell in active_cells:
-                label = cell.get("intensity_label", "leicht")
-                iw = INT_WEIGHT_ALT.get(label, INT_WEIGHT.get(label, 1.0))
-
-                d = _hav(lat, lon, cell["lat"], cell["lon"])
-                if d < CELL_RANGE:
-                    score += iw * (1.0 - d / CELL_RANGE) ** 1.5
-
-                for hz, wt in ((10, 0.80), (20, 0.60), (30, 0.40), (40, 0.25)):
+                clabel = cell.get("intensity_label", "leicht")
+                wt = INT_WEIGHT.get(clabel, INT_WEIGHT_ALT.get(clabel, 1.0))
+                # aktuelle Position
+                d_now = _hav(lat, lon, float(cell["lat"]), float(cell["lon"]))
+                if d_now < CELL_RANGE:
+                    contrib = wt * (1.0 - d_now / CELL_RANGE) ** 1.5
+                    score += contrib
+                    if nearest_cell_id is None or d_now < 15.0:
+                        nearest_cell_id = cell.get("id")
+                        sh = cell.get("ship_index")
+                        cp = cell.get("cape")
+                        if sh is not None and (best_ship is None or sh > best_ship):
+                            best_ship = sh
+                        if cp is not None and (best_cape is None or cp > best_cape):
+                            best_cape = cp
+                # Forecast-Horizonte (Punkt-zu-Punkt — Bestand)
+                for hz, iw in [(10, 0.9), (20, 0.7), (30, 0.5), (40, 0.4), (60, 0.25)]:
                     flat = cell.get(f"forecast_lat_{hz}")
                     flon = cell.get(f"forecast_lon_{hz}")
                     if flat is None or flon is None:
@@ -1479,22 +1549,52 @@ def api_risk_grid():
                     if d < CELL_RANGE:
                         score += iw * wt * (1.0 - d / CELL_RANGE) ** 1.5
 
-            # Blitzdichte
+            # 1b) NEU: Forecast-ZUGBAHN — Punkt-zu-Linie-Distanz
+            # Pixel in den Linien-Korridoren bekommen Zusatz-Score.
+            for cell, segs in forecast_segments:
+                clabel = cell.get("intensity_label", "leicht")
+                wt = INT_WEIGHT.get(clabel, INT_WEIGHT_ALT.get(clabel, 1.0))
+                for (a_lat, a_lon, b_lat, b_lon) in segs:
+                    d_seg = _point_to_segment_km(lat, lon, a_lat, a_lon, b_lat, b_lon)
+                    if d_seg < TRACK_RANGE:
+                        track_contrib = 0.6 * wt * (1.0 - d_seg / TRACK_RANGE) ** 2
+                        score += track_contrib
+                        if d_seg < 15.0:
+                            in_track = True
+                            if nearest_cell_id is None:
+                                nearest_cell_id = cell.get("id")
+
+            # 2) Blitzdichte
             for bolt in strikes:
                 d = _hav(lat, lon, float(bolt["lat"]), float(bolt["lon"]))
                 if d < BOLT_RANGE:
                     score += 0.15 * (1.0 - d / BOLT_RANGE)
+                    if d < 10.0:
+                        bolt_count += 1
 
-            # Atmosphaerische Instabilitaet (LI)
+            # 3) Atmosphaerische Instabilitaet (LI/SHIP-Proxy/CIN-Daempfung)
+            li_val = cin_val = pw_val = lapse_val = None
             for aloc in atm_locs:
                 d = _hav(lat, lon, float(aloc["lat"]), float(aloc["lon"]))
                 if d < ATM_RANGE:
-                    li = float(aloc["li"])
+                    li = float(aloc.get("li", 0.0))
+                    cin_l = float(aloc.get("cin", 0.0))
                     w  = 1.0 - d / ATM_RANGE
+                    li_contrib = 0.0
                     if li < -3.0:
-                        score += 0.80 * w
+                        li_contrib = 0.80 * w
                     elif li < -1.0:
-                        score += 0.40 * w
+                        li_contrib = 0.40 * w
+                    # CIN > 100 J/kg daempft den LI-Score deutlich (Deckelung)
+                    if cin_l < -100.0:
+                        li_contrib *= 0.5
+                    score += li_contrib
+                    # Detail-Tracking
+                    if li_val is None or li < li_val:
+                        li_val = li
+                        cin_val = cin_l
+                        pw_val = aloc.get("pw")
+                        lapse_val = aloc.get("lapse_700_500")
 
             # Score → Risikostufe
             if score >= 2.5:
@@ -1507,11 +1607,33 @@ def api_risk_grid():
                 lon = round(lon + GRID_STEP, 6)
                 continue
 
+            # Dominierende Quelle bestimmen (fuer Hover)
+            if nearest_cell_id is not None and not in_track:
+                dominant = "cell"
+            elif in_track:
+                dominant = "track"
+            elif bolt_count >= 2:
+                dominant = "lightning"
+            else:
+                dominant = "atm"
+
             cells_out.append({
                 "lat":   round(lat, 4),
                 "lon":   round(lon, 4),
                 "risk":  risk,
                 "color": RISK_COLORS[risk],
+                "info": {
+                    "dominant":         dominant,
+                    "cell_id":          nearest_cell_id,
+                    "ship":             round(best_ship, 2) if best_ship is not None else None,
+                    "cape":             round(best_cape, 0) if best_cape is not None else None,
+                    "li":               round(li_val, 2) if li_val is not None else None,
+                    "cin":              round(cin_val, 1) if cin_val is not None else None,
+                    "pw":               round(pw_val, 1) if pw_val is not None else None,
+                    "lapse_700_500":    round(lapse_val, 2) if lapse_val is not None else None,
+                    "lightning_count":  int(bolt_count),
+                    "in_forecast_track": bool(in_track),
+                },
             })
 
             lon = round(lon + GRID_STEP, 6)
