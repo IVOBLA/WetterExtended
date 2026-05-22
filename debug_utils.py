@@ -23,6 +23,7 @@ def debug_log(message):
 import json as _json
 import os as _os
 from datetime import datetime as _dt
+from urllib.parse import urlsplit as _urlsplit, urlunsplit as _urlunsplit, parse_qsl as _parse_qsl, urlencode as _urlencode
 
 try:
     from config import SAVE_PATHS as _SAVE_PATHS_DU
@@ -109,7 +110,10 @@ _rq_lock = _rq_threading.Lock()
 
 
 def log_api_call(service: str, url: str = "", status_code: int = 200,
-                 duration_ms: float | None = None) -> None:
+                 duration_ms: float | None = None, method: str = "GET",
+                 request_payload=None, response_payload=None,
+                 response_text: str | None = None, content_type: str | None = None,
+                 error: str | None = None) -> None:
     """
     Zählt jeden API-Aufruf (Erfolg + Fehler) pro Service in JSONL-Datei.
     Thread-sicher. Nie blockierend — Fehler werden still ignoriert.
@@ -126,12 +130,88 @@ def log_api_call(service: str, url: str = "", status_code: int = 200,
     """
     import datetime as _dt, json as _jc, os as _oc
     from config import SAVE_PATHS
+    _MAX_URL = 2000
+    _MAX_PREVIEW = 8000
+    _SENSITIVE_KEYS = {"api_key", "apikey", "token", "access_token", "refresh_token", "password", "passwd", "secret", "authorization", "auth"}
+    def _truncate(v: str, n: int):
+        if v is None:
+            return None, False
+        s = str(v)
+        return (s[:n] + "…", True) if len(s) > n else (s, False)
+    def _mask_dict(d):
+        if isinstance(d, dict):
+            out = {}
+            for k, v in d.items():
+                if any(sk in str(k).lower() for sk in _SENSITIVE_KEYS):
+                    out[k] = "***"
+                else:
+                    out[k] = _mask_dict(v)
+            return out
+        if isinstance(d, list):
+            return [_mask_dict(x) for x in d]
+        if isinstance(d, str) and ("bearer " in d.lower() or "token" in d.lower()):
+            return "***"
+        return d
+    def _sanitize_url(raw_url: str) -> str:
+        if not raw_url:
+            return ""
+        try:
+            p = _urlsplit(str(raw_url))
+            q = []
+            for k, v in _parse_qsl(p.query, keep_blank_values=True):
+                q.append((k, "***" if any(sk in k.lower() for sk in _SENSITIVE_KEYS) else v))
+            clean = _urlunsplit((p.scheme, p.netloc, p.path, _urlencode(q, doseq=True), p.fragment))
+        except Exception:
+            clean = str(raw_url)
+        return _truncate(clean, _MAX_URL)[0]
+    def _payload_preview(payload):
+        if payload is None:
+            return None, False
+        try:
+            masked = _mask_dict(payload)
+            text = _jc.dumps(masked, ensure_ascii=False, indent=2)
+        except Exception:
+            text = str(payload)
+        return _truncate(text, _MAX_PREVIEW)
+    def _response_preview():
+        ctype = (content_type or "").lower()
+        if response_payload is not None:
+            return _payload_preview(response_payload)
+        if response_text is None:
+            if any(x in ctype for x in ("image/", "application/octet-stream", "application/vnd.google-earth.kmz", "application/zip", "application/x-tiff", "application/geotiff")):
+                return (f"[binary response: content-type={content_type or 'unknown'}, size=unknown]", False)
+            return None, False
+        try:
+            if "json" in ctype:
+                parsed = _jc.loads(response_text)
+                return _payload_preview(parsed)
+        except Exception:
+            pass
+        masked_text = str(_mask_dict(response_text))
+        return _truncate(masked_text, _MAX_PREVIEW)
+    s_url = _sanitize_url(url or "")
+    req_preview, req_trunc = _payload_preview(request_payload)
+    resp_preview, resp_trunc = _response_preview()
     entry = {
         "ts":          _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
         "service":     service,
-        "url":         (url or "")[:120],
+        "method":      (method or "GET").upper(),
+        "url":         s_url,
         "status":      status_code,
         "duration_ms": round(duration_ms, 1) if duration_ms is not None else None,
+        "request": {
+            "method": (method or "GET").upper(),
+            "url": s_url,
+            "payload_preview": req_preview,
+            "truncated": req_trunc,
+        },
+        "response": {
+            "status": status_code,
+            "content_type": content_type,
+            "body_preview": resp_preview,
+            "truncated": resp_trunc,
+            "error": error,
+        },
     }
     log_path = _oc.path.join(
         SAVE_PATHS.get("evaluation", "train_data/evaluation"),
