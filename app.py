@@ -1140,6 +1140,289 @@ def api_hailo_reload():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+# ---------------------------------------------------------------------------
+# HitL Cell Filters — REST-Endpunkte
+# ---------------------------------------------------------------------------
+
+@app.route("/api/cell_filters", methods=["GET"])
+def api_cell_filters_list():
+    """Liefert alle aktiven Filter + KI-Vorschläge + Padding-Wert."""
+    try:
+        from cell_filters import load_filters, get_padding_px
+        doc = load_filters()
+        return jsonify({
+            "ok":              True,
+            "version":         doc.get("version", 2),
+            "active_filters":  doc.get("active_filters", []),
+            "ai_suggestions":  doc.get("ai_suggestions", []),
+            "padding_px":      get_padding_px(),
+            "padding_default": getattr(_cfg_mod_safe(),
+                                       "HITL_PADDING_PX_DEFAULT", 50),
+        })
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/cell_filters/<filter_id>", methods=["DELETE"])
+def api_cell_filters_delete(filter_id):
+    try:
+        from cell_filters import remove_filter
+        ok = remove_filter(filter_id)
+        return jsonify({"ok": bool(ok)})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/cell_filters/<filter_id>", methods=["PATCH"])
+def api_cell_filters_patch(filter_id):
+    """Body: {"active": true/false}"""
+    try:
+        from cell_filters import set_filter_active
+        data = request.get_json(force=True) or {}
+        if "active" not in data:
+            return jsonify({"ok": False, "error": "active fehlt"}), 400
+        ok = set_filter_active(filter_id, bool(data["active"]))
+        return jsonify({"ok": bool(ok)})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/cell_filters/<filter_id>/png", methods=["GET"])
+def api_cell_filters_png(filter_id):
+    """Liefert die PNG-Datei eines Filters."""
+    import os as _os
+    try:
+        from cell_filters import load_filters
+        from config import CELL_FILTERS_DIR
+        doc = load_filters()
+        target = next((e for e in doc.get("active_filters", [])
+                       if e.get("id") == filter_id), None)
+        if not target or not target.get("polygon_png"):
+            return jsonify({"ok": False, "error": "PNG nicht vorhanden"}), 404
+        abs_path = _os.path.join(CELL_FILTERS_DIR.rstrip("/"),
+                                 target["polygon_png"])
+        if not _os.path.exists(abs_path):
+            return jsonify({"ok": False, "error": "PNG-Datei fehlt"}), 404
+        directory = _os.path.dirname(abs_path)
+        fname = _os.path.basename(abs_path)
+        return send_from_directory(directory, fname, mimetype="image/png")
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/cell_filters/padding", methods=["GET"])
+def api_cell_filters_padding_get():
+    try:
+        from cell_filters import get_padding_px
+        return jsonify({
+            "ok":         True,
+            "padding_px": get_padding_px(),
+            "default":    getattr(_cfg_mod_safe(),
+                                  "HITL_PADDING_PX_DEFAULT", 50),
+            "min":        5,
+            "max":        500,
+        })
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/cell_filters/padding", methods=["POST"])
+def api_cell_filters_padding_set():
+    """Body: {"padding_px": int}"""
+    try:
+        data = request.get_json(force=True) or {}
+        val = int(data.get("padding_px", 50))
+        if not (5 <= val <= 500):
+            return jsonify({"ok": False,
+                            "error": "padding_px muss 5–500 sein"}), 400
+        runtime_config.patch({"HITL_PADDING_PX": val})
+        return jsonify({"ok": True, "padding_px": val})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/cell_filters/ai_analyze", methods=["POST"])
+def api_cell_filters_ai_analyze():
+    """
+    Sendet die aktiven Filter + die letzten N Polygon-PNGs an die Anthropic API
+    mit der Bitte, NEUE breitere HSV-Bereiche vorzuschlagen
+    (HITL_AI_MODE = 'expand_only').
+
+    Body (alles optional):
+      {"model": str, "max_pngs": int}
+    """
+    import base64 as _b64
+    import json as _json
+    import os as _os
+    try:
+        from cell_filters import (
+            list_active_polygon_pngs, load_filters, add_ai_suggestion,
+        )
+        from config import HITL_MAX_PNGS_FOR_AI, HITL_AI_MODE
+
+        data = request.get_json(force=True) or {}
+        model_id = str(data.get("model") or "claude-sonnet-4-6")[:60]
+        max_pngs = int(data.get("max_pngs") or HITL_MAX_PNGS_FOR_AI)
+        max_pngs = max(1, min(20, max_pngs))
+
+        api_key = _os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return jsonify({"ok": False,
+                            "error": "ANTHROPIC_API_KEY nicht gesetzt"}), 400
+
+        # Letzte N Polygon-PNGs sammeln
+        items = list_active_polygon_pngs(max_count=max_pngs)
+        if not items:
+            return jsonify({
+                "ok": False,
+                "error": ("Keine Polygon-PNGs vorhanden. Markiere zuerst "
+                          "Zellen auf der Karte, dann erneut versuchen.")
+            }), 400
+
+        # Aktuelle aktive Filter zusammenstellen
+        doc = load_filters()
+        active = [{
+            "id":         e["id"],
+            "label":      e.get("label"),
+            "hsv_range":  e.get("hsv_range"),
+            "source":     e.get("source"),
+        } for e in doc.get("active_filters", []) if e.get("active")]
+
+        # Bilder als base64 anhängen
+        image_blocks = []
+        for it in items:
+            try:
+                with open(it["polygon_png_abs"], "rb") as f:
+                    b64 = _b64.b64encode(f.read()).decode("ascii")
+                image_blocks.append({
+                    "type": "image",
+                    "source": {"type": "base64",
+                               "media_type": "image/png",
+                               "data": b64},
+                })
+            except Exception as _e:
+                debug_log(f"[HITL-AI] PNG nicht lesbar: {_e}")
+
+        system_prompt = (
+            "Du bist ein Experte für Radarbild-Segmentierung mit HSV-Farbräumen. "
+            "Du erhältst eine Liste der aktuell aktiven HSV-Filter und mehrere "
+            "Bildausschnitte mit markierten Sturmzellen (gelbe Umrandung). "
+            "Deine Aufgabe: schlage AUSSCHLIESSLICH NEUE, breitere HSV-Bereiche "
+            "vor, die ähnliche Zellen in Zukunft erkennen sollen. "
+            "Modus: " + HITL_AI_MODE + " — keine bestehenden Bereiche verändern, "
+            "nur ergänzen. Maximal 3 Vorschläge. "
+            "Antworte AUSSCHLIESSLICH mit gültigem JSON in folgendem Format, "
+            "kein Markdown, kein Vorwort:\n"
+            "{\n"
+            '  "suggestions": [\n'
+            '    {\n'
+            '      "hsv_range": [[h_lo,s_lo,v_lo],[h_hi,s_hi,v_hi]],\n'
+            '      "label": "kurz_unique_name",\n'
+            '      "rationale": "kurze Begründung (max 200 Zeichen)"\n'
+            '    }\n'
+            '  ]\n'
+            "}\n"
+            "Wertebereiche: H 0-179, S 0-255, V 0-255. "
+            "Wenn keine sinnvolle Erweiterung möglich ist, "
+            'gib {"suggestions": []} zurück.'
+        )
+
+        prompt_text = (
+            "Aktive Filter:\n"
+            + _json.dumps(active, ensure_ascii=False, indent=2)
+            + f"\n\nAngehängt: {len(image_blocks)} Polygon-Ausschnitte "
+              "mit gelb umrandeten Zellbereichen."
+        )
+
+        try:
+            import anthropic
+        except Exception:
+            return jsonify({"ok": False,
+                            "error": "anthropic-Modul nicht installiert"}), 500
+
+        client = anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model=model_id,
+            max_tokens=1500,
+            system=system_prompt,
+            messages=[{
+                "role": "user",
+                "content": image_blocks + [{"type": "text", "text": prompt_text}],
+            }],
+        )
+        try:
+            from debug_utils import log_api_call
+            log_api_call("anthropic_api",
+                         url="https://api.anthropic.com/v1/messages",
+                         status_code=200)
+        except Exception:
+            pass
+
+        raw = message.content[0].text if message.content else ""
+        # Robustes JSON-Parsing — Antwort soll reines JSON sein
+        try:
+            parsed = _json.loads(raw)
+        except Exception:
+            # Notfall: JSON-Block extrahieren
+            import re as _re
+            m = _re.search(r"\{.*\}", raw, _re.DOTALL)
+            parsed = _json.loads(m.group(0)) if m else {"suggestions": []}
+
+        suggestions = parsed.get("suggestions") or []
+        sug_id = add_ai_suggestion(
+            model=model_id,
+            based_on_filter_ids=[it["id"] for it in items],
+            suggested_ranges=suggestions,
+        )
+        return jsonify({
+            "ok":              True,
+            "suggestion_id":   sug_id,
+            "model":           model_id,
+            "pngs_sent":       len(image_blocks),
+            "suggestions":     suggestions,
+            "raw_response":    raw[:2000],
+        })
+
+    except Exception as exc:
+        import traceback
+        return jsonify({"ok": False, "error": str(exc),
+                        "trace": traceback.format_exc()}), 500
+
+
+@app.route("/api/cell_filters/ai_suggestions", methods=["GET"])
+def api_cell_filters_ai_suggestions():
+    try:
+        from cell_filters import load_filters
+        doc = load_filters()
+        return jsonify({"ok": True,
+                        "suggestions": doc.get("ai_suggestions", [])})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/cell_filters/ai_suggestions/<suggestion_id>/accept",
+           methods=["POST"])
+def api_cell_filters_ai_suggestions_accept(suggestion_id):
+    try:
+        from cell_filters import accept_ai_suggestion
+        new_ids = accept_ai_suggestion(suggestion_id)
+        return jsonify({"ok": bool(new_ids),
+                        "created_filter_ids": new_ids,
+                        "count": len(new_ids)})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+def _cfg_mod_safe():
+    """Lazy-Import von config, robust gegen Reload-Probleme."""
+    try:
+        import config as _c
+        return _c
+    except Exception:
+        class _Stub: pass
+        return _Stub()
+
+
 # ---------- React-Frontend serven ----------
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
@@ -1288,6 +1571,8 @@ def api_analyze_cell_polygon():
             "ok": True,
             "pixel_count":     valid_count,
             "radar_path":      os.path.basename(radar_path),
+            "radar_filename":  os.path.basename(radar_path),
+            "polygon_px":      [[int(p[0]), int(p[1])] for p in px_points],
             "hsv_stats": {
                 "h_min":  int(h_vals.min()),  "h_max":  int(h_vals.max()),
                 "h_mean": round(float(_np.mean(h_vals)), 1),
@@ -1309,16 +1594,35 @@ def api_analyze_cell_polygon():
 @app.route("/api/thresholds/add_range", methods=["POST"])
 def api_thresholds_add_range():
     """
-    Fügt einen einzelnen HSV-Bereich zu FILTER_CONFIG.allowed_hsv_ranges hinzu.
-    Wird vom manuellen Zell-Markieren nach Benutzerbestätigung aufgerufen.
+    Fügt einen HSV-Bereich als neuen Filter in cell_filters.json hinzu.
+    Wenn polygon_px + radar_filename mitgegeben werden, wird zusätzlich
+    ein PNG-Ausschnitt mit Maskenoverlay gespeichert.
 
-    Eingabe: { "range": [[h_lo, s_lo, v_lo], [h_hi, s_hi, v_hi]],
-               "label": "name_fuer_hsv_band_labels" }
+    Eingabe:
+      {
+        "range":          [[h_lo, s_lo, v_lo], [h_hi, s_hi, v_hi]],
+        "label":          "name",
+        "polygon_px":     [[x, y], ...],     // optional, aus analyze-Response
+        "radar_filename": "radar_YYYY-...png", // optional, aus analyze-Response
+        "zoom_level":     11,                  // optional, Karten-Zoom
+        "map_bounds":     {...}                // optional, Karten-Bounds
+      }
+
+    Rückgabe: {"ok": true, "filter_id": str, "total_active": int,
+               "polygon_png": str | null}
     """
+    import os as _os
+    import cv2 as _cv2
+    from cell_filters import (
+        add_manual_filter, save_polygon_png, get_padding_px, load_filters,
+    )
     try:
-        data = request.get_json(force=True)
+        data = request.get_json(force=True) or {}
         new_range = data.get("range")
         label = str(data.get("label", "manuell"))[:40]
+        polygon_px = data.get("polygon_px") or []
+        radar_filename = str(data.get("radar_filename") or "").strip()
+        zoom_level = data.get("zoom_level")
 
         if not new_range or len(new_range) != 2:
             return jsonify({"ok": False,
@@ -1332,25 +1636,67 @@ def api_thresholds_add_range():
                 return jsonify({"ok": False,
                                 "error": f"HSV-Wert außerhalb 0-255: {bound}"}), 400
 
-        fc = dict(runtime_config.get("FILTER_CONFIG",
-                                     {"allowed_hsv_ranges": [],
-                                      "min_object_area": 800,
-                                      "border_mask_px": 10}))
-        existing = list(fc.get("allowed_hsv_ranges", []))
-        existing.append(new_range)
-        fc["allowed_hsv_ranges"] = existing
-        runtime_config.patch({"FILTER_CONFIG": fc})
+        # 1) Filter-Eintrag anlegen (ohne PNG)
+        polygon_meta = {
+            "zoom_level":     int(zoom_level) if zoom_level is not None else None,
+            "radar_filename": radar_filename or None,
+            "map_bounds":     data.get("map_bounds"),
+        }
+        filter_id = add_manual_filter(
+            label=label,
+            hsv_range=new_range,
+            polygon_meta=polygon_meta,
+            polygon_png=None,
+            source="manual_polygon",
+        )
 
-        # Label in HSV_BAND_LABELS ergänzen
+        # 2) Optional: PNG erstellen
+        png_rel = None
+        if polygon_px and len(polygon_px) >= 3 and radar_filename:
+            _radar_dir = SAVE_PATHS.get("radar", "data/radar")
+            radar_path = _os.path.join("data", "radar", radar_filename)
+            if not _os.path.exists(radar_path):
+                radar_path = _os.path.join(_radar_dir, radar_filename)
+            if _os.path.exists(radar_path):
+                img = _cv2.imread(radar_path)
+                if img is not None:
+                    try:
+                        png_rel = save_polygon_png(
+                            filter_id=filter_id,
+                            processed_img_bgr=img,
+                            polygon_pixels_xy=polygon_px,
+                            padding_px=get_padding_px(zoom_level),
+                        )
+                        # PNG-Pfad in den Filter-Eintrag nachtragen
+                        from cell_filters import load_filters as _lf, save_filters as _sf
+                        doc = _lf()
+                        for entry in doc.get("active_filters", []):
+                            if entry.get("id") == filter_id:
+                                entry["polygon_png"] = png_rel
+                                break
+                        _sf(doc)
+                    except Exception as _png_exc:
+                        debug_log(f"[HITL] PNG-Erstellung fehlgeschlagen: {_png_exc}")
+
+        # 3) Label in HSV_BAND_LABELS ergänzen (Backward-Compat für /thresholds-Seite)
         labels = list(runtime_config.get("HSV_BAND_LABELS", []))
         if label not in labels:
             labels.append(label)
             runtime_config.patch({"HSV_BAND_LABELS": labels})
 
-        return jsonify({"ok": True, "total_ranges": len(existing)})
+        doc = load_filters()
+        active_count = sum(1 for e in doc.get("active_filters", []) if e.get("active"))
+        return jsonify({
+            "ok":           True,
+            "filter_id":    filter_id,
+            "total_active": active_count,
+            "polygon_png":  png_rel,
+        })
 
     except Exception as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
+        import traceback
+        return jsonify({"ok": False, "error": str(exc),
+                        "trace": traceback.format_exc()}), 500
 
 
 # ── Gewitterrisiko-Grid ───────────────────────────────────────────────────────
