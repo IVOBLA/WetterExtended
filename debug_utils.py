@@ -167,10 +167,17 @@ def api_call_summary(since_hours: int = 24) -> dict:
                         continue
                     svc = rec.get("service", "unknown")
                     if svc not in by_service:
-                        by_service[svc] = {"calls": 0, "errors": 0}
+                        by_service[svc] = {
+                            "calls": 0, "errors": 0,
+                            "last_ts": None, "last_url": None, "last_status": None,
+                        }
                     by_service[svc]["calls"] += 1
                     if int(rec.get("status", 200)) >= 400:
                         by_service[svc]["errors"] += 1
+                    # Letzten Request merken (JSONL ist chronologisch → letzter = aktuellster)
+                    by_service[svc]["last_ts"]     = rec.get("ts")
+                    by_service[svc]["last_url"]    = rec.get("url", "")
+                    by_service[svc]["last_status"] = rec.get("status", 200)
                 except Exception:
                     continue
     except Exception:
