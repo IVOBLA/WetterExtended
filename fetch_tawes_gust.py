@@ -5,15 +5,24 @@ from api_cache import cache_key, cache_get, cache_set
 
 _BASE_URL="https://dataset.api.hub.geosphere.at/v1/station/current/tawes-v1-10min"
 _PARAMS="FFX,FF,RR,TL"
-_STATION_IDS="11330,11301,11315,11320,11350"
 _TIMEOUT=10
 _TTL=600
 
+def _get_station_ids() -> str:
+    """Station-IDs aus runtime_config (überschreibbar im Admin-Panel)."""
+    try:
+        import runtime_config
+        from config import TAWES_GUST_STATION_IDS
+        return runtime_config.get("TAWES_GUST_STATION_IDS", TAWES_GUST_STATION_IDS)
+    except Exception:
+        return "11330,11301,11315,11320,11350"
+
 def fetch_tawes_stations() -> list:
-    ck=cache_key("geosphere:tawes", _STATION_IDS)
+    _station_ids = _get_station_ids()
+    ck=cache_key("geosphere:tawes", _station_ids)
     cached=cache_get(ck, ttl_seconds=_TTL)
     if cached is not None: return cached
-    url=f"{_BASE_URL}?parameters={_PARAMS}&station_ids={_STATION_IDS}"
+    url=f"{_BASE_URL}?parameters={_PARAMS}&station_ids={_station_ids}"
     try:
         r=requests.get(url, timeout=_TIMEOUT, headers={"Accept":"application/json"})
         r.raise_for_status(); data=r.json()
