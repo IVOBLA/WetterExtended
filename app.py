@@ -69,6 +69,36 @@ def _latest_location_hits():
 
 
 # ---------- JSON-APIs (von React konsumiert) ----------
+# ---------------------------------------------------------------------------
+# Sicherheits-Hilfsfunktion: Secrets aus Config-Responses entfernen
+# ---------------------------------------------------------------------------
+_REDACT_KEYS = frozenset({
+    "TOKEN", "KEY", "PASS", "PASSWORD", "SECRET",
+    "AUTH", "CREDENTIAL", "PRIVATE", "API_KEY",
+})
+
+
+def _redact_secrets(obj, depth: int = 0):
+    """
+    Entfernt rekursiv alle Secret-Werte aus einem Config-Dict.
+    Keys die einen der _REDACT_KEYS-Begriffe enthalten → '***REDACTED***'.
+    depth-Limit verhindert endlose Rekursion.
+    """
+    if depth > 8:
+        return obj
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            if any(s in str(k).upper() for s in _REDACT_KEYS):
+                out[k] = "***REDACTED***"
+            else:
+                out[k] = _redact_secrets(v, depth + 1)
+        return out
+    if isinstance(obj, list):
+        return [_redact_secrets(i, depth + 1) for i in obj]
+    return obj
+
+
 @app.route("/api/health")
 def api_health():
     return jsonify({"ok": True, "ts": datetime.utcnow().isoformat() + "Z"})
@@ -544,7 +574,10 @@ def api_training_save():
 
 @app.route("/api/config")
 def api_config():
-    return jsonify(runtime_config.all_effective())
+    # Secrets (API-Tokens, Passwörter) werden aus der Response entfernt.
+    # Der GitHub-Token, ANTHROPIC_API_KEY usw. dürfen nie im Browser erscheinen.
+    raw = runtime_config.all_effective()
+    return jsonify(_redact_secrets(raw))
 
 
 @app.route("/api/config", methods=["POST"])
