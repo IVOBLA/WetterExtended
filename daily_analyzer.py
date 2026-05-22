@@ -184,10 +184,39 @@ def _load_jsonl_tail(path: str, since_hours: int) -> list:
     return out
 
 
+# Keys die NIEMALS in den KI-Report wandern dürfen (Secrets)
+_SECRET_KEY_PARTS = frozenset({
+    "TOKEN", "KEY", "PASS", "PASSWORD", "SECRET",
+    "AUTH", "CREDENTIAL", "PRIVATE", "API_KEY",
+})
+
+
+def _sanitize_config(obj, depth=0):
+    """
+    Entfernt rekursiv alle Secret-Keys aus einem Config-Dict.
+    depth-Limit verhindert endlose Rekursion bei zirkulären Strukturen.
+    """
+    if depth > 5:
+        return obj
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            key_upper = str(k).upper()
+            if any(s in key_upper for s in _SECRET_KEY_PARTS):
+                out[k] = "***REDACTED***"
+            else:
+                out[k] = _sanitize_config(v, depth + 1)
+        return out
+    if isinstance(obj, list):
+        return [_sanitize_config(i, depth + 1) for i in obj]
+    return obj
+
+
 def build_system_report(since_hours: int = 24) -> dict:
     """
     Baut einen komprimierten System-Report für den KI-Analyse-Aufruf.
-    Maximale Größe: ~2000 Zeichen (Token-Budget schonen).
+    Enthält: Metriken, API-Health, Modellqualität, Systemstatus,
+             vollständige bereinigte Konfiguration (ohne Secrets).
     """
     report = {
         "generated_utc": datetime.utcnow().isoformat(timespec="seconds") + "Z",
@@ -197,6 +226,7 @@ def build_system_report(since_hours: int = 24) -> dict:
         "model_quality": {},
         "data_quality": {},
         "system": {},
+        "system_config": {},   # NEU: bereinigte Konfiguration
         "source_context": {},
     }
 
@@ -338,6 +368,55 @@ def build_system_report(since_hours: int = 24) -> dict:
     except Exception as exc:
         debug_log(f"[ANALYZER] recent_objects Fehler: {exc}")
         report["recent_objects"] = {"frames": [], "frame_count": 0}
+
+    # --- System-Konfiguration (alle effektiven Werte, Secrets entfernt) ---
+    try:
+        effective_raw = runtime_config.all_effective()
+        report["system_config"] = _sanitize_config(effective_raw)
+
+        # Explizit wichtige Sub-Bereiche direkt lesbar machen (falls nicht in all_effective)
+        from config import (
+            HSV_BAND_LABELS, LOCATIONS_WATCHLIST, ML_FORECAST_HORIZONS_MIN,
+            HAIL_WARN_THRESHOLD, GUST_WARN_KMH, HEAVY_RAIN_WARN_MM_PER_H,
+            VERIFICATION_TOLERANCE_KM, DATA_RETENTION_DAYS,
+            TAWES_GUST_STATION_IDS, BBOX_KAERNTEN_EXTENDED,
+            LOOP_INTERVAL_CELLS_S, LOOP_INTERVAL_NO_CELLS_S,
+        )
+        # Nur wenn all_effective() diese nicht bereits enthält
+        _supplement = {
+            "HSV_BAND_LABELS":             runtime_config.get("HSV_BAND_LABELS", HSV_BAND_LABELS),
+            "LOCATIONS_WATCHLIST":         runtime_config.get("LOCATIONS_WATCHLIST", LOCATIONS_WATCHLIST),
+            "ML_FORECAST_HORIZONS_MIN":    runtime_config.get("ML_FORECAST_HORIZONS_MIN", ML_FORECAST_HORIZONS_MIN),
+            "HAIL_WARN_THRESHOLD":         runtime_config.get("HAIL_WARN_THRESHOLD", HAIL_WARN_THRESHOLD),
+            "GUST_WARN_KMH":               runtime_config.get("GUST_WARN_KMH", GUST_WARN_KMH),
+            "HEAVY_RAIN_WARN_MM_PER_H":    runtime_config.get("HEAVY_RAIN_WARN_MM_PER_H", HEAVY_RAIN_WARN_MM_PER_H),
+            "VERIFICATION_TOLERANCE_KM":   VERIFICATION_TOLERANCE_KM,
+            "DATA_RETENTION_DAYS":         runtime_config.get("DATA_RETENTION_DAYS", DATA_RETENTION_DAYS),
+            "TAWES_GUST_STATION_IDS":      runtime_config.get("TAWES_GUST_STATION_IDS", TAWES_GUST_STATION_IDS),
+            "BBOX_KAERNTEN_EXTENDED":      BBOX_KAERNTEN_EXTENDED,
+            "LOOP_INTERVAL_CELLS_S":       runtime_config.get("LOOP_INTERVAL_CELLS_S", LOOP_INTERVAL_CELLS_S),
+            "LOOP_INTERVAL_NO_CELLS_S":    runtime_config.get("LOOP_INTERVAL_NO_CELLS_S", LOOP_INTERVAL_NO_CELLS_S),
+        }
+        for k, v in _supplement.items():
+            if k not in report["system_config"]:
+                report["system_config"][k] = v
+
+        # runtime_overrides.json Rohinhalt (bereits bereinigt durch _sanitize_config)
+        try:
+            import json as _jcfg
+            from config import RUNTIME_OVERRIDES_PATH
+            _ov_path = runtime_config.get("RUNTIME_OVERRIDES_PATH", RUNTIME_OVERRIDES_PATH)
+            if os.path.exists(_ov_path):
+                with open(_ov_path, "r", encoding="utf-8") as _ov_f:
+                    _ov_raw = _jcfg.load(_ov_f)
+                report["system_config"]["_runtime_overrides_active"] = _sanitize_config(_ov_raw)
+            else:
+                report["system_config"]["_runtime_overrides_active"] = {}
+        except Exception as _ov_exc:
+            debug_log(f"[ANALYZER] runtime_overrides lesen fehlgeschlagen: {_ov_exc}")
+
+    except Exception as exc:
+        debug_log(f"[ANALYZER] system_config Fehler: {exc}")
 
     return report
 
