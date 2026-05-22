@@ -6,6 +6,9 @@ import json
 import debug_utils
 from datetime import datetime
 from debug_utils import debug_log, log_api_call, log_api_failure
+from api_cache import cache_key, cache_get, cache_set
+
+_TAWES_FULL_TTL = 600  # 10 Minuten — entspricht TAWES-Aktualisierungsintervall
 
 def get_weather_data(include_all_stations=True):
     url = (
@@ -17,6 +20,13 @@ def get_weather_data(include_all_stations=True):
         "11228,8989076,11214"
         "&output_format=geojson"
     )
+
+    # Cache-Lookup: max. 1 HTTP-Request pro 10 Minuten (TAWES-Aktualisierungsintervall)
+    _ck = cache_key("geosphere:tawes_full", url)
+    _cached = cache_get(_ck, ttl_seconds=_TAWES_FULL_TTL)
+    if _cached is not None:
+        debug_log(f"[TAWES-FULL] Cache-HIT — kein HTTP-Request ({len(_cached)} Stationen)")
+        return _cached
 
     try:
         response = requests.get(url, timeout=15)
@@ -67,6 +77,9 @@ def get_weather_data(include_all_stations=True):
         elif include_all_stations:
             debug_log(f"{len(stations)} GeoSphere-TAWES-Stationen geladen")
 
+        # Ergebnis cachen — vermeidet Doppel-Requests innerhalb von 10 Minuten
+        if stations:
+            cache_set(_ck, stations)
 
         return stations
 
