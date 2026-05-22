@@ -1148,12 +1148,13 @@ server {
         proxy_connect_timeout 10s;
     }
 
+    # Finding #4 Fix: /export/ ist keine Flask-Route.
+    # Redirect auf kanonische API-Route /api/export/forecast.kmz
+    location = /export/forecast.kmz {
+        return 301 /api/export/forecast.kmz;
+    }
     location /export/ {
-        proxy_pass         http://127.0.0.1:5000/export/;
-        proxy_http_version 1.1;
-        proxy_set_header   Host              \$host;
-        proxy_set_header   X-Real-IP         \$remote_addr;
-        proxy_read_timeout 60s;
+        return 301 /api/export/forecast.kmz;
     }
 
     location /plots/ {
