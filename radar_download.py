@@ -9,7 +9,7 @@ import time
 import requests
 import zipfile
 from email.utils import formatdate, parsedate_to_datetime
-from debug_utils import debug_log, log_api_failure
+from debug_utils import debug_log, log_api_failure, log_api_call
 
 KMZ_URL  = "https://meteo.arso.gov.si/uploads/probase/www/nowcast/inca/inca_si0zm_latest.kmz"
 KMZ_PATH = "weather_data.kmz"
@@ -64,14 +64,13 @@ def download_kmz() -> bool:
 
     for attempt in range(_MAX_RETRIES):
         try:
+            import time as _t_radar
+            _t0_radar = _t_radar.monotonic()
             response = requests.get(
                 KMZ_URL, headers=req_headers, timeout=_TIMEOUT
             )
-            try:
-                from debug_utils import log_api_call
-                log_api_call("arso_radar", url=KMZ_URL, status_code=response.status_code)
-            except Exception:
-                pass
+            log_api_call("arso_radar", KMZ_URL, response.status_code,
+                         duration_ms=(_t_radar.monotonic() - _t0_radar) * 1000)
 
             if response.status_code == 304:
                 debug_log("Kein neues Radarbild verfügbar (304 Not Modified).")

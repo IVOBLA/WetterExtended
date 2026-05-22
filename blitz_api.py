@@ -62,6 +62,8 @@ def fetch_and_save_lightning(timestamp: str) -> None:
         # Cache-HITs NICHT als HTTP-200 zählen — verfälscht Erfolgsquote in api_health
         return
 
+    import time as _t_blitz
+    _t0_blitz = _t_blitz.monotonic()
     try:
         response = requests.get(
             url,
@@ -70,7 +72,8 @@ def fetch_and_save_lightning(timestamp: str) -> None:
         )
         response.raise_for_status()
     except requests.exceptions.Timeout:
-        log_api_call("blitzortung", url, 408)
+        log_api_call("blitzortung", url, 408,
+                     duration_ms=(_t_blitz.monotonic() - _t0_blitz) * 1000)
         log_api_failure("blitzortung", _BASE_URL, "timeout", fallback_used=True)
         debug_log("[LIGHTNING] Timeout beim Abrufen der Blitzdaten.")
         return
@@ -88,7 +91,8 @@ def fetch_and_save_lightning(timestamp: str) -> None:
         debug_log(f"[LIGHTNING] Fehler: {exc}")
         return
 
-    log_api_call("blitzortung", url, response.status_code)
+    log_api_call("blitzortung", url, response.status_code,
+                 duration_ms=(_t_blitz.monotonic() - _t0_blitz) * 1000)
     strikes = []
     for line in response.text.strip().splitlines():
         line = line.strip()
