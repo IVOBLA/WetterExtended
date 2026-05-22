@@ -579,12 +579,80 @@ def api_accuracy():
     })
 
 
+# Öffentliche Browser-URLs pro externer Schnittstelle (konfigurierbar)
+_API_PUBLIC_URLS: dict = {
+    "geosphere_tawes":        "https://tawes.at/#knt",
+    "arso_radar":             "https://meteo.arso.gov.si/uploads/probase/www/nowcast/inca/",
+    "openmeteo_icon_d2":      "https://open-meteo.com/en/docs",
+    "openmeteo_icon_global":  "https://open-meteo.com/en/docs",
+    "geosphere_cape":         "https://dataset.api.hub.geosphere.at/",
+    "eumetview_wms":          "https://eumetview.eumetsat.int/",
+    "blitzortung":            "https://www.blitzortung.org/",
+    "geosphere_nowcast":      "https://dataset.api.hub.geosphere.at/",
+    "anthropic_api":          "https://console.anthropic.com/",
+}
+
+
 @app.route("/api/api_calls")
 def api_api_calls():
     """Request-Zähler pro externer Schnittstelle für Admin-Panel."""
     from debug_utils import api_call_summary
     hours = int(request.args.get("hours", "24"))
-    return jsonify(api_call_summary(since_hours=hours))
+    data = api_call_summary(since_hours=hours)
+    # public_url je Service ergänzen (für Dashboard-Link-Anzeige)
+    for svc, info in data.get("by_service", {}).items():
+        pub = _API_PUBLIC_URLS.get(svc)
+        if pub:
+            info["public_url"] = pub
+    return jsonify(data)
+
+
+@app.route("/api/api_calls/detail")
+def api_api_calls_detail():
+    """
+    Letzte N Einträge aus api_call_counts.jsonl für einen Service.
+    Query-Parameter: service=<name>, n=<int default 20>, hours=<int default 24>
+    Antwort: {service, entries:[{ts, url, status}], total, public_url}
+    """
+    from datetime import datetime as _dt2, timedelta as _td2
+    service = request.args.get("service", "")
+    n       = min(int(request.args.get("n", "20")), 200)
+    hours   = int(request.args.get("hours", "24"))
+    cutoff  = _dt2.utcnow() - _td2(hours=hours)
+    log_path = os.path.join(
+        SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/"),
+        "api_call_counts.jsonl",
+    )
+    entries = []
+    if os.path.exists(log_path):
+        try:
+            with open(log_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                        if service and rec.get("service") != service:
+                            continue
+                        ts = _dt2.fromisoformat(rec.get("ts", "").replace("Z", ""))
+                        if ts >= cutoff:
+                            entries.append({
+                                "ts":     rec.get("ts", ""),
+                                "url":    rec.get("url", ""),
+                                "status": rec.get("status", 200),
+                            })
+                    except Exception:
+                        continue
+        except Exception as exc:
+            return jsonify({"entries": [], "error": str(exc)})
+    entries.sort(key=lambda r: r.get("ts", ""), reverse=True)
+    return jsonify({
+        "service":    service,
+        "entries":    entries[:n],
+        "total":      len(entries),
+        "public_url": _API_PUBLIC_URLS.get(service),
+    })
 
 
 @app.route("/api/api_health")
