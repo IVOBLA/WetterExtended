@@ -1,23 +1,62 @@
+# ==============================================================================
+# WetterExtended — .gitignore
+# Binäre Artefakte, generierte Daten und Secrets werden NICHT committed.
+# WICHTIG: Modell-Binaries (.keras, .h5, .hef, .joblib, .onnx, .npz)
+#          können NICHT über git push verteilt werden.
+#          Bereitstellung als separater Download (GitHub Releases, rsync).
+# ==============================================================================
+
+# ── Python ────────────────────────────────────────────────────────────────────
 *.pyc
+*.pyo
+__pycache__/
+*.pyd
+*.so
+
+# ── Virtuelle Umgebung ────────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+
+# ── Modell-Binaries (dürfen NICHT ins Git) ───────────────────────────────────
+*.keras
+*.h5
+*.txt.lgb
+*.joblib
+*.pkl
+*.onnx
+*.hef
+models/hailo/
+*.npz
+*.parquet
+
+# ── Trainingsdaten und generierte Dateien ─────────────────────────────────────
+/train_data/
+/data/
+
+# ── Secrets ───────────────────────────────────────────────────────────────────
+.env
+train_data/runtime_overrides.json
+
+# ── Generierte Bilder / Exports ───────────────────────────────────────────────
 *.png
-/train_data
-/__pycache__
-/__pycache__
-plots/
+*.gif
 *.kmz
-/data
-/__pycache__
-/data
-/data
-/__pycache__
-/train_data
-/train_data
+plots/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Frontend-Build ────────────────────────────────────────────────────────────
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
-*.log
-__pycache__/
-venv/
-train_data/runtime_overrides.json
 
-.env
+# ── OS / IDE ──────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
