@@ -911,6 +911,36 @@ Folgende 11 neuen Features wurden zu `ML_CELL_FEATURES` ergänzt:
 
 ---
 
+# 28 Binary-Artefakte und Modell-Distribution
+
+ML-Modelle und Hailo-HEF-Dateien sind **Binaries** und werden **nicht** über Git gepusht.
+
+| Artefakt-Typ | Erweiterung | Distribution |
+|---|---|---|
+| Keras-Modell (LSTM) | `.keras`, `.h5` | GitHub Releases / manueller `scp` |
+| LightGBM-Modell | `.txt.lgb` | GitHub Releases / manueller `scp` |
+| Scikit-learn Scaler | `.joblib`, `.pkl` | GitHub Releases / manueller `scp` |
+| ONNX-Export | `.onnx` | GitHub Releases (Phase B) |
+| Hailo HEF | `.hef` | Separater Download, `models/hailo/` via rsync |
+| NumPy-Dataset | `.npz` | Lokal generiert (via Training) |
+
+> Ohne vorhandene Modelle startet das System im kinetischen Fallback-Modus. Modelle werden beim ersten Training-Lauf automatisch erstellt.
+
+## 28.1 Vollständige `.env`-Konfigurationsreferenz
+
+| Variable | Pflicht | Funktion |
+|---|---|---|
+| `FTP_SERVER`, `FTP_USER`, `FTP_PASS`, `FTP_PATH` | Empfohlen | FTP-Upload des Radar-Overlays |
+| `BLITZ_USERNAME`, `BLITZ_PASSWORD` | Optional | Blitzortung.org Echtzeit-Blitzdaten |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM`, `TWILIO_TO` | Optional | SMS-Sturmwarnungen |
+| `ANTHROPIC_API_KEY` | Optional | KI-Analyse-Chat im Admin-Panel |
+| `GITHUB_TOKEN` | Ja (privates Repo) | KI-Analyse lädt Quellcode von GitHub |
+| `WETTER_DEBUG` | Optional | `1` = Debug-Logs + Bilder (erhöht I/O) |
+
+> `GITHUB_TOKEN` steht **ausschließlich** in `.env`. In `config.py` wird er via `os.environ.get("GITHUB_TOKEN", "")` gelesen.
+
+---
+
 # 27 Änderungshistorie
 
 | Version | Datum | Änderungen |
