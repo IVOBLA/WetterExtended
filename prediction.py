@@ -331,14 +331,22 @@ def predict_positions(objects: list, timestamp: str, stations: list):
             obj[f"forecast_lat_{horizon}"] = float(lat)
             obj[f"forecast_lon_{horizon}"] = float(lon)
             if prediction_q10 is not None and prediction_q90 is not None:
-                x_q10 = float(prediction_q10[idx * 2])
-                y_q10 = float(prediction_q10[idx * 2 + 1])
-                x_q90 = float(prediction_q90[idx * 2])
-                y_q90 = float(prediction_q90[idx * 2 + 1])
-                obj[f"forecast_x_{horizon}_q10"] = x_q10
-                obj[f"forecast_y_{horizon}_q10"] = y_q10
-                obj[f"forecast_x_{horizon}_q90"] = x_q90
-                obj[f"forecast_y_{horizon}_q90"] = y_q90
+                # Fix #7: _UF anwenden wie bei x_pred/y_pred,
+                # dann pixel_to_geo für lat/lon-Felder (app.py liest forecast_lat_{h}_q10/q90)
+                x_q10 = float(prediction_q10[idx * 2])     * _UF
+                y_q10 = float(prediction_q10[idx * 2 + 1]) * _UF
+                x_q90 = float(prediction_q90[idx * 2])     * _UF
+                y_q90 = float(prediction_q90[idx * 2 + 1]) * _UF
+                lat_q10, lon_q10 = pixel_to_geo(x_q10, y_q10)
+                lat_q90, lon_q90 = pixel_to_geo(x_q90, y_q90)
+                obj[f"forecast_x_{horizon}_q10"]   = x_q10
+                obj[f"forecast_y_{horizon}_q10"]   = y_q10
+                obj[f"forecast_x_{horizon}_q90"]   = x_q90
+                obj[f"forecast_y_{horizon}_q90"]   = y_q90
+                obj[f"forecast_lat_{horizon}_q10"] = float(lat_q10)
+                obj[f"forecast_lon_{horizon}_q10"] = float(lon_q10)
+                obj[f"forecast_lat_{horizon}_q90"] = float(lat_q90)
+                obj[f"forecast_lon_{horizon}_q90"] = float(lon_q90)
             forecasts[horizon].append(
                 {
                     "id": obj.get("id"),
@@ -352,10 +360,12 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                     "forecast_mode": "ml",
                     **(
                         {
-                            "x_q10": float(prediction_q10[idx * 2]),
-                            "y_q10": float(prediction_q10[idx * 2 + 1]),
-                            "x_q90": float(prediction_q90[idx * 2]),
-                            "y_q90": float(prediction_q90[idx * 2 + 1]),
+                            # Fix #7: _UF wie bei x_pred/y_pred — kmz_export.py
+                            # erwartet skalierte Pixelkoordinaten für pixel_to_geo()
+                            "x_q10": float(prediction_q10[idx * 2])     * _UF,
+                            "y_q10": float(prediction_q10[idx * 2 + 1]) * _UF,
+                            "x_q90": float(prediction_q90[idx * 2])     * _UF,
+                            "y_q90": float(prediction_q90[idx * 2 + 1]) * _UF,
                         }
                         if prediction_q10 is not None and prediction_q90 is not None
                         else {}
