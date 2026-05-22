@@ -552,6 +552,33 @@ def api_thresholds_save():
     return jsonify({"ok": True})
 
 
+@app.route("/api/intensity_bands")
+def api_intensity_bands_get():
+    """Liefert die aktuellen Intensitätszonen-Konfiguration."""
+    from config import INTENSITY_BANDS_DEFAULT
+    bands = runtime_config.get("INTENSITY_BANDS", INTENSITY_BANDS_DEFAULT)
+    return jsonify({"bands": bands})
+
+
+@app.route("/api/intensity_bands", methods=["POST"])
+def api_intensity_bands_save():
+    """Speichert neue Intensitätszonen-Konfiguration."""
+    try:
+        data = request.get_json(force=True)
+        bands = data.get("bands")
+        assert isinstance(bands, list) and len(bands) >= 1
+        for b in bands:
+            assert len(b) == 4, "Jedes Band: [label, [h,s,v], [h,s,v], '#hex']"
+            assert isinstance(b[0], str)
+            assert len(b[1]) == 3 and len(b[2]) == 3
+            assert all(0 <= int(v) <= 255 for v in b[1] + b[2])
+            assert isinstance(b[3], str) and b[3].startswith("#")
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    runtime_config.patch({"INTENSITY_BANDS": bands})
+    return jsonify({"ok": True})
+
+
 @app.route("/api/training")
 def api_training():
     return jsonify({
