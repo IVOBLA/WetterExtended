@@ -799,7 +799,7 @@ ENVTEMPLATE
         note_manual "nano $ENV_FILE  # FTP, BLITZ, TWILIO, ANTHROPIC_API_KEY, GITHUB_TOKEN setzen"
     fi
 else
-    # Prüfen ob Credentials gesetzt sind
+    # FTP-Credentials prüfen
     FTP_OK=true
     for var in FTP_SERVER FTP_USER FTP_PASS; do
         val=$(grep "^${var}=" "$ENV_FILE" | cut -d= -f2 | tr -d ' ')
@@ -810,6 +810,34 @@ else
     else
         check_warn ".env: FTP-Credentials unvollständig"
         note_manual "nano $ENV_FILE  # FTP_SERVER, FTP_USER, FTP_PASS prüfen"
+    fi
+
+    # Blitzortung-Credentials prüfen
+    BLITZ_USER_VAL=$(grep "^BLITZ_USERNAME=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ')
+    BLITZ_PASS_VAL=$(grep "^BLITZ_PASSWORD=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ')
+    if [[ -n "$BLITZ_USER_VAL" && -n "$BLITZ_PASS_VAL" ]]; then
+        check_ok ".env: Blitzortung-Credentials konfiguriert"
+    else
+        check_warn ".env: BLITZ_USERNAME / BLITZ_PASSWORD nicht gesetzt — Blitzdaten deaktiviert"
+        note_manual "nano $ENV_FILE  # BLITZ_USERNAME, BLITZ_PASSWORD setzen (Blitzortung-Login)"
+    fi
+
+    # Anthropic API Key prüfen
+    ANTHROPIC_VAL=$(grep "^ANTHROPIC_API_KEY=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ')
+    if [[ -n "$ANTHROPIC_VAL" ]]; then
+        check_ok ".env: ANTHROPIC_API_KEY konfiguriert (KI-Analyse verfügbar)"
+    else
+        check_warn ".env: ANTHROPIC_API_KEY nicht gesetzt — KI-Analyse deaktiviert"
+        note_manual "nano $ENV_FILE  # ANTHROPIC_API_KEY setzen (optional, für KI-Analyse)"
+    fi
+
+    # GitHub Token prüfen (privates Repo)
+    GITHUB_TOKEN_VAL=$(grep "^GITHUB_TOKEN=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ')
+    if [[ -n "$GITHUB_TOKEN_VAL" ]]; then
+        check_ok ".env: GITHUB_TOKEN gesetzt (KI-Analyse kann Quellcode vom privaten Repo laden)"
+    else
+        check_warn ".env: GITHUB_TOKEN nicht gesetzt — KI-Analyse lädt keinen Quellcode"
+        note_manual "nano $ENV_FILE  # GITHUB_TOKEN setzen (GitHub PAT, repo:read Berechtigung)"
     fi
 fi
 
