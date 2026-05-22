@@ -453,6 +453,7 @@ SAVE_PATHS = {
     "dem": "train_data/dem/",
     "arome": "train_data/arome/",
     "ir_cells": "train_data/ir_cells/",
+    "cell_filters": "train_data/cell_filters/",   # HitL: Filter + Polygon-PNGs
 }
 # Ausgabeauflösung in Pixeln (z. B. für GeoTIFF via WMS)
 WIDTH = 1600
@@ -546,3 +547,30 @@ STATIC_EXCLUSION_ZONES: list = [
         "radius_km": 15.0,
     },
 ]
+
+
+# -------------------------------------------------------
+# HitL — Manuelles Zell-Markieren (Human-in-the-Loop)
+# -------------------------------------------------------
+# Single Source of Truth für manuell ergänzte und KI-vorgeschlagene HSV-Bereiche.
+# Wird von cell_filters.py verwaltet, von object_tracking.py gelesen
+# und von app.py über REST-Endpunkte bearbeitet.
+CELL_FILTERS_DIR: str         = "train_data/cell_filters/"
+CELL_FILTERS_PATH: str        = "train_data/cell_filters/cell_filters.json"
+CELL_FILTERS_POLYGON_DIR: str = "train_data/cell_filters/polygons/"
+
+# Padding (in Pixeln) um das markierte Polygon beim PNG-Crop.
+# Im Admin-Panel über runtime_overrides.json überschreibbar
+# (Schlüssel: HITL_PADDING_PX). Empfohlener Bereich: 10–150 px.
+HITL_PADDING_PX_DEFAULT: int = 50
+
+# Maximale Anzahl Polygon-PNGs, die pro KI-Lauf an Anthropic geschickt werden.
+# Begrenzt API-Kosten und Token-Budget. Untergrenze für nützliche Analyse: 3.
+HITL_MAX_PNGS_FOR_AI: int = 5
+
+# KI-Modus für /api/cell_filters/ai_analyze:
+#   "expand_only"        — KI darf NUR neue, breitere Bereiche vorschlagen
+#                          (bestehende Filter bleiben unverändert).
+#   "expand_and_refine"  — KI darf zusätzlich engere Bereiche vorschlagen.
+# Default "expand_only" ist die sichere Voreinstellung.
+HITL_AI_MODE: str = "expand_only"
