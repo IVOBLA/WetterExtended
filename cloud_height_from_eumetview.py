@@ -204,13 +204,8 @@ def assign_cloud_top_height(
 
     timestamp_wms = get_latest_wms_time()
     if not timestamp_wms:
-        debug_log("[CLOUD] Kein gültiger WMS-Timestamp – setze cloud_top_height_msl=-1")
-        log_api_failure(
-            "EUMETView-WMS",
-            "https://view.eumetsat.int/geoserver/wms",
-            "no-timestamp",
-            fallback_used=True,
-        )
+        debug_log("[CLOUD] Kein gültiger WMS-Timestamp — cloud_top_height_msl=-1")
+        log_api_failure("EUMETView-WMS", "GetCapabilities", "no-timestamp", fallback_used=True)
         for obj in objects:
             obj["cloud_top_height_msl"] = -1.0
             obj["cloud_height_missing"] = 1.0
@@ -317,7 +312,7 @@ def assign_cloud_top_height(
         except Exception as e:
             debug_log(f"[CLOUD] Wetterdaten-Parsing fehlgeschlagen: {e}")
     else:
-        debug_log("[CLOUD] Keine passende Wetterdatei – verwende Standardwerte.")
+        debug_log("[CLOUD] Keine passende Wetterdatei gefunden — Standardwerte.")
 
     # ── TIFF verarbeiten ──────────────────────────────────────────────────────
     if not HAS_RASTERIO:
