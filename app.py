@@ -573,10 +573,17 @@ def api_training_save():
 
 
 @app.route("/api/config")
-def api_config():
-    # Secrets (API-Tokens, Passwörter) werden aus der Response entfernt.
-    # Der GitHub-Token, ANTHROPIC_API_KEY usw. dürfen nie im Browser erscheinen.
+def api_config_get():
+    """
+    Gibt die vollständige aktive Konfiguration zurück (Secrets entfernt).
+    Finding #3 Fix: PX_TO_KMH explizit ergänzen falls nicht in runtime_config.
+    Frontend darf keine eigene PX_TO_KMH-Formel haben.
+    """
+    from config import PX_TO_KMH as _PX_DEFAULT
     raw = runtime_config.all_effective()
+    # PX_TO_KMH immer explizit mitliefern — Frontend Single Source of Truth
+    if "PX_TO_KMH" not in raw:
+        raw["PX_TO_KMH"] = runtime_config.get("PX_TO_KMH", _PX_DEFAULT)
     return jsonify(_redact_secrets(raw))
 
 
