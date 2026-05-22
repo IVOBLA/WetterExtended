@@ -5,7 +5,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, send_file
 
 import config as cfg
 from config import SAVE_PATHS
@@ -1800,6 +1800,26 @@ def api_thresholds_add_range():
                         "trace": traceback.format_exc()}), 500
 
 
+# ── KMZ-Export ────────────────────────────────────────────────────────────────
+
+@app.route("/api/export/forecast.kmz")
+def api_export_forecast_kmz():
+    """
+    Liefert die zuletzt erzeugte Forecast-KMZ zum Download.
+    Erzeugt von save_forecast_as_kmz() in jedem Live-Loop-Zyklus.
+    Zieldefinition: Vorhersagepositionen + Pfeile als KMZ exportierbar.
+    """
+    kmz_path = os.path.join(os.getcwd(), "forecast.kmz")
+    if not os.path.exists(kmz_path):
+        return jsonify({"error": "Noch keine KMZ vorhanden — Live-Loop muss zuerst laufen"}), 404
+    return send_file(
+        kmz_path,
+        mimetype="application/vnd.google-earth.kmz",
+        as_attachment=True,
+        download_name="forecast.kmz",
+    )
+
+
 # ── Gewitterrisiko-Grid ───────────────────────────────────────────────────────
 
 @app.route("/api/risk_grid")
@@ -1936,12 +1956,18 @@ def api_risk_grid():
 
     # ── Forecast-Pfad-Segmente fuer jede aktive Zelle vorbereiten ────────────
     # Segmente: now → +10, +10 → +20, +20 → +30, +30 → +40
+    # Fix #8: Runtime-Horizonte aus runtime_config (default: alle 5 konfiguriert)
+    _rg_horizons = sorted(runtime_config.get("ML_FORECAST_HORIZONS_MIN", [10, 20, 30, 40, 60]))
+    # Gewichte: linear abnehmend mit Horizont (kürzere Horizonte = sicherer)
+    _max_hz = max(_rg_horizons) if _rg_horizons else 60
+    _rg_weights = {hz: max(0.1, 1.0 - (hz / _max_hz) * 0.8) for hz in _rg_horizons}
+
     forecast_segments = []  # list of (cell_dict, [(lat0,lon0,lat1,lon1), ...])
     for cell in active_cells:
         segs = []
         prev_lat = cell.get("lat")
         prev_lon = cell.get("lon")
-        for hz in (10, 20, 30, 40):
+        for hz in _rg_horizons:   # Fix #8: alle konfigurierten Horizonte inkl. 60 min
             flat = cell.get(f"forecast_lat_{hz}")
             flon = cell.get(f"forecast_lon_{hz}")
             if flat is None or flon is None:
@@ -1986,8 +2012,8 @@ def api_risk_grid():
                             best_ship = sh
                         if cp is not None and (best_cape is None or cp > best_cape):
                             best_cape = cp
-                # Forecast-Horizonte (Punkt-zu-Punkt — Bestand)
-                for hz, iw in [(10, 0.9), (20, 0.7), (30, 0.5), (40, 0.4), (60, 0.25)]:
+                # Fix #8: Runtime-Horizonte verwenden statt hardcoded Liste
+                for hz, iw in [(h, _rg_weights.get(h, 0.2)) for h in _rg_horizons]:
                     flat = cell.get(f"forecast_lat_{hz}")
                     flon = cell.get(f"forecast_lon_{hz}")
                     if flat is None or flon is None:
