@@ -12,7 +12,7 @@ import requests
 from datetime import datetime
 
 from config import SAVE_PATHS
-from debug_utils import debug_log, log_api_failure, log_api_call
+from debug_utils import debug_log, log_api_failure, log_api_call, log_http_response
 from api_cache import cache_key, cache_get, cache_set, get_ttl
 
 # Credentials aus Umgebungsvariablen (in .env definiert)
@@ -91,8 +91,12 @@ def fetch_and_save_lightning(timestamp: str) -> None:
         debug_log(f"[LIGHTNING] Fehler: {exc}")
         return
 
-    log_api_call("blitzortung", url, response.status_code,
-                 duration_ms=(_t_blitz.monotonic() - _t0_blitz) * 1000)
+    log_http_response(
+        service="blitzortung",
+        method="GET",
+        response=response,
+        duration_ms=(_t_blitz.monotonic() - _t0_blitz) * 1000,
+    )
     strikes = []
     for line in response.text.strip().splitlines():
         line = line.strip()

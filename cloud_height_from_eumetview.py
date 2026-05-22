@@ -22,7 +22,7 @@ from config import (
     EUMETVIEW_BT_MIN_K,
     EUMETVIEW_NODATA_PIXEL,
 )
-from debug_utils import debug_log, log_api_failure, log_api_call
+from debug_utils import debug_log, log_api_failure, log_api_call, log_http_response
 from api_cache import cache_key, cache_get, cache_set, get_ttl
 import runtime_config
 
@@ -85,8 +85,13 @@ def get_latest_wms_time() -> str | None:
         import time as _t_wms_cap
         _t0_wms_cap = _t_wms_cap.monotonic()
         r = requests.get(url, timeout=10)
-        log_api_call("eumetview_wms", url=url, status_code=r.status_code,
-                     duration_ms=(_t_wms_cap.monotonic() - _t0_wms_cap) * 1000)
+        _dur_ms = (_t_wms_cap.monotonic() - _t0_wms_cap) * 1000
+        log_http_response(
+            service="eumetview_wms_caps",
+            method="GET",
+            response=r,
+            duration_ms=_dur_ms,
+        )
         if r.ok:
             root = ET.fromstring(r.content)
             for elem in root.iter():
@@ -234,8 +239,16 @@ def assign_cloud_top_height(
             import time as _t_wms_tiff
             _t0_wms_tiff = _t_wms_tiff.monotonic()
             r = requests.get(tif_url, timeout=20)
-            log_api_call("eumetview_wms", url=tif_url, status_code=r.status_code,
-                         duration_ms=(_t_wms_tiff.monotonic() - _t0_wms_tiff) * 1000)
+            _dur_ms = (_t_wms_tiff.monotonic() - _t0_wms_tiff) * 1000
+            _ts_str = timestamp_file.replace("-", "").replace("_", "")
+            _tif_save = os.path.join(SAVE_DIR, f"ir108_{_ts_str}.tif") if "r" in dir() else None
+            log_http_response(
+                service="eumetview_wms",
+                method="GET",
+                response=r,
+                duration_ms=_dur_ms,
+                saved_to=_tif_save,
+            )
             r.raise_for_status()
 
             # WMS ServiceException kommt als "200 OK + XML"
