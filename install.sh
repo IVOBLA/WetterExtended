@@ -1126,7 +1126,8 @@ server {
     }
 
     # API-Endpunkte fuer oeffentliche Karte (nur lesend, kein POST)
-    location ~ ^/api/(objects|forecast|locations|horizons|health|radar_image|radar_bounds|radar_timing)$ {
+    # Fix #9: lightning + risk_grid öffentlich freigeben (öffentliche /karte-Ansicht)
+    location ~ ^/api/(objects|forecast|locations|horizons|health|radar_image|radar_bounds|radar_timing|lightning|risk_grid)$ {
         auth_basic off;
         proxy_pass         http://127.0.0.1:5000;
         proxy_http_version 1.1;
