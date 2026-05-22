@@ -147,6 +147,27 @@ def main_loop():
             objects = assign_synoptic_features(objects, timestamp)
             objects = assign_extended_openmeteo(objects, timestamp)
             objects = assign_nowcast_to_objects(objects, timestamp)
+            # ── Fix #2: Blitzdaten ZUERST holen, da assign_convective_indices
+            # lightning_count_10km für hail_prob2 und lightning_jump benötigt ──
+            lightning_data = []
+            if timestamp:
+                try:
+                    from blitz_api import fetch_and_save_lightning
+                    fetch_and_save_lightning(timestamp)
+                except Exception as _le:
+                    debug_log(f"[LIGHTNING] Fetch fehlgeschlagen: {_le}")
+                lightning_file = os.path.join(SAVE_PATHS["lightning"], f"{timestamp}.json")
+                if os.path.exists(lightning_file):
+                    try:
+                        with open(lightning_file, encoding="utf-8") as _f:
+                            lightning_data = json.load(_f)
+                    except Exception:
+                        pass
+            for obj in objects:
+                if obj.get("lat") is not None and obj.get("lon") is not None:
+                    obj["lightning_count_10km"] = _count_lightning_near(
+                        float(obj["lat"]), float(obj["lon"]), lightning_data
+                    )
             # NEU: alle konvektiven Indizes rein rechnerisch (kein Netzwerk).
             # Erwartet bereits gesetzte Felder: cape, t500_c, t700_c, cin, pw,
             # wind_speed_500hPa, wind_dir_500_*, arome_td2m, arome_ff10m,
@@ -191,26 +212,7 @@ def main_loop():
             except Exception as _cl_exc:
                 debug_log(f"[CELLS-LOG] Schreibfehler: {_cl_exc}")
 
-            # Blitzdaten: erst fetchen, dann einlesen
-            lightning_data = []
-            if timestamp:
-                try:
-                    from blitz_api import fetch_and_save_lightning
-                    fetch_and_save_lightning(timestamp)
-                except Exception as _le:
-                    debug_log(f"[LIGHTNING] Fetch fehlgeschlagen: {_le}")
-                lightning_file = os.path.join(SAVE_PATHS["lightning"], f"{timestamp}.json")
-                if os.path.exists(lightning_file):
-                    try:
-                        with open(lightning_file, encoding="utf-8") as _f:
-                            lightning_data = json.load(_f)
-                    except Exception:
-                        pass
-            for obj in objects:
-                if obj.get("lat") is not None and obj.get("lon") is not None:
-                    obj["lightning_count_10km"] = _count_lightning_near(
-                        float(obj["lat"]), float(obj["lon"]), lightning_data
-                    )
+            # Blitzdaten wurden bereits vor assign_convective_indices geholt (Fix #2)
 
         if radar_ok and image is not None and objects:
             if not weather_data:
@@ -225,14 +227,7 @@ def main_loop():
             cv2.imwrite(radar_file, image)
             debug_log(f"Radarbild gespeichert als {radar_file}")
 
-            # Objekte NACH predict_positions() speichern (forecast_lat_X enthalten)
-            object_file = os.path.join(SAVE_PATHS["objects"], f"{timestamp}.json")
-            with open(object_file, "w", encoding="utf-8") as _of:
-                json.dump(
-                    [{k: v for k, v in o.items() if k != "kf"} for o in objects],
-                    _of, ensure_ascii=False,
-                )
-            debug_log(f"Object-File gespeichert: {len(objects)} Objekte (inkl. Forecasts)")
+            # Fix #3: JSON-Save nach vollständiger Anreicherung — siehe weiter unten
 
             # Wetter speichern (falls vorhanden)
             if weather_data:
@@ -280,6 +275,16 @@ def main_loop():
             with open(os.path.join(SAVE_PATHS["evaluation"], f"locations_{timestamp}.json"), "w", encoding="utf-8") as f:
                 json.dump(location_hits, f, indent=2, ensure_ascii=False)
             debug_log(f"Ort-Hits: {len(location_hits)} betroffene Orte")
+            # ── Fix #3: Vollständig angereichertes JSON jetzt erst speichern ─────────
+            # Enthält: forecast_lat_X, wind_shear_speed, hail_prob,
+            #          hail_warning, stationary_marker, lightning_count_10km
+            object_file = os.path.join(SAVE_PATHS["objects"], f"{timestamp}.json")
+            with open(object_file, "w", encoding="utf-8") as _of:
+                json.dump(
+                    [{k: v for k, v in o.items() if k != "kf"} for o in objects],
+                    _of, ensure_ascii=False,
+                )
+            debug_log(f"Object-File gespeichert: {len(objects)} Objekte (vollständig angereichert)")
             _gust_cells  = [o["id"] for o in objects if o.get("gust_warning")]
             _rain_cells  = [o["id"] for o in objects if o.get("heavy_rain_warning")]
             _hail_cells  = [o["id"] for o in objects if o.get("hail_warning")]
