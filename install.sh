@@ -764,19 +764,39 @@ if [[ ! -f "$ENV_FILE" ]]; then
         note_manual "nano $ENV_FILE  # FTP_SERVER, FTP_USER, FTP_PASS, FTP_PATH setzen"
     else
         cat > "$ENV_FILE" <<'ENVTEMPLATE'
+# WetterExtended — Umgebungsvariablen
+# WICHTIG: .env NIEMALS committen (steht in .gitignore)
+
 # ── FTP-Upload ────────────────────────────────────────────────
 FTP_SERVER=
 FTP_USER=
 FTP_PASS=
 FTP_PATH=/wetterAI/
 
+# ── Blitzortung.org (Teilnehmer-Login) ────────────────────────
+# Leer lassen = Blitzdaten deaktiviert
+BLITZ_USERNAME=
+BLITZ_PASSWORD=
+
+# ── Twilio SMS-Warnungen ──────────────────────────────────────
+# Leer lassen = SMS-Warnungen deaktiviert
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_FROM=
+TWILIO_TO=
+
+# ── Anthropic API (KI-Analyse) ───────────────────────────────
+# Leer lassen = KI-Analyse deaktiviert
+ANTHROPIC_API_KEY=
+
+# ── GitHub-Token (privates Repo) ─────────────────────────────
+GITHUB_TOKEN=
+
 # ── Debug-Modus ───────────────────────────────────────────────
-# WETTER_DEBUG=1  →  ausführliche Logs + Debug-Bilder speichern
-# Achtung: erhöht I/O-Last auf dem Pi — nur für Fehlersuche!
 WETTER_DEBUG=0
 ENVTEMPLATE
-        log_warn ".env angelegt — FTP-Credentials fehlen noch:"
-        note_manual "nano $ENV_FILE  # FTP_SERVER, FTP_USER, FTP_PASS, FTP_PATH setzen"
+        log_warn ".env angelegt — Credentials eintragen:"
+        note_manual "nano $ENV_FILE  # FTP, BLITZ, TWILIO, ANTHROPIC_API_KEY, GITHUB_TOKEN setzen"
     fi
 else
     # Prüfen ob Credentials gesetzt sind
