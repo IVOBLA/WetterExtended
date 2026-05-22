@@ -333,8 +333,21 @@ LOCATIONS_WATCHLIST = [
 
 # TAWES-Stationen für Böen-Monitoring (GeoSphere Austria).
 # IDs entsprechen Kärntner Stationen: Klagenfurt, Villach, Wolfsberg, Spittal, Feldkirchen.
+# Alle Kärntner TAWES-Stationen (GeoSphere Austria, tawes-v1-10min).
+# Vereinigung aus fetch_tawes_gust.py (5 Stationen, Böen-Fokus) und
+# weather_api.py (31 Stationen, alle Parameter).
 # Überschreibbar via runtime_overrides.json (Key: TAWES_GUST_STATION_IDS).
-TAWES_GUST_STATION_IDS = "11330,11301,11315,11320,11350"
+TAWES_GUST_STATION_IDS = (
+    "11275,11218,11234,11206,11227,11235,11222,11273,"
+    "11232,11259,11216,11349,11086,11255,11331,8989078,"
+    "11217,11260,11215,11262,11278,11272,11229,11237,"
+    "11213,11265,11257,11225,11228,8989076,11214,"
+    "11330,11301,11315,11320,11350"
+)
+
+# TAWES-Parameter: Superset aus beiden bisherigen Modulen.
+# Überschreibbar via runtime_overrides.json (Key: TAWES_PARAMS).
+TAWES_PARAMS = "RR,DD,FF,FFX,GLOW,P,RF,TL,TP"
 
 # Beschriftungen der HSV-Bänder, damit das Adminpanel sie zeigen kann.
 HSV_BAND_LABELS = ["leichter_regen", "regen", "starkregen"]
