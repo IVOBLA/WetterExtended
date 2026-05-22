@@ -16,6 +16,7 @@ import Datensatz from './pages/Datensatz.jsx';
 import LiveDaten from './pages/LiveDaten.jsx';
 import MapFullscreen from './pages/MapFullscreen.jsx';
 import Atmosphaere from './pages/Atmosphaere.jsx';
+import CellFilters from './pages/CellFilters.jsx';
 
 export default function App() {
   return (
@@ -34,8 +35,9 @@ export default function App() {
         <Route path="/progress"    element={<Progress />} />
         <Route path="/accuracy"    element={<Accuracy />} />
         <Route path="/logs"        element={<Logs />} />
-        <Route path="/ai-analysis" element={<AiSuggestions />} />
-        <Route path="*"            element={<Navigate to="/" replace />} />
+        <Route path="/ai-analysis"   element={<AiSuggestions />} />
+        <Route path="/cell-filters"  element={<CellFilters />} />
+        <Route path="*"              element={<Navigate to="/" replace />} />
       </Route>
       <Route path="/karte" element={<MapFullscreen />} />
     </Routes>
