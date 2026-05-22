@@ -84,9 +84,12 @@ def fetch_tawes_stations() -> list:
     )
 
     try:
+        import time as _t_tawes
+        _t0_tawes = _t_tawes.monotonic()
         r = requests.get(url, timeout=_TIMEOUT, headers={"Accept": "application/json"})
         r.raise_for_status()
-        log_api_call("geosphere_tawes", url, r.status_code)
+        log_api_call("geosphere_tawes", url, r.status_code,
+                     duration_ms=(_t_tawes.monotonic() - _t0_tawes) * 1000)
         data = r.json()
     except requests.exceptions.Timeout:
         log_api_failure("geosphere_tawes", url, "timeout", fallback_used=True)

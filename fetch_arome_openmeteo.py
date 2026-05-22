@@ -22,7 +22,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from config import SAVE_PATHS
-from debug_utils import debug_log, log_api_failure
+from debug_utils import debug_log, log_api_failure, log_api_call
 from api_cache import cache_key, cache_get, cache_set, get_ttl
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
@@ -143,18 +143,19 @@ def assign_arome_to_objects(objects: list, timestamp: str) -> list:
         _apply_data_to_objects(data, valid, objects, timestamp, bulk_url)
         return objects
 
+    import time as _t_arome
+    _t0_arome = _t_arome.monotonic()
     try:
         r = requests.get(bulk_url, timeout=_TIMEOUT)
-        try:
-            from debug_utils import log_api_call
-            log_api_call("openmeteo_icon_d2", url=bulk_url, status_code=r.status_code)
-        except Exception:
-            pass
         r.raise_for_status()
         data = r.json()
+        log_api_call("openmeteo_icon_d2", bulk_url, r.status_code,
+                     duration_ms=(_t_arome.monotonic() - _t0_arome) * 1000)
         cache_set(ck, data)
     except requests.exceptions.Timeout:
         log_api_failure("Open-Meteo-icon_d2", bulk_url, "timeout", fallback_used=True)
+        log_api_call("openmeteo_icon_d2", bulk_url, 408,
+                     duration_ms=(_t_arome.monotonic() - _t0_arome) * 1000)
         debug_log("[AROME] Timeout beim Bulk-Request — alle Objekte erhalten Default-Werte.")
         for _, obj in valid:
             obj.update(_DEFAULT)

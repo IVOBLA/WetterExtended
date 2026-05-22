@@ -557,6 +557,20 @@ export default function MapView() {
 
       <Legend horizons={horizons.horizons} colors={horizons.colors} />
 
+      {/* KMZ-Export-Download (Zieldefinition §25) */}
+      <div className="mb-2">
+        <a
+          href="/api/export/forecast.kmz"
+          download="forecast.kmz"
+          className="inline-flex items-center gap-1 px-3 py-1.5 rounded shadow
+                     bg-white border border-gray-300 text-xs text-gray-700
+                     hover:bg-gray-50 transition-colors"
+          title="Aktuelle Vorhersage als KMZ herunterladen (Google Earth, OziExplorer)"
+        >
+          📥 KMZ
+        </a>
+      </div>
+
       {/* Overlay-Steuerung + Animation */}
       <div className="flex flex-wrap items-center gap-4 mb-2 text-sm bg-gray-50 border rounded px-3 py-2">
         <label className="flex items-center gap-2 cursor-pointer select-none">

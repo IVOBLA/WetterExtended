@@ -359,6 +359,15 @@ Nach jedem Live-Loop-Zyklus wird eine `forecast.kmz`-Datei erzeugt und per FTP h
 
 > **Hinweis:** Die KMZ enthält ausschließlich Vorhersage-Daten des aktuellen Zyklus. Historische Daten sind nicht enthalten.
 
+## 8.1 KMZ herunterladen
+
+Über den Button **📥 KMZ** unten rechts auf der Karte kann die zuletzt erzeugte
+`forecast.kmz` direkt heruntergeladen werden. Die Datei wird nach jedem
+Live-Loop-Zyklus automatisch aktualisiert.
+
+Alternativ steht der API-Endpunkt zur Verfügung:
+GET /api/export/forecast.kmz
+
 ---
 
 # 9 NEU: Erweiterungen nach v1.0 — Übersicht
@@ -381,6 +390,9 @@ Die folgende Tabelle fasst alle nach Version v1.0 eingeführten Erweiterungen zu
 | 21 | LOCAL_TRAINING-Flag | `config.py`, `scheduler.py`, `install.sh` | A |
 | 22 | API-Request-Statistik | `app.py`, `Logs.jsx` | A |
 | 23 | KI-Analyse Chat (daily_analyzer.py) | `daily_analyzer.py`, `AiSuggestions.jsx` | A |
+| 24 | Antwortzeit (duration_ms) in API-Statistik | `debug_utils.py`, alle API-Module, `Dashboard.jsx` | B |
+| 25 | KMZ-Download-Button auf Karte | `app.py`, `MapView.jsx` | B |
+| 26 | Timestamp-basierte Trainingsziele (dataset_builder) | `dataset_builder.py` | B |
 
 ---
 

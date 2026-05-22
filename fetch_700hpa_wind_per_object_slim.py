@@ -18,7 +18,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from config import SAVE_PATHS
-from debug_utils import debug_log, log_api_failure
+from debug_utils import debug_log, log_api_failure, log_api_call
 from api_cache import cache_key, cache_get, cache_set, get_ttl
 
 _OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
@@ -120,13 +120,19 @@ def fetch_and_assign_700hpa_wind(objects: list, timestamp: str) -> list:
         debug_log(f"[700hPa] Cache-HIT — kein HTTP-Request ({len(valid)} Objekte).")
         data = cached
     else:
+        import time as _t_wind
+        _t0_wind = _t_wind.monotonic()
         try:
             r = requests.get(bulk_url, timeout=_TIMEOUT)
             r.raise_for_status()
             data = r.json()
+            log_api_call("openmeteo_icon_global", bulk_url, r.status_code,
+                         duration_ms=(_t_wind.monotonic() - _t0_wind) * 1000)
             cache_set(ck, data)
         except requests.exceptions.Timeout:
             log_api_failure("Open-Meteo-icon_global", bulk_url, "timeout", fallback_used=True)
+            log_api_call("openmeteo_icon_global", bulk_url, 408,
+                         duration_ms=(_t_wind.monotonic() - _t0_wind) * 1000)
             for _, obj in valid:
                 obj.update(_DEFAULT_WIND)
             return objects

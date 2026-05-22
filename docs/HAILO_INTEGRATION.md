@@ -853,6 +853,19 @@ _hailo_available: Optional[bool] = None
   Grid 0.05° über Kärnten, 3 Quellen (Zellen, Blitze, LI), farbige
   Flächen ohne Rand (gelb/orange/rot), Toggle standardmäßig aus
 
+- **Fix-Paket Mai 2026** (Reihenfolge + Vollständigkeit der Objekt-Pipeline):
+  Blitzdaten werden jetzt vor `assign_convective_indices()` geholt
+  (`lightning_count_10km` korrekt für hail_prob2); Objekt-JSON wird erst
+  nach vollständiger Anreicherung (wind_shear, hail_prob, stationary_marker,
+  location_hits) gespeichert; q10/q90-Unsicherheits-Pfeile werden korrekt
+  als Lat/Lon gespeichert; `/api/risk_grid` verwendet Runtime-Horizonte;
+  nginx gibt `/api/lightning` + `/api/risk_grid` öffentlich frei;
+  KMZ-Download via `/api/export/forecast.kmz` + Button in MapView;
+  Antwortzeiten (duration_ms) in API-Statistik; Timestamp-basierte
+  Trainingsziel-Suche in `dataset_builder.py` (build_dataset +
+  build_classification_dataset); Source-Modus-Toggle (Volltext/Gekürzt)
+  in KI-Analyse-Chat; Runtime-BBOX in preprocess_image und
+  detect_and_track_objects.
 - **Konvektive Diagnose-Indizes** (`compute_convective_indices.py`):
   SHIP, Lapse Rate 700-500, 0–6-km-Scherung, CIN, PW, Lightning Jump,
   hail_prob2 — alle rein rechnerisch ohne neuen API-Aufruf

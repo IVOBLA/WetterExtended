@@ -286,8 +286,12 @@ def build_classification_dataset():
         debug_log("[DATASET-CLS] Keine passenden Objekt/Wetter-Dateipaare gefunden.")
         return {"X": [], "y": [], "samples": 0, "positive_samples": 0}
 
-    horizon_step = 4  # 20 Minuten bei 5-Minuten-Frames
-    min_required = ML_SEQUENCE_LENGTH + horizon_step + 1
+    # Fix R1: Timestamp-Suche statt fester 5-min-Annahme (analog build_dataset)
+    from datetime import timedelta as _td_cls
+    _CLS_HORIZON_MIN   = 20       # Intensivierungshorizont: 20 Minuten
+    _CLS_TOL_FACTOR    = 0.5      # 50 % Toleranz
+    _CLS_MIN_TOL_MIN   = 3.0      # mindestens 3 Minuten
+    min_required = ML_SEQUENCE_LENGTH + 1
     if len(paired) < min_required:
         debug_log(f"[DATASET-CLS] Zu wenige Frames: {len(paired)} < {min_required}.")
         return {"X": [], "y": [], "samples": 0, "positive_samples": 0}
@@ -300,11 +304,29 @@ def build_classification_dataset():
             debug_log(f"[DATASET-CLS] Fehler beim Laden von {op}: {exc}")
 
     rows = []
-    for i in range(ML_SEQUENCE_LENGTH - 1, len(frames) - horizon_step):
+    # Fix R1: Kein festes horizon_step mehr — Timestamp-Suche
+    for i in range(ML_SEQUENCE_LENGTH - 1, len(frames)):
         seq_slice = frames[i - ML_SEQUENCE_LENGTH + 1 : i + 1]
         now_ts = seq_slice[-1][2]
-        now_map = {str(o.get("id")): o for o in seq_slice[-1][3] if isinstance(o, dict) and "id" in o}
-        fut_map = {str(o.get("id")): o for o in frames[i + horizon_step][3] if isinstance(o, dict) and "id" in o}
+        now_map = {str(o.get("id")): o for o in seq_slice[-1][3]
+                   if isinstance(o, dict) and "id" in o}
+
+        # Besten Frame ~20 min in der Zukunft suchen (Timestamp-basiert)
+        target_ts  = now_ts + _td_cls(minutes=_CLS_HORIZON_MIN)
+        tol        = _td_cls(minutes=max(_CLS_HORIZON_MIN * _CLS_TOL_FACTOR, _CLS_MIN_TOL_MIN))
+        best_idx, best_diff = None, _td_cls(days=999)
+        for j in range(i + 1, len(frames)):
+            diff = abs(frames[j][2] - target_ts)
+            if diff < best_diff:
+                best_diff, best_idx = diff, j
+            if frames[j][2] > target_ts + tol:
+                break
+        if best_idx is None or best_diff > tol:
+            continue
+        fut_objs = frames[best_idx][3]
+        fut_map  = {str(o.get("id")): o for o in fut_objs
+                    if isinstance(o, dict) and "id" in o}
+
         common_ids = set(now_map.keys()) & set(fut_map.keys())
         if not common_ids:
             continue
