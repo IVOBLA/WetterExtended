@@ -56,6 +56,7 @@ function ApiDetailPanel({ service, onClose }) {
                 <tr className="border-b text-gray-500 uppercase">
                   <th className="p-1 text-left">Zeitstempel (UTC)</th>
                   <th className="p-1 text-center">Status</th>
+                  <th className="p-1 text-left">Dauer</th>
                   <th className="p-1 text-left">URL</th>
                 </tr>
               </thead>
@@ -66,6 +67,9 @@ function ApiDetailPanel({ service, onClose }) {
                     <td className={`p-1 text-center font-semibold ${
                       e.status >= 400 ? 'text-red-600' : e.status >= 300 ? 'text-yellow-600' : 'text-green-600'
                     }`}>{e.status}</td>
+                    <td className="p-1 text-gray-500">
+                      {e.duration_ms != null ? `${e.duration_ms} ms` : '—'}
+                    </td>
                     <td className="p-1 font-mono break-all max-w-xs"
                         title={e.url}>{(e.url || '').substring(0, 100)}{(e.url||'').length > 100 ? '…' : ''}</td>
                   </tr>

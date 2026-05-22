@@ -645,7 +645,8 @@ def api_api_calls_detail():
     """
     Letzte N Einträge aus api_call_counts.jsonl für einen Service.
     Query-Parameter: service=<name>, n=<int default 20>, hours=<int default 24>
-    Antwort: {service, entries:[{ts, url, status}], total, public_url}
+    Liefert auch duration_ms (Fix #10) wenn vom Logger mitgeschrieben.
+    Antwort: {service, entries:[{ts, url, status, duration_ms}], total, public_url}
     """
     from datetime import datetime as _dt2, timedelta as _td2
     service = request.args.get("service", "")
@@ -671,9 +672,10 @@ def api_api_calls_detail():
                         ts = _dt2.fromisoformat(rec.get("ts", "").replace("Z", ""))
                         if ts >= cutoff:
                             entries.append({
-                                "ts":     rec.get("ts", ""),
-                                "url":    rec.get("url", ""),
-                                "status": rec.get("status", 200),
+                                "ts":          rec.get("ts", ""),
+                                "url":         rec.get("url", ""),
+                                "status":      rec.get("status", 200),
+                                "duration_ms": rec.get("duration_ms"),
                             })
                     except Exception:
                         continue
@@ -856,6 +858,7 @@ def api_ai_analysis_chat():
       question       (str)        — Pflichtfeld
       include_data   (bool)       — System-Metriken (default true)
       include_source (bool)       — Quellcode-Kontext (default false)
+      source_mode    ("short"|"full")
       model          (str)        — Claude-Modell-ID (default claude-sonnet-4-6)
       images         (list)       — optional, max. 5 Eintraege
                                     [{media_type: "image/png", data: "<base64>"}]
@@ -869,6 +872,7 @@ def api_ai_analysis_chat():
 
         include_data   = bool(data.get("include_data", True))
         include_source = bool(data.get("include_source", False))
+        source_mode    = str(data.get("source_mode", "short"))   # "short"|"full"
         model_id       = str(data.get("model", "claude-sonnet-4-6"))
         images_raw     = data.get("images", [])
 
@@ -921,7 +925,16 @@ def api_ai_analysis_chat():
             )
         if include_source:
             from daily_analyzer import _collect_source_context
+            import runtime_config as _rc_chat
+            from config import GITHUB_VERIFY_CONFIG as _GH_DEF
+            _gh_cfg = dict(_rc_chat.get("GITHUB_VERIFY_CONFIG", _GH_DEF))
+            _gh_cfg["full_source_mode"] = (source_mode == "full")
+            import runtime_config as _rc_tmp
+            _rc_tmp.patch({"GITHUB_VERIFY_CONFIG": _gh_cfg})
             ctx = _collect_source_context()
+            # Override nach dem Call zurücksetzen
+            _gh_cfg["full_source_mode"] = False
+            _rc_tmp.patch({"GITHUB_VERIFY_CONFIG": _gh_cfg})
             parts.append(
                 "=== QUELLCODE-KONTEXT (GitHub) ===\n"
                 + json.dumps(ctx, ensure_ascii=False, indent=1)

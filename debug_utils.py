@@ -108,7 +108,8 @@ import threading as _rq_threading
 _rq_lock = _rq_threading.Lock()
 
 
-def log_api_call(service: str, url: str = "", status_code: int = 200) -> None:
+def log_api_call(service: str, url: str = "", status_code: int = 200,
+                 duration_ms: float | None = None) -> None:
     """
     Zählt jeden API-Aufruf (Erfolg + Fehler) pro Service in JSONL-Datei.
     Thread-sicher. Nie blockierend — Fehler werden still ignoriert.
@@ -126,10 +127,11 @@ def log_api_call(service: str, url: str = "", status_code: int = 200) -> None:
     import datetime as _dt, json as _jc, os as _oc
     from config import SAVE_PATHS
     entry = {
-        "ts":      _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
-        "service": service,
-        "url":     (url or "")[:120],
-        "status":  status_code,
+        "ts":          _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "service":     service,
+        "url":         (url or "")[:120],
+        "status":      status_code,
+        "duration_ms": round(duration_ms, 1) if duration_ms is not None else None,
     }
     log_path = _oc.path.join(
         SAVE_PATHS.get("evaluation", "train_data/evaluation"),
@@ -183,4 +185,3 @@ def api_call_summary(since_hours: int = 24) -> dict:
     except Exception:
         pass
     return {"by_service": by_service, "since_hours": since_hours}
-

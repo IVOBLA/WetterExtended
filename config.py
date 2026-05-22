@@ -382,7 +382,8 @@ GITHUB_VERIFY_CONFIG = {
         "assign_cape_from_forecast.py",
         "cloud_height_from_eumetview.py",
     ],
-    "max_lines_per_file": 120,
+    "max_lines_per_file": 120,       # Zeilen pro Datei bei gekürztem Modus
+    "full_source_mode":   False,      # True = gesamter Source ohne Kürzung (mehr Token!)
 }
 
 AI_ANALYSIS_CONFIG = {

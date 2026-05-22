@@ -66,6 +66,7 @@ export default function AiSuggestions() {
   const [selectedModel,  setSelectedModel]  = useState('claude-sonnet-4-6')
   const [includeData,    setIncludeData]    = useState(true)
   const [includeSource,  setIncludeSource]  = useState(false)
+  const [sourceMode,     setSourceMode]     = useState('short')
   const [includeRadar,   setIncludeRadar]   = useState(false)
   const [chatQuestion,   setChatQuestion]   = useState('')
   const [chatAnswer,     setChatAnswer]     = useState(null)
@@ -194,6 +195,7 @@ export default function AiSuggestions() {
         question:       chatQuestion,
         include_data:   includeData,
         include_source: includeSource,
+        source_mode:    sourceMode,
         include_radar:  includeRadar,
         model:          selectedModel,
         images:         chatImages.map(({ media_type, data }) => ({ media_type, data })),
@@ -389,6 +391,22 @@ export default function AiSuggestions() {
             Quellcode einbeziehen
             <span className="text-xs text-gray-400">(langsamer)</span>
           </label>
+          {includeSource && (
+            <div className="flex items-center gap-3 ml-2 text-sm">
+              <label className="flex items-center gap-1">
+                <input type="radio" name="sourceMode" value="short"
+                  checked={sourceMode === 'short'}
+                  onChange={() => setSourceMode('short')} />
+                Gekürzt ({`<`}120 Zeilen/Datei)
+              </label>
+              <label className="flex items-center gap-1">
+                <input type="radio" name="sourceMode" value="full"
+                  checked={sourceMode === 'full'}
+                  onChange={() => setSourceMode('full')} />
+                Vollständig (mehr Token)
+              </label>
+            </div>
+          )}
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={includeRadar}
               onChange={e => setIncludeRadar(e.target.checked)} />
