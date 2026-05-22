@@ -173,8 +173,9 @@ while [[ $# -gt 0 ]]; do
                           echo "                     ~/wetterprojekt/train_data/dataset/"
                           echo "                     ~/wetterprojekt/train_data/weather/"
                           echo "                     ~/wetterprojekt/train_data/dem_cache/"
-                          echo "                   Konfiguration (.env, runtime_overrides.json)"
-                          echo "                   und DEM-Tiles bleiben erhalten."
+                          echo "                   Konfiguration (.env, runtime_overrides.json),"
+                          echo "                   DEM-Tiles und train_data/cell_filters/"
+                          echo "                   (HitL-Filter + Polygon-PNGs) bleiben erhalten."
                           echo "                   evaluation/-Logs und systemd-Journal werden geleert."
                           echo ""
                           echo "  --no-hailo       Hailo-apt-Pakete nicht installieren"
@@ -505,6 +506,26 @@ else
 fi
 # full-Modus: Flag initialisieren (Services werden über ENABLE_SERVICES behandelt)
 [[ "$MODE" == "full" ]] && _RESTART_AFTER_UPGRADE=false
+
+# ── HitL: Verzeichnisse für Cell Filters anlegen (beide Modi, idempotent) ────
+# WICHTIG: train_data/cell_filters/ bleibt bei --mode=full ERHALTEN.
+# Es enthält benutzergenerierte Lerndaten (manuelle Polygone, KI-Vorschläge,
+# PNG-Ausschnitte) und wird analog zu .env, runtime_overrides.json und
+# DEM-Tiles als geschützter Benutzerdaten-Bestand behandelt.
+log_info "Stelle HitL-Verzeichnisse sicher (bestehende Daten bleiben unberührt)..."
+mkdir -p "${TARGET}/train_data/cell_filters/polygons"
+chown -R "${SERVICE_USER}:${SERVICE_USER}" "${TARGET}/train_data/cell_filters" 2>/dev/null || true
+chmod 755 "${TARGET}/train_data/cell_filters" "${TARGET}/train_data/cell_filters/polygons" 2>/dev/null || true
+
+# Status loggen
+if [[ -f "${TARGET}/train_data/cell_filters/cell_filters.json" ]]; then
+    _hitl_n=$(python3 -c "import json,sys; d=json.load(open('${TARGET}/train_data/cell_filters/cell_filters.json')); print(len(d.get('active_filters',[])))" 2>/dev/null || echo "?")
+    _hitl_p=$(find "${TARGET}/train_data/cell_filters/polygons" -name '*.png' 2>/dev/null | wc -l)
+    log_info "  HitL-Daten gefunden: ${_hitl_n} Filter, ${_hitl_p} Polygon-PNGs — bleiben erhalten"
+else
+    log_info "  ${TARGET}/train_data/cell_filters/         (HitL-Filter — wird beim ersten Polygon initialisiert)"
+    log_info "  ${TARGET}/train_data/cell_filters/polygons/ (Polygon-PNGs)"
+fi
 
 # Bei full-Modus: Journal + Evaluation-Logs leeren (sonst sieht /logs nach
 # Neuinstallation noch alle Logs der alten Installation)
