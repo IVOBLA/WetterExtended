@@ -1123,3 +1123,108 @@ ML-Modelle und Hailo-HEF-Dateien sind **Binaries** und werden **nicht** über Gi
 **WetterExtended Benutzerhandbuch v1.1**  
 **Stand:** Mai 2026  
 **Repository:** github.com/IVOBLA/WetterExtended
+
+
+---
+
+# 24 NEU: Vollständiges API-Request/Response-Logging
+
+**Modul:** `debug_utils.py` (Funktion `log_api_call`, `log_http_response`)  
+**Frontend:** `Dashboard.jsx`  
+**API:** `GET /api/api_calls/last`
+
+Jeder externe HTTP-Request wird nun vollständig protokolliert — ohne Kürzung.
+
+## 24.1 Log-Format
+
+Jeder Eintrag in `api_call_counts.jsonl` enthält:
+
+| Feld | Beschreibung |
+|---|---|
+| `ts` | UTC-Zeitstempel (ISO 8601) |
+| `service` | Name des externen Dienstes |
+| `method` | HTTP-Methode (GET/POST/…) |
+| `url` | Vollständige URL (Secrets maskiert) |
+| `status` | HTTP-Statuscode |
+| `duration_ms` | Antwortzeit in Millisekunden |
+| `request.payload` | Request-Payload (vollständig, maskiert) |
+| `response.body_json` | JSON-Antwort als Objekt (nie als String) |
+| `response.body_text` | Text-/XML-Antwort (vollständig) |
+| `response.binary` | `true` bei KMZ/TIFF/Bilddaten |
+| `response.content_length` | Dateigröße in Bytes (bei Binär) |
+| `response.sha256` | SHA-256-Prüfsumme (bei Binär) |
+| `response.saved_to` | Lokaler Speicherpfad (bei Binär) |
+| `response.truncated` | Immer `false` — keine Kürzung mehr |
+
+## 24.2 Dashboard-Panel
+
+Das Dashboard zeigt ausschließlich ein **„Letzter API-Request / Response"**-Panel:
+
+- **Service-Dropdown** oben rechts: zeigt alle Services der letzten 24h zur Auswahl
+- **Ohne Auswahl:** letzter Request egal welcher Service
+- **Mit Auswahl:** letzter Request des gewählten Services
+- **JSON-Body:** formatiert als einrückbares Objekt (kein doppeltes Escaping)
+- **Text-Body:** direkter Text (XML, CSV, …)
+- **Binärantworten:** Metadaten-Box mit Dateigröße, SHA-256 und lokalem Pfad
+
+Die frühere 24h-Statistiktabelle (Anfragezähler je Service) wurde aus dem Dashboard
+entfernt. Diese Daten sind weiterhin unter **Logs → API-Requests** verfügbar.
+
+## 24.3 Unterstützte Datenquellen
+
+| Service | Log-Typ |
+|---|---|
+| ARSO Radar (KMZ) | Binär + Metadaten (SHA-256, Pfad) |
+| Blitzortung | JSON-Body vollständig |
+| EUMETView WMS (TIFF) | Binär + Metadaten |
+| Open-Meteo AROME/Pressure/LPI/GFS | JSON-Body vollständig |
+| GeoSphere CAPE/Nowcast | JSON-Body vollständig |
+| Atmosphärischer Snapshot | JSON-Body vollständig |
+
+---
+
+# 25 NEU: Intensitätszonen im Admin-Panel konfigurierbar
+
+**Modul:** `object_tracking.py`  
+**API:** `GET /api/intensity_bands`, `POST /api/intensity_bands`
+
+Die Farbzonen innerhalb erkannter Sturmzellen (orange, rot, violett) können
+jetzt über das Admin-Panel geändert werden — ohne Code-Anpassung.
+
+## 25.1 Format
+
+Jedes Band besteht aus vier Feldern:
+
+```json
+[
+  ["label", [H_lower, S_lower, V_lower], [H_upper, S_upper, V_upper], "#hexfarbe"],
+  ...
+]
+```
+
+Wertebereiche: H 0–179, S 0–255, V 0–255 (OpenCV HSV).
+
+## 25.2 Default-Konfiguration
+
+| Label | HSV-Lower | HSV-Upper | Farbe |
+|---|---|---|---|
+| orange | [10, 100, 80] | [27, 255, 255] | #ff8800 |
+| rot | [0, 100, 80] | [10, 255, 255] | #cc0000 |
+| rot_wrap | [165, 100, 80] | [179, 255, 255] | #cc0000 |
+| violett | [125, 100, 80] | [155, 255, 255] | #9900cc |
+
+Änderungen werden sofort beim nächsten Radarbild-Zyklus wirksam —
+kein Neustart notwendig.
+
+---
+
+# 26 NEU: Forecast-Horizonte zur Laufzeit anpassbar
+
+**Modul:** `prediction.py`  
+**API:** `GET /api/horizons`, `POST /api/horizons`
+
+Die fünf Forecast-Horizonte (Standard: 10, 20, 30, 40, 60 Minuten) werden nun
+zur Laufzeit aus `runtime_config` gelesen. Eine Änderung über das Admin-Panel
+wirkt sich sofort auf neue Vorhersagen aus — bestehende Modelle müssen für
+die neuen Horizonte ggf. neu trainiert werden (Warnung erscheint in den Logs
+wenn Modell-Ausgabedimension nicht passt).
