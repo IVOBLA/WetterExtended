@@ -45,8 +45,9 @@ function windDirDeg(cos_val, sin_val) {
   return deg.toFixed(0) + '°'
 }
 
-// px/Frame → km/h (Upscale-Faktor 3, ~2 km/px, Zyklus 120s)
-const PX_TO_KMH = (1 / 3.0) * 2.0 * (3600 / 120)
+// Finding #3 Fix: PX_TO_KMH kommt vom Backend (config.py), nicht hardcodiert.
+// Initialer Default 10.0 bis Konfiguration geladen ist.
+// NICHT (1/3)*2*(3600/120)=20 verwenden — Backend nutzt 10.0.
 
 // Timestamp "YYYY-MM-DD_HH-MM-SS" → Date
 const parseTs = ts => {
@@ -68,6 +69,7 @@ export default function LiveDaten() {
   const [lastTs, setLastTs]     = useState(null)
   const [loading, setLoading]   = useState(true)
   const [selected, setSelected] = useState(null)
+  const [pxToKmh, setPxToKmh]  = useState(10.0)  // Finding #3: aus /api/config laden
 
   function load() {
     api.get('/api/objects')
@@ -82,6 +84,10 @@ export default function LiveDaten() {
   }
 
   useEffect(() => {
+    // Finding #3: PX_TO_KMH einmalig vom Backend laden
+    api.get('/api/config')
+      .then(cfg => { if (cfg?.PX_TO_KMH) setPxToKmh(Number(cfg.PX_TO_KMH)) })
+      .catch(() => {})
     load()
     const t = setInterval(load, 30000)
     return () => clearInterval(t)
@@ -169,8 +175,8 @@ export default function LiveDaten() {
                       <Val v={o.core_ratio} decimals={2} />
                     </td>
                     <td className="p-2 text-right text-xs">
-                      {(o.vx * PX_TO_KMH).toFixed(0)}/
-                      {(o.vy * PX_TO_KMH).toFixed(0)}
+                      {(o.vx * pxToKmh).toFixed(0)}/
+                      {(o.vy * pxToKmh).toFixed(0)}
                       <span className="text-gray-400 ml-0.5">km/h</span>
                     </td>
                     <td className="p-2 text-center">
