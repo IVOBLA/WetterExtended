@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react'
 import {
   MapContainer, TileLayer, CircleMarker, Polyline,
   Polygon, Circle, Popup, ImageOverlay, Tooltip,
-  useMapEvents, Rectangle,
+  useMapEvents, Rectangle, useMap,
 } from 'react-leaflet'
 import api from '../api.js'
 import {
@@ -106,6 +106,35 @@ function Legend({ horizons, colors }) {
  * - Doppelklick:  Polygon abschließen (mind. 3 Punkte erforderlich)
  * - ESC-Taste:    Zeichnen abbrechen
  */
+function MapStateProbe({ targetRef }) {
+  const map = useMap()
+  React.useEffect(() => {
+    if (!map || !targetRef) return
+    const update = () => {
+      try {
+        const b = map.getBounds()
+        targetRef.current = {
+          zoom: map.getZoom(),
+          bounds: {
+            south: b.getSouth(),
+            west: b.getWest(),
+            north: b.getNorth(),
+            east: b.getEast(),
+          },
+        }
+      } catch { /* no-op */ }
+    }
+    update()
+    map.on('zoomend', update)
+    map.on('moveend', update)
+    return () => {
+      map.off('zoomend', update)
+      map.off('moveend', update)
+    }
+  }, [map, targetRef])
+  return null
+}
+
 function PolygonDrawer({ active, onComplete, onCancel }) {
   const [pts, setPts] = React.useState([])
 
@@ -439,6 +468,9 @@ export default function MapView() {
     ? new Date(utcStr).toLocaleTimeString('de-AT', { hour:'2-digit', minute:'2-digit' })
     : '—'
 
+  // ── Capture aktueller Map-Status (Zoom + Bounds) beim Polygon-Abschluss ──
+  const mapStateRef = React.useRef({ zoom: 11, bounds: null })
+
   // ── Handler: Polygon abgeschlossen → Analyse aufrufen ────────────────────
   const handlePolygonComplete = React.useCallback(async (latlngPoints) => {
     setCellMarkActive(false)
@@ -447,8 +479,11 @@ export default function MapView() {
     try {
       // GeoJSON-Konvention: [lon, lat]
       const coords = latlngPoints.map(([lat, lng]) => [lng, lat])
-      const res = await api.post('/api/analyze_cell_polygon',
-        { coordinates: coords })
+      const { zoom, bounds } = mapStateRef.current || {}
+      const payload = { coordinates: coords }
+      if (typeof zoom === 'number') payload.zoom_level = zoom
+      if (bounds) payload.map_bounds = bounds
+      const res = await api.post('/api/analyze_cell_polygon', payload)
       setHitlResult(res)
     } catch (e) {
       setHitlResult({ ok: false, error: e.message ?? String(e) })
@@ -461,9 +496,13 @@ export default function MapView() {
   const handleHitlConfirm = React.useCallback(async () => {
     if (!hitlResult?.suggested_range) return
     try {
+      const { zoom } = mapStateRef.current || {}
       await api.post('/api/thresholds/add_range', {
         range: hitlResult.suggested_range,
         label: hitlResult.suggested_label,
+        polygon_px: hitlResult.polygon_px || [],
+        radar_filename: hitlResult.radar_filename || hitlResult.radar_path,
+        zoom_level: typeof zoom === 'number' ? zoom : undefined,
       })
       setHitlConfirmed(true)
       setTimeout(() => {
@@ -947,6 +986,7 @@ export default function MapView() {
           onComplete={handlePolygonComplete}
           onCancel={() => setCellMarkActive(false)}
         />
+        <MapStateProbe targetRef={mapStateRef} />
       </MapContainer>
 
       {/* Human-in-the-Loop Modal */}
@@ -963,7 +1003,10 @@ export default function MapView() {
               Filter gespeichert!
             </p>
             <p style={{ color: '#6b7280', fontSize: 13, marginTop: 4 }}>
-              Wirkt im nächsten Live-Loop-Zyklus (≤ 120 s).
+              Polygon-PNG abgelegt, Filter wirkt im nächsten Live-Loop (≤ 120 s).
+            </p>
+            <p style={{ color: '#9ca3af', fontSize: 11, marginTop: 8 }}>
+              Verwaltung &amp; KI-Analyse: <em>Filter-Galerie</em>
             </p>
           </div>
         </div>
