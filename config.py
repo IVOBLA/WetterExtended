@@ -588,3 +588,13 @@ HITL_MAX_PNGS_FOR_AI: int = 5
 #   "expand_and_refine"  — KI darf zusätzlich engere Bereiche vorschlagen.
 # Default "expand_only" ist die sichere Voreinstellung.
 HITL_AI_MODE: str = "expand_only"
+
+# ── Intensitätszonen (Farbzonen innerhalb Sturmzellen) ────────────────────────
+# Format: (Label, HSV-Lower-Tuple, HSV-Upper-Tuple, Hex-Farbe)
+# Wartbar über Admin-Panel / runtime_config unter dem Key "INTENSITY_BANDS".
+INTENSITY_BANDS_DEFAULT = [
+    ["orange",   [10,  100,  80], [27,  255, 255], "#ff8800"],
+    ["rot",      [0,   100,  80], [10,  255, 255], "#cc0000"],
+    ["rot_wrap", [165, 100,  80], [179, 255, 255], "#cc0000"],
+    ["violett",  [125, 100,  80], [155, 255, 255], "#9900cc"],
+]

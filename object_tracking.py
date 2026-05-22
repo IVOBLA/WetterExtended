@@ -685,11 +685,27 @@ def detect_and_track_objects(image_path=None, weather_data=None):
     save_debug_image(debug_overlay_path, overlay_img, f"Overlay gespeichert: {debug_overlay_path}")
 
     # Geo-Konturen und Intensitätszonen für Karten-Darstellung berechnen
+    # Intensitätszonen live aus runtime_config — Admin-Panel-Änderungen wirken sofort.
+    # Fallback: INTENSITY_BANDS_DEFAULT aus config.py.
+    try:
+        from config import INTENSITY_BANDS_DEFAULT as _IB_DEFAULT
+    except ImportError:
+        _IB_DEFAULT = [
+            ["orange",   [10,  100,  80], [27,  255, 255], "#ff8800"],
+            ["rot",      [0,   100,  80], [10,  255, 255], "#cc0000"],
+            ["rot_wrap", [165, 100,  80], [179, 255, 255], "#cc0000"],
+            ["violett",  [125, 100,  80], [155, 255, 255], "#9900cc"],
+        ]
+    _raw_bands = _rc.get("INTENSITY_BANDS", _IB_DEFAULT)
     INTENSITY_BANDS = [
-        ("orange",  ( 10, 100,  80), ( 27, 255, 255), "#ff8800"),
-        ("rot",     (  0, 100,  80), ( 10, 255, 255), "#cc0000"),
-        ("rot_wrap",(165, 100,  80), (179, 255, 255), "#cc0000"),
-        ("violett", (125, 100,  80), (155, 255, 255), "#9900cc"),
+        (
+            entry[0],
+            tuple(int(v) for v in entry[1]),
+            tuple(int(v) for v in entry[2]),
+            entry[3],
+        )
+        for entry in _raw_bands
+        if len(entry) == 4
     ]
     for obj in objects:
         raw_contour = obj.get("contour")
