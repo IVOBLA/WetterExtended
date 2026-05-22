@@ -527,13 +527,14 @@ def run_analysis(cfg: Optional[dict] = None) -> Optional[dict]:
                 }
             ],
         )
+        raw = message.content[0].text if message.content else ""
         try:
             from debug_utils import log_api_call
             log_api_call("anthropic_api", url="https://api.anthropic.com/v1/messages",
-                         status_code=200)
+                         status_code=200, method="POST",
+                         response_text=raw, content_type="application/json")
         except Exception:
             pass
-        raw = message.content[0].text if message.content else ""
         stop_reason = getattr(message, "stop_reason", None)
         debug_log(f"[ANALYZER] Antwort empfangen ({len(raw)} Zeichen, stop_reason={stop_reason})")
 

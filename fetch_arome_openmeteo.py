@@ -150,7 +150,9 @@ def assign_arome_to_objects(objects: list, timestamp: str) -> list:
         r.raise_for_status()
         data = r.json()
         log_api_call("openmeteo_icon_d2", bulk_url, r.status_code,
-                     duration_ms=(_t_arome.monotonic() - _t0_arome) * 1000)
+                     duration_ms=(_t_arome.monotonic() - _t0_arome) * 1000,
+                     method="GET", response_payload=data,
+                     content_type=r.headers.get("content-type"))
         cache_set(ck, data)
     except requests.exceptions.Timeout:
         log_api_failure("Open-Meteo-icon_d2", bulk_url, "timeout", fallback_used=True)

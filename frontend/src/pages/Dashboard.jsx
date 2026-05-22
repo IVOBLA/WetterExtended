@@ -11,80 +11,48 @@ function Card({ title, value, subtitle, colorClass }) {
   )
 }
 
-/** Detail-Panel für einen API-Service (letzte Requests) */
-function ApiDetailPanel({ service, onClose }) {
+function ApiLastRequestResponse({ service }) {
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     setLoading(true)
-    api.get(`/api/api_calls/detail?service=${encodeURIComponent(service)}&n=15`)
+    const query = service
+      ? `/api/api_calls/last?service=${encodeURIComponent(service)}&hours=24`
+      : '/api/api_calls/last?hours=24'
+    api.get(query)
       .then(d => { setDetail(d); setLoading(false) })
       .catch(() => setLoading(false))
   }, [service])
+  const entry = detail?.entry
 
   return (
-    <tr>
-      <td colSpan={4} className="p-0">
-        <div className="bg-gray-50 border border-gray-200 rounded m-1 p-3 text-xs">
-          <div className="flex justify-between items-center mb-2">
-            <span className="font-semibold text-sm font-mono">{service}</span>
-            <div className="flex items-center gap-3">
-              {detail?.public_url && (
-                <a
-                  href={detail.public_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 underline text-xs"
-                >
-                  🌐 Öffentliche Datenquelle →
-                </a>
-              )}
-              <button
-                onClick={onClose}
-                className="text-gray-400 hover:text-gray-700 font-bold text-base leading-none"
-              >×</button>
-            </div>
+    <div className="bg-gray-50 border border-gray-200 rounded p-3 text-xs">
+      {loading ? <div className="text-gray-400">Lade Details…</div> : !entry ? (
+        <div className="text-gray-400">Noch kein API-Request geloggt.</div>
+      ) : (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <span><b>Service:</b> <span className="font-mono">{entry.service}</span></span>
+            <span><b>Zeit:</b> {(entry.ts || '').replace('T', ' ').substring(0, 19)} UTC</span>
+            <span><b>Status:</b> {entry.status}</span>
+            <span><b>Dauer:</b> {entry.duration_ms != null ? `${entry.duration_ms} ms` : '—'}</span>
+            {entry.public_url && <a className="text-blue-600 underline" href={entry.public_url} target="_blank" rel="noreferrer">🌐 Quelle</a>}
           </div>
-          {loading ? (
-            <div className="text-gray-400">Lade Details…</div>
-          ) : !detail || detail.entries.length === 0 ? (
-            <div className="text-gray-400">Keine Einträge im gewählten Zeitraum.</div>
-          ) : (
-            <table className="w-full">
-              <thead>
-                <tr className="border-b text-gray-500 uppercase">
-                  <th className="p-1 text-left">Zeitstempel (UTC)</th>
-                  <th className="p-1 text-center">Status</th>
-                  <th className="p-1 text-left">Dauer</th>
-                  <th className="p-1 text-left">URL</th>
-                </tr>
-              </thead>
-              <tbody>
-                {detail.entries.map((e, i) => (
-                  <tr key={i} className="border-b last:border-0">
-                    <td className="p-1 whitespace-nowrap">{(e.ts || '').replace('T', ' ').substring(0, 19)}</td>
-                    <td className={`p-1 text-center font-semibold ${
-                      e.status >= 400 ? 'text-red-600' : e.status >= 300 ? 'text-yellow-600' : 'text-green-600'
-                    }`}>{e.status}</td>
-                    <td className="p-1 text-gray-500">
-                      {e.duration_ms != null ? `${e.duration_ms} ms` : '—'}
-                    </td>
-                    <td className="p-1 font-mono break-all max-w-xs"
-                        title={e.url}>{(e.url || '').substring(0, 100)}{(e.url||'').length > 100 ? '…' : ''}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-          {detail && (
-            <div className="mt-2 text-gray-400">
-              {detail.total} Einträge in den letzten 24h
-            </div>
-          )}
+          <div>
+            <div className="font-semibold">Request</div>
+            <pre className="bg-white border rounded p-2 overflow-auto max-h-56">{JSON.stringify(entry.request, null, 2)}</pre>
+            {entry.request?.truncated && <div className="text-amber-700">Ausgabe gekürzt</div>}
+          </div>
+          <div>
+            <div className="font-semibold">Response</div>
+            <pre className="bg-white border rounded p-2 overflow-auto max-h-56">{JSON.stringify(entry.response, null, 2)}</pre>
+            {entry.response?.truncated && <div className="text-amber-700">Ausgabe gekürzt</div>}
+            {String(entry.response?.body_preview || '').includes('[binary response:') && <div className="text-gray-500">Binärantwort erkannt.</div>}
+          </div>
         </div>
-      </td>
-    </tr>
+      )}
+    </div>
   )
 }
 
@@ -179,7 +147,7 @@ export default function Dashboard() {
           <h2 className="text-base font-semibold mb-2">
             📡 API-Requests (24h)
             <span className="ml-2 text-xs font-normal text-gray-400">
-              — Zeile klicken für Details
+              — Zeile klicken für letzten Request/Response
             </span>
           </h2>
           <table className="w-full text-sm">
@@ -205,7 +173,7 @@ export default function Dashboard() {
                           : 'hover:bg-gray-50'
                       }`}
                       onClick={() => handleServiceClick(svc)}
-                      title="Klick für letzte Request-Details"
+                      title="Klick für letzten Request/Response"
                     >
                       <td className="p-1 font-mono text-xs">
                         <span className="mr-1 text-gray-400">{isSelected ? '▾' : '▸'}</span>
@@ -231,13 +199,14 @@ export default function Dashboard() {
                           : '—'}
                       </td>
                     </tr>,
-                    isSelected
-                      ? <ApiDetailPanel key={`${svc}-detail`} service={svc} onClose={() => setSelectedService(null)} />
-                      : null,
                   ].filter(Boolean)
                 })}
             </tbody>
           </table>
+          <div className="mt-3">
+            <h3 className="font-semibold mb-2">Letzter API-Request / Response</h3>
+            <ApiLastRequestResponse service={selectedService} />
+          </div>
         </div>
       )}
     </div>

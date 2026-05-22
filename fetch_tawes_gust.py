@@ -88,9 +88,11 @@ def fetch_tawes_stations() -> list:
         _t0_tawes = _t_tawes.monotonic()
         r = requests.get(url, timeout=_TIMEOUT, headers={"Accept": "application/json"})
         r.raise_for_status()
-        log_api_call("geosphere_tawes", url, r.status_code,
-                     duration_ms=(_t_tawes.monotonic() - _t0_tawes) * 1000)
         data = r.json()
+        log_api_call("geosphere_tawes", url, r.status_code,
+                     duration_ms=(_t_tawes.monotonic() - _t0_tawes) * 1000,
+                     method="GET", response_payload=data,
+                     content_type=r.headers.get("content-type"))
     except requests.exceptions.Timeout:
         log_api_failure("geosphere_tawes", url, "timeout", fallback_used=True)
         return []

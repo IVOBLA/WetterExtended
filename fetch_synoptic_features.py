@@ -99,13 +99,12 @@ def assign_synoptic_features(objects, timestamp):
     else:
         try:
             r = requests.get(url, timeout=_TIMEOUT)
-            try:
-                from debug_utils import log_api_call
-                log_api_call("openmeteo_icon_global", url=url, status_code=r.status_code)
-            except Exception:
-                pass
             r.raise_for_status()
             data = r.json()
+            from debug_utils import log_api_call
+            log_api_call("openmeteo_icon_global", url=url, status_code=r.status_code,
+                         method="GET", response_payload=data,
+                         content_type=r.headers.get("content-type"))
             cache_set(ck, data)
         except requests.exceptions.Timeout:
             log_api_failure("Open-Meteo-synoptic", url, "timeout", fallback_used=True)

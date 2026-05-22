@@ -697,6 +697,67 @@ def api_api_calls_detail():
     })
 
 
+@app.route("/api/api_calls/last")
+def api_api_calls_last():
+    """Liefert genau den letzten API-Request (optional gefiltert nach Service/Zeitraum)."""
+    from datetime import datetime as _dt2, timedelta as _td2
+    service = request.args.get("service", "")
+    hours = int(request.args.get("hours", "24"))
+    cutoff = _dt2.utcnow() - _td2(hours=hours)
+    log_path = os.path.join(
+        SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/"),
+        "api_call_counts.jsonl",
+    )
+    latest = None
+    if not os.path.exists(log_path):
+        return jsonify({"entry": None})
+    try:
+        with open(log_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                    if service and rec.get("service") != service:
+                        continue
+                    ts = _dt2.fromisoformat(rec.get("ts", "").replace("Z", ""))
+                    if ts < cutoff:
+                        continue
+                    latest = rec
+                except Exception:
+                    continue
+    except Exception as exc:
+        return jsonify({"entry": None, "error": str(exc)})
+    if not latest:
+        return jsonify({"entry": None})
+    req = latest.get("request") or {
+        "method": latest.get("method", "GET"),
+        "url": latest.get("url", ""),
+        "payload_preview": None,
+        "truncated": False,
+    }
+    resp = latest.get("response") or {
+        "status": latest.get("status", 200),
+        "content_type": None,
+        "body_preview": "nicht im alten Log vorhanden",
+        "truncated": False,
+        "error": None,
+    }
+    entry = {
+        "ts": latest.get("ts"),
+        "service": latest.get("service"),
+        "method": latest.get("method", req.get("method", "GET")),
+        "url": latest.get("url", req.get("url", "")),
+        "status": latest.get("status", resp.get("status", 200)),
+        "duration_ms": latest.get("duration_ms"),
+        "request": req,
+        "response": resp,
+        "public_url": _API_PUBLIC_URLS.get(latest.get("service", "")),
+    }
+    return jsonify({"entry": entry})
+
+
 @app.route("/api/api_health")
 def api_api_health():
     """Liefert API-Failure-Statistik der letzten N Stunden."""
