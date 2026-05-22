@@ -657,8 +657,14 @@ def api_api_calls_detail():
     """
     from datetime import datetime as _dt2, timedelta as _td2
     service = request.args.get("service", "")
-    n       = min(int(request.args.get("n", "20")), 200)
-    hours   = int(request.args.get("hours", "24"))
+    try:
+        n = max(1, min(int(request.args.get("n", "20")), 200))
+    except (ValueError, TypeError):
+        n = 20
+    try:
+        hours = max(1, min(int(request.args.get("hours", "24")), 720))
+    except (ValueError, TypeError):
+        hours = 24
     cutoff  = _dt2.utcnow() - _td2(hours=hours)
     log_path = os.path.join(
         SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/"),
@@ -702,7 +708,10 @@ def api_api_calls_last():
     """Liefert genau den letzten API-Request (optional gefiltert nach Service/Zeitraum)."""
     from datetime import datetime as _dt2, timedelta as _td2
     service = request.args.get("service", "")
-    hours = int(request.args.get("hours", "24"))
+    try:
+        hours = max(1, min(int(request.args.get("hours", "24")), 720))
+    except (ValueError, TypeError):
+        hours = 24
     cutoff = _dt2.utcnow() - _td2(hours=hours)
     log_path = os.path.join(
         SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/"),
@@ -731,18 +740,28 @@ def api_api_calls_last():
         return jsonify({"entry": None, "error": str(exc)})
     if not latest:
         return jsonify({"entry": None})
-    req = latest.get("request") or {
-        "method": latest.get("method", "GET"),
-        "url": latest.get("url", ""),
-        "payload_preview": None,
-        "truncated": False,
+    _raw_req  = latest.get("request") or {}
+    _raw_resp = latest.get("response") or {}
+    req = {
+        "method":  _raw_req.get("method",  latest.get("method", "GET")),
+        "url":     _raw_req.get("url",     latest.get("url", "")),
+        # Neues Format: payload; altes Format: payload_preview
+        "payload": _raw_req.get("payload", _raw_req.get("payload_preview")),
     }
-    resp = latest.get("response") or {
-        "status": latest.get("status", 200),
-        "content_type": None,
-        "body_preview": "nicht im alten Log vorhanden",
-        "truncated": False,
-        "error": None,
+    resp = {
+        "status":         _raw_resp.get("status",       latest.get("status", 200)),
+        "content_type":   _raw_resp.get("content_type"),
+        # Neues Format: body_json / body_text / binary
+        # Altes Format: body_preview — wird als body_text weitergegeben
+        "body_json":      _raw_resp.get("body_json"),
+        "body_text":      _raw_resp.get("body_text",
+                              _raw_resp.get("body_preview") if not _raw_resp.get("body_json") else None),
+        "binary":         _raw_resp.get("binary", False),
+        "content_length": _raw_resp.get("content_length"),
+        "sha256":         _raw_resp.get("sha256"),
+        "saved_to":       _raw_resp.get("saved_to"),
+        "truncated":      False,   # wird nie mehr True gesetzt
+        "error":          _raw_resp.get("error"),
     }
     entry = {
         "ts": latest.get("ts"),
