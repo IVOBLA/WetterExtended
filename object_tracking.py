@@ -146,8 +146,34 @@ def merge_close_contours(contours, image_shape, min_touch=3):
 
     return merged
 
+# ---------------------------------------------------------------------------
+# HitL — Filter-Config-Wrapper
+# ---------------------------------------------------------------------------
+# Liest "allowed_hsv_ranges" aus cell_filters.json (Single Source of Truth).
+# Fällt bei Fehlern oder leerer Liste auf das alte Verhalten zurück, damit das
+# Tracking nie ohne Filter läuft. min_object_area und border_mask_px kommen
+# weiterhin aus runtime_config (globale Morphologie-Schwellwerte).
+def _get_filter_config_live() -> dict:
+    base = dict(_rc.get("FILTER_CONFIG", _DEFAULT_FILTER_CONFIG))
+    try:
+        from cell_filters import get_active_hsv_ranges
+        live_ranges = get_active_hsv_ranges()
+        if live_ranges:
+            base["allowed_hsv_ranges"] = live_ranges
+        # else: kein Override → behält FILTER_CONFIG aus runtime_config/Default
+    except Exception as _exc:
+        # Komplettes Fallback auf altes Verhalten — Tracking läuft weiter.
+        try:
+            from debug_utils import debug_log
+            debug_log(f"[FILTER] cell_filters nicht verfügbar, "
+                      f"benutze runtime_config: {_exc}")
+        except Exception:
+            pass
+    return base
+
+
 def preprocess_image(image_path):
-    FILTER_CONFIG = _rc.get("FILTER_CONFIG", _DEFAULT_FILTER_CONFIG)
+    FILTER_CONFIG = _get_filter_config_live()
     CORE_HSV_RANGES = _rc.get("CORE_HSV_RANGES", _DEFAULT_CORE_HSV_RANGES)
     # Bild mit geo-zuschnitt & hochskalierung laden
     from config import BBOX_KAERNTEN_EXTENDED
@@ -269,7 +295,7 @@ def calculate_core_ratio(hsv, contour):
     return core_pixels / total_pixels if total_pixels > 0 else 0
 
 def update_tracking_memory(hsv, contours, weather_data, timestamp):
-    FILTER_CONFIG = _rc.get("FILTER_CONFIG", _DEFAULT_FILTER_CONFIG)
+    FILTER_CONFIG = _get_filter_config_live()
     # was_active-Schwellwert — runtime-überschreibbar über Admin-Panel
     from config import WAS_ACTIVE_CORE_RATIO_THRESHOLD as _WAT_CFG
     _was_active_threshold = float(_rc.get("WAS_ACTIVE_CORE_RATIO_THRESHOLD", _WAT_CFG))
@@ -538,7 +564,7 @@ def _clamp_kalman_velocity(kf, prev_vx: float, prev_vy: float) -> None:
         kf.x[3] = prev_vy + dvy * scale
 
 def detect_and_track_objects(image_path=None, weather_data=None):
-    FILTER_CONFIG = _rc.get("FILTER_CONFIG", _DEFAULT_FILTER_CONFIG)
+    FILTER_CONFIG = _get_filter_config_live()
     CORE_HSV_RANGES = _rc.get("CORE_HSV_RANGES", _DEFAULT_CORE_HSV_RANGES)
     import os
     from datetime import datetime
