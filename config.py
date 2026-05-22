@@ -331,6 +331,11 @@ LOCATIONS_WATCHLIST = [
     {"name": "Feldkirchen", "lat": 46.7233, "lon": 14.0992, "radius_km": 5.0},
 ]
 
+# TAWES-Stationen für Böen-Monitoring (GeoSphere Austria).
+# IDs entsprechen Kärntner Stationen: Klagenfurt, Villach, Wolfsberg, Spittal, Feldkirchen.
+# Überschreibbar via runtime_overrides.json (Key: TAWES_GUST_STATION_IDS).
+TAWES_GUST_STATION_IDS = "11330,11301,11315,11320,11350"
+
 # Beschriftungen der HSV-Bänder, damit das Adminpanel sie zeigen kann.
 HSV_BAND_LABELS = ["leichter_regen", "regen", "starkregen"]
 
