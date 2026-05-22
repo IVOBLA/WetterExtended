@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import api from '../api.js'
 
 function ClaudeCodeBlock({ content }) {
@@ -354,6 +355,9 @@ export default function AiSuggestions() {
         )}
       </div>
 
+      {/* HitL — Filterkriterien-Analyse (Shortcut zur Filter-Galerie) */}
+      <FilterCriteriaAnalysis />
+
       {/* KI-Analyse Chat */}
       <div className="card mt-6">
         <h2 className="text-base font-semibold mb-3">🤖 KI-Analyse Chat</h2>
@@ -507,6 +511,133 @@ export default function AiSuggestions() {
       </div>
 
 
+    </div>
+  )
+}
+
+
+// ===========================================================================
+// HitL — Filterkriterien-Analyse Block (Shortcut zu /cell-filters)
+// ===========================================================================
+function FilterCriteriaAnalysis() {
+  const [stats,    setStats]    = React.useState({
+    active: 0, with_png: 0, pending_suggestions: 0,
+  })
+  const [busy,     setBusy]     = React.useState(false)
+  const [message,  setMessage]  = React.useState('')
+  const [models,   setModels]   = React.useState([])
+  const [selected, setSelected] = React.useState('claude-sonnet-4-6')
+
+  const reload = React.useCallback(async () => {
+    try {
+      const d = await api.get('/api/cell_filters')
+      const active   = (d.active_filters || []).filter(f => f.active).length
+      const withPng  = (d.active_filters || []).filter(f => f.polygon_png).length
+      const pending  = (d.ai_suggestions || [])
+                        .filter(s => !s.accepted &&
+                                     (s.suggested_ranges || []).length > 0).length
+      setStats({ active, with_png: withPng, pending_suggestions: pending })
+    } catch { /* still useful without */ }
+  }, [])
+
+  React.useEffect(() => {
+    reload()
+    api.get('/api/ai_analysis/models')
+       .then(d => setModels(d.models || []))
+       .catch(() => {})
+  }, [reload])
+
+  async function runAnalysis() {
+    setBusy(true)
+    setMessage('')
+    try {
+      const r = await api.post('/api/cell_filters/ai_analyze', {
+        model: selected,
+      })
+      if (r.ok) {
+        const n = r.suggestions?.length || 0
+        setMessage(`✓ ${r.pngs_sent} PNGs analysiert · ${n} Vorschlag${n === 1 ? '' : (n > 1 ? 'e' : 'e')} erhalten`)
+        reload()
+      } else {
+        setMessage('Fehler: ' + (r.error || 'unbekannt'))
+      }
+    } catch (e) {
+      setMessage('Fehler: ' + (e.message || String(e)))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const noPngs = stats.with_png === 0
+
+  return (
+    <div className="card mt-6">
+      <h2 className="text-base font-semibold mb-3">🔬 Filterkriterien-Analyse</h2>
+      <p className="text-xs text-gray-600 mb-3">
+        Sendet die zuletzt vom Benutzer markierten Polygon-Ausschnitte und die
+        aktuellen HSV-Filter an die KI mit der Bitte, NEUE breitere Bereiche
+        vorzuschlagen. Bestehende Filter bleiben unverändert (Modus „expand_only").
+      </p>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3 text-sm">
+        <div className="border rounded p-2 bg-gray-50">
+          <div className="text-lg font-bold">{stats.active}</div>
+          <div className="text-xs text-gray-500">Aktive Filter</div>
+        </div>
+        <div className="border rounded p-2 bg-gray-50">
+          <div className="text-lg font-bold">{stats.with_png}</div>
+          <div className="text-xs text-gray-500">mit Polygon-PNG</div>
+        </div>
+        <div className="border rounded p-2 bg-gray-50">
+          <div className="text-lg font-bold">{stats.pending_suggestions}</div>
+          <div className="text-xs text-gray-500">offene KI-Vorschläge</div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-3 items-center">
+        <label className="flex items-center gap-2 text-sm">
+          Modell:
+          <select className="border rounded px-2 py-1 text-sm"
+                  value={selected}
+                  onChange={e => setSelected(e.target.value)}>
+            {models.length === 0
+              ? <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+              : models.map(m => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+          </select>
+        </label>
+        <button onClick={runAnalysis}
+                disabled={busy || noPngs}
+                className="px-4 py-2 rounded bg-purple-600 text-white text-sm
+                           hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed">
+          {busy ? 'Analysiere…' : '🤖 Filterkriterien analysieren'}
+        </button>
+        <Link to="/cell-filters"
+              className="text-sm text-blue-600 hover:underline">
+          → Zur Filter-Galerie
+        </Link>
+      </div>
+
+      {noPngs && (
+        <div className="mt-2 text-xs text-amber-700">
+          Es sind noch keine Polygon-PNGs gespeichert. Markiere zuerst Zellen
+          auf der Karte unter <em>Karte</em>.
+        </div>
+      )}
+
+      {message && (
+        <div className="mt-3 text-sm text-gray-700">
+          {message}
+          {stats.pending_suggestions > 0 && (
+            <span className="ml-2">
+              <Link to="/cell-filters" className="text-blue-600 hover:underline">
+                Übernahme in Filter-Galerie öffnen →
+              </Link>
+            </span>
+          )}
+        </div>
+      )}
     </div>
   )
 }
