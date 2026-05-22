@@ -279,6 +279,51 @@ MODEL_PATH = _get_model_path()  # Rückwärtskompatibilität
 ```
 Kein Hardcoding. Überschreibbar via `runtime_overrides.json`.
 
+#### A7 — Vollständiges API-Request/Response-Logging ✅
+**Dateien:** `debug_utils.py`, `blitz_api.py`, `radar_download.py`,
+`cloud_height_from_eumetview.py`, `fetch_openmeteo_extended.py`,
+`fetch_atmospheric_snapshot.py`, `fetch_geosphere_nowcast.py`
+
+**Umgesetzt:**
+- `log_api_call()`: Keine Kürzung mehr (`_MAX_URL`, `_MAX_PREVIEW` entfernt)
+- Neues Log-Schema: `body_json` / `body_text` / `binary` statt `body_preview`
+- `truncated` ist immer `false` — nie mehr Kürzungshinweis im Dashboard
+- Neuer Helper `log_http_response(service, method, response, duration_ms, saved_to)`:
+  nimmt `requests.Response`-Objekt, entscheidet automatisch JSON/Text/Binär
+- Binäre Antworten (KMZ, TIFF): Content-Length, SHA-256, `saved_to` werden geloggt
+- Alle Call-Sites auf `log_http_response` umgestellt
+
+#### A8 — Dashboard auf letzten Request/Response reduziert ✅
+**Datei:** `frontend/src/pages/Dashboard.jsx`
+
+**Umgesetzt:**
+- 24h-Statistiktabelle aus Dashboard entfernt (gehört auf `/logs`)
+- Neues Panel „Letzter API-Request / Response" mit Service-Dropdown
+- `RequestBlock`-Komponente: zeigt URL und Payload sauber
+- `ResponseBlock`-Komponente: rendert `body_json` formatiert, `body_text` direkt,
+  `binary`-Antworten als Metadaten-Box (SHA-256, Dateigröße, Pfad)
+- Kein doppeltes JSON-Escaping mehr
+- `hours`-Validierung in `/api/api_calls/last` (HTTP 400 statt 500 bei ungültigem Wert)
+
+#### A9 — Forecast-Horizonte zur Laufzeit aus runtime_config ✅
+**Datei:** `prediction.py`
+
+**Umgesetzt:**
+- Neue interne Funktion `_get_horizons()` liest aus `runtime_config`
+- Fallback auf `ML_FORECAST_HORIZONS_MIN` aus `config.py`
+- Alle internen Verwendungen von `ML_FORECAST_HORIZONS_MIN` in `predict_positions()`
+  durch `_get_horizons()` ersetzt
+
+#### A10 — INTENSITY_BANDS aus Admin-Konfiguration ✅
+**Dateien:** `object_tracking.py`, `config.py`, `app.py`
+
+**Umgesetzt:**
+- `INTENSITY_BANDS_DEFAULT` in `config.py` als JSON-serialisierbares Default
+- `object_tracking.py` liest Bänder zur Laufzeit via `_rc.get("INTENSITY_BANDS", ...)`
+- Neue API-Endpunkte: `GET /api/intensity_bands`, `POST /api/intensity_bands`
+- Änderungen wirken sofort im nächsten Tracking-Zyklus
+
+
 ### 5.3 Definition of Done (für Referenz)
 
 1. Code-Änderung steht im Repo (manuell committed nach Test)
