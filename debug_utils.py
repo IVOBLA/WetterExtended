@@ -113,7 +113,10 @@ def log_api_call(service: str, url: str = "", status_code: int = 200,
                  duration_ms: float | None = None, method: str = "GET",
                  request_payload=None, response_payload=None,
                  response_text: str | None = None, content_type: str | None = None,
-                 error: str | None = None) -> None:
+                 error: str | None = None,
+                 content_length: int | None = None,
+                 sha256: str | None = None,
+                 saved_to: str | None = None) -> None:
     """
     Zählt jeden API-Aufruf (Erfolg + Fehler) pro Service in JSONL-Datei.
     Thread-sicher. Nie blockierend — Fehler werden still ignoriert.
@@ -130,8 +133,13 @@ def log_api_call(service: str, url: str = "", status_code: int = 200,
     """
     import datetime as _dt, json as _jc, os as _oc
     from config import SAVE_PATHS
-    _MAX_URL = 2000
-    _MAX_PREVIEW = 8000
+    # Keine Kürzung für textuelle Responses — voller Inhalt wird gespeichert.
+    # Binäre Responses (KMZ, TIFF, …) werden als Metadaten-Dict gespeichert.
+    _BINARY_CONTENT_TYPES = (
+        "image/", "application/octet-stream", "application/zip",
+        "application/vnd.google-earth.kmz", "application/x-tiff",
+        "application/geotiff", "image/geotiff", "image/tiff",
+    )
     _SENSITIVE_KEYS = {"api_key", "apikey", "token", "access_token", "refresh_token", "password", "passwd", "secret", "authorization", "auth"}
     def _truncate(v: str, n: int):
         if v is None:
@@ -163,35 +171,65 @@ def log_api_call(service: str, url: str = "", status_code: int = 200,
             clean = _urlunsplit((p.scheme, p.netloc, p.path, _urlencode(q, doseq=True), p.fragment))
         except Exception:
             clean = str(raw_url)
-        return _truncate(clean, _MAX_URL)[0]
-    def _payload_preview(payload):
+        return clean
+    def _payload_full(payload):
+        """Gibt das maskierte Payload als Objekt zurück — keine Kürzung."""
         if payload is None:
-            return None, False
+            return None
         try:
-            masked = _mask_dict(payload)
-            text = _jc.dumps(masked, ensure_ascii=False, indent=2)
+            return _mask_dict(payload)
         except Exception:
-            text = str(payload)
-        return _truncate(text, _MAX_PREVIEW)
-    def _response_preview():
+            return str(payload)
+    def _build_response_body():
+        """
+        Gibt strukturiertes Response-Dict zurück.
+        JSON  → body_json als Objekt, body_text = None, binary = False
+        Text  → body_json = None, body_text als String, binary = False
+        Binär → body_json = None, body_text = None, binary = True + Metadaten
+        """
         ctype = (content_type or "").lower()
+        is_binary = any(x in ctype for x in _BINARY_CONTENT_TYPES)
+
+        if is_binary:
+            return {
+                "binary": True,
+                "body_json": None,
+                "body_text": None,
+                "content_length": None,   # wird von log_http_response befüllt
+                "sha256": None,
+                "saved_to": None,
+            }
         if response_payload is not None:
-            return _payload_preview(response_payload)
+            return {
+                "binary": False,
+                "body_json": _mask_dict(response_payload) if isinstance(response_payload, dict) else response_payload,
+                "body_text": None,
+            }
         if response_text is None:
-            if any(x in ctype for x in ("image/", "application/octet-stream", "application/vnd.google-earth.kmz", "application/zip", "application/x-tiff", "application/geotiff")):
-                return (f"[binary response: content-type={content_type or 'unknown'}, size=unknown]", False)
-            return None, False
-        try:
-            if "json" in ctype:
+            return {"binary": False, "body_json": None, "body_text": None}
+        if "json" in ctype:
+            try:
                 parsed = _jc.loads(response_text)
-                return _payload_preview(parsed)
-        except Exception:
-            pass
-        masked_text = str(_mask_dict(response_text))
-        return _truncate(masked_text, _MAX_PREVIEW)
+                return {
+                    "binary": False,
+                    "body_json": _mask_dict(parsed) if isinstance(parsed, dict) else parsed,
+                    "body_text": None,
+                }
+            except Exception:
+                pass
+        masked_text = str(_mask_dict(response_text)) if not isinstance(response_text, str) else response_text
+        return {"binary": False, "body_json": None, "body_text": masked_text}
     s_url = _sanitize_url(url or "")
-    req_preview, req_trunc = _payload_preview(request_payload)
-    resp_preview, resp_trunc = _response_preview()
+    req_payload_full = _payload_full(request_payload)
+    resp_body = _build_response_body()
+    # Binär-Metadaten aus extra-Parametern übernehmen (gesetzt von log_http_response)
+    if resp_body.get("binary"):
+        if content_length is not None:
+            resp_body["content_length"] = content_length
+        if sha256 is not None:
+            resp_body["sha256"] = sha256
+        if saved_to is not None:
+            resp_body["saved_to"] = saved_to
     entry = {
         "ts":          _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
         "service":     service,
@@ -202,15 +240,19 @@ def log_api_call(service: str, url: str = "", status_code: int = 200,
         "request": {
             "method": (method or "GET").upper(),
             "url": s_url,
-            "payload_preview": req_preview,
-            "truncated": req_trunc,
+            "payload": req_payload_full,
         },
         "response": {
-            "status": status_code,
+            "status":       status_code,
             "content_type": content_type,
-            "body_preview": resp_preview,
-            "truncated": resp_trunc,
-            "error": error,
+            "body_json":    resp_body.get("body_json"),
+            "body_text":    resp_body.get("body_text"),
+            "binary":       resp_body.get("binary", False),
+            "content_length": resp_body.get("content_length"),
+            "sha256":       resp_body.get("sha256"),
+            "saved_to":     resp_body.get("saved_to"),
+            "truncated":    False,
+            "error":        error,
         },
     }
     log_path = _oc.path.join(
@@ -223,6 +265,75 @@ def log_api_call(service: str, url: str = "", status_code: int = 200,
             with open(log_path, "a", encoding="utf-8") as _f:
                 _jc.dump(entry, _f, ensure_ascii=False)
                 _f.write("\n")
+    except Exception:
+        pass  # Nie den Hauptprozess blockieren
+
+
+def log_http_response(
+    service: str,
+    method: str,
+    response,                        # requests.Response
+    duration_ms: float | None = None,
+    request_payload=None,
+    saved_to: str | None = None,
+) -> None:
+    """
+    Hochrangiger Logging-Helper.
+    Nimmt ein requests.Response-Objekt und ruft log_api_call korrekt auf:
+      - JSON/Text/XML/CSV → vollständiger Body als body_json oder body_text
+      - Binär (KMZ/TIFF/…) → Content-Type, Content-Length, SHA-256, saved_to
+    Secrets werden aus URL und Payload automatisch maskiert.
+    Nie blockierend — Exceptions werden still ignoriert.
+    """
+    try:
+        import hashlib as _hh
+        ctype = response.headers.get("content-type", "")
+        _BINARY = (
+            "image/", "application/octet-stream", "application/zip",
+            "application/vnd.google-earth.kmz", "application/x-tiff",
+            "application/geotiff", "image/geotiff", "image/tiff",
+        )
+        is_binary = any(x in ctype.lower() for x in _BINARY)
+
+        if is_binary:
+            cl = int(response.headers.get("content-length") or 0)
+            if not cl:
+                try:
+                    cl = len(response.content)
+                except Exception:
+                    cl = 0
+            chk = None
+            try:
+                chk = _hh.sha256(response.content).hexdigest()
+            except Exception:
+                pass
+            log_api_call(
+                service=service,
+                url=str(response.url),
+                status_code=response.status_code,
+                duration_ms=duration_ms,
+                method=method,
+                content_type=ctype,
+                content_length=cl,
+                sha256=chk,
+                saved_to=saved_to,
+            )
+        else:
+            rtext = None
+            try:
+                rtext = response.text
+            except Exception:
+                pass
+            log_api_call(
+                service=service,
+                url=str(response.url),
+                status_code=response.status_code,
+                duration_ms=duration_ms,
+                method=method,
+                request_payload=request_payload,
+                response_text=rtext,
+                content_type=ctype,
+            )
     except Exception:
         pass  # Nie den Hauptprozess blockieren
 
