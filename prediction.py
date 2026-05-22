@@ -15,7 +15,20 @@ if np is None:
         "Bitte ausführen: pip3 install numpy --break-system-packages"
     )
 
-from config import ML_CELL_FEATURES as CELL_KEYS, ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, ML_STATION_FEATURES as STATION_KEYS, PX_TO_KMH, SAVE_PATHS, UPSCALE_FACTOR as _UF
+from config import ML_CELL_FEATURES as CELL_KEYS, ML_FORECAST_HORIZONS_MIN as _STATIC_HORIZONS, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, ML_STATION_FEATURES as STATION_KEYS, PX_TO_KMH, SAVE_PATHS, UPSCALE_FACTOR as _UF
+
+try:
+    import runtime_config as _runtime_cfg
+except Exception:
+    _runtime_cfg = None
+
+
+def _get_horizons() -> list:
+    """Gibt die aktuell konfigurierten Forecast-Horizonte zurück.
+    Priorisiert runtime_config (Admin-Panel), Fallback: config.py."""
+    if _runtime_cfg is not None:
+        return _runtime_cfg.get("ML_FORECAST_HORIZONS_MIN", _STATIC_HORIZONS)
+    return list(_STATIC_HORIZONS)
 from dataset_builder import load_scalers
 from model_training import load_lgbm_models, load_lstm
 
@@ -81,7 +94,7 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
     obj["kinematic_vx"]       = avg_vx
     obj["kinematic_vy"]       = avg_vy
 
-    for horizon in ML_FORECAST_HORIZONS_MIN:
+    for horizon in _get_horizons():
         # EINHEITEN:
         # obj["x"]/ ["y"] = Original-Pixel (pre-upscale) — gespeichert von object_tracking.py.
         # obj["vx"]/ ["vy"] = Original-px/Frame (Kalman-Geschwindigkeit / _UF gespeichert).
@@ -133,7 +146,7 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
 
 def _predict_lgbm_vector(models, frame, suffix=""):
     preds = []
-    for h in ML_FORECAST_HORIZONS_MIN:
+    for h in _get_horizons():
         for axis in ["x", "y"]:
             preds.append(models[f"lgbm_h{h}_{axis}{suffix}"].predict(frame)[0])
     return np.asarray(preds, dtype=float)
@@ -141,13 +154,14 @@ def _predict_lgbm_vector(models, frame, suffix=""):
 
 def _kinematic_fallback(objects: list) -> tuple:
     """Kinematischer Fallback für alle Objekte (keine Modelle geladen)."""
-    forecasts = {h: [] for h in ML_FORECAST_HORIZONS_MIN}
+    _horizons = _get_horizons()
+    forecasts = {h: [] for h in _horizons}
     for obj in objects:
         obj["intensification_prob"]  = 0.0
         obj["delta_core_ratio_pred"] = 0.0
         obj["delta_area_pred"]       = 0.0
         _append_kinematic(obj, forecasts)
-    return tuple(forecasts[h] for h in ML_FORECAST_HORIZONS_MIN)
+    return tuple(forecasts[h] for h in _horizons)
 
 
 def load_intensification_model():
@@ -249,12 +263,14 @@ def predict_positions(objects: list, timestamp: str, stations: list):
     intensification_model = load_intensification_model()
     reg_core, reg_area = _load_intensity_regressors()
 
+    _horizons = _get_horizons()
+
     has_lgbm = all(
-        f"lgbm_h{h}_{axis}" in lgbm_models for h in ML_FORECAST_HORIZONS_MIN for axis in ["x", "y"]
+        f"lgbm_h{h}_{axis}" in lgbm_models for h in _horizons for axis in ["x", "y"]
     )
     has_lgbm_q = {
-        "q10": all(f"lgbm_h{h}_{axis}_q10" in lgbm_models for h in ML_FORECAST_HORIZONS_MIN for axis in ["x", "y"]),
-        "q90": all(f"lgbm_h{h}_{axis}_q90" in lgbm_models for h in ML_FORECAST_HORIZONS_MIN for axis in ["x", "y"]),
+        "q10": all(f"lgbm_h{h}_{axis}_q10" in lgbm_models for h in _horizons for axis in ["x", "y"]),
+        "q90": all(f"lgbm_h{h}_{axis}_q90" in lgbm_models for h in _horizons for axis in ["x", "y"]),
     }
     has_lstm = lstm_model is not None
     if scaler_X is None or scaler_y is None or (not has_lgbm and not has_lstm):
@@ -262,7 +278,7 @@ def predict_positions(objects: list, timestamp: str, stations: list):
         return _kinematic_fallback(objects)
 
     ts_dt = datetime.strptime(timestamp, "%Y-%m-%d_%H-%M-%S")
-    forecasts = {h: [] for h in ML_FORECAST_HORIZONS_MIN}
+    forecasts = {h: [] for h in _horizons}
 
     for obj in objects:
         seq = _build_sequence(obj.get("id"), obj, stations, ts_dt)
@@ -311,7 +327,7 @@ def predict_positions(objects: list, timestamp: str, stations: list):
         elif has_lstm:
             prediction_scaled = np.asarray(lstm_model.predict(seq_scaled, verbose=0)[0], dtype=float)
 
-        if prediction_scaled is None or prediction_scaled.shape[0] != len(ML_FORECAST_HORIZONS_MIN) * 2:
+        if prediction_scaled is None or prediction_scaled.shape[0] != len(_get_horizons()) * 2:
             _append_kinematic(obj, forecasts)
             continue
 
@@ -321,7 +337,7 @@ def predict_positions(objects: list, timestamp: str, stations: list):
         prediction_q10 = scaler_y.inverse_transform(prediction_q10_scaled.reshape(1, -1))[0] if prediction_q10_scaled is not None else None
         prediction_q90 = scaler_y.inverse_transform(prediction_q90_scaled.reshape(1, -1))[0] if prediction_q90_scaled is not None else None
 
-        for idx, horizon in enumerate(ML_FORECAST_HORIZONS_MIN):
+        for idx, horizon in enumerate(_get_horizons()):
             # ML-Modell trainiert auf pre-upscale obj["x"]/ ["y"] → _UF anwenden
             x_pred = float(prediction[idx * 2])     * _UF
             y_pred = float(prediction[idx * 2 + 1]) * _UF
@@ -373,4 +389,4 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                 }
             )
 
-    return tuple(forecasts[h] for h in ML_FORECAST_HORIZONS_MIN)
+    return tuple(forecasts[h] for h in _horizons)
