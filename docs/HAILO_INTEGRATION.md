@@ -1,7 +1,7 @@
 # HAILO_INTEGRATION.md
 # WetterExtended — Hailo-Integration, Phasen-Roadmap & Multi-Rechner-Architektur
 
-**Dokumentversion:** 5.0 (Phase A vollständig abgeschlossen)
+**Dokumentversion:** 5.1 (Phase A ✅ abgeschlossen | Phase B vorbereitet)
 **Stand:** Mai 2026
 **Sprache:** Deutsch (verbindlich)
 **Zweck:** Übergabe-Dokument für neue Chat-Sessions. Jede hier dokumentierte
@@ -714,17 +714,27 @@ wird auf Linux geschrieben und durch rsync zum Pi gesynct.
 Auf Linux **kein** `wetterprojekt.service` (kein Live-Loop), aber
 `wetterprojekt-scheduler.service` aktiv (für Training-Jobs).
 
-### 11.3 Binaries die NICHT ins Git gehören
+### 11.3 Binaries die NICHT ins Git gehören ✅ (in .gitignore implementiert)
 
-- `*.hef` — Hailo-Modelle
-- `*.keras`, `*.h5` — Keras-Modelle (außer Bootstrap)
-- `*.txt` in `train_data/models/` — LGBM-Modelle
-- `*.joblib` — Scaler
-- `*.npz` — Datasets, Calibration-Daten
-- `*.onnx` — ONNX-Exports
-- `*.png`, `*.kmz`, `*.gif` — generierte Bilder
+Alle folgenden Typen sind im `.gitignore` eingetragen und automatisch ausgeschlossen.
+
+- `*.hef` — Hailo-Modelle (Phase B, via rsync Pi ← M910q)
+- `*.keras`, `*.h5` — Keras/TF-Modelle
+- `*.txt.lgb` — LightGBM-Modelle
+- `*.joblib`, `*.pkl` — Scaler / Pickle
+- `*.onnx` — ONNX-Exports (Phase B)
+- `*.npz` — NumPy-Archive (Datasets, Calibration-Daten)
 - `*.parquet` — Tabular Datasets
+- `*.png`, `*.kmz`, `*.gif` — generierte Bilder/Exports
+- `models/hailo/` — HEF-Verzeichnis
 - alles in `data/`, `logs/`, `train_data/`
+
+**Distribution:** Initialmodell-Bootstrap per `scp` oder GitHub Release. Phase B HEF via `sync_models_to_pi.sh`.
+
+**Verifikation:**
+```bash
+git check-ignore -v *.keras models/hailo/unet_nowcast.hef
+```
 
 ---
 
