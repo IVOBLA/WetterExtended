@@ -910,13 +910,19 @@ _hailo_available: Optional[bool] = None
 | B10 | `dem_feature.py` | DEM-Kachel hardcoded | ⏳ Phase C |
 | B11 | `cloud_height_from_eumetview.py` | `print` statt `debug_log`, keine log_api_failure | ⏳ Phase C |
 | B12 | Lightning-Config | `lightningmaps.org` ist inoffiziell | ⏳ Phase C |
+| B13 | `weather_api.py` | TAWES-Request ohne Cache → überschreitet 10-min-Intervall | ✅ **behoben (P04)** |
+| B14 | `debug_utils.py` | `api_call_summary()` ohne last_ts/last_url → kein Detail im Dashboard | ✅ **behoben (P01/P02/P03)** |
+| B15 | `daily_analyzer.py` | KI-Report enthält keine lokale Konfiguration → keine Konfig-Empfehlungen möglich | ✅ **behoben (P05)** |
 
-### Neue Fach-Features in Phase C (geplant)
+### Neue Fach-Features in Phase C (geplant und umgesetzt)
 
 | Feature | Beschreibung | Status |
 |---|---|---|
 | **Human-in-the-Loop Filter (HitL)** | Vom Benutzer markierte Zellen erweitern HSV-Filter; gespeicherte Polygon-PNGs dienen als Trainings-Quelle für ein künftiges U-Net auf dem Hailo-8 | ✅ **eingespielt** (Mai 2026) |
 | HitL als U-Net-Trainings-Pipeline | Polygon-PNGs (mit Maske) als labels für ein semantisches Segmentierungs-Modell — Hailo-8 erzielt > 100 FPS bei 256×256 px | ⏳ geplant |
+| **Dashboard API-Request Detail** | Klick auf Service-Zeile im Dashboard öffnet Panel mit letzten Requests (Timestamp, HTTP-Status, URL). Schnittstellen mit öffentlichem Browser-Zugang zeigen direkten Link (z.B. https://tawes.at/#knt) | ✅ **eingespielt** (Mai 2026) |
+| **TAWES Cache-Konsolidierung** | `weather_api.py` nutzt jetzt `api_cache` mit TTL=600s — entspricht 10-min TAWES-Aktualisierungsintervall. Kein unnötiger Doppel-Request mehr neben `fetch_tawes_gust.py` | ✅ **eingespielt** (Mai 2026) |
+| **KI-Analyse sendet vollst. Konfig** | `build_system_report()` überträgt alle effektiven Config-Werte + `runtime_overrides.json` an die KI. Secrets (TOKEN, KEY, PASS, ...) werden automatisch durch `***REDACTED***` ersetzt. KI kann nun Konfigurations-Empfehlungen machen | ✅ **eingespielt** (Mai 2026) |
 
 ---
 
