@@ -82,8 +82,11 @@ def get_latest_wms_time() -> str | None:
         return cached_ts
 
     try:
+        import time as _t_wms_cap
+        _t0_wms_cap = _t_wms_cap.monotonic()
         r = requests.get(url, timeout=10)
-        log_api_call("eumetview_wms", url=url, status_code=r.status_code)
+        log_api_call("eumetview_wms", url=url, status_code=r.status_code,
+                     duration_ms=(_t_wms_cap.monotonic() - _t0_wms_cap) * 1000)
         if r.ok:
             root = ET.fromstring(r.content)
             for elem in root.iter():
@@ -228,8 +231,11 @@ def assign_cloud_top_height(
         tif_url = build_tiff_url(timestamp_wms)
         debug_log(f"[CLOUD] Lade neues TIFF: {tif_url}")
         try:
+            import time as _t_wms_tiff
+            _t0_wms_tiff = _t_wms_tiff.monotonic()
             r = requests.get(tif_url, timeout=20)
-            log_api_call("eumetview_wms", url=tif_url, status_code=r.status_code)
+            log_api_call("eumetview_wms", url=tif_url, status_code=r.status_code,
+                         duration_ms=(_t_wms_tiff.monotonic() - _t0_wms_tiff) * 1000)
             r.raise_for_status()
 
             # WMS ServiceException kommt als "200 OK + XML"
