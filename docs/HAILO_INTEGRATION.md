@@ -823,6 +823,8 @@ _hailo_available: Optional[bool] = None
 
 ### 14.1 Was funktioniert
 - HSV-Segmentierung + Kalman-Tracking (`object_tracking.py`)
+- **Human-in-the-Loop Filter-Verfeinerung** (`cell_filters.py` + Filter-Galerie):
+  Benutzer-Polygon → HSV-Extraktion → PNG-Speicherung → KI-Vorschläge via Anthropic API
 - LSTM, LightGBM-Punkt + Quantile (`model_training.py`)
 - ConvLSTM-Modell (`radar_convlstm.py`) — MODEL_PATH via SAVE_PATHS + runtime_config
 - 5 Forecast-Horizonte (10/20/30/40/60 min)
@@ -908,6 +910,13 @@ _hailo_available: Optional[bool] = None
 | B10 | `dem_feature.py` | DEM-Kachel hardcoded | ⏳ Phase C |
 | B11 | `cloud_height_from_eumetview.py` | `print` statt `debug_log`, keine log_api_failure | ⏳ Phase C |
 | B12 | Lightning-Config | `lightningmaps.org` ist inoffiziell | ⏳ Phase C |
+
+### Neue Fach-Features in Phase C (geplant)
+
+| Feature | Beschreibung | Status |
+|---|---|---|
+| **Human-in-the-Loop Filter (HitL)** | Vom Benutzer markierte Zellen erweitern HSV-Filter; gespeicherte Polygon-PNGs dienen als Trainings-Quelle für ein künftiges U-Net auf dem Hailo-8 | ✅ **eingespielt** (Mai 2026) |
+| HitL als U-Net-Trainings-Pipeline | Polygon-PNGs (mit Maske) als labels für ein semantisches Segmentierungs-Modell — Hailo-8 erzielt > 100 FPS bei 256×256 px | ⏳ geplant |
 
 ---
 

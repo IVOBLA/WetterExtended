@@ -65,7 +65,8 @@ Dieses Dokument ist das offizielle Benutzerhandbuch für das WetterExtended-Syst
 21. [NEU: LOCAL_TRAINING-Flag](#21-neu-local_training-flag)
 22. [NEU: API-Request-Statistik](#22-neu-api-request-statistik)
 23. [NEU: KI-Analyse Chat (daily_analyzer.py)](#23-neu-ki-analyse-chat-daily_analyzerpy)
-24. [Hailo-8 Integration — Phasen-Roadmap](#24-hailo-8-integration--phasen-roadmap)
+24. [NEU: Human-in-the-Loop Filter-Verfeinerung](#24-neu-human-in-the-loop-filter-verfeinerung)
+25. [Hailo-8 Integration — Phasen-Roadmap](#25-hailo-8-integration--phasen-roadmap)
 25. [Konfigurationsreferenz](#25-konfigurationsreferenz)
 26. [Fehlerbehebung (Troubleshooting)](#26-fehlerbehebung-troubleshooting)
 27. [Änderungshistorie](#27-änderungshistorie)
@@ -749,7 +750,93 @@ Unter `/ai-analysis` gibt es zusätzlich einen Chat-Bereich für Fragen an die K
 
 ---
 
-# 24 Hailo-8 Integration — Phasen-Roadmap
+# 24 NEU: Human-in-the-Loop Filter-Verfeinerung
+
+**Modul:** `cell_filters.py`
+**Frontend:** `MapView.jsx` (Markieren) · `CellFilters.jsx` (Galerie + KI-Analyse) · `AiSuggestions.jsx` (Shortcut)
+**Speicherort:** `train_data/cell_filters/cell_filters.json` + `train_data/cell_filters/polygons/`
+**API:** `/api/cell_filters/*`, `/api/analyze_cell_polygon`, `/api/thresholds/add_range`
+
+Das System erlaubt dem Benutzer, vom Algorithmus übersehene Sturmzellen direkt auf der Karte mit einem Polygon zu markieren. Aus dem markierten Bereich extrahiert das System die HSV-Werte, schlägt einen passenden Filter vor und speichert nach Bestätigung sowohl den Filter als auch einen PNG-Ausschnitt der markierten Region. Auf Basis dieser Ausschnitte kann die Claude-API zusätzliche, breitere Filter-Bereiche vorschlagen — die Erkennung wird so iterativ verbessert.
+
+## 24.1 Ablauf am Beispiel
+
+1. **Karte öffnen** unter `/map` und „✏️ Zelle markieren" anklicken.
+2. **Polygon zeichnen**: Klick = Punkt setzen, Doppelklick = abschließen, ESC = abbrechen. Vor dem Markieren empfiehlt sich starkes Einzoomen — die Bildqualität für das gespeicherte PNG wird damit besser.
+3. **HitL-Dialog**: Das System zeigt die gemessenen HSV-Werte, eine Farbvorschau und einen vorgeschlagenen Filter. Bei Bestätigung wird der Filter aktiviert und ein PNG-Ausschnitt mit Maskenoverlay gespeichert.
+4. **Filter-Galerie** (`/cell-filters`): Übersicht aller aktiven und deaktivierten Filter mit Thumbnail, HSV-Range, Quelle und Padding-Slider.
+5. **KI-Analyse**: Knopf „🤖 Mit KI analysieren" sendet die letzten 5 PNGs + aktuelle Filter an Claude und erhält Vorschläge für zusätzliche HSV-Bereiche. Vorschläge werden in der Galerie zur einzelnen Annahme oder „Alle übernehmen" angezeigt.
+
+## 24.2 Filter-Galerie
+
+| Element | Funktion |
+|---|---|
+| Polygon-Thumbnail | Ausschnitt aus dem Radarbild mit gelb umrandeter Markierung |
+| HSV-Range | H/S/V-Grenzen des Filters; Klick-Tooltip mit numerischen Werten |
+| Quelle | „Manuell" (Polygon), „KI" (Vorschlag übernommen), „Migration" (aus initial config) |
+| Aktiv-Toggle | Filter inaktiv schalten ohne zu löschen — Polygon-PNG bleibt für KI verfügbar |
+| Löschen | Filter und PNG endgültig entfernen |
+
+## 24.3 KI-Analyse — Modi und Limits
+
+| Parameter | Standard | Beschreibung |
+|---|---|---|
+| `HITL_AI_MODE` | `"expand_only"` | KI darf nur **neue** breitere Bereiche vorschlagen, bestehende Filter bleiben unverändert |
+| `HITL_MAX_PNGS_FOR_AI` | `5` | Maximale Anzahl Polygon-PNGs pro KI-Lauf (begrenzt API-Kosten) |
+| `HITL_PADDING_PX_DEFAULT` | `50` | Standard-Padding (Pixel) um das Polygon beim PNG-Crop. Per Slider in der Filter-Galerie überschreibbar |
+
+## 24.4 Konfiguration in `runtime_overrides.json`
+
+| Schlüssel | Beispielwert | Wirkung |
+|---|---|---|
+| `HITL_PADDING_PX` | `75` | Pixel-Padding ab nächstem Polygon |
+
+Wird vom Padding-Slider in der Filter-Galerie automatisch geschrieben — manuelles Eintragen ist nicht nötig.
+
+## 24.5 Persistenz und Backup
+
+Alle HitL-Daten liegen unter `train_data/cell_filters/`:
+
+```
+train_data/cell_filters/
+├── cell_filters.json        Master-File (JSON, atomar geschrieben, file-locked)
+├── .migrated_v2             Marker für einmalige Migration
+└── polygons/                PNG-Ausschnitte mit Polygon-Overlay
+    ├── f_20260521-143215_a3f9.png
+    └── ...
+```
+
+Das Verzeichnis ist **gitignored** — Filter und PNGs sind benutzerspezifische Lerndaten. Für Backup das gesamte Verzeichnis sichern.
+
+> **Wichtig — Geschützt vor `install.sh --mode=full`:**
+> `train_data/cell_filters/` bleibt analog zu `.env`, `runtime_overrides.json` und den DEM-Tiles **auch bei einer Vollinstallation** unangetastet. Benutzergenerierte Lerndaten gehen nicht verloren. Wer die HitL-Daten gezielt zurücksetzen möchte, muss das Verzeichnis manuell löschen (siehe §24.6).
+
+## 24.6 Rollback und Reset
+
+**Einzelne Filter deaktivieren** ohne PNG zu verlieren: Aktiv-Toggle in der Galerie auf „inaktiv" stellen. Das Polygon-PNG bleibt erhalten und kann bei der nächsten KI-Analyse weiterhin als Beispiel dienen.
+
+**HitL-Pipeline komplett deaktivieren** ohne Daten zu verlieren:
+
+```bash
+mv train_data/cell_filters/cell_filters.json    train_data/cell_filters/cell_filters.json.disabled
+sudo systemctl restart wetterprojekt
+```
+
+Der Tracker fällt dann automatisch auf die Defaults aus `config.FILTER_CONFIG` zurück. Reaktivierung durch Zurück-Umbenennen.
+
+**HitL-Daten vollständig zurücksetzen** (manueller Schritt, **nicht** von `install.sh --mode=full` ausgeführt):
+
+```bash
+sudo systemctl stop wetterprojekt
+rm -rf train_data/cell_filters/
+sudo systemctl start wetterprojekt
+```
+
+Beim nächsten Tracking-Frame wird die Migration aus `config.FILTER_CONFIG` neu ausgeführt.
+
+---
+
+# 25 Hailo-8 Integration — Phasen-Roadmap
 
 Der Hailo-8 AI-Beschleuniger (26 TOPS, PCIe Gen3) ist physisch montiert und der Treiber (`hailo-all`) ist installiert. Die Inferenz-Integration erfolgt in zwei Phasen:
 
