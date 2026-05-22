@@ -684,20 +684,44 @@ Oder in `runtime_overrides.json`:
 
 ---
 
-# 22 NEU: API-Request-Statistik
+# 22 NEU: API-Request-Statistik und Detail-Ansicht
 
-**API-Endpunkt:** `GET /api/api_health`  
-**Frontend:** `Logs.jsx`
+**API-Endpunkte:** `GET /api/api_calls`, `GET /api/api_calls/detail`  
+**Frontend:** `Dashboard.jsx`, `Logs.jsx`
 
-Jede externe API-Anfrage (ARSO, Open-Meteo, GeoSphere, Blitzortung, EUMETView) wird in einer lokalen JSON-Datenbank gezählt. Das Admin-Panel zeigt unter Logs eine Tabelle mit Requests pro Tag und Schnittstelle sowie Fehlerquoten und letzte Fehler-Meldung.
+Jede externe API-Anfrage (ARSO, Open-Meteo, GeoSphere, Blitzortung, EUMETView) wird in einer lokalen JSONL-Datenbank (`api_call_counts.jsonl`) gezählt.
+
+## 22.1 Dashboard-Tabelle (API-Requests 24h)
+
+Das Dashboard zeigt eine Tabelle aller externen Schnittstellen. Ein Klick auf eine Zeile öffnet ein eingebettetes Detail-Panel mit den letzten Requests des Services:
 
 | Spalte | Beschreibung |
 |---|---|
-| API-Name | Name der externen Schnittstelle |
-| Requests/Tag | Anzahl Requests heute (wird täglich zurückgesetzt) |
-| Fehler | Anzahl fehlgeschlagener Requests (Timeout, HTTP-Error) |
-| Letzter Fehler | Zeitstempel und Fehler-Meldung des letzten Fehlers |
-| Status | Grün/Gelb/Rot basierend auf Fehlerquote |
+| Service | Name der externen Schnittstelle (klickbar) |
+| Anfragen | Anzahl Requests in den letzten 24h |
+| Fehler | Anzahl fehlgeschlagener Requests (rot) |
+| Fehlerrate | Prozentsatz fehlgeschlagener Requests |
+| 🌐-Link | Direktlink zur öffentlichen Web-Oberfläche des Datenanbieters |
+
+## 22.2 Detail-Panel (Klick auf Zeile)
+
+Beim Klick auf eine Service-Zeile erscheint ein Panel mit den letzten bis zu 15 Requests:
+
+| Spalte | Beschreibung |
+|---|---|
+| Zeitstempel | UTC-Zeitpunkt des Requests |
+| Status | HTTP-Statuscode (grün=OK, gelb=Redirect, rot=Fehler) |
+| URL | Vollständige Request-URL (auf 100 Zeichen gekürzt) |
+
+Am oberen Rand des Panels erscheint bei Schnittstellen mit öffentlichem Browser-Zugang ein Link:
+
+| Schnittstelle | Öffentlicher Link |
+|---|---|
+| GeoSphere TAWES | https://tawes.at/#knt |
+| Open-Meteo | https://open-meteo.com/en/docs |
+| GeoSphere CAPE/Nowcast | https://dataset.api.hub.geosphere.at/ |
+| EUMETView | https://eumetview.eumetsat.int/ |
+| Blitzortung | https://www.blitzortung.org/ |
 
 ---
 
@@ -747,6 +771,53 @@ Unter `/ai-analysis` gibt es zusätzlich einen Chat-Bereich für Fragen an die K
 > ```
 >
 > Die KI-Analyse verursacht API-Kosten pro Request.
+
+## 23.4 Vollständige Konfiguration im KI-Report
+
+Seit dieser Version sendet `build_system_report()` die komplette lokale Konfiguration
+an die KI — einschließlich `runtime_overrides.json`. Dadurch kann die KI konkrete
+Konfigurations-Empfehlungen machen (z.B. Schwellwerte, Intervalle, Orte).
+
+Folgende Einstellungen werden übermittelt:
+
+| Konfigurationsbereich | Übertragen |
+|---|---|
+| HSV-Bandeinstellungen (Farb-Schwellwerte) | ✅ |
+| Überwachte Orte (LOCATIONS_WATCHLIST) | ✅ |
+| ML-Vorhersage-Horizonte | ✅ |
+| Warnungsschwellwerte (Hagel, Böen, Regen) | ✅ |
+| Loop-Intervalle | ✅ |
+| TAWES-Stationsliste | ✅ |
+| Aktive runtime_overrides.json | ✅ |
+| API-Tokens, Passwörter, Secrets | ❌ Nie (automatisch herausgefiltert) |
+
+> **Datenschutz:** Alle Keys mit den Begriffen TOKEN, KEY, PASS, PASSWORD, SECRET,
+> AUTH, CREDENTIAL oder PRIVATE werden automatisch durch `***REDACTED***` ersetzt,
+> bevor der Report an die Anthropic-API gesendet wird.
+
+---
+
+# 24 NEU: TAWES-Zugriff konsolidiert (Single-Source-of-Truth)
+
+**Betroffene Dateien:** `weather_api.py`, `fetch_tawes_gust.py`
+
+Vor dieser Version gab es zwei unabhängige TAWES-API-Aufrufe:
+
+| Modul | Stationen | Cache |
+|---|---|---|
+| `fetch_tawes_gust.py` | 5 Kärntner Stationen (Böen-Fokus) | 10 min TTL ✅ |
+| `weather_api.py` | 31 Stationen (alle Parameter) | keiner ❌ |
+
+`weather_api.py` wurde bei jedem Loop-Durchlauf direkt aufgerufen — ohne Cache.
+Dies widersprach der Zielvorgabe, unnötige Fremdrequests zu vermeiden und die
+10-Minuten-Aktualisierungsintervalle der GeoSphere-TAWES-API zu respektieren.
+
+**Lösung:** `weather_api.py` nutzt nun `api_cache` mit TTL=600s. Der GeoSphere-TAWES-
+Server wird maximal alle 10 Minuten angefragt, unabhängig von der Loop-Frequenz.
+
+> **Hinweis:** Die beiden TAWES-Aufrufe existieren weiter parallel, da sie unterschiedliche
+> Stationssets und Parameter abrufen. Die Cache-Keys sind unterschiedlich, sodass keine
+> Interferenz entsteht.
 
 ---
 
