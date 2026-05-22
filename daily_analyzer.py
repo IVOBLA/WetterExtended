@@ -47,11 +47,11 @@ def _fetch_github_file(repo: str, branch: str, filepath: str,
         with urllib.request.urlopen(req, timeout=12) as resp:
             raw = resp.read().decode("utf-8", errors="replace")
             lines = raw.splitlines(keepends=True)
-            if len(lines) > max_lines:
+            if max_lines > 0 and len(lines) > max_lines:
                 content = "".join(lines[:max_lines])
                 content += f"\n... ({len(lines) - max_lines} weitere Zeilen gekürzt)\n"
             else:
-                content = raw
+                content = raw  # max_lines=0 → vollständiger Source (full_source_mode)
             return content, "ok"
     except urllib.error.HTTPError as exc:
         codes = {404: "not_found", 401: "auth_error", 403: "rate_limit"}
@@ -72,7 +72,8 @@ def _collect_source_context() -> dict:
     branch    = gh.get("branch", "main")
     token     = gh.get("token",  "")
     files     = gh.get("files",  [])
-    max_lines = gh.get("max_lines_per_file", 120)
+    full_mode = gh.get("full_source_mode", False)
+    max_lines = 0 if full_mode else gh.get("max_lines_per_file", 120)
 
     ctx = {
         "source":  "github",

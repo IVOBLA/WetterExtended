@@ -135,9 +135,13 @@ def build_dataset(model_save_dir=None):
         debug_log("[DATASET] Keine passenden Objekt/Wetter-Dateipaare gefunden.")
         return _empty_result()
 
-    horizon_steps = [max(1, int(h // 5)) for h in ML_FORECAST_HORIZONS_MIN]
-    max_h_steps = max(horizon_steps)
-    min_required = ML_SEQUENCE_LENGTH + max_h_steps + 1
+    # Fix #5: Timestamp-basierte Horizont-Suche (statt fester h//5 Frame-Index-Annahme)
+    # Hintergrund: Live-Loop kann 2-Min-Intervalle haben → h//5 wäre falsch
+    from datetime import timedelta as _td_ds
+    _DS_TOL_FACTOR  = 0.5   # 50 % des Horizonts als Toleranz
+    _DS_MIN_TOL_MIN = 3.0   # mindestens 3 Minuten Toleranz
+    # min_required: Sequenz + mind. 1 zukünftiger Frame
+    min_required = ML_SEQUENCE_LENGTH + 1
     if len(paired) < min_required:
         debug_log(f"[DATASET] Zu wenige Frames: {len(paired)} < {min_required}.")
         return _empty_result()
@@ -154,7 +158,8 @@ def build_dataset(model_save_dir=None):
     rejection_reasons = {}
     n_rejected = 0
 
-    for i in range(ML_SEQUENCE_LENGTH - 1, len(frames) - max_h_steps):
+    # Fix #5: Kein festes max_h_steps mehr — Timestamp-Suche erledigt die Begrenzung
+    for i in range(ML_SEQUENCE_LENGTH - 1, len(frames)):
         seq_slice = frames[i - ML_SEQUENCE_LENGTH + 1 : i + 1]
         now_ts = seq_slice[-1][2]
         seq_obj_maps = [{str(o.get("id")): o for o in frm[3] if isinstance(o, dict) and "id" in o} for frm in seq_slice]
@@ -166,10 +171,27 @@ def build_dataset(model_save_dir=None):
         if not common_ids:
             continue
 
+        # Fix #5: Besten Frame per echtem Timestamp suchen
         future_obj_maps = []
-        for h_step in horizon_steps:
-            fut_objs = frames[i + h_step][3]
-            future_obj_maps.append({str(o.get("id")): o for o in fut_objs if isinstance(o, dict) and "id" in o})
+        for h_min in ML_FORECAST_HORIZONS_MIN:
+            target_ts = now_ts + _td_ds(minutes=h_min)
+            tol       = _td_ds(minutes=max(h_min * _DS_TOL_FACTOR, _DS_MIN_TOL_MIN))
+            best_idx, best_diff = None, _td_ds(days=999)
+            for j in range(i + 1, len(frames)):
+                diff = abs(frames[j][2] - target_ts)
+                if diff < best_diff:
+                    best_diff, best_idx = diff, j
+                if frames[j][2] > target_ts + tol:
+                    break  # frames sind sortiert → kein besserer Kandidat mehr
+            if best_idx is not None and best_diff <= tol:
+                fut_objs = frames[best_idx][3]
+            else:
+                fut_objs = []
+                debug_log(f"[DATASET] Kein Frame für h={h_min}min nahe {target_ts} (best_diff={best_diff})")
+            future_obj_maps.append(
+                {str(o.get("id")): o for o in fut_objs
+                 if isinstance(o, dict) and "id" in o}
+            )
 
         for oid in common_ids:
             if any(oid not in fmap for fmap in future_obj_maps):
