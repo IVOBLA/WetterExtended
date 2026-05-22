@@ -1,7 +1,7 @@
 import requests
 from datetime import datetime, timezone
 
-from debug_utils import debug_log, log_api_failure
+from debug_utils import debug_log, log_api_failure, log_http_response
 from api_cache import cache_key, cache_get, cache_set
 
 _BASE_URL = "https://dataset.api.hub.geosphere.at/v1/timeseries/forecast/nowcast-v1-15min-1km"
@@ -48,8 +48,13 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
         ]
         url = requests.Request("GET", _BASE_URL, params=_qparams).prepare().url
         try:
-            r=requests.get(_BASE_URL, params=_qparams, timeout=_TIMEOUT, headers={"Accept":"application/json"})
-            r.raise_for_status(); data=r.json()
+            import time as _t_nowcast
+            _t0_nowcast = _t_nowcast.monotonic()
+            r = requests.get(_BASE_URL, params=_qparams, timeout=_TIMEOUT if '_TIMEOUT' in dir() else 30, headers={"Accept":"application/json"})
+            _dur_nowcast = (_t_nowcast.monotonic() - _t0_nowcast) * 1000
+            r.raise_for_status()
+            data = r.json()
+            log_http_response("geosphere_nowcast", "GET", r, _dur_nowcast)
         except requests.exceptions.Timeout:
             log_api_failure("geosphere_nowcast", url, "timeout", fallback_used=True); continue
         except Exception as exc:

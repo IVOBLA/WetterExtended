@@ -13,7 +13,7 @@ from math import atan2, cos, pi, radians, sin
 from zoneinfo import ZoneInfo
 
 from config import LOCATIONS_WATCHLIST, SAVE_PATHS
-from debug_utils import debug_log, log_api_failure
+from debug_utils import debug_log, log_api_failure, log_http_response
 import runtime_config
 
 _OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
@@ -62,10 +62,15 @@ def _extract_slot(hourly: dict, key: str, target: str) -> float:
 
 def _bulk_get(url: str, label: str) -> list | None:
     """HTTP GET, normalisiert Response zu Liste."""
+    import time as _t_bulk
+    _t0_bulk = _t_bulk.monotonic()
     try:
         r = requests.get(url, timeout=_TIMEOUT)
+        _dur_bulk = (_t_bulk.monotonic() - _t0_bulk) * 1000
         r.raise_for_status()
         data = r.json()
+        log_http_response(label.lower().replace("-", "_").replace(" ", "_"),
+                          "GET", r, _dur_bulk)
         return [data] if isinstance(data, dict) else data
     except requests.exceptions.Timeout:
         log_api_failure(label, url, "timeout", fallback_used=True)

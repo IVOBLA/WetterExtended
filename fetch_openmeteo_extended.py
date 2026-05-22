@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from config import OPEN_METEO_URL
 
 _GFS_URL = "https://api.open-meteo.com/v1/gfs"
-from debug_utils import debug_log, log_api_failure
+from debug_utils import debug_log, log_api_failure, log_http_response
 from api_cache import cache_key, cache_get, cache_set, get_ttl
 
 # icon_d2: Regional-Modell Österreich/Alpen, hat minutely_15, KEINE Druckflächen
@@ -83,9 +83,13 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
     data_a = cache_get(ck_a, ttl_seconds=get_ttl("openmeteo_extended", 900))
     if data_a is None:
         try:
+            import time as _ta_ext
+            _t0_a = _ta_ext.monotonic()
             r = requests.get(url_a, timeout=_TIMEOUT)
+            _dur_a = (_ta_ext.monotonic() - _t0_a) * 1000
             r.raise_for_status()
             data_a = r.json()
+            log_http_response("openmeteo_extended_arome", "GET", r, _dur_a)
             cache_set(ck_a, data_a)
         except requests.exceptions.Timeout:
             log_api_failure("openmeteo_extended_15min", url_a, "timeout", fallback_used=True)
@@ -109,9 +113,13 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
     data_b = cache_get(ck_b, ttl_seconds=get_ttl("openmeteo_extended", 900))
     if data_b is None:
         try:
+            import time as _tb_ext
+            _t0_b = _tb_ext.monotonic()
             r = requests.get(url_b, timeout=_TIMEOUT)
+            _dur_b = (_tb_ext.monotonic() - _t0_b) * 1000
             r.raise_for_status()
             data_b = r.json()
+            log_http_response("openmeteo_extended_pressure", "GET", r, _dur_b)
             cache_set(ck_b, data_b)
         except requests.exceptions.Timeout:
             log_api_failure("openmeteo_extended_pressure", url_b, "timeout", fallback_used=True)
@@ -136,9 +144,13 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
     data_c = cache_get(ck_c, ttl_seconds=get_ttl("openmeteo_extended", 900))
     if data_c is None:
         try:
+            import time as _tc_ext
+            _t0_c = _tc_ext.monotonic()
             r = requests.get(url_c, timeout=_TIMEOUT)
+            _dur_c = (_tc_ext.monotonic() - _t0_c) * 1000
             r.raise_for_status()
             data_c = r.json()
+            log_http_response("openmeteo_extended_lpi", "GET", r, _dur_c)
             cache_set(ck_c, data_c)
         except requests.exceptions.Timeout:
             log_api_failure("openmeteo_extended_lpi", url_c, "timeout", fallback_used=True)
@@ -162,9 +174,13 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
     data_d = cache_get(ck_d, ttl_seconds=get_ttl("openmeteo_extended", 900))
     if data_d is None:
         try:
+            import time as _td_ext
+            _t0_d = _td_ext.monotonic()
             r = requests.get(url_d, timeout=_TIMEOUT)
+            _dur_d = (_td_ext.monotonic() - _t0_d) * 1000
             r.raise_for_status()
             data_d = r.json()
+            log_http_response("openmeteo_extended_gfs", "GET", r, _dur_d)
             cache_set(ck_d, data_d)
         except requests.exceptions.Timeout:
             log_api_failure("openmeteo_extended_gfs_conv", url_d, "timeout", fallback_used=True)
