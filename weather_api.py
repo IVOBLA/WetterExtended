@@ -1,100 +1,30 @@
 # weather_api.py
+"""
+TAWES-Wetterdaten für WetterExtended.
 
-import os
-import requests
-import json
-import debug_utils
-from datetime import datetime
-from debug_utils import debug_log, log_api_call, log_api_failure
-from api_cache import cache_key, cache_get, cache_set
+Diese Datei ist ein dünner Adapter. Der eigentliche HTTP-Request und die
+Caching-Logik liegen in fetch_tawes_gust.fetch_tawes_stations().
+Alle Stationen werden über den zentralen Cache mit 10-min-TTL geliefert.
+"""
 
-_TAWES_FULL_TTL = 600  # 10 Minuten — entspricht TAWES-Aktualisierungsintervall
+from debug_utils import debug_log
 
-def get_weather_data(include_all_stations=True):
-    url = (
-        "https://dataset.api.hub.geosphere.at/v1/station/current/tawes-v1-10min"
-        "?parameters=RR,DD,FF,FFX,GLOW,P,RF,TL,TP"
-        "&station_ids=11275,11218,11234,11206,11227,11235,11222,11273,"
-        "11232,11259,11216,11349,11086,11255,11331,8989078,11217,11260,"
-        "11215,11262,11278,11272,11229,11237,11213,11265,11257,11225,"
-        "11228,8989076,11214"
-        "&output_format=geojson"
-    )
 
-    # Cache-Lookup: max. 1 HTTP-Request pro 10 Minuten (TAWES-Aktualisierungsintervall)
-    _ck = cache_key("geosphere:tawes_full", url)
-    _cached = cache_get(_ck, ttl_seconds=_TAWES_FULL_TTL)
-    if _cached is not None:
-        debug_log(f"[TAWES-FULL] Cache-HIT — kein HTTP-Request ({len(_cached)} Stationen)")
-        return _cached
+def get_weather_data(include_all_stations: bool = True) -> list:
+    """
+    Gibt Wetterdaten aller Kärntner TAWES-Stationen zurück.
+    Delegiert vollständig an fetch_tawes_stations() — kein eigener HTTP-Request.
 
-    try:
-        response = requests.get(url, timeout=15)
-        response.raise_for_status()
-        log_api_call("geosphere_tawes", url, response.status_code)
-        data = response.json()
-        params = ["RR", "DD", "FF", "FFX", "GLOW", "P", "RF", "TL", "TP"]
+    Rückgabe: Liste von Station-Dicts mit Feldern:
+      station_id, name, lat, lon,
+      TL, TP, FF, FFX, RR, DD, P, RF, GLOW  (SI-Einheiten)
+      ffx_kmh, ff_kmh, rr_mm, tl_c          (abgeleitete Felder)
+    """
+    from fetch_tawes_gust import fetch_tawes_stations
 
-        stations = []
-        for feature in data.get("features", []):
-            props = feature.get("properties", {})
-            geometry = feature.get("geometry", {})
-            station_id = props.get("station", "unknown")
-            name = props.get("name", f"Station {station_id}")
-            coords = geometry.get("coordinates", [None, None])
-            lon, lat = coords[0], coords[1]
-
-            if lat is None or lon is None:
-                debug_log(f"Station {station_id} hat keine Koordinaten — übersprungen")
-                continue
-
-            station = {
-                "station_id": station_id,
-                "name": name,
-                "lon": lon,
-                "lat": lat
-            }
-
-            for k in params:
-                try:
-                    val = props.get("parameters", {}).get(k, {}).get("data", [None])[0]
-                    if k == "P":
-                        # P=0 ist Sensorausfall/fehlend → als None behandeln
-                        p_val = val
-                        station[k] = float(p_val) if p_val not in (None, 0, "0") else None
-                    else:
-                        station[k] = float(val) if val is not None else 0
-                except Exception:
-                    station[k] = None if k == "P" else 0
-
-            stations.append(station)
-
-        if not stations:
-            log_api_failure("geosphere_tawes", url,
-                            "stations-empty: HTTP 200 aber keine Stationen mit "
-                            "gültigen Koordinaten in Response",
-                            fallback_used=True)
-        elif include_all_stations:
-            debug_log(f"{len(stations)} GeoSphere-TAWES-Stationen geladen")
-
-        # Ergebnis cachen — vermeidet Doppel-Requests innerhalb von 10 Minuten
-        if stations:
-            cache_set(_ck, stations)
-
-        return stations
-
-    except requests.exceptions.Timeout:
-        log_api_call("geosphere_tawes", url, 408)
-        log_api_failure("geosphere_tawes", url, "timeout", fallback_used=True)
-        return []
-    except requests.exceptions.HTTPError as e:
-        status = getattr(e.response, "status_code", None) or 0
-        log_api_call("geosphere_tawes", url, status)
-        log_api_failure("geosphere_tawes", url, f"http-error: {e}",
-                        fallback_used=True, http_status=status)
-        return []
-    except Exception as e:
-        log_api_call("geosphere_tawes", url, 0)
-        log_api_failure("geosphere_tawes", url, f"{type(e).__name__}: {e}",
-                        fallback_used=True)
-        return []
+    stations = fetch_tawes_stations()
+    if stations:
+        debug_log(f"[weather_api] {len(stations)} Stationen via fetch_tawes_stations()")
+    else:
+        debug_log("[weather_api] Keine Stationsdaten verfügbar (fetch_tawes_stations gab [] zurück)")
+    return stations
