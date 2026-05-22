@@ -6,6 +6,7 @@ from filterpy.kalman import KalmanFilter
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 from config import UPSCALE_FACTOR, FILTER_CONFIG as _DEFAULT_FILTER_CONFIG, CORE_HSV_RANGES as _DEFAULT_CORE_HSV_RANGES, BBOX_KAERNTEN_EXTENDED as BBOX
+import math as _math_ot
 import runtime_config as _rc
 from geo_utils import pixel_to_geo
 from utils import generate_id
@@ -104,19 +105,38 @@ def are_contours_touching_edges(cnt1, cnt2, shape, min_touch=3):
     
 
 def calculate_shape_features(contour):
+    """
+    Gibt (area_px, eccentricity) zurück.
+    Eccentricity: 0.0 = Kreis, → 1.0 = sehr gestreckte Ellipse.
+    Formel: sqrt(1 - (minor/major)²) — immer in [0, 1].
+
+    Finding #2 Fix:
+    - Achsen sortieren (major = max, minor = min) damit Wert nie > 1 wird.
+    - Korrekte geometrische Formel statt einfaches Verhältnis.
+    - area == 0 → (0, 0.0) statt (0, 0.0) mit if-Fallthrough.
+    """
     area = cv2.contourArea(contour)
-    perimeter = cv2.arcLength(contour, True)
-    if area == 0:
-        eccentricity = 0.0
-    elif len(contour) >= 5:
-        # fitEllipse erfordert ≥5 Punkte
-        (x, y), (MA, ma), angle = cv2.fitEllipse(contour)
-        eccentricity = ma / MA if MA > 0 else 1.0
+    if area <= 0:
+        return float(area), 0.0
+    if len(contour) >= 5:
+        # fitEllipse gibt (center, (width, height), angle) zurück.
+        # width/height können je nach Orientierung tauschen → immer sortieren.
+        _, (axis_a, axis_b), _ = cv2.fitEllipse(contour)
+        major = max(float(axis_a), float(axis_b))
+        minor = min(float(axis_a), float(axis_b))
+        if major > 0.0:
+            ratio = minor / major
+            # Clamp wegen Floating-Point: ratio > 1 theoretisch unmöglich, aber sicher
+            ratio = min(ratio, 1.0)
+            eccentricity = _math_ot.sqrt(1.0 - ratio ** 2)
+        else:
+            eccentricity = 0.0
     else:
-        # <5 Punkte → kein Ellipsen-Fit möglich → kreisförmig annehmen (1.0)
-        # 0 wäre physikalisch falsch und würde data_quality.py-Filter auslösen
-        eccentricity = 1.0
-    return area, eccentricity
+        # < 5 Punkte → Ellipsen-Fit nicht möglich → Kreis-Annahme
+        eccentricity = 0.0
+    # Hard-Clamp: data_quality.py prüft ECCENTRICITY_MIN=0.0, ECCENTRICITY_MAX=1.0
+    eccentricity = max(0.0, min(1.0, eccentricity))
+    return float(area), float(eccentricity)
 
 def merge_close_contours(contours, image_shape, min_touch=3):
     merged = []
