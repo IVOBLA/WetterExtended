@@ -24,6 +24,132 @@ function HsvSwatch({ hsvRange }) {
   )
 }
 
+function HelpPanel() {
+  const [open, setOpen] = React.useState(false)
+  return (
+    <div className="mt-3 border border-blue-200 rounded-lg bg-blue-50 text-sm">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-2 text-blue-800 font-medium hover:bg-blue-100 rounded-lg transition-colors"
+      >
+        <span>ℹ️ Was ist diese Seite? Wie funktioniert das?</span>
+        <span className="text-blue-500 text-xs">{open ? '▲ Schließen' : '▼ Erklärung anzeigen'}</span>
+      </button>
+
+      {open && (
+        <div className="px-4 pb-4 pt-1 space-y-4 text-gray-700">
+
+          {/* Was sind HSV-Filter? */}
+          <section>
+            <h3 className="font-semibold text-blue-900 mb-1">🎨 Was sind HSV-Filter?</h3>
+            <p>
+              Das Radarbild wird in Farbbereiche aufgeteilt (HSV = Farbton/Helligkeit/Sättigung).
+              Jeder Filter definiert einen Farbbereich, der als „Zelle erkannt" gilt.
+              <strong className="text-blue-800"> H</strong> = Farbton (0–179),{' '}
+              <strong className="text-blue-800">S</strong> = Sättigung (0–255),{' '}
+              <strong className="text-blue-800">V</strong> = Helligkeit (0–255).
+              Die Farbvorschau (kleines Quadrat) zeigt den Mittelpunkt des Filters.
+            </p>
+          </section>
+
+          {/* Was bedeutet Human-in-the-Loop? */}
+          <section>
+            <h3 className="font-semibold text-blue-900 mb-1">🧑‍💻 Was bedeutet „Human-in-the-Loop"?</h3>
+            <p>
+              Der Algorithmus erkennt Zellen automatisch — aber er kann Farbbereiche übersehen,
+              die auf dem konkreten Radarbild erscheinen. Über die Karte kannst du solche
+              übersehenen Bereiche <em>mit einem Polygon markieren</em>. Das System misst die
+              HSV-Werte im markierten Bereich, schlägt einen Filter vor, und du bestätigst oder
+              verwirfst ihn. So lernt das System schrittweise — ohne Neutraining.
+            </p>
+          </section>
+
+          {/* Was bedeuten die Badges? */}
+          <section>
+            <h3 className="font-semibold text-blue-900 mb-1">🏷️ Was bedeuten die Farb-Badges?</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              <div className="bg-amber-50 border border-amber-300 rounded p-2">
+                <span className="font-semibold text-amber-800">Manuell</span>
+                <p className="text-xs mt-1">Du hast diesen Filter durch Polygon-Markierung auf der Karte erstellt.</p>
+              </div>
+              <div className="bg-purple-50 border border-purple-300 rounded p-2">
+                <span className="font-semibold text-purple-800">KI</span>
+                <p className="text-xs mt-1">Claude hat diesen Filter aus deinen Polygon-PNGs vorgeschlagen und du hast ihn übernommen.</p>
+              </div>
+              <div className="bg-gray-100 border border-gray-300 rounded p-2">
+                <span className="font-semibold text-gray-700">Migration</span>
+                <p className="text-xs mt-1">Dieser Filter wurde beim ersten Start aus der alten Konfiguration (config.py / runtime_overrides.json) übernommen.</p>
+              </div>
+            </div>
+          </section>
+
+          {/* Was sind Polygon-PNGs? */}
+          <section>
+            <h3 className="font-semibold text-blue-900 mb-1">🖼️ Was sind Polygon-PNGs?</h3>
+            <p>
+              Beim manuellen Markieren schneidet das System einen <em>Ausschnitt aus dem Radarbild</em>
+              aus (mit gelber Umrandung des Polygons) und speichert ihn als PNG.
+              Diese PNGs werden beim KI-Analyse-Button an Claude gesendet — Claude „sieht" die Bilder
+              und kann weitere passende HSV-Bereiche vorschlagen.
+              Karten-Filter ohne PNG (z.B. Migration-Filter) zeigen nur die Farbvorschau.
+            </p>
+          </section>
+
+          {/* Typischer Workflow */}
+          <section>
+            <h3 className="font-semibold text-blue-900 mb-1">📋 Typischer Arbeitsablauf</h3>
+            <ol className="list-decimal list-inside space-y-1 text-xs">
+              <li><strong>Karte öffnen</strong> unter <em>/map</em> → „✏️ Zelle markieren" aktivieren</li>
+              <li><strong>Polygon zeichnen</strong> um eine vom Algorithmus übersehene Zelle (Klick = Punkt, Doppelklick = fertig)</li>
+              <li><strong>Filter bestätigen</strong> im Dialog → Filter wird aktiviert, PNG gespeichert</li>
+              <li><strong>KI analysieren</strong> (optional) → Button „Mit KI analysieren" sendet PNGs an Claude, Vorschläge erscheinen unten</li>
+              <li><strong>Vorschläge übernehmen</strong> → Einzeln oder „Alle übernehmen"</li>
+            </ol>
+          </section>
+
+          {/* KI-Analyse Erklärung */}
+          <section>
+            <h3 className="font-semibold text-blue-900 mb-1">🤖 Was macht der KI-Analyse-Button?</h3>
+            <p>
+              Die letzten gespeicherten Polygon-PNGs (max. {' '}
+              <code className="bg-blue-100 px-1 rounded">HITL_MAX_PNGS_FOR_AI</code> = 5 Stück)
+              werden zusammen mit den aktiven Filtern an Claude gesendet.
+              Claude analysiert die Bilder und schlägt <em>zusätzliche</em> HSV-Bereiche vor
+              (Modus <code className="bg-blue-100 px-1 rounded">expand_only</code> —
+              bestehende Filter bleiben unverändert). Die Vorschläge erscheinen danach in der
+              Galerie und müssen einzeln bestätigt werden.
+            </p>
+            <p className="mt-1 text-xs text-orange-700">
+              ⚠️ Für die KI-Analyse wird ein <em>ANTHROPIC_API_KEY</em> in der .env-Datei
+              benötigt und verursacht API-Kosten.
+            </p>
+          </section>
+
+          {/* Filter de-/aktivieren */}
+          <section>
+            <h3 className="font-semibold text-blue-900 mb-1">⚙️ Deaktivieren vs. Löschen</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+              <div className="bg-yellow-50 border border-yellow-200 rounded p-2">
+                <span className="font-semibold">Deaktivieren</span>
+                <p className="mt-1">Filter wird nicht mehr für die Zellen-Erkennung verwendet,
+                bleibt aber gespeichert. Das Polygon-PNG steht weiterhin für KI-Analysen zur Verfügung.
+                Jederzeit wieder aktivierbar.</p>
+              </div>
+              <div className="bg-red-50 border border-red-200 rounded p-2">
+                <span className="font-semibold">Löschen</span>
+                <p className="mt-1">Filter und zugehöriges Polygon-PNG werden dauerhaft entfernt.
+                Dieser Schritt ist <em>nicht rückgängig</em> zu machen.</p>
+              </div>
+            </div>
+          </section>
+
+        </div>
+      )}
+    </div>
+  )
+}
+
+
 function FilterCard({ entry, onToggle, onDelete }) {
   const badge = SOURCE_BADGE[entry.source] || SOURCE_BADGE.manual_polygon
   const [lo, hi] = entry.hsv_range || [[0, 0, 0], [0, 0, 0]]
@@ -248,6 +374,9 @@ export default function CellFilters() {
         <p className="text-sm text-gray-600 mt-1">
           Alle vom Benutzer markierten und von der KI vorgeschlagenen HSV-Filter zur Sturmzellen-Erkennung.
         </p>
+
+        {/* Aufklappbares Hilfe-Panel */}
+        <HelpPanel />
       </div>
 
       {error && (
