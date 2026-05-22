@@ -218,6 +218,22 @@ def main_loop():
             if not weather_data:
                 debug_log("[WARN] Keine Wetterdaten — Forecast läuft mit Defaults.")
 
+            # ── Finding #1 Fix: Windscherung + Hagel VOR ML-Forecast ──────────────
+            # wind_shear_speed, hail_prob sind ML_CELL_FEATURES → müssen gesetzt
+            # sein bevor predict_positions() den Feature-Vektor aufbaut.
+            for _obj in objects:
+                _shear_speed, _shear_cos, _shear_sin = _compute_wind_shear(_obj)
+                _obj["wind_shear_speed"]   = _shear_speed
+                _obj["wind_shear_dir_cos"] = _shear_cos
+                _obj["wind_shear_dir_sin"] = _shear_sin
+
+                _hp = _compute_hail_prob(_obj)
+                _obj["hail_prob"]    = _hp
+                _obj["hail_warning"] = bool(_hp >= HAIL_WARN_THRESHOLD)
+
+                _sr = float(_obj.get("stationary_risk", 0.0))
+                _obj["stationary_marker"] = bool(_sr >= STATIONARY_RISK_MARKER_THRESHOLD)
+
             # F1-FIX: predict_positions() VOR dem Speichern — schreibt forecast_lat_X
             # in-place in die Objekte, danach erst JSON-Dump damit /api/forecast Pfeile hat.
             forecasts_per_horizon = predict_positions(objects, timestamp, weather_data)
@@ -241,19 +257,8 @@ def main_loop():
             colors = runtime_config.get("FORECAST_ARROW_COLORS", _DEFAULT_COLORS)
             save_forecast_as_kmz(dict(zip(horizons, forecasts_per_horizon)), colors)
 
-            # ── Windscherung und Hagelwahrscheinlichkeit (F16, F06/F43) ──────────
-            for _obj in objects:
-                _shear_speed, _shear_cos, _shear_sin = _compute_wind_shear(_obj)
-                _obj["wind_shear_speed"]   = _shear_speed
-                _obj["wind_shear_dir_cos"] = _shear_cos
-                _obj["wind_shear_dir_sin"] = _shear_sin
-
-                _hp = _compute_hail_prob(_obj)
-                _obj["hail_prob"]    = _hp
-                _obj["hail_warning"] = bool(_hp >= HAIL_WARN_THRESHOLD)
-
-                _sr = float(_obj.get("stationary_risk", 0.0))
-                _obj["stationary_marker"] = bool(_sr >= STATIONARY_RISK_MARKER_THRESHOLD)
+            # wind_shear / hail_prob werden VOR predict_positions gesetzt
+            # (Finding #1 Fix: ML-Modell bekommt vollständige Features)
 
             # Orte-Markierung bei Pfad-Durchquerung
             locations = runtime_config.get("LOCATIONS_WATCHLIST", [])
