@@ -18,7 +18,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from config import SAVE_PATHS
-from debug_utils import debug_log, log_api_failure, log_api_call
+from debug_utils import debug_log, log_api_failure, log_api_call, log_http_response
 from api_cache import cache_key, cache_get, cache_set, get_ttl
 
 _OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
@@ -124,10 +124,15 @@ def fetch_and_assign_700hpa_wind(objects: list, timestamp: str) -> list:
         _t0_wind = _t_wind.monotonic()
         try:
             r = requests.get(bulk_url, timeout=_TIMEOUT)
+            _dur_wind = (_t_wind.monotonic() - _t0_wind) * 1000
             r.raise_for_status()
             data = r.json()
-            log_api_call("openmeteo_icon_global", bulk_url, r.status_code,
-                         duration_ms=(_t_wind.monotonic() - _t0_wind) * 1000)
+            log_http_response(
+                service="openmeteo_icon_global",
+                method="GET",
+                response=r,
+                duration_ms=_dur_wind,
+            )
             cache_set(ck, data)
         except requests.exceptions.Timeout:
             log_api_failure("Open-Meteo-icon_global", bulk_url, "timeout", fallback_used=True)
@@ -206,11 +211,19 @@ def get_700hpa_wind(lat: float, lon: float) -> tuple:
         f"{_OPEN_METEO_URL}?latitude={lat:.4f}&longitude={lon:.4f}"
         f"&hourly={_PARAMS}&models={_MODEL}&timezone={_TZ}&forecast_days=1"
     )
+    import time as _t_wind_single
+    _t0_single = _t_wind_single.monotonic()
     try:
         r = requests.get(url, timeout=10)
+        _dur_single = (_t_wind_single.monotonic() - _t0_single) * 1000
         r.raise_for_status()
         data = r.json()
-        # Single-Response ist ein dict
+        log_http_response(
+            service="openmeteo_icon_global",
+            method="GET",
+            response=r,
+            duration_ms=_dur_single,
+        )
         wind = _parse_wind_response(data, _nearest_hour_str())
         return (
             wind["wind_speed_700hPa"],
