@@ -364,6 +364,8 @@ def retrain_all():
         meta = {
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
             "version": timestamp,
+            "ML_FORECAST_HORIZONS_MIN": list(ML_FORECAST_HORIZONS_MIN),
+            "horizons": list(ML_FORECAST_HORIZONS_MIN),
             "num_samples": int(len(X)) if has_data else 0,
             "rejected_samples": int(dataset.get("rejected_samples", 0)),
             "rejection_reasons": dataset.get("rejection_reasons", {}),
@@ -388,6 +390,8 @@ def retrain_all():
         meta = {
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
             "version": timestamp,
+            "ML_FORECAST_HORIZONS_MIN": list(ML_FORECAST_HORIZONS_MIN),
+            "horizons": list(ML_FORECAST_HORIZONS_MIN),
             "num_samples": 0,
             "rejected_samples": 0,
             "rejection_reasons": {},

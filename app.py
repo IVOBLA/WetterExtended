@@ -498,6 +498,77 @@ def api_horizons_save():
     return jsonify({"ok": True})
 
 
+
+
+@app.route("/api/system_consistency")
+def api_system_consistency():
+    """Prüft End-to-End Konsistenz: Admin-Horizonte vs. trainiertes Modell."""
+    warnings = []
+
+    from config import ML_FORECAST_HORIZONS_MIN as _default_h
+    admin_horizons = runtime_config.get("ML_FORECAST_HORIZONS_MIN", _default_h)
+
+    meta_path = os.path.join(SAVE_PATHS.get("models", "train_data/models"), "current", "training_meta.json")
+    model_horizons = None
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, encoding="utf-8") as f:
+                meta = json.load(f)
+            model_horizons = meta.get("horizons") or meta.get("ML_FORECAST_HORIZONS_MIN")
+        except Exception:
+            pass
+
+    if model_horizons is None:
+        warnings.append({
+            "level": "info",
+            "message": "Kein trainiertes Modell vorhanden — System läuft im kinematischen Fallback."
+        })
+    elif sorted(model_horizons) != sorted(admin_horizons):
+        warnings.append({
+            "level": "warning",
+            "message": (
+                f"Admin-Horizonte {admin_horizons} weichen vom Modell {model_horizons} ab. "
+                "Vorhersage nutzt Fallback für nicht übereinstimmende Horizonte. "
+                "Empfehlung: Modell mit aktuellen Horizonten neu trainieren."
+            )
+        })
+
+    models_dir = os.path.join(SAVE_PATHS.get("models", "train_data/models"), "current")
+    missing_models = []
+    for h in admin_horizons:
+        for axis in ["x", "y"]:
+            model_file = os.path.join(models_dir, f"lgbm_h{h}_{axis}.txt")
+            if not os.path.exists(model_file):
+                missing_models.append(f"lgbm_h{h}_{axis}.txt")
+    if missing_models:
+        warnings.append({
+            "level": "warning",
+            "message": f"Fehlende Modell-Dateien für aktuelle Horizonte: {missing_models[:5]}"
+                       + (" (und weitere)" if len(missing_models) > 5 else "")
+        })
+
+    try:
+        from dem_feature import _DEM_TILES, _get_dem_dir
+        dem_dir = _get_dem_dir()
+        missing_tiles = [
+            fn for fn, _ in _DEM_TILES
+            if not os.path.exists(os.path.join(dem_dir, fn))
+        ]
+        if missing_tiles:
+            warnings.append({
+                "level": "warning",
+                "message": f"DEM: {len(missing_tiles)}/{len(_DEM_TILES)} Kacheln fehlen: {missing_tiles}"
+            })
+    except Exception as e:
+        warnings.append({"level": "info", "message": f"DEM-Status: {e}"})
+
+    return jsonify({
+        "ok": not any(w["level"] == "error" for w in warnings),
+        "admin_horizons": admin_horizons,
+        "model_horizons": model_horizons,
+        "warnings": warnings,
+    })
+
 @app.route("/api/thresholds")
 def api_thresholds():
     eff = runtime_config.all_effective()
