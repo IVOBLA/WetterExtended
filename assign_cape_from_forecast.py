@@ -5,7 +5,7 @@ import requests
 from shapely.geometry import Point
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-from debug_utils import debug_log
+from debug_utils import debug_log, log_http_response
 from config import BBOX_KAERNTEN_EXTENDED, SAVE_PATHS
 from api_cache import cache_key, cache_get, cache_set, get_ttl
 import runtime_config
@@ -146,10 +146,16 @@ def fetch_or_use_latest_geojson(filetimestamp: str, cape_url: str) -> str | None
         return cached_path
 
     try:
+        import time as _t_cape
+        _t0_cape = _t_cape.monotonic()
         response = requests.get(cape_url, timeout=30)
-        from debug_utils import log_api_call
-        log_api_call("geosphere_cape", url=cape_url, status_code=response.status_code,
-                     method="GET", content_type=response.headers.get("content-type"))
+        _dur_cape = (_t_cape.monotonic() - _t0_cape) * 1000
+        log_http_response(
+            service="geosphere_cape",
+            method="GET",
+            response=response,
+            duration_ms=_dur_cape,
+        )
         response.raise_for_status()
         content = response.content
 
