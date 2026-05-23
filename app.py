@@ -883,6 +883,77 @@ def api_api_health():
     return jsonify(api_health_summary(since_hours=hours))
 
 
+
+
+@app.route("/api/dem_status")
+def api_dem_status():
+    """
+    Prüft den aktuellen Zustand der Copernicus-DEM-Kacheln.
+    Rückgabe:
+      tiles_total    — Anzahl erwarteter Kacheln (8 für Kärnten)
+      tiles_present  — Anzahl vorhandener .tif-Dateien
+      tiles_missing  — Liste fehlender Dateinamen
+      tiles_sizes_kb — Dict: Dateiname → Größe in KB
+      mosaic_loaded  — ob das Mosaic im aktuellen Prozess im RAM ist
+      dem_dir        — konfiguriertes Verzeichnis
+      training_used  — ob DEM-Features in letztem Training enthalten waren
+    """
+    try:
+        from dem_feature import _DEM_TILES, _get_dem_dir, _mosaic_data
+
+        dem_dir = _get_dem_dir()
+        present = []
+        missing = []
+        sizes = {}
+        for fn, _ in _DEM_TILES:
+            full = os.path.join(dem_dir, fn)
+            if os.path.exists(full):
+                present.append(fn)
+                sizes[fn] = round(os.path.getsize(full) / 1024, 0)
+            else:
+                missing.append(fn)
+
+        mosaic_loaded = _mosaic_data is not None
+    except Exception as e:
+        return jsonify({
+            "ok": False,
+            "error": str(e),
+            "tiles_total": 8,
+            "tiles_present": 0,
+            "tiles_missing": [],
+            "mosaic_loaded": False,
+        })
+
+    # Training-Meta: wurden DEM-Features verwendet?
+    dem_in_training = None
+    meta_path = os.path.join(
+        SAVE_PATHS.get("models", "train_data/models"), "current", "training_meta.json"
+    )
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, encoding="utf-8") as f:
+                meta = json.load(f)
+            features = meta.get("feature_names") or meta.get("features") or []
+            dem_in_training = any("dem_" in str(f) for f in features)
+        except Exception:
+            dem_in_training = None
+
+    all_present = len(missing) == 0
+    return jsonify({
+        "ok": all_present,
+        "dem_dir": dem_dir,
+        "tiles_total": len(_DEM_TILES),
+        "tiles_present": len(present),
+        "tiles_missing": missing,
+        "tiles_sizes_kb": sizes,
+        "mosaic_loaded": mosaic_loaded,
+        "training_used": dem_in_training,
+        "status_label": (
+            "Vollständig" if all_present and mosaic_loaded
+            else "Kacheln laden…" if all_present and not mosaic_loaded
+            else f"{len(missing)} Kachel(n) fehlen"
+        ),
+    })
 @app.route("/api/forecast_stats")
 def api_forecast_stats():
     """
