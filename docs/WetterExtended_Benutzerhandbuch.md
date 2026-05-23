@@ -1267,3 +1267,94 @@ zur Laufzeit aus `runtime_config` gelesen. Eine Änderung über das Admin-Panel
 wirkt sich sofort auf neue Vorhersagen aus — bestehende Modelle müssen für
 die neuen Horizonte ggf. neu trainiert werden (Warnung erscheint in den Logs
 wenn Modell-Ausgabedimension nicht passt).
+
+---
+
+# 27 NEU: Forecast-Modus Anzeige (ML vs. Fallback)
+
+**API:** `GET /api/forecast_stats?hours=<n>`  
+**Frontend:** Dashboard (Card „Forecast-Modus")
+
+Das Dashboard zeigt jetzt ob das System ML-basierte Vorhersagen oder den
+kinematischen Fallback verwendet.
+
+| Anzeige | Bedeutung |
+|---|---|
+| 🤖 ML | LightGBM-Modelle vorhanden und aktiv |
+| 📐 Fallback | Keine Modelle oder Sequenz zu kurz — kinematische Extrapolation |
+
+Der Prozentwert (z.B. „ML 82% / Fallback 18% (24h)") zeigt den Anteil je Modus
+über alle erkannten Zellen der letzten 24 Stunden.
+
+---
+
+# 28 NEU: DEM-Kacheln Statusanzeige
+
+**API:** `GET /api/dem_status`  
+**Frontend:** Dashboard (Card „DEM-Kacheln")
+
+Das Dashboard zeigt ob alle 8 Copernicus-GLO-30-Kacheln für Kärnten vorhanden sind.
+
+| Anzeige | Bedeutung |
+|---|---|
+| 8 / 8 | Alle Kacheln vorhanden, Mosaic geladen |
+| x / 8 | x Kacheln fehlen — DEM-Features liefern 0.0 für fehlende Bereiche |
+| Kacheln laden… | Kacheln vorhanden, Mosaic noch nicht in RAM |
+
+Die DEM-Kacheln werden beim ersten Start automatisch heruntergeladen (~1,4 GB).
+Der Download läuft im Hintergrund und blockiert den Tracking-Loop nicht.
+
+---
+
+# 29 NEU: Cache-Status Übersicht
+
+**API:** `GET /api/cache_status`  
+**Frontend:** Logs-Seite (Abschnitt „API-Cache Status")
+
+Zeigt für alle externen Schnittstellen:
+
+| Spalte | Beschreibung |
+|---|---|
+| Namespace | Cache-Schlüssel des Services |
+| Status | FRESH (TTL nicht abgelaufen), STALE (abgelaufen), MISSING (noch kein Request) |
+| Alter | Wie alt ist der Cache-Eintrag |
+| TTL | Konfiguriertes Ablaufintervall |
+| Nächster Abruf in | Verbleibende Zeit bis nächster HTTP-Request nötig |
+| Letzter Abruf | UTC-Zeitstempel des letzten echten HTTP-Requests |
+
+Damit ist laut Zieldefinition erfüllt: unnötige Fremdrequests werden sichtbar
+reduziert und deren Aktualisierungsintervalle sind dokumentiert.
+
+Standard-TTL-Werte:
+
+| Service | TTL | Begründung |
+|---|---|---|
+| Blitzortung | 60 s | Aktualisiert jede Minute |
+| GeoSphere TAWES | 600 s | 10-Minuten-Messintervall |
+| EUMETView WMS | 900 s | MSG Full Earth Scan alle 15 Min |
+| Open-Meteo AROME (icon_d2) | 1800 s | Modell-Run alle 3 h, Werte stündlich |
+| GeoSphere CAPE | 1800 s | Wie AROME |
+| Open-Meteo Extended | 900 s | 15-Min-Puffer |
+| Open-Meteo Synoptic | 3600 s | 500-hPa-Werte ändern sich selten |
+
+---
+
+# 30 Automatisierter End-to-End Test
+
+**Datei:** `tests/test_locations_e2e.py`
+
+Führt folgende Prüfungen aus:
+
+1. `annotate_locations()`: Zelle im Ort-Radius → `hit_type='current'`
+2. `annotate_locations()`: Zelle außerhalb → keine hits
+3. `annotate_locations()`: Zelle erreicht Ort in 30 Minuten → Forecast-Hit
+4. `pixel_to_geo()`: gibt keine (0,0)-Koordinaten für Kärnten-Bildpixel zurück
+5. `/api/objects` (wenn Flask läuft): `forecast_mode` und `forecast_lat_10` vorhanden
+6. `forecast.kmz` (wenn vorhanden): enthält gültige KML-Datei
+
+Ausführung:
+```bash
+cd ~/wetterprojekt
+python3 tests/test_locations_e2e.py
+```
+
