@@ -217,6 +217,7 @@ export default function Dashboard() {
   const [apiCalls, setApiCalls]         = useState(null)
   const [apiHealth, setApiHealth]       = useState(null)
   const [forecastStats, setForecastStats] = useState(null)
+  const [demStatus, setDemStatus]         = useState(null)
   const [selectedService, setSelectedService] = useState('')
 
   useEffect(() => {
@@ -228,6 +229,7 @@ export default function Dashboard() {
       api.get('/api/api_calls?hours=24').then(setApiCalls).catch(() => {}),
       api.get('/api/api_health?hours=24').then(setApiHealth).catch(() => {}),
       api.get('/api/forecast_stats?hours=24').then(setForecastStats).catch(() => {}),
+      api.get('/api/dem_status').then(setDemStatus).catch(() => {}),
     ])
   }, [])
 
@@ -306,6 +308,17 @@ export default function Dashboard() {
                 : 'Noch keine Zellen'
             }
             colorClass={forecastStats.active_mode === 'ml' ? '' : forecastStats.active_mode === 'kinematic' ? 'border-l-4 border-yellow-400' : ''}
+          />
+        )}
+
+        {demStatus && (
+          <Card
+            title="DEM-Kacheln"
+            value={`${demStatus.tiles_present} / ${demStatus.tiles_total}`}
+            subtitle={demStatus.status_label}
+            colorClass={
+              demStatus.ok ? '' : 'border-l-4 border-yellow-500'
+            }
           />
         )}
 
