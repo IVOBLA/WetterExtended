@@ -324,6 +324,46 @@ Kein Hardcoding. Überschreibbar via `runtime_overrides.json`.
 - Änderungen wirken sofort im nächsten Tracking-Zyklus
 
 
+#### A11 — GeoSphere CAPE + 700hPa Wind: vollständiges Response-Logging ✅
+**Dateien:** `assign_cape_from_forecast.py`, `fetch_700hpa_wind_per_object_slim.py`
+
+**Umgesetzt:**
+- `assign_cape_from_forecast.py`: `log_api_call` ohne Body → `log_http_response` mit Timing
+- `fetch_700hpa_wind_per_object_slim.py`: Bulk-Request und Einzelabfrage beide mit `log_http_response`
+- GeoJSON-Response (CAPE) und Open-Meteo JSON (700hPa Wind) jetzt vollständig im Dashboard sichtbar
+
+#### A12 — Forecast-Horizonte End-to-End + Konsistenz-Assert ✅
+**Dateien:** `app.py`, `MapView.jsx`, `model_training.py`
+
+**Umgesetzt:**
+- `/api/system_consistency`: prüft Admin-Horizonte vs. Modell-Meta, fehlende Modell-Dateien, DEM-Tiles
+- `training_meta.json` speichert jetzt Horizonte für Konsistenz-Prüfung
+- `MapView.jsx`: Horizonte werden von `/api/horizons` geladen (kein statisches Array)
+
+#### A13 — ML-Modus Nachweis im Admin ✅
+**Dateien:** `app.py`, `frontend/src/pages/Dashboard.jsx`
+
+**Umgesetzt:**
+- `/api/forecast_stats`: aggregiert `forecast_mode` aus Objekt-JSONs der letzten N Stunden
+- Dashboard-Card „Forecast-Modus": zeigt aktiven Modus (ML/Fallback) + 24h-Statistik
+- Gelbe Border-Markierung wenn Fallback aktiv
+
+#### A14 — DEM Healthcheck im Admin ✅
+**Dateien:** `app.py`, `frontend/src/pages/Dashboard.jsx`
+
+**Umgesetzt:**
+- `/api/dem_status`: Kachel-Zähler, fehlende Tiles, Mosaic-Status, Training-Verwendung
+- Dashboard-Card „DEM-Kacheln": Anzeige x/8 Kacheln + Status-Label
+
+#### A15 — Cache-Status im Admin sichtbar ✅
+**Dateien:** `app.py`, `frontend/src/pages/Logs.jsx`
+
+**Umgesetzt:**
+- `/api/cache_status`: FRESH/STALE/MISSING + letzter Abruf + nächster erlaubter Abruf je Namespace
+- Logs-Seite: neue Tabelle „API-Cache Status"
+- Erfüllt Zieldefinition: Fremdrequests minimieren + Aktualisierungsintervalle berücksichtigen
+
+
 ### 5.3 Definition of Done (für Referenz)
 
 1. Code-Änderung steht im Repo (manuell committed nach Test)
