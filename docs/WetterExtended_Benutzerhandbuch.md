@@ -698,34 +698,67 @@ Oder in `runtime_overrides.json`:
 
 # 22 NEU: API-Request-Statistik und Detail-Ansicht
 
-**API-Endpunkte:** `GET /api/api_calls`, `GET /api/api_calls/detail`  
+**API-Endpunkte:** `GET /api/api_calls`, `GET /api/api_calls/last`, `GET /api/api_calls/detail`  
 **Frontend:** `Dashboard.jsx`, `Logs.jsx`
 
-Jede externe API-Anfrage (ARSO, Open-Meteo, GeoSphere, Blitzortung, EUMETView) wird in einer lokalen JSONL-Datenbank (`api_call_counts.jsonl`) gezählt.
+Jede externe API-Anfrage (ARSO, Open-Meteo, GeoSphere, Blitzortung, EUMETView) wird in einer
+lokalen JSONL-Datenbank (`api_call_counts.jsonl`) mit vollständigem Request und Response geloggt.
 
-## 22.1 Dashboard-Tabelle (API-Requests 24h)
+## 22.1 Dashboard — 24h-Statistiktabelle
 
-Das Dashboard zeigt eine Tabelle aller externen Schnittstellen. Ein Klick auf eine Zeile öffnet ein eingebettetes Detail-Panel mit den letzten Requests des Services:
+Das Dashboard zeigt eine kompakte Statistiktabelle aller externen Schnittstellen der letzten 24 Stunden.
 
 | Spalte | Beschreibung |
 |---|---|
-| Service | Name der externen Schnittstelle (klickbar) |
+| Service | Name der externen Schnittstelle (klickbar — filtert das Detail-Panel unten) |
 | Anfragen | Anzahl Requests in den letzten 24h |
-| Fehler | Anzahl fehlgeschlagener Requests (rot) |
+| Fehler | Anzahl fehlgeschlagener Requests (rot hervorgehoben) |
 | Fehlerrate | Prozentsatz fehlgeschlagener Requests |
 | 🌐-Link | Direktlink zur öffentlichen Web-Oberfläche des Datenanbieters |
 
-## 22.2 Detail-Panel (Klick auf Zeile)
+> **Hinweis:** Die 24h-Zähler zeigen immer den gesamten Zeitraum seit Mitternacht UTC.
+> Fehler werden in Rot dargestellt. Eine Fehlerrate > 0 % ist kein Alarm, solange
+> der Fallback greift (erkennbar an den API-Gesundheits-Meldungen oben im Dashboard).
 
-Beim Klick auf eine Service-Zeile erscheint ein Panel mit den letzten bis zu 15 Requests:
+## 22.2 Detail-Panel — Letzter API-Request / Response
 
-| Spalte | Beschreibung |
+Unterhalb der Statistiktabelle befindet sich ein separater Card „🔍 Letzter API-Request / Response".
+
+**Service auswählen:** Entweder durch Klick auf eine Tabellenzeile oben, oder über das
+Dropdown rechts im Detail-Panel-Header. Beide Steuerelemente sind synchronisiert.
+
+Das Panel zeigt den **letzten gespeicherten Request des gewählten Services** (oder den
+letzten beliebigen Request wenn kein Service ausgewählt ist).
+
+### 22.2.1 Meta-Zeile
+
+| Feld | Beschreibung |
 |---|---|
-| Zeitstempel | UTC-Zeitpunkt des Requests |
-| Status | HTTP-Statuscode (grün=OK, gelb=Redirect, rot=Fehler) |
-| URL | Vollständige Request-URL (auf 100 Zeichen gekürzt) |
+| Service | Service-Name |
+| Zeit | UTC-Zeitstempel des Requests |
+| Status | HTTP-Statuscode (grün = 2xx, orange = 4xx, rot = 5xx) |
+| Dauer | Antwortzeit in Millisekunden |
+| 🌐 Quelle | Link zur öffentlichen Quelle (falls verfügbar) |
 
-Am oberen Rand des Panels erscheint bei Schnittstellen mit öffentlichem Browser-Zugang ein Link:
+### 22.2.2 Request-Block
+
+Zeigt HTTP-Methode, vollständige URL und Request-Payload (falls vorhanden).
+Secrets (API-Keys, Passwörter) werden automatisch mit `***` maskiert.
+
+### 22.2.3 Response-Block
+
+Der Response wird je nach Content-Type unterschiedlich dargestellt:
+
+| Typ | Darstellung |
+|---|---|
+| JSON (body_json) | Formatiertes, einrückbares JSON-Objekt — kein doppeltes Escaping |
+| Text/XML/CSV (body_text) | Direkter Text, scrollbar |
+| Binär / KMZ / TIFF (binary) | Metadaten-Box: Content-Type, Dateigröße, SHA-256, lokaler Pfad |
+
+> **Hinweis:** Responses werden **nie gekürzt**. Die vollständige Antwort
+> wird gespeichert (außer bei Binärdaten — dort werden nur Metadaten gespeichert).
+
+### 22.2.4 Öffentliche Quellen-Links je Service
 
 | Schnittstelle | Öffentlicher Link |
 |---|---|
@@ -734,6 +767,12 @@ Am oberen Rand des Panels erscheint bei Schnittstellen mit öffentlichem Browser
 | GeoSphere CAPE/Nowcast | https://dataset.api.hub.geosphere.at/ |
 | EUMETView | https://eumetview.eumetsat.int/ |
 | Blitzortung | https://www.blitzortung.org/ |
+
+## 22.3 Logs-Seite — Vollständige Request-Liste
+
+Unter **Logs → API-Requests** können die letzten Requests gefiltert nach Service
+und Zeitraum eingesehen werden (bis zu 200 Einträge). Diese Ansicht enthält auch
+ältere Requests, die im Dashboard-Panel nicht mehr sichtbar sind.
 
 ---
 
