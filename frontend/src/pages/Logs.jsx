@@ -10,7 +10,7 @@ function severityColor(reason = '') {
   return 'text-red-600'
 }
 
-export default function Logs() {
+function Logs() {
   const [logs,        setLogs]        = useState({ wetterprojekt: [], scheduler: [], admin: [] })
   const [rawHealth,   setRawHealth]   = useState({ entries: [], total: 0 })
   const [summary,     setSummary]     = useState({ total: 0, by_service: {} })
@@ -213,6 +213,65 @@ export default function Logs() {
           </div>
         </div>
       )}
+
+      {/* Cache-Status */}
+      <div className="card mt-4">
+        <h2 className="text-base font-semibold mb-3">🗄️ API-Cache Status</h2>
+        <CacheStatusTable />
+      </div>
     </div>
   )
 }
+
+function CacheStatusTable() {
+  const [data, setData] = useState(null)
+
+  useEffect(() => {
+    api.get('/api/cache_status').then(setData).catch(() => {})
+  }, [])
+
+  if (!data) return <div className="text-gray-400 text-sm">Lade Cache-Status…</div>
+
+  const statusColor = (s) =>
+    s === 'FRESH' ? 'text-green-600' : s === 'STALE' ? 'text-orange-500' : 'text-gray-400'
+
+  return (
+    <table className="w-full text-xs">
+      <thead>
+        <tr className="border-b text-gray-500 uppercase">
+          <th className="p-1 text-left">Namespace</th>
+          <th className="p-1 text-right">Status</th>
+          <th className="p-1 text-right">Alter</th>
+          <th className="p-1 text-right">TTL</th>
+          <th className="p-1 text-right">Nächster Abruf in</th>
+          <th className="p-1 text-left">Letzter Abruf (UTC)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {(data.services || []).map((s) => (
+          <tr key={s.namespace} className="border-b hover:bg-gray-50">
+            <td className="p-1 font-mono">{s.namespace}</td>
+            <td className={`p-1 text-right font-bold ${statusColor(s.status)}`}>{s.status}</td>
+            <td className="p-1 text-right">
+              {s.age_s != null ? `${Math.floor(s.age_s / 60)}m ${s.age_s % 60}s` : '—'}
+            </td>
+            <td className="p-1 text-right">
+              {s.ttl_s != null ? `${Math.floor(s.ttl_s / 60)}m` : '—'}
+            </td>
+            <td className="p-1 text-right">
+              {s.status === 'FRESH' && s.next_allowed_in_s > 0
+                ? `${Math.floor(s.next_allowed_in_s / 60)}m ${s.next_allowed_in_s % 60}s`
+                : s.status === 'STALE' ? 'jetzt' : '—'}
+            </td>
+            <td className="p-1 text-gray-500">
+              {s.last_fetch_ts ? s.last_fetch_ts.replace('T', ' ') : '—'}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+export default Logs
+
