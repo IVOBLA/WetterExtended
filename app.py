@@ -954,6 +954,97 @@ def api_dem_status():
             else f"{len(missing)} Kachel(n) fehlen"
         ),
     })
+@app.route("/api/cache_status")
+def api_cache_status():
+    """
+    Zeigt Cache-Zustand je Service:
+    - Letzte gecachte Datei je Namespace
+    - Alter in Sekunden
+    - Konfigurierter TTL
+    - Status: FRESH / STALE / MISSING
+    Rückgabe: {services: [{namespace, last_fetch_ts, age_s, ttl_s, status, file}]}
+    """
+    import time as _t_cache
+    try:
+        from config import API_CACHE_TTL_SECONDS as _TTL_CFG
+        import runtime_config as _rc
+        ttl_map = _rc.get("API_CACHE_TTL_SECONDS", _TTL_CFG)
+    except Exception:
+        ttl_map = {}
+
+    # Standard-TTL-Fallbacks je bekanntem Service
+    _DEFAULT_TTLS = {
+        "openmeteo_icon_d2": 1800,
+        "openmeteo_icon_global": 3600,
+        "openmeteo_extended": 900,
+        "openmeteo_synoptic": 3600,
+        "geosphere_cape": 1800,
+        "geosphere_tawes": 600,
+        "eumetview_wms": 900,
+        "eumetview_wms_caps": 600,
+        "blitzortung": 60,
+        "geosphere_nowcast": 600,
+    }
+
+    try:
+        from api_cache import _CACHE_DIR
+    except Exception:
+        _CACHE_DIR = "train_data/api_cache"
+
+    now = _t_cache.time()
+    results = []
+
+    # Alle Cache-Dateien lesen und je Namespace aggregieren
+    namespace_files = {}
+    if os.path.isdir(_CACHE_DIR):
+        for fname in os.listdir(_CACHE_DIR):
+            if not fname.endswith(".json"):
+                continue
+            fpath = os.path.join(_CACHE_DIR, fname)
+            # Namespace aus Dateinamen extrahieren (Format: ns_hash.json)
+            parts = fname.replace(".json", "").rsplit("_", 1)
+            ns = parts[0] if len(parts) == 2 else fname.replace(".json", "")
+            try:
+                age = now - os.path.getmtime(fpath)
+                if ns not in namespace_files or age < namespace_files[ns]["age_s"]:
+                    namespace_files[ns] = {
+                        "file": fname,
+                        "age_s": round(age),
+                        "mtime": os.path.getmtime(fpath),
+                    }
+            except Exception:
+                continue
+
+    # Bekannte Services mit TTL-Infos aufbauen
+    all_namespaces = set(list(_DEFAULT_TTLS.keys()) + list(namespace_files.keys()))
+    for ns in sorted(all_namespaces):
+        ttl = int(ttl_map.get(ns, _DEFAULT_TTLS.get(ns, 0)))
+
+        info = namespace_files.get(ns)
+        if info:
+            age_s = info["age_s"]
+            import datetime as _dt_c
+            last_ts = _dt_c.datetime.utcfromtimestamp(info["mtime"]).isoformat(timespec="seconds") + "Z"
+            next_allowed_s = max(0, ttl - age_s)
+            status = "FRESH" if age_s <= ttl else "STALE"
+        else:
+            age_s = None
+            last_ts = None
+            next_allowed_s = 0
+            status = "MISSING"
+
+        results.append({
+            "namespace": ns,
+            "last_fetch_ts": last_ts,
+            "age_s": age_s,
+            "ttl_s": ttl if ttl else None,
+            "next_allowed_in_s": next_allowed_s,
+            "status": status,
+        })
+
+    return jsonify({"services": results, "cache_dir": _CACHE_DIR})
+
+
 @app.route("/api/forecast_stats")
 def api_forecast_stats():
     """
