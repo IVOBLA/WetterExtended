@@ -214,8 +214,9 @@ export default function Dashboard() {
   const [progress, setProgress]     = useState({ versions: [] })
   const [git, setGit]               = useState({})
   const [disk, setDisk]             = useState(null)
-  const [apiCalls, setApiCalls]     = useState(null)
-  const [apiHealth, setApiHealth]   = useState(null)
+  const [apiCalls, setApiCalls]         = useState(null)
+  const [apiHealth, setApiHealth]       = useState(null)
+  const [forecastStats, setForecastStats] = useState(null)
   const [selectedService, setSelectedService] = useState('')
 
   useEffect(() => {
@@ -226,6 +227,7 @@ export default function Dashboard() {
       api.get('/api/disk').then(setDisk).catch(() => setDisk(null)),
       api.get('/api/api_calls?hours=24').then(setApiCalls).catch(() => {}),
       api.get('/api/api_health?hours=24').then(setApiHealth).catch(() => {}),
+      api.get('/api/forecast_stats?hours=24').then(setForecastStats).catch(() => {}),
     ])
   }, [])
 
@@ -294,6 +296,19 @@ export default function Dashboard() {
           subtitle={lastTraining?.validation?.status}
         />
         <Card title="Git" value={git.branch || '—'} subtitle={git.commit} />
+        {forecastStats && (
+          <Card
+            title="Forecast-Modus"
+            value={forecastStats.active_mode === 'ml' ? '🤖 ML' : forecastStats.active_mode === 'kinematic' ? '📐 Fallback' : '—'}
+            subtitle={
+              forecastStats.ml_pct != null
+                ? `ML ${forecastStats.ml_pct}% / Fallback ${forecastStats.kinematic_pct}% (24h)`
+                : 'Noch keine Zellen'
+            }
+            colorClass={forecastStats.active_mode === 'ml' ? '' : forecastStats.active_mode === 'kinematic' ? 'border-l-4 border-yellow-400' : ''}
+          />
+        )}
+
         {disk && (
           <Card
             title="Disk-Belegung"

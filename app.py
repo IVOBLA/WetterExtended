@@ -883,6 +883,77 @@ def api_api_health():
     return jsonify(api_health_summary(since_hours=hours))
 
 
+@app.route("/api/forecast_stats")
+def api_forecast_stats():
+    """
+    Aggregiert forecast_mode ('ml' oder 'kinematic') aus den letzten N Objekt-JSONs.
+    Zeigt: Anteil ML-Forecasts, Anteil Fallback, letzter gesehener Modus, seit wann.
+    Query-Parameter: hours=<int default 24>
+    """
+    import glob as _gl
+    from datetime import datetime as _dt2, timedelta as _td2
+    try:
+        hours = max(1, min(int(request.args.get("hours", "24")), 720))
+    except (ValueError, TypeError):
+        hours = 24
+
+    obj_dir = SAVE_PATHS.get("objects", "train_data/objects")
+    cutoff  = _dt2.utcnow() - _td2(hours=hours)
+
+    ml_count        = 0
+    kinematic_count = 0
+    total_objects   = 0
+    last_mode       = None
+    last_ts         = None
+    last_file_ts    = None
+
+    try:
+        files = sorted(_gl.glob(os.path.join(obj_dir, "*.json")))
+        for fpath in files:
+            try:
+                # Zeitstempel aus Dateinamen extrahieren
+                fname = os.path.basename(fpath).replace(".json", "")
+                # Format: YYYY-MM-DD_HH-MM-SS
+                file_dt = _dt2.strptime(fname, "%Y-%m-%d_%H-%M-%S")
+            except ValueError:
+                continue
+            if file_dt < cutoff:
+                continue
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    objs = json.load(f)
+                if not isinstance(objs, list):
+                    continue
+                for obj in objs:
+                    mode = obj.get("forecast_mode")
+                    if mode == "ml":
+                        ml_count += 1
+                    elif mode in ("kinematic", "linear"):
+                        kinematic_count += 1
+                    total_objects += 1
+                    if last_file_ts is None or file_dt > last_file_ts:
+                        last_file_ts = file_dt
+                        last_mode = mode
+                        last_ts   = fname
+            except Exception:
+                continue
+    except Exception as exc:
+        return jsonify({"error": str(exc), "ml_count": 0, "kinematic_count": 0})
+
+    total_with_mode = ml_count + kinematic_count
+    return jsonify({
+        "hours":            hours,
+        "total_objects":    total_objects,
+        "ml_count":         ml_count,
+        "kinematic_count":  kinematic_count,
+        "ml_pct":           round(ml_count / total_with_mode * 100, 1) if total_with_mode else None,
+        "kinematic_pct":    round(kinematic_count / total_with_mode * 100, 1) if total_with_mode else None,
+        "last_mode":        last_mode,
+        "last_ts":          last_ts,
+        "active_mode":      last_mode or "unbekannt",
+    })
+
+
 @app.route("/api/api_health_raw")
 def api_api_health_raw():
     """Einzeleinträge aus api_health.jsonl (neueste zuerst) für Logs-Seite."""
