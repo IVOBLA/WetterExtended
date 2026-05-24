@@ -65,31 +65,19 @@ def fetch_and_save_lightning(timestamp: str) -> None:
     import time as _t_blitz
     _t0_blitz = _t_blitz.monotonic()
     try:
-        response = requests.get(
+        from http_retry import retry_get
+        response = retry_get(
             url,
-            auth=(USERNAME, PASSWORD),  # HTTP Basic Auth Header
+            service="Blitzortung",
             timeout=10,
+            auth=(USERNAME, PASSWORD),
         )
-        response.raise_for_status()
-    except requests.exceptions.Timeout:
-        log_api_call("blitzortung", url, 408,
-                     duration_ms=(_t_blitz.monotonic() - _t0_blitz) * 1000)
-        log_api_failure("blitzortung", _BASE_URL, "timeout", fallback_used=True)
-        debug_log("[LIGHTNING] Timeout beim Abrufen der Blitzdaten.")
-        return
-    except requests.exceptions.HTTPError as exc:
-        status = getattr(exc.response, "status_code", None) or 0
-        log_api_call("blitzortung", url, status)
-        log_api_failure("blitzortung", _BASE_URL,
-                        f"http-{status}", fallback_used=True, http_status=status)
-        debug_log(f"[LIGHTNING] HTTP-Fehler {status}.")
-        return
     except Exception as exc:
-        log_api_call("blitzortung", url, 0)
-        log_api_failure("blitzortung", _BASE_URL,
-                        f"{type(exc).__name__}: {exc}", fallback_used=True)
-        debug_log(f"[LIGHTNING] Fehler: {exc}")
+        log_api_call("blitzortung", url, 0,
+                     duration_ms=(_t_blitz.monotonic() - _t0_blitz) * 1000)
+        debug_log(f"[LIGHTNING] Alle Versuche fehlgeschlagen: {type(exc).__name__}: {exc}")
         return
+
 
     log_http_response(
         service="blitzortung",

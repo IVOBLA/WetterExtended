@@ -146,36 +146,18 @@ def assign_arome_to_objects(objects: list, timestamp: str) -> list:
     import time as _t_arome
     _t0_arome = _t_arome.monotonic()
     try:
-        r = requests.get(bulk_url, timeout=_TIMEOUT)
-        r.raise_for_status()
+        from http_retry import retry_get
+        r = retry_get(bulk_url, service="Open-Meteo-icon_d2", timeout=_TIMEOUT)
         data = r.json()
         log_api_call("openmeteo_icon_d2", bulk_url, r.status_code,
                      duration_ms=(_t_arome.monotonic() - _t0_arome) * 1000,
                      method="GET", response_payload=data,
                      content_type=r.headers.get("content-type"))
         cache_set(ck, data)
-    except requests.exceptions.Timeout:
-        log_api_failure("Open-Meteo-icon_d2", bulk_url, "timeout", fallback_used=True)
-        log_api_call("openmeteo_icon_d2", bulk_url, 408,
-                     duration_ms=(_t_arome.monotonic() - _t0_arome) * 1000)
-        debug_log("[AROME] Timeout beim Bulk-Request — alle Objekte erhalten Default-Werte.")
-        for _, obj in valid:
-            obj.update(_DEFAULT)
-        _save_results({}, timestamp)
-        return objects
-    except requests.exceptions.HTTPError as exc:
-        status = getattr(exc.response, "status_code", None)
-        log_api_failure("Open-Meteo-icon_d2", bulk_url,
-                        f"http-{status}", fallback_used=True, http_status=status)
-        debug_log(f"[AROME] HTTP-Fehler {status} — Default-Werte.")
-        for _, obj in valid:
-            obj.update(_DEFAULT)
-        _save_results({}, timestamp)
-        return objects
     except Exception as exc:
-        log_api_failure("Open-Meteo-icon_d2", bulk_url,
-                        f"{type(exc).__name__}: {exc}", fallback_used=True)
-        debug_log(f"[AROME] Fehler: {exc} — Default-Werte.")
+        log_api_call("openmeteo_icon_d2", bulk_url, 0,
+                     duration_ms=(_t_arome.monotonic() - _t0_arome) * 1000)
+        debug_log(f"[AROME] Alle Versuche fehlgeschlagen: {exc} — Default-Werte.")
         for _, obj in valid:
             obj.update(_DEFAULT)
         _save_results({}, timestamp)

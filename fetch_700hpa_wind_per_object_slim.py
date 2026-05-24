@@ -123,9 +123,9 @@ def fetch_and_assign_700hpa_wind(objects: list, timestamp: str) -> list:
         import time as _t_wind
         _t0_wind = _t_wind.monotonic()
         try:
-            r = requests.get(bulk_url, timeout=_TIMEOUT)
+            from http_retry import retry_get
+            r = retry_get(bulk_url, service="Open-Meteo-700hPa", timeout=10)
             _dur_wind = (_t_wind.monotonic() - _t0_wind) * 1000
-            r.raise_for_status()
             data = r.json()
             log_http_response(
                 service="openmeteo_icon_global",
@@ -214,9 +214,9 @@ def get_700hpa_wind(lat: float, lon: float) -> tuple:
     import time as _t_wind_single
     _t0_single = _t_wind_single.monotonic()
     try:
-        r = requests.get(url, timeout=10)
+        from http_retry import retry_get
+        r = retry_get(url, service="Open-Meteo-700hPa-single", timeout=10)
         _dur_single = (_t_wind_single.monotonic() - _t0_single) * 1000
-        r.raise_for_status()
         data = r.json()
         log_http_response(
             service="openmeteo_icon_global",
