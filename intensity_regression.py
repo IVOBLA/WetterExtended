@@ -74,7 +74,21 @@ def _load_json(path):
 def _frame_features(obj, stations, ts):
     """Baut den 1-D Feature-Vektor identisch zu dataset_builder._frame_features."""
     cell_feats = [_safe_float(obj.get(k, 0.0)) for k in ML_CELL_FEATURES]
-    lat, lon = pixel_to_geo(obj.get("x", 0), obj.get("y", 0))
+    # Fix P02: lat/lon direkt aus obj — pixel_to_geo() würde pre-upscale
+    # x/y fälschlich erneut herunterskalieren.
+    _lat_obj = obj.get("lat")
+    _lon_obj = obj.get("lon")
+    if _lat_obj is not None and _lon_obj is not None:
+        lat = float(_lat_obj)
+        lon = float(_lon_obj)
+    else:
+        try:
+            from config import UPSCALE_FACTOR as _UF_IR
+        except Exception:
+            _UF_IR = 3.0
+        _ox = _safe_float(obj.get("x", 0.0)) * float(_UF_IR)
+        _oy = _safe_float(obj.get("y", 0.0)) * float(_UF_IR)
+        lat, lon = pixel_to_geo(_ox, _oy)
     nearest = find_nearest_station(lat, lon, stations) if stations else None
     stat_feats = [
         _safe_float(nearest.get(k, 0.0)) if nearest else 0.0
