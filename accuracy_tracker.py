@@ -231,6 +231,11 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
 
     eval_n = verified if verified > 0 else 1
 
+    # P24: coverage_rate = Anteil verifizierbarer Forecasts an allen.
+    # Hohe hit_rate ist nur aussagekräftig wenn coverage_rate hoch ist.
+    # coverage_rate < 0.3 → Metriken unzuverlässig (zu viele not_found frames).
+    _coverage = round(verified / n_total, 4) if n_total > 0 else None
+
     return {
         "horizon": horizon_min,
         "samples": n_total,
@@ -240,6 +245,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         "no_target_frame": no_target_frame,
         "id_lost": id_lost,
         "hit_rate": round(hits / verified, 4) if verified else None,
+        "coverage_rate": _coverage,          # verified / n_total
         "mae_km": round(sum_km / eval_n, 3) if eval_n else None,
         "rmse_km": round(math.sqrt(sum_km2 / eval_n), 3) if eval_n else None,
         "mae_px": round(sum_abs_px / eval_n, 2) if eval_n else None,
