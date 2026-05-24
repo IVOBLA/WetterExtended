@@ -151,6 +151,17 @@ Abarbeitungsreihenfolge war: A1 → A2 → A3 → A4 → A5 → A6 → A8 → A7
 | A9 | File-Locking bei JSON-Schreibvorgängen | `runtime_config.py` | ✅ erledigt |
 | A10 | ConvLSTM MODEL_PATH via SAVE_PATHS + runtime_config | `radar_convlstm.py` | ✅ erledigt |
 
+### 5.3 Phase A.2 — Produktreife Welle 2 ✅
+
+| # | Task | Datei(en) | Status |
+|---|------|-----------|--------|
+| B16 | POST-Routen Token-Auth (`ADMIN_API_TOKEN`) | `app.py`, `frontend/src/api.js`, `install.sh` | ✅ erledigt |
+| B17 | Einheitlicher HTTP-Retry-Wrapper | `http_retry.py` (neu), `blitz_api.py`, `fetch_arome_openmeteo.py`, `fetch_geosphere_nowcast.py`, `cloud_height_from_eumetview.py`, `fetch_700hpa_wind_per_object_slim.py` | ✅ erledigt |
+| B18 | `requirements.lock` + `npm ci` | `install.sh` | ✅ erledigt |
+| B19 | systemd Watchdog (`Type=notify`, `WatchdogSec=60`, Heartbeat-Thread) | `watchdog_heartbeat.py` (neu), `scheduler.py`, `app.py`, `main.py`, `install.sh` | ✅ erledigt |
+| B20 | journald-Limit 200 MB (SD-Karten-Schutz) | `install.sh` (Drop-In `/etc/systemd/journald.conf.d/wetterprojekt.conf`) | ✅ erledigt |
+| B21 | Wöchentliches Backup-Script (Modelle + Secrets) | `backup_wetterprojekt.sh` (neu), `scheduler.py` | ✅ erledigt |
+
 ### 5.2 Umgesetzte Implementierungen (tatsächlicher Code-Stand)
 
 #### A1 — `parse_timestamp` Bugfix ✅
