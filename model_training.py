@@ -349,6 +349,38 @@ def train_intensification_classifier(model_dir):
     }
 
 
+def _compute_holdout_metrics(X_h, y_h, model_dir: str) -> dict:
+    """
+    Berechnet MAE auf dem Holdout-Set (letzter Tag) mit den gerade
+    trainierten Modellen. Gibt ehrliche Test-Metriken ohne Data-Leakage.
+    """
+    result = {"samples": int(len(X_h)), "mae_px": None, "mae_by_horizon": {}}
+    if np is None or len(X_h) == 0:
+        return result
+    try:
+        lstm_path = os.path.join(model_dir, "weather_lstm.keras")
+        scaler_y_path = os.path.join(model_dir, "scaler_y.joblib")
+        if load_model is None or joblib is None or not (os.path.exists(lstm_path) and os.path.exists(scaler_y_path)):
+            result["note"] = "Modelle nicht geladen"
+            return result
+
+        _lstm = load_model(lstm_path)
+        _scaler_y = joblib.load(scaler_y_path)
+        preds_scaled = _lstm.predict(X_h, verbose=0)
+        preds = _scaler_y.inverse_transform(preds_scaled)
+        errs = np.abs(preds - y_h)
+        mae_total = float(np.mean(errs))
+        result["mae_px"] = round(mae_total, 3)
+        for i, h in enumerate(ML_FORECAST_HORIZONS_MIN):
+            h_errs = errs[:, i * 2:(i + 1) * 2]
+            result["mae_by_horizon"][str(h)] = round(float(np.mean(h_errs)), 3)
+        result["note"] = "OK"
+    except Exception as exc:
+        result["note"] = f"Fehler: {exc}"
+        debug_log(f"[HOLDOUT] Metric-Fehler: {exc}")
+    return result
+
+
 def retrain_all():
     status = "failed"
     timestamp = datetime.now(timezone.utc).strftime("v_%Y-%m-%dT%H-%M-%SZ")
@@ -362,8 +394,36 @@ def retrain_all():
         X = np.asarray(dataset.get("X", [])) if np is not None else np.asarray([])
         y = np.asarray(dataset.get("y", [])) if np is not None else np.asarray([])
         has_data = np is not None and getattr(X, "size", 0) and getattr(y, "size", 0)
-        lstm_result = train_lstm(X, y, model_dir=version_dir) if has_data else {"trained": False, "val_loss": None}
-        lgbm_result = train_lgbm(X, y, model_dir=version_dir) if has_data else {"trained": False, "best_scores": {}, "quantile_scores": {}}
+
+        # P20: Letzter Tag als echter Holdout — nicht zum Training verwendet.
+        # Samples mit timestamp >= (jetzt - 24h) → X_holdout/y_holdout
+        # Rest → X_train_full/y_train_full (weiterhin intern 80/20 gesplittet)
+        X_train_full, y_train_full = X, y
+        X_holdout, y_holdout = np.asarray([]), np.asarray([])
+        if has_data:
+            _ts_list = dataset.get("timestamps", [])
+            if len(_ts_list) == len(X):
+                _cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+                _cutoff_str = _cutoff.strftime("%Y-%m-%d_%H-%M-%S")
+                _holdout_mask = np.array([ts >= _cutoff_str for ts in _ts_list], dtype=bool)
+                _train_mask = ~_holdout_mask
+                if _holdout_mask.any() and _train_mask.any():
+                    X_holdout = X[_holdout_mask]
+                    y_holdout = y[_holdout_mask]
+                    X_train_full = X[_train_mask]
+                    y_train_full = y[_train_mask]
+                    debug_log(
+                        f"[TRAINING] P20 Holdout: {_holdout_mask.sum()} Samples (letzter Tag), "
+                        f"Training: {_train_mask.sum()} Samples"
+                    )
+                else:
+                    debug_log("[TRAINING] P20 Holdout: zu wenige Samples für Split — kein Holdout")
+            else:
+                debug_log("[TRAINING] P20 Holdout: kein timestamp-Array in Dataset — kein Holdout")
+
+        has_train_data = has_data and getattr(X_train_full, "size", 0) and getattr(y_train_full, "size", 0)
+        lstm_result = train_lstm(X_train_full, y_train_full, model_dir=version_dir) if has_train_data else {"trained": False, "val_loss": None}
+        lgbm_result = train_lgbm(X_train_full, y_train_full, model_dir=version_dir) if has_train_data else {"trained": False, "best_scores": {}, "quantile_scores": {}}
         intensification_result = train_intensification_classifier(model_dir=version_dir)
         try:
             from intensity_regression import train_intensity_regressors
@@ -392,6 +452,14 @@ def retrain_all():
                 "recall_at_0_5": intensification_result.get("recall"),
                 "samples": intensification_result.get("samples", 0),
                 "positive_samples": intensification_result.get("positive_samples", 0),
+            },
+            "holdout": _compute_holdout_metrics(
+                X_holdout, y_holdout,
+                version_dir,
+            ) if has_data and getattr(X_holdout, "size", 0) else {
+                "samples": 0,
+                "mae_px": None,
+                "note": "Kein Holdout-Set verfügbar (zu wenige Samples oder erster Tag)",
             },
         }
         with open(os.path.join(version_dir, "training_meta.json"), "w", encoding="utf-8") as f:

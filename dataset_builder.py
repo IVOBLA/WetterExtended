@@ -286,7 +286,9 @@ def build_dataset(model_save_dir=None):
 
     debug_log(f"[DATASET] Datensatz gebaut: X={X_scaled.shape}, y={y_scaled.shape}")
     debug_log(f"[DATASET] {len(X_rows)} kept, {n_rejected} rejected (reasons: {rejection_reasons})")
-    return {"X": X_scaled, "y": y_scaled, "y_raw": y_raw, "ids": ids, "rejected_samples": n_rejected, "rejection_reasons": rejection_reasons}
+    # Timestamps pro Sample extrahieren (aus ids-Liste, 1:1 zu X/y)
+    _ts_list = [entry.get("timestamp", "") for entry in ids]
+    return {"X": X_scaled, "y": y_scaled, "y_raw": y_raw, "ids": ids, "timestamps": _ts_list, "rejected_samples": n_rejected, "rejection_reasons": rejection_reasons}
 
 
 def build_classification_dataset():
