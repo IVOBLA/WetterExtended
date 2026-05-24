@@ -216,6 +216,33 @@ def run_atmospheric_snapshot_job():
         debug_log(f"[SCHEDULER] atmospheric_snapshot Fehler: {exc}")
 
 
+def run_backup_job():
+    """Wöchentliches Backup von Modellen + Secrets (sonntags 02:00)."""
+    import subprocess
+    import os as _os
+    debug_log("[SCHEDULER] Job weekly_backup gestartet")
+    script = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "backup_wetterprojekt.sh")
+    if not _os.path.isfile(script):
+        debug_log(f"[BACKUP] backup_wetterprojekt.sh nicht gefunden: {script}")
+        return
+    try:
+        result = subprocess.run(
+            ["bash", script],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            cwd=_os.path.dirname(script),
+        )
+        for line in result.stdout.strip().splitlines():
+            debug_log(line)
+        if result.returncode != 0:
+            debug_log(f"[BACKUP] Fehler (rc={result.returncode}): {result.stderr.strip()[:300]}")
+    except subprocess.TimeoutExpired:
+        debug_log("[BACKUP] Timeout nach 300 s")
+    except Exception as exc:
+        debug_log(f"[BACKUP] Exception: {type(exc).__name__}: {exc}")
+
+
 # ---------------------------------------------------------------------------
 # Scheduler erstellen
 # ---------------------------------------------------------------------------
@@ -269,6 +296,18 @@ def create_scheduler() -> BlockingScheduler:
     )
 
 
+
+    # --- immer aktiv: Wöchentliches Backup (sonntags 02:00) ---
+    sched.add_job(
+        run_backup_job,
+        trigger=CronTrigger(
+            day_of_week="sun",
+            hour=2,
+            minute=0,
+            timezone="Europe/Vienna",
+        ),
+        id="weekly_backup", max_instances=1, coalesce=True,
+    )
 
     # --- immer aktiv: API-Cache-Cleanup (täglich, 7 Tage Aufbewahrung) ---
     sched.add_job(
