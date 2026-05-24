@@ -528,7 +528,17 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             # F2-FIX: History aus previous_snapshot lesen (vor Überschreiben),
             # nicht aus tracking_memory (= new_memory, hat noch kein "history"-Key).
             previous_history = previous_snapshot.get(obj_id, {}).get("history", [])
-            new_entry = {"timestamp": timestamp, "vx": float(obj["vx"]), "vy": float(obj["vy"]), "core_ratio": float(obj["core_ratio"]), "weather_vals": {}, "lat": obj["lat"], "lon": obj["lon"]}
+            new_entry = {
+                "timestamp":  timestamp,
+                "vx":         float(obj["vx"]),
+                "vy":         float(obj["vy"]),
+                "x":          float(obj.get("x", 0.0)),   # P26: Originalpixel für echte px/min
+                "y":          float(obj.get("y", 0.0)),
+                "core_ratio": float(obj["core_ratio"]),
+                "weather_vals": {},
+                "lat":        obj["lat"],
+                "lon":        obj["lon"],
+            }
             updated_history = (previous_history + [new_entry])[-history_len:]
             obj_clean = obj.copy(); obj_clean.pop("kf", None); obj_clean["history"] = updated_history
             if not isinstance(obj_clean.get("lineage"), str): obj_clean["lineage"] = "new"

@@ -72,14 +72,54 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
     history = obj.get("history") or []
     n = min(3, len(history))
 
+    # P26: Echte px/min aus Timestamp-Differenzen wenn x/y in History vorhanden.
+    # Fallback auf vx/vy (px/Frame × FRAME_INTERVAL_MIN) wenn Timestamps fehlen.
+    avg_vx: float = 0.0
+    avg_vy: float = 0.0
+    src: str = "kalman_only"
+
     if n >= 2:
         recent = history[-n:]
-        avg_vx = sum(float(h.get("vx", 0.0)) for h in recent) / n
-        avg_vy = sum(float(h.get("vy", 0.0)) for h in recent) / n
-        src = f"history_{n}"
+        # Prüfe ob alle Einträge Timestamp + x/y haben
+        _has_xy_ts = all(
+            h.get("timestamp") and "x" in h and "y" in h
+            for h in recent
+        )
+        if _has_xy_ts:
+            # Echte px/min aus letzten n Einträgen (P26)
+            try:
+                _vx_list, _vy_list = [], []
+                for _i in range(1, len(recent)):
+                    _h0, _h1 = recent[_i - 1], recent[_i]
+                    _t0 = datetime.strptime(_h0["timestamp"], "%Y-%m-%d_%H-%M-%S")
+                    _t1 = datetime.strptime(_h1["timestamp"], "%Y-%m-%d_%H-%M-%S")
+                    _dt_min = (_t1 - _t0).total_seconds() / 60.0
+                    if _dt_min >= 0.5:   # Mindestintervall 30 s — robuster gegen gleiche Timestamps
+                        _vx_list.append((_h1["x"] - _h0["x"]) / _dt_min)
+                        _vy_list.append((_h1["y"] - _h0["y"]) / _dt_min)
+                if _vx_list:
+                    avg_vx = sum(_vx_list) / len(_vx_list)   # px/min
+                    avg_vy = sum(_vy_list) / len(_vy_list)   # px/min
+                    src = f"real_ts_{len(_vx_list)+1}"
+                else:
+                    raise ValueError("keine gültigen Intervalle")
+            except Exception:
+                # Fallback: vx/vy (px/Frame) → px/min via FRAME_INTERVAL_MIN
+                _frame_min_fb = float(_FRAME_MIN) if _FRAME_MIN else 2.0
+                avg_vx = (sum(float(h.get("vx", 0.0)) for h in recent) / n) / _frame_min_fb
+                avg_vy = (sum(float(h.get("vy", 0.0)) for h in recent) / n) / _frame_min_fb
+                src = f"history_{n}_fallback"
+        else:
+            # History ohne x/y: vx/vy (px/Frame) → px/min
+            _frame_min_fb = float(_FRAME_MIN) if _FRAME_MIN else 2.0
+            avg_vx = (sum(float(h.get("vx", 0.0)) for h in recent) / n) / _frame_min_fb
+            avg_vy = (sum(float(h.get("vy", 0.0)) for h in recent) / n) / _frame_min_fb
+            src = f"history_{n}"
     else:
-        avg_vx = _safe_float(obj.get("vx", 0.0))
-        avg_vy = _safe_float(obj.get("vy", 0.0))
+        # < 2 History-Einträge: Kalman-Werte (px/Frame) → px/min
+        _frame_min_fb = float(_FRAME_MIN) if _FRAME_MIN else 2.0
+        avg_vx = _safe_float(obj.get("vx", 0.0)) / _frame_min_fb
+        avg_vy = _safe_float(obj.get("vy", 0.0)) / _frame_min_fb
         src = "kalman_only"
 
     obj["forecast_mode"]      = "kinematic"
@@ -89,18 +129,15 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
     obj["kinematic_vy"]       = avg_vy
 
     for horizon in _get_horizons():
-        # EINHEITEN (Fix P01):
-        # obj["x"]/ ["y"]   = Original-Pixel (pre-upscale).
-        # obj["vx"]/ ["vy"] = Original-px PRO FRAME (1 Frame ≈ FRAME_INTERVAL_MIN Minuten).
-        # horizon           = Vorhersagezeit in MINUTEN.
-        # → Umrechnung in „Frames Vorhersage" via horizon_frames = horizon / FRAME_INTERVAL_MIN.
+        # EINHEITEN (Fix P01 + P26):
+        # avg_vx/vy = px/min (echte Zeitdifferenz oder Fallback via FRAME_INTERVAL_MIN).
+        # horizon   = Vorhersagezeit in MINUTEN.
+        # → x_pred  = x0 + avg_vx * horizon  (direkte Multiplikation — kein Frame-Divisor)
         # pixel_to_geo() erwartet SKALIERTE Koordinaten (teilt intern durch _UF).
-        _frame_min  = float(_FRAME_MIN) if _FRAME_MIN else 2.0
-        _horizon_fr = float(horizon) / _frame_min
         _x0 = _safe_float(obj.get("x", 0.0))
         _y0 = _safe_float(obj.get("y", 0.0))
-        x_pred   = (_x0 + avg_vx * _horizon_fr) * _UF
-        y_pred   = (_y0 + avg_vy * _horizon_fr) * _UF
+        x_pred   = (_x0 + avg_vx * float(horizon)) * _UF
+        y_pred   = (_y0 + avg_vy * float(horizon)) * _UF
         origin_x = _x0 * _UF
         origin_y = _y0 * _UF
         if origin_x == 0.0 and origin_y == 0.0:
@@ -115,9 +152,12 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
                 # KM_PER_PX = PX_TO_KMH / 60 * FRAME_INTERVAL_MIN
                 #           = km/h pro px/Frame ÷ 60 min/h × Frame-Dauer (min)
                 #           = km pro Original-px (für einen Frame).
-                _KM_PER_PX = PX_TO_KMH * _frame_min / 60.0
-                _dlat = -(avg_vy * _horizon_fr * _KM_PER_PX) / 111.0
-                _dlon = (avg_vx * _horizon_fr * _KM_PER_PX) / (
+                # avg_vx/vy in px/min; horizon in min → px Versatz = avg_vx * horizon
+                # km/min Versatz = (px/min * horizon_min) * KM_PER_PX_PER_MIN
+                # KM_PER_PX_PER_MIN = PX_TO_KMH / 60  (km/h pro (px/Frame)) / (60 min/h)
+                _KM_PER_PX_MIN = PX_TO_KMH / 60.0   # km pro (px·min)
+                _dlat = -(avg_vy * float(horizon) * _KM_PER_PX_MIN) / 111.0
+                _dlon = (avg_vx * float(horizon) * _KM_PER_PX_MIN) / (
                     111.0 * cos(radians(max(abs(base_lat), 0.001)))
                 )
                 lat = base_lat + _dlat
