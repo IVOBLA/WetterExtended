@@ -151,6 +151,15 @@ Abarbeitungsreihenfolge war: A1 → A2 → A3 → A4 → A5 → A6 → A8 → A7
 | A9 | File-Locking bei JSON-Schreibvorgängen | `runtime_config.py` | ✅ erledigt |
 | A10 | ConvLSTM MODEL_PATH via SAVE_PATHS + runtime_config | `radar_convlstm.py` | ✅ erledigt |
 
+### 5.4 Phase A.3 — Produktreife Welle 3 ✅
+
+| # | Task | Datei(en) | Status |
+|---|------|-----------|--------|
+| B22 | Lineage-Features in `ML_CELL_FEATURES` (`active_frames_norm`, `total_active_frames_norm`, `is_merged`, `is_split`) | `config.py`, `object_tracking.py` | ✅ erledigt |
+| B23 | Drift-Detection: MAE-Trendüberwachung + E-Mail-Alarm | `drift_detector.py` (neu), `email_notifier.py`, `scheduler.py`, `app.py` | ✅ erledigt |
+| B24 | Frontend Error-Boundary + Offline-Indikator | `frontend/src/ErrorBoundary.jsx` (neu), `frontend/src/App.jsx` | ✅ erledigt |
+| B25 | Echter Day-Holdout für Test-Metriken (letzter Tag kein Training-Input) | `dataset_builder.py`, `model_training.py` | ✅ erledigt |
+
 ### 5.3 Phase A.2 — Produktreife Welle 2 ✅
 
 | # | Task | Datei(en) | Status |
