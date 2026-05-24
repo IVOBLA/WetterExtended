@@ -2599,6 +2599,8 @@ if __name__ == "__main__":
     # nginx reverse-proxyt von außen auf diesen Port — direkter LAN-Zugriff
     # auf Port 5000 würde die Basic-Auth umgehen.
     # Override via Env-Var ADMIN_BIND_HOST nur für Sonderfälle (z. B. Dev-Container).
+    import watchdog_heartbeat
+    watchdog_heartbeat.start()          # systemd READY=1 + Watchdog-Ping alle 25 s
     _bind_host = os.getenv("ADMIN_BIND_HOST", "127.0.0.1").strip() or "127.0.0.1"
     _bind_port = int(os.getenv("ADMIN_BIND_PORT", "5000"))
     app.run(host=_bind_host, port=_bind_port, debug=os.getenv("ADMIN_DEBUG") == "1")

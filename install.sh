@@ -1260,6 +1260,34 @@ if [[ "$ENABLE_SERVICES" == true ]]; then
         fi
     done
 
+    # Watchdog-Patch: Type=notify + WatchdogSec=60 in alle generierten Service-Files
+    # (systemd startet bei ausbleibendem Watchdog-Ping automatisch neu)
+    for _svc_gen in "$TARGET"/.generated-wetterprojekt*.service; do
+        [[ -f "$_svc_gen" ]] || continue
+        # Type=simple → Type=notify (oder hinzufügen wenn kein Type= vorhanden)
+        if grep -q "^Type=simple" "$_svc_gen"; then
+            sed -i 's/^Type=simple/Type=notify/' "$_svc_gen"
+            log_info "Watchdog: Type=notify gesetzt in $(basename "$_svc_gen")"
+        elif ! grep -q "^Type=" "$_svc_gen"; then
+            sed -i '/^\[Service\]/a Type=notify' "$_svc_gen"
+            log_info "Watchdog: Type=notify eingefügt in $(basename "$_svc_gen")"
+        fi
+        # WatchdogSec und NotifyAccess hinzufügen wenn noch nicht vorhanden
+        if ! grep -q "^WatchdogSec=" "$_svc_gen"; then
+            sed -i '/^Type=notify/a WatchdogSec=60\nNotifyAccess=main' "$_svc_gen"
+            log_info "Watchdog: WatchdogSec=60 gesetzt in $(basename "$_svc_gen")"
+        fi
+        # Restart-Policy sicherstellen
+        if ! grep -q "^Restart=" "$_svc_gen"; then
+            sed -i '/^WatchdogSec=/a Restart=on-failure\nRestartSec=10s' "$_svc_gen"
+        fi
+    done
+    # Gepatchte Files in systemd kopieren
+    for svc_file in wetterprojekt.service wetterprojekt-scheduler.service wetterprojekt-admin.service; do
+        generated="$TARGET/.generated-$svc_file"
+        [[ -f "$generated" ]] && sudo cp "$generated" "/etc/systemd/system/$svc_file"
+    done
+
     sudo systemctl daemon-reload
 
     for svc_file in wetterprojekt.service wetterprojekt-scheduler.service wetterprojekt-admin.service; do

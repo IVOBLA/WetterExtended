@@ -407,4 +407,6 @@ def main_loop():
         time.sleep(_sleep)
 
 if __name__ == "__main__":
+    import watchdog_heartbeat as _wdh
+    _wdh.start()                        # systemd READY=1 + Watchdog-Ping alle 25 s
     main_loop()
