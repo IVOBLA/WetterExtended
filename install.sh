@@ -1290,6 +1290,25 @@ if [[ "$ENABLE_SERVICES" == true ]]; then
 
     sudo systemctl daemon-reload
 
+    # journald-Limit: SD-Karte vor unkontrolliertem Log-Wachstum schützen
+    _JOURNALD_DROP_IN_DIR="/etc/systemd/journald.conf.d"
+    _JOURNALD_DROP_IN="$_JOURNALD_DROP_IN_DIR/wetterprojekt.conf"
+    if [[ ! -f "$_JOURNALD_DROP_IN" ]]; then
+        sudo mkdir -p "$_JOURNALD_DROP_IN_DIR"
+        sudo tee "$_JOURNALD_DROP_IN" > /dev/null << 'JOURNALDCONF'
+# WetterExtended — journald-Limit
+# Generiert von install.sh — schützt SD-Karte vor Journal-Überwuchs.
+[Journal]
+SystemMaxUse=200M
+SystemKeepFree=500M
+MaxRetentionSec=14day
+JOURNALDCONF
+        sudo systemctl restart systemd-journald 2>/dev/null || true
+        check_ok "journald-Limit gesetzt: max 200 MB, min 500 MB frei, max 14 Tage"
+    else
+        log_info "journald-Drop-In vorhanden: $_JOURNALD_DROP_IN (unverändert)"
+    fi
+
     for svc_file in wetterprojekt.service wetterprojekt-scheduler.service wetterprojekt-admin.service; do
         if [[ -f "/etc/systemd/system/$svc_file" ]]; then
             svc_name="${svc_file}"
