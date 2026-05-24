@@ -146,6 +146,15 @@ def run_accuracy_eval_job():
         result = evaluate_all(horizons, since_hours=24)
         append_history_point(result)
 
+        # Drift-Detection: MAE-Trend prüfen + ggf. Alarm senden
+        try:
+            from drift_detector import check_and_alert as _drift_check
+            _drift_status = _drift_check(result)
+            if _drift_status.get("drift_detected"):
+                debug_log(f"[SCHEDULER] DRIFT ALARM: {_drift_status.get('message')}")
+        except Exception as _drift_exc:
+            debug_log(f"[SCHEDULER] Drift-Check Fehler: {_drift_exc}")
+
         # Health-Check: 0 Samples für ALLE Horizonte → Warning + JSONL
         all_zero = all(h.get("samples", 0) == 0 for h in result.get("horizons", []))
         if all_zero:
