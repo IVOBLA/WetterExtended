@@ -186,7 +186,13 @@ def train_lstm(X, y, model_dir):
     if len(X) < 50:
         debug_log(f"[LSTM] Skip: zu wenig Samples ({len(X)} < 50)")
         return {"trained": False, "model_path": model_path, "val_loss": None, "samples": len(X)}
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
+    # Fix P07: zeitbasierter Split — Samples sind in build_dataset chronologisch
+    # angeordnet. Zufälliger Split würde sehr ähnliche Frames in Train+Val mischen
+    # (Data Leakage bei Radarbild-Sequenzen alle 2-5 min).
+    split_idx = int(len(X) * 0.8)
+    X_train, X_val = X[:split_idx], X[split_idx:]
+    y_train, y_val = y[:split_idx], y[split_idx:]
+    debug_log(f"[LSTM] Zeitbasierter Split: train={len(X_train)}, val={len(X_val)}")
     model = _build_lstm()
     history = model.fit(
         X_train,
@@ -213,7 +219,11 @@ def train_lgbm(X, y, model_dir):
         debug_log(f"[LGBM] Skip: zu wenig Samples ({len(X)} < 30)")
         return {"trained": False, "models": {}, "best_scores": {}, "samples": len(X)}
     X_flat = X[:, -1, :]
-    X_train, X_val, y_train, y_val = train_test_split(X_flat, y, test_size=0.2, random_state=42)
+    # Fix P07: zeitbasierter Split (siehe train_lstm).
+    split_idx = int(len(X_flat) * 0.8)
+    X_train, X_val = X_flat[:split_idx], X_flat[split_idx:]
+    y_train, y_val = y[:split_idx], y[split_idx:]
+    debug_log(f"[LGBM] Zeitbasierter Split: train={len(X_train)}, val={len(X_val)}")
     base_params = {"num_leaves": 31, "learning_rate": 0.05, "feature_fraction": 0.9, "bagging_fraction": 0.8, "bagging_freq": 5, "verbose": -1}
     point_params = {**base_params, "objective": "regression", "metric": "rmse"}
     quantiles = [0.1, 0.5, 0.9]
@@ -297,7 +307,7 @@ def train_intensification_classifier(model_dir):
 
     X = X_df.to_numpy(dtype=float)
     y = y_series.to_numpy(dtype=int)
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, stratify=y)
     pos_train = max(int((y_train == 1).sum()), 1)
     neg_train = max(int((y_train == 0).sum()), 1)
     scale_pos_weight = neg_train / pos_train
@@ -402,26 +412,59 @@ def retrain_all():
     has_current = os.path.isdir(current_dir)
     old_eval = evaluate_on_recent(current_dir) if has_current else {"mae_total": float("inf"), "mae_by_horizon": {}, "samples": 0}
 
+    # Fix P07: harte Promotion-Regeln
+    #
+    # Mindestsamples für Promotion (außer Cold-Start):
+    #   - new_eval muss >= 50 verifizierbare Samples haben.
+    #   - Eine Verbesserungstoleranz von 2 % wird nur akzeptiert, wenn
+    #     mindestens 500 Samples vorliegen — ansonsten muss new < old strikt sein.
+    _MIN_SAMPLES_FOR_PROMOTION = 50
+    _LARGE_SAMPLE_THRESHOLD    = 500
+    _TOLERANCE_LARGE           = 1.02   # 2 % schlechter erlaubt bei >500 Samples
+    _new_samples = int(new_eval.get("samples", 0) or 0)
+    _mae_new     = float(new_eval.get("mae_total", float("inf")))
+    _mae_old     = float(old_eval.get("mae_total", float("inf")))
+
     if not has_current:
         status = "promoted"
         _atomic_switch_current(timestamp)
         debug_log(f"[TRAINING] PROMOTED {timestamp} (cold-start)")
     elif getattr(X, "size", 0) == 0:
         status = "no_data"
-        debug_log(f"[TRAINING] SKIPPED promotion {timestamp} (no_data — current bleibt erhalten)")
-        # Kein Promote-Switch: leeres version_dir soll current nicht überschreiben.
-        # Das Bootstrap-Modell oder die letzte gültige Version bleibt aktiv.
-    elif new_eval.get("samples", 0) < 20:
-        status = "no_baseline"
-        _atomic_switch_current(timestamp)
-        debug_log(f"[TRAINING] PROMOTED {timestamp} (no_baseline: <20 recent samples)")
-    elif new_eval["mae_total"] < old_eval["mae_total"] * 1.02:
+        debug_log(
+            f"[TRAINING] SKIPPED promotion {timestamp} "
+            f"(no_data — current bleibt erhalten)"
+        )
+    elif _new_samples < _MIN_SAMPLES_FOR_PROMOTION:
+        status = "rejected_low_samples"
+        debug_log(
+            f"[TRAINING] REJECTED {timestamp} "
+            f"(samples={_new_samples} < {_MIN_SAMPLES_FOR_PROMOTION} — "
+            f"keine Promotion ohne ausreichende Validierung)"
+        )
+    elif _new_samples >= _LARGE_SAMPLE_THRESHOLD and _mae_new < _mae_old * _TOLERANCE_LARGE:
         status = "promoted"
         _atomic_switch_current(timestamp)
-        debug_log(f"[TRAINING] PROMOTED {timestamp} (mae_new={new_eval['mae_total']:.4f} vs mae_old={old_eval['mae_total']:.4f})")
+        debug_log(
+            f"[TRAINING] PROMOTED {timestamp} (large-sample tolerance: "
+            f"mae_new={_mae_new:.4f} vs mae_old={_mae_old:.4f}, "
+            f"samples={_new_samples})"
+        )
+    elif _mae_new < _mae_old:
+        status = "promoted"
+        _atomic_switch_current(timestamp)
+        debug_log(
+            f"[TRAINING] PROMOTED {timestamp} "
+            f"(mae_new={_mae_new:.4f} < mae_old={_mae_old:.4f}, "
+            f"samples={_new_samples})"
+        )
     else:
         status = "rejected"
-        debug_log(f"[TRAINING] REJECTED {timestamp} (mae_new={new_eval['mae_total']:.4f} vs mae_old={old_eval['mae_total']:.4f})")
+        debug_log(
+            f"[TRAINING] REJECTED {timestamp} "
+            f"(mae_new={_mae_new:.4f} vs mae_old={_mae_old:.4f}, "
+            f"samples={_new_samples})"
+        )
 
     meta["validation"] = {
         "mae_old": old_eval.get("mae_total"),
