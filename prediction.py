@@ -15,7 +15,7 @@ if np is None:
         "Bitte ausführen: pip3 install numpy --break-system-packages"
     )
 
-from config import ML_CELL_FEATURES as CELL_KEYS, ML_FORECAST_HORIZONS_MIN as _STATIC_HORIZONS, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, ML_STATION_FEATURES as STATION_KEYS, PX_TO_KMH, SAVE_PATHS, UPSCALE_FACTOR as _UF
+from config import ML_CELL_FEATURES as CELL_KEYS, ML_FORECAST_HORIZONS_MIN as _STATIC_HORIZONS, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, ML_STATION_FEATURES as STATION_KEYS, PX_TO_KMH, SAVE_PATHS, UPSCALE_FACTOR as _UF, FRAME_INTERVAL_MIN as _FRAME_MIN
 
 try:
     import runtime_config as _runtime_cfg
@@ -61,12 +61,6 @@ def _safe_float(value):
         return 0.0
 
 
-def _linear_point(obj, horizon):
-    x = _safe_float(obj.get("x", 0.0)) + _safe_float(obj.get("vx", 0.0)) * horizon
-    y = _safe_float(obj.get("y", 0.0)) + _safe_float(obj.get("vy", 0.0)) * horizon
-    return x, y
-
-
 def _append_kinematic(obj: dict, forecasts: dict) -> None:
     """
     Kinematischer Fallback wenn kein ML-Modell verfügbar oder Sequenz zu kurz.
@@ -95,16 +89,18 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
     obj["kinematic_vy"]       = avg_vy
 
     for horizon in _get_horizons():
-        # EINHEITEN:
-        # obj["x"]/ ["y"] = Original-Pixel (pre-upscale) — gespeichert von object_tracking.py.
-        # obj["vx"]/ ["vy"] = Original-px/Frame (Kalman-Geschwindigkeit / _UF gespeichert).
-        # Bestätigt durch visualize_radar.py: obj["x"] * UPSCALE_FACTOR = skalierte Position.
-        # pixel_to_geo() erwartet skalierte Koordinaten (teilt intern durch _UF).
-        # Korrekte Formel: (orig_pos + orig_vel * horizon) * _UF → skalierte Zielposition.
+        # EINHEITEN (Fix P01):
+        # obj["x"]/ ["y"]   = Original-Pixel (pre-upscale).
+        # obj["vx"]/ ["vy"] = Original-px PRO FRAME (1 Frame ≈ FRAME_INTERVAL_MIN Minuten).
+        # horizon           = Vorhersagezeit in MINUTEN.
+        # → Umrechnung in „Frames Vorhersage" via horizon_frames = horizon / FRAME_INTERVAL_MIN.
+        # pixel_to_geo() erwartet SKALIERTE Koordinaten (teilt intern durch _UF).
+        _frame_min  = float(_FRAME_MIN) if _FRAME_MIN else 2.0
+        _horizon_fr = float(horizon) / _frame_min
         _x0 = _safe_float(obj.get("x", 0.0))
         _y0 = _safe_float(obj.get("y", 0.0))
-        x_pred   = (_x0 + avg_vx * horizon) * _UF
-        y_pred   = (_y0 + avg_vy * horizon) * _UF
+        x_pred   = (_x0 + avg_vx * _horizon_fr) * _UF
+        y_pred   = (_y0 + avg_vy * _horizon_fr) * _UF
         origin_x = _x0 * _UF
         origin_y = _y0 * _UF
         if origin_x == 0.0 and origin_y == 0.0:
@@ -114,12 +110,14 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
                 lat, lon = 0.0, 0.0
             else:
                 # Kinematische Verschiebung auf lat/lon-Basis.
-                # avg_vx/vy: px/Frame (Kalman), horizon: Minuten.
-                # PX_TO_KMH = 10.0 km/h pro px/Frame (config, empirisch kalibriert).
-                # km-Verschiebung = avg_vx * horizon * PX_TO_KMH / 60
-                _KM_PER_PX = PX_TO_KMH / 60.0  # ≈ 0.167 km/(px·min)
-                _dlat = -(avg_vy * horizon * _KM_PER_PX) / 111.0
-                _dlon = (avg_vx * horizon * _KM_PER_PX) / (
+                # avg_vx/vy : Original-px pro Frame.
+                # km-Verschiebung = avg_vx * horizon_frames * KM_PER_PX
+                # KM_PER_PX = PX_TO_KMH / 60 * FRAME_INTERVAL_MIN
+                #           = km/h pro px/Frame ÷ 60 min/h × Frame-Dauer (min)
+                #           = km pro Original-px (für einen Frame).
+                _KM_PER_PX = PX_TO_KMH * _frame_min / 60.0
+                _dlat = -(avg_vy * _horizon_fr * _KM_PER_PX) / 111.0
+                _dlon = (avg_vx * _horizon_fr * _KM_PER_PX) / (
                     111.0 * cos(radians(max(abs(base_lat), 0.001)))
                 )
                 lat = base_lat + _dlat
