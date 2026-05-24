@@ -97,6 +97,21 @@ def _latest_location_hits():
 # ---------- JSON-APIs (von React konsumiert) ----------
 
 
+@app.route("/api/drift")
+def api_drift():
+    """
+    Gibt den letzten Drift-Status zurück (aus drift_status.json).
+    Wird vom Admin-Panel Dashboard angezeigt.
+    """
+    try:
+        from drift_detector import load_status
+
+        return jsonify(load_status())
+    except Exception as exc:
+        return jsonify({"drift_detected": False, "message": f"Fehler: {exc}"})
+
+
+
 @app.route("/api/admin_token")
 def api_admin_token():
     """

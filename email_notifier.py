@@ -361,6 +361,65 @@ def send_ai_report_email(result: dict, email_str: str) -> bool:
     return _send_smtp(recipients, subject, html)
 
 
+def send_drift_alert(status: dict) -> None:
+    """
+    Sendet eine E-Mail-Warnung bei erkanntem Model-Drift.
+    Nutzt dieselbe SMTP-Konfiguration wie Sturmwarnungen.
+    """
+    if not _is_configured():
+        debug_log("[DRIFT-MAIL] SMTP nicht konfiguriert — kein Alert.")
+        return
+
+    subject = "⚠️ WetterExtended: Model-Drift erkannt"
+    delta = status.get("delta_km", "?")
+    recent = status.get("mae_recent_km", "?")
+    base = status.get("mae_baseline_km", "?")
+    body = f"""
+<html><body>
+<h2>⚠️ WetterExtended Model-Drift-Alarm</h2>
+<p>Der Nowcast-Fehler hat sich signifikant verschlechtert:</p>
+<table border="1" cellpadding="4">
+  <tr><th>Kennzahl</th><th>Wert</th></tr>
+  <tr><td>MAE recent (letzte 24 h)</td><td><b>{recent} km</b></td></tr>
+  <tr><td>MAE baseline (7-Tage-Mittel)</td><td>{base} km</td></tr>
+  <tr><td>Verschlechterung</td><td style="color:red"><b>+{delta} km</b></td></tr>
+  <tr><td>Threshold</td><td>{status.get("threshold_km")} km</td></tr>
+</table>
+<p><b>Mögliche Ursachen:</b> Wetter-Regime-Wechsel, zu wenig Training-Samples,
+Feature-Drift (neue Radar-Kalibrierung), Datenausfall bei einem API-Provider.</p>
+<p><b>Maßnahmen:</b></p>
+<ul>
+  <li>Admin-Panel → Seite „Genauigkeit" prüfen</li>
+  <li><code>python3 models_rollback.py list</code> — frühere bessere Version?</li>
+  <li>Nächstes Training abwarten oder manuell auslösen</li>
+</ul>
+<p><small>Gesendet von WetterExtended drift_detector.py</small></p>
+</body></html>
+"""
+    try:
+        _send_smtp(_get_all_drift_recipients(), subject, body)
+        debug_log("[DRIFT-MAIL] Drift-Alarm versendet.")
+    except Exception as exc:
+        debug_log(f"[DRIFT-MAIL] Fehler beim Senden: {exc}")
+
+
+def _get_all_drift_recipients() -> list:
+    """Gibt E-Mail-Empfänger für Drift-Alarm zurück (alle konfigurierten Ort-Mails)."""
+    try:
+        import runtime_config as _rc
+
+        locations = _rc.get("LOCATIONS_WATCHLIST", [])
+        recipients = set()
+        for loc in locations:
+            for addr in str(loc.get("email", "")).split(";"):
+                addr = addr.strip()
+                if addr and "@" in addr:
+                    recipients.add(addr)
+        return list(recipients) if recipients else [os.getenv("SMTP_USER", "")]
+    except Exception:
+        return [os.getenv("SMTP_USER", "")]
+
+
 if __name__ == "__main__":
     # Schnelltest: Konfiguration pruefen
     print(f"SMTP konfiguriert: {_is_configured()}")
