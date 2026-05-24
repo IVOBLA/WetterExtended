@@ -151,6 +151,16 @@ Abarbeitungsreihenfolge war: A1 → A2 → A3 → A4 → A5 → A6 → A8 → A7
 | A9 | File-Locking bei JSON-Schreibvorgängen | `runtime_config.py` | ✅ erledigt |
 | A10 | ConvLSTM MODEL_PATH via SAVE_PATHS + runtime_config | `radar_convlstm.py` | ✅ erledigt |
 
+### 5.5 Phase A.4 — Produktreife Welle 4 ✅
+
+| # | Task | Datei(en) | Status |
+|---|------|-----------|--------|
+| B26 | No-cell-Frames immer als leeres JSON speichern | `main.py` | ✅ erledigt |
+| B27 | Runtime-Horizonte in Dataset-Build + Modell-Kompatibilitätsprüfung | `dataset_builder.py`, `model_training.py` | ✅ erledigt |
+| B28 | Cold-Start-Promotion mit Sample-Check + coverage_rate in Accuracy | `model_training.py`, `accuracy_tracker.py` | ✅ erledigt |
+| B29 | fail-closed Token-Auth + `pytest.ini` | `app.py`, `pytest.ini` (neu), `tests/conftest.py` | ✅ erledigt |
+| B30 | Echte Zeitdifferenzen im kinematischen Forecast (px/min aus Timestamps) | `object_tracking.py`, `prediction.py` | ✅ erledigt |
+
 ### 5.4 Phase A.3 — Produktreife Welle 3 ✅
 
 | # | Task | Datei(en) | Status |
