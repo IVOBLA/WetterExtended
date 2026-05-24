@@ -540,6 +540,18 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             # total_active_frames: unbegrenzter Zähler seit first_seen (history_len gekappt)
             _prev_total = previous_snapshot.get(obj_id, {}).get("total_active_frames", 0)
             obj_clean["total_active_frames"] = _prev_total + 1
+            # P17: Lineage-Features als normalisierte Floats für ML_CELL_FEATURES.
+            # Normierung: active_frames / 20 (gekappt) → 0..1;
+            #             total_active_frames / 100 (gekappt) → 0..1
+            obj_clean["active_frames_norm"] = min(
+                float(obj_clean["active_frames"]), 20.0
+            ) / 20.0
+            obj_clean["total_active_frames_norm"] = min(
+                float(obj_clean["total_active_frames"]), 100.0
+            ) / 100.0
+            _lin = obj_clean.get("lineage", "new")
+            obj_clean["is_merged"] = 1.0 if _lin == "merged" else 0.0
+            obj_clean["is_split"]  = 1.0 if _lin == "split"  else 0.0
             objects.append({"id": obj_id, **obj_clean})
     return objects
 
