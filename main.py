@@ -253,9 +253,21 @@ def main_loop():
                 debug_log(f"Wetterdaten gespeichert als {weather_file}")
             from config import ML_FORECAST_HORIZONS_MIN as _DEFAULT_HORIZONS
             from config import FORECAST_ARROW_COLORS as _DEFAULT_COLORS
+            from config import FORECAST_ARROW_STYLE as _DEFAULT_STYLE
             horizons = runtime_config.get("ML_FORECAST_HORIZONS_MIN", _DEFAULT_HORIZONS)
-            colors = runtime_config.get("FORECAST_ARROW_COLORS", _DEFAULT_COLORS)
-            save_forecast_as_kmz(dict(zip(horizons, forecasts_per_horizon)), colors)
+            colors   = runtime_config.get("FORECAST_ARROW_COLORS",  _DEFAULT_COLORS)
+            styles   = runtime_config.get("FORECAST_ARROW_STYLE",   _DEFAULT_STYLE)
+            # Fix P08: KMZ enthält auch aktuelle Zellen und Location-Hits
+            # (siehe kmz_export.save_forecast_as_kmz docstring).
+            # location_hits werden weiter unten gesetzt, der erste Save liefert
+            # nur Forecast+Zellen; nach annotate_locations folgt der finale Save.
+            save_forecast_as_kmz(
+                dict(zip(horizons, forecasts_per_horizon)),
+                colors,
+                current_objects=objects,
+                location_hits=None,
+                style_by_horizon=styles,
+            )
 
             # wind_shear / hail_prob werden VOR predict_positions gesetzt
             # (Finding #1 Fix: ML-Modell bekommt vollständige Features)
@@ -280,6 +292,15 @@ def main_loop():
             with open(os.path.join(SAVE_PATHS["evaluation"], f"locations_{timestamp}.json"), "w", encoding="utf-8") as f:
                 json.dump(location_hits, f, indent=2, ensure_ascii=False)
             debug_log(f"Ort-Hits: {len(location_hits)} betroffene Orte")
+
+            # Fix P08: finales KMZ inklusive Location-Hits neu schreiben.
+            save_forecast_as_kmz(
+                dict(zip(horizons, forecasts_per_horizon)),
+                colors,
+                current_objects=objects,
+                location_hits=location_hits,
+                style_by_horizon=styles,
+            )
             # ── Fix #3: Vollständig angereichertes JSON jetzt erst speichern ─────────
             # Enthält: forecast_lat_X, wind_shear_speed, hail_prob,
             #          hail_warning, stationary_marker, lightning_count_10km
