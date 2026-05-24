@@ -552,18 +552,34 @@ def _clamp_kalman_velocity(kf, prev_vx: float, prev_vy: float) -> None:
     sinnvolle Werte. Verhindert Sprünge durch Mess-Artefakte oder kurzzeitige
     Zellverwechslungen.
 
+    Einheiten:
+      Kalman-vx/vy sind im SKALIERTEN Maßstab (px/Frame im upgeskalten Bild).
+      Für die km/h-Berechnung wird auf Original-px/Frame umgerechnet
+      (vx/UPSCALE_FACTOR) und anschließend mit PX_TO_KMH aus config.py
+      multipliziert — derselbe Wert, den auch locations_check.py und
+      die GUI verwenden (Single Source of Truth).
+
     Grenzen aus config.py:
-      MAX_CELL_SPEED_KMH       — absolute Obergrenze Zellgeschwindigkeit
-      MAX_SPEED_CHANGE_PER_CYCLE_KMH — max. Änderung pro 5-min-Zyklus
+      MAX_CELL_SPEED_KMH              — absolute Obergrenze Zellgeschwindigkeit
+      MAX_SPEED_CHANGE_PER_CYCLE_KMH  — max. Änderung pro Zyklus
+      PX_TO_KMH                       — km/h pro Original-px/Frame
     """
     try:
-        from config import MAX_CELL_SPEED_KMH, MAX_SPEED_CHANGE_PER_CYCLE_KMH
+        from config import (
+            MAX_CELL_SPEED_KMH,
+            MAX_SPEED_CHANGE_PER_CYCLE_KMH,
+            PX_TO_KMH,
+            UPSCALE_FACTOR,
+        )
     except ImportError:
         MAX_CELL_SPEED_KMH = 150.0
         MAX_SPEED_CHANGE_PER_CYCLE_KMH = 60.0
+        PX_TO_KMH = 10.0
+        UPSCALE_FACTOR = 3.0
 
-    # Pixel/Frame zu km/h umrechnen (1 px ≈ 1 km bei UPSCALE_FACTOR=3)
-    PIXEL_TO_KMH = 12.0  # empirisch: 1 px/Frame ≈ 12 km/h
+    # Skalierte px/Frame → Original-px/Frame → km/h
+    _UF = float(UPSCALE_FACTOR) if UPSCALE_FACTOR else 1.0
+    PIXEL_TO_KMH = float(PX_TO_KMH) / _UF  # km/h pro SKALIERTEM px/Frame
 
     vx = float(kf.x[2])
     vy = float(kf.x[3])

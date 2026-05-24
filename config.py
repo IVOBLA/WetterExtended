@@ -116,9 +116,18 @@ MIN_CONTOUR_TOUCH = 5
 MIN_MOVEMENT_FOR_ARROW_KMH = 5.0
 
 # px/Frame → km/h (UPSCALE=3, ~2 km/px orig., Zyklus 120 s).
-# Einzelne Quelle der Wahrheit — wird von app.py, locations_check.py
-# und LiveDaten.jsx verwendet. Empirisch kalibriert auf Kärnten-Gitter.
+# Einzelne Quelle der Wahrheit — wird von app.py, locations_check.py,
+# object_tracking.py (_clamp_kalman_velocity) und LiveDaten.jsx verwendet.
+# Empirisch kalibriert auf Kärnten-Gitter.
 PX_TO_KMH: float = 10.0
+
+# Nominales Radar-Frame-Intervall in Minuten.
+# Wird vom Forecast (prediction.py) benötigt, um px/Frame korrekt mit
+# Horizon-in-Minuten zu kombinieren. Entspricht LOOP_INTERVAL_CELLS_S=120 s.
+# Bei abweichenden Intervallen (z. B. NO_CELLS_SLOW_INTERVAL=900 s)
+# rechnet der Forecast mit diesem nominalen Wert — die tatsächliche
+# Frame-Differenz wird in einer späteren Phase aus Timestamps abgeleitet.
+FRAME_INTERVAL_MIN: float = 2.0
 
 # Langsam ziehende Zellen: höheres Unwetterpotential durch längere
 # Verweilzeit → erweiterter Warnradius und eigenständiger Bedrohungstyp.
