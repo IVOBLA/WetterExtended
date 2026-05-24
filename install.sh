@@ -833,6 +833,16 @@ else
         note_manual "nano $ENV_FILE  # FTP_SERVER, FTP_USER, FTP_PASS prüfen"
     fi
 
+    # ADMIN_API_TOKEN generieren (einmalig, bei Upgrade beibehalten)
+    EXISTING_ADMIN_TOKEN=$(grep "^ADMIN_API_TOKEN=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ')
+    if [[ -z "$EXISTING_ADMIN_TOKEN" ]]; then
+        NEW_ADMIN_TOKEN=$(openssl rand -hex 32)
+        echo "ADMIN_API_TOKEN=${NEW_ADMIN_TOKEN}" >> "$ENV_FILE"
+        check_ok ".env: ADMIN_API_TOKEN generiert ($(echo "${NEW_ADMIN_TOKEN}" | cut -c1-8)...)"
+    else
+        check_ok ".env: ADMIN_API_TOKEN vorhanden"
+    fi
+
     # Blitzortung-Credentials prüfen
     BLITZ_USER_VAL=$(grep "^BLITZ_USERNAME=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ')
     BLITZ_PASS_VAL=$(grep "^BLITZ_PASSWORD=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ')

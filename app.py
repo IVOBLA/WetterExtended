@@ -14,6 +14,32 @@ from accuracy_tracker import evaluate_all, load_history
 
 app = Flask(__name__, static_folder="frontend/dist", static_url_path="")
 
+# ---------------------------------------------------------------------------
+# Schreib-Authentifizierung (P10)
+# ---------------------------------------------------------------------------
+# ADMIN_API_TOKEN aus .env — wenn gesetzt, müssen alle POST/PATCH/DELETE
+# Requests den Header X-Admin-Token mit diesem Wert senden.
+# Das Frontend holt den Token einmalig via GET /api/admin_token
+# (dieser Endpoint liegt hinter nginx Basic-Auth).
+_ADMIN_TOKEN: str = os.getenv("ADMIN_API_TOKEN", "").strip()
+
+
+def _check_write_auth() -> None:
+    """before_request-Hook: prüft X-Admin-Token für Schreiboperationen."""
+    if not _ADMIN_TOKEN:
+        return  # Token-Schutz deaktiviert (kein ADMIN_API_TOKEN in .env)
+    if request.method not in ("POST", "PATCH", "DELETE", "PUT"):
+        return
+    # Ausnahme: /api/admin_token selbst braucht keinen Token
+    if request.endpoint == "api_admin_token":
+        return
+    sent = request.headers.get("X-Admin-Token", "").strip()
+    if not sent or sent != _ADMIN_TOKEN:
+        return jsonify({"error": "Unauthorized: X-Admin-Token fehlt oder ungültig"}), 401
+
+
+app.before_request(_check_write_auth)
+
 
 # ---------- Helper ----------
 def _git_info():
@@ -69,6 +95,19 @@ def _latest_location_hits():
 
 
 # ---------- JSON-APIs (von React konsumiert) ----------
+
+
+@app.route("/api/admin_token")
+def api_admin_token():
+    """
+    Gibt den Admin-Token für das Frontend zurück.
+    Dieser Endpoint liegt hinter nginx Basic-Auth — nur eingeloggte Nutzer
+    können ihn aufrufen. Das Frontend speichert den Token im sessionStorage
+    und schickt ihn bei allen Schreiboperationen als X-Admin-Token Header.
+    Wenn kein Token konfiguriert: gibt {"token": null} zurück (Token-Auth deaktiviert).
+    """
+    return jsonify({"token": _ADMIN_TOKEN if _ADMIN_TOKEN else None})
+
 # ---------------------------------------------------------------------------
 # Sicherheits-Hilfsfunktion: Secrets aus Config-Responses entfernen
 # ---------------------------------------------------------------------------
