@@ -265,8 +265,50 @@ def train_lgbm(X, y, model_dir):
     return {"trained": True, "models": models, "best_scores": best_scores, "quantile_scores": quantile_scores, "samples": len(X)}
 
 
-def load_lstm():
-    model_path = os.path.join(_current_models_dir(), "weather_lstm.keras")
+def _check_model_compatibility(model_dir: str) -> dict:
+    """
+    P23: Prüft ob das Modell in model_dir mit der aktuellen Runtime-Konfiguration
+    kompatibel ist (Horizonte + Feature-Anzahl).
+    Gibt {"compatible": bool, "reason": str} zurück.
+    """
+    meta_path = os.path.join(model_dir, "training_meta.json")
+    if not os.path.exists(meta_path):
+        return {"compatible": True, "reason": "kein meta — assume compatible"}
+    try:
+        with open(meta_path, encoding="utf-8") as f:
+            meta = json.load(f)
+    except Exception:
+        return {"compatible": True, "reason": "meta nicht lesbar"}
+
+    trained_horizons = meta.get("horizons_trained") or meta.get("horizons") or meta.get("ML_FORECAST_HORIZONS_MIN")
+    trained_features = meta.get("feature_count")
+
+    try:
+        import runtime_config as _rc_mt
+        runtime_horizons = list(_rc_mt.get("ML_FORECAST_HORIZONS_MIN", ML_FORECAST_HORIZONS_MIN))
+    except Exception:
+        runtime_horizons = list(ML_FORECAST_HORIZONS_MIN)
+
+    if trained_horizons is not None and sorted(trained_horizons) != sorted(runtime_horizons):
+        return {
+            "compatible": False,
+            "reason": f"Horizonte: trainiert={trained_horizons}, runtime={runtime_horizons}",
+        }
+    if trained_features is not None and trained_features != ML_NUM_FEATURES:
+        return {
+            "compatible": False,
+            "reason": f"Feature-Anzahl: trainiert={trained_features}, aktuell={ML_NUM_FEATURES}",
+        }
+    return {"compatible": True, "reason": "OK"}
+
+
+def load_lstm(model_dir=None):
+    model_dir = model_dir or _current_models_dir()
+    compat = _check_model_compatibility(model_dir)
+    if not compat.get("compatible", True):
+        debug_log(f"[LSTM] Modell inkompatibel, Fallback auf kinematischen Forecast: {compat.get('reason')}")
+        return None
+    model_path = os.path.join(model_dir, "weather_lstm.keras")
     return load_model(model_path) if load_model is not None and os.path.exists(model_path) else None
 
 
@@ -440,6 +482,8 @@ def retrain_all():
             "rejected_samples": int(dataset.get("rejected_samples", 0)),
             "rejection_reasons": dataset.get("rejection_reasons", {}),
             "lstm": {"trained": lstm_result.get("trained", False), "val_loss": lstm_result.get("val_loss")},
+            "horizons_trained": list(ML_FORECAST_HORIZONS_MIN),  # P23: explizit für Kompatibilitätsprüfung
+            "feature_count": int(ML_NUM_FEATURES),               # P23: Feature-Dimension bei Training
             "lgbm": {
                 "trained": lgbm_result.get("trained", False),
                 "best_scores": lgbm_result.get("best_scores", {}),

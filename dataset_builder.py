@@ -43,6 +43,19 @@ from config import (
 from data_quality import validate_sample
 
 
+def _get_ds_horizons() -> list:
+    """
+    Gibt die aktuell konfigurierten Forecast-Horizonte zurück.
+    Priorisiert runtime_config (Admin-Panel), Fallback: config.py.
+    P23: Damit Dataset-Build und Training dieselben Horizonte wie der Forecast nutzen.
+    """
+    try:
+        import runtime_config as _rc_ds
+        return list(_rc_ds.get("ML_FORECAST_HORIZONS_MIN", ML_FORECAST_HORIZONS_MIN))
+    except Exception:
+        return list(ML_FORECAST_HORIZONS_MIN)
+
+
 def _safe_float(value):
     if value is None:
         return 0.0
@@ -190,7 +203,7 @@ def build_dataset(model_save_dir=None):
 
         # Fix #5: Besten Frame per echtem Timestamp suchen
         future_obj_maps = []
-        for h_min in ML_FORECAST_HORIZONS_MIN:
+        for h_min in _get_ds_horizons():
             target_ts = now_ts + _td_ds(minutes=h_min)
             tol       = _td_ds(minutes=max(h_min * _DS_TOL_FACTOR, _DS_MIN_TOL_MIN))
             best_idx, best_diff = None, _td_ds(days=999)
@@ -244,7 +257,7 @@ def build_dataset(model_save_dir=None):
             ids.append({"id": oid, "timestamp": now_ts.strftime("%Y-%m-%d_%H-%M-%S")})
 
             tab_row = {k: v for k, v in zip(ML_CELL_FEATURES + ML_STATION_FEATURES + ["hour_sin", "hour_cos", "month_sin", "month_cos"], seq_features[-1])}
-            for h_min, (tx, ty) in zip(ML_FORECAST_HORIZONS_MIN, np.array(targets).reshape(-1, 2)):
+            for h_min, (tx, ty) in zip(_get_ds_horizons(), np.array(targets).reshape(-1, 2)):
                 tab_row[f"target_x_{h_min}"] = tx
                 tab_row[f"target_y_{h_min}"] = ty
             tab_row["id"] = oid
