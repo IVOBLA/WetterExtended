@@ -65,7 +65,24 @@ def _parse_ts(path):
 def _frame_features(obj, stations, ts):
     cell_features = [_safe_float(obj.get(key, 0.0)) for key in ML_CELL_FEATURES]
 
-    lat, lon = pixel_to_geo(obj.get("x", 0), obj.get("y", 0))
+    # Fix P02: Lat/Lon direkt aus dem Objekt nehmen (object_tracking.py speichert
+    # die geografische Position bereits korrekt mit SKALIERTEN Koordinaten).
+    # Fallback nur wenn lat/lon fehlen: pixel_to_geo mit UPSCALE-korrigierten
+    # Koordinaten (obj["x"]/y sind pre-upscale, pixel_to_geo erwartet skaliert).
+    _lat_obj = obj.get("lat")
+    _lon_obj = obj.get("lon")
+    if _lat_obj is not None and _lon_obj is not None:
+        lat = float(_lat_obj)
+        lon = float(_lon_obj)
+    else:
+        try:
+            from config import UPSCALE_FACTOR as _UF_DS
+        except Exception:
+            _UF_DS = 3.0
+        _ox = _safe_float(obj.get("x", 0.0)) * float(_UF_DS)
+        _oy = _safe_float(obj.get("y", 0.0)) * float(_UF_DS)
+        lat, lon = pixel_to_geo(_ox, _oy)
+
     nearest_station = find_nearest_station(lat, lon, stations) if stations else None
     station_features = [
         _safe_float(nearest_station.get(key, 0.0)) if nearest_station else 0.0

@@ -190,7 +190,18 @@ def _parse_ts_from_file(path):
 
 def _frame_features(obj, stations, ts_dt):
     cell_features = [_safe_float(obj.get(k, 0.0)) for k in CELL_KEYS]
-    lat, lon = pixel_to_geo(_safe_float(obj.get("x", 0.0)), _safe_float(obj.get("y", 0.0)))
+    # Fix P02: obj["lat"]/ ["lon"] direkt nehmen — pixel_to_geo() würde
+    # obj["x"]/ ["y"] als skaliert interpretieren und falsch herunterskalieren.
+    _lat_obj = obj.get("lat")
+    _lon_obj = obj.get("lon")
+    if _lat_obj is not None and _lon_obj is not None:
+        lat = float(_lat_obj)
+        lon = float(_lon_obj)
+    else:
+        # Fallback: pixel_to_geo mit korrekt skalierten Koordinaten
+        _ox = _safe_float(obj.get("x", 0.0)) * float(_UF)
+        _oy = _safe_float(obj.get("y", 0.0)) * float(_UF)
+        lat, lon = pixel_to_geo(_ox, _oy)
     nearest = find_nearest_station(lat, lon, stations) if stations else None
     station_features = [_safe_float(nearest.get(k, 0.0)) if nearest else 0.0 for k in STATION_KEYS]
 
