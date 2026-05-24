@@ -294,6 +294,14 @@ ML_CELL_FEATURES = [
     "ship_index",              # Significant Hail Parameter (Stull)
     "lightning_jump",          # Blitzraten-Anstieg (>2 = Intensivierung)
     "hail_prob2",              # SHIP-basierte Hagel-Wahrscheinlichkeit
+    # ── Lineage-Features (P17) ───────────────────────────────────────────────
+    # Lebensdauer und Entstehungstyp der Zelle als ML-Signal.
+    # Junge Zellen (frames_norm ≈ 0) haben unsichere Zugbahnen.
+    # Merge-/Split-Produkte sind richtungsmäßig instabiler.
+    "active_frames_norm",      # frames in history / 20 → [0..1] (gekappt)
+    "total_active_frames_norm",# total_active_frames / 100 → [0..1] (gekappt)
+    "is_merged",               # 1.0 wenn lineage=="merged", sonst 0.0
+    "is_split",                # 1.0 wenn lineage=="split", sonst 0.0
 ]
 
 ML_STATION_FEATURES = [
