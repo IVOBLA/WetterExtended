@@ -121,6 +121,7 @@ rechtfertigt nur Modelle die ohne Hailo zu langsam wären.
 | Phase | Inhalt | Dauer | Hardware-Bedarf | Status |
 |-------|--------|-------|----------------|--------|
 | **A — Stabilität** | Bugfixes, Cleanup, Auth, Trainer-Architektur vorbereiten | 4–6 Wochen | Nur Pi 5 | ✅ **Abgeschlossen** |
+| **A.1 — Produktreife (Welle 1)** | Forecast-Einheiten + Frame-Intervall, Geo-Korrektur in ML-Features, Accuracy-Pixel-Maßstab, Flask-Bind 127.0.0.1, KMZ Zip-Slip-Schutz, pytest-fixe, Modell-Promotion (zeitbasierter Split + Mindestsamples), KMZ-Layer (aktuelle Zellen + Locations) | 1–2 Wochen | Nur Pi 5 | 🚧 **In Arbeit** (Prompts P01–P08) |
 | **B — Hailo + U-Net** | Linux-Rechner anschaffen, Training auslagern, DFC-Pipeline, U-Net, Hailo-Integration | 6–8 Wochen | Pi 5 + Linux-Rechner | ⏳ Offen (wartet auf Linux-Rechner) |
 | **C — Skalierung** | Optimierungen, weitere Modelle, KI-Analyse vertiefen, Bugfixes B10–B12 | bei Bedarf | Pi 5 + Linux-Rechner | ⏳ Offen |
 
@@ -1011,6 +1012,14 @@ _hailo_available: Optional[bool] = None
 | B13 | `weather_api.py` | TAWES-Request ohne Cache → überschreitet 10-min-Intervall | ✅ **behoben (P04)** |
 | B14 | `debug_utils.py` | `api_call_summary()` ohne last_ts/last_url → kein Detail im Dashboard | ✅ **behoben (P01/P02/P03)** |
 | B15 | `daily_analyzer.py` | KI-Report enthält keine lokale Konfiguration → keine Konfig-Empfehlungen möglich | ✅ **behoben (P05)** |
+| B16 | `prediction.py`, `object_tracking.py` | Forecast-Einheiten mischen px/Frame mit Minuten (kein Frame-Intervall), zwei unterschiedliche PX_TO_KMH-Werte | 🚧 **in Behebung (A.1 Welle 1, Prompt P01)** |
+| B17 | `dataset_builder.py`, `prediction.py`, `intensity_regression.py` | `pixel_to_geo(obj["x"], obj["y"])` mit pre-upscale-Koordinaten → falsche Geo-Zuordnung für ML-Features | 🚧 **in Behebung (Prompt P02)** |
+| B18 | `accuracy_tracker.py` | Pixel-Fehler vergleicht skalierte Forecast-Koords mit pre-upscale Ist-Koords; keine differenzierten Verifikations-Buckets | 🚧 **in Behebung (Prompt P03)** |
+| B19 | `app.py` | Flask lauscht auf `0.0.0.0:5000` → nginx-Basic-Auth umgehbar | 🚧 **in Behebung (Prompt P04)** |
+| B20 | `radar_download.py` | `zf.extractall()` ohne Pfadprüfung → Zip-Slip-Risiko | 🚧 **in Behebung (Prompt P05)** |
+| B21 | `tests/test_locations_e2e.py` | `sys.exit()` auf Modulebene bricht pytest-Collection ab | 🚧 **in Behebung (Prompt P06)** |
+| B22 | `model_training.py` | Zufälliger Train/Val-Split bei Zeitreihen + Promotion bei <20 Samples / 2 % Toleranz | 🚧 **in Behebung (Prompt P07)** |
+| B23 | `kmz_export.py` | Keine aktuellen Zellen, keine Konturen, keine Location-Hits; Farb-Lookup bricht bei String-Keys | 🚧 **in Behebung (Prompt P08)** |
 
 ### Neue Fach-Features in Phase C (geplant und umgesetzt)
 

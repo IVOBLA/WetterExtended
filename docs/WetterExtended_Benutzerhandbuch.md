@@ -344,6 +344,19 @@ Das System vergleicht nach Ablauf jedes Vorhersage-Horizonts die vorhergesagte P
 | `VERIFICATION_TIME_TOLERANCE_S` | 90 s | Zeitfenster für Frame-Suche (ARSO liefert alle 2–5 min) |
 | `VERIFICATION_MAX_SEARCH_RADIUS_KM` | 25 km | Suchradius für Nearest-Neighbor-Match |
 
+**Verifikations-Buckets (seit v1.2)**
+
+Jeder Eintrag in der API-Antwort `/api/accuracy` enthält zusätzlich:
+
+| Feld | Bedeutung |
+|---|---|
+| `verified` | Anzahl Vorhersagen, für die ein tatsächlicher Ziel-Frame **und** eine matchende Zelle gefunden wurden — fließt in `mae_km`, `rmse_km`, `mae_px`, `hit_rate` ein. |
+| `missed` | Ziel-Frame ok, aber keine matchende Zelle im Suchradius. |
+| `no_target_frame` | Kein Frame innerhalb `VERIFICATION_TIME_TOLERANCE_S` vorhanden — z. B. weil ARSO-Download fehlte. |
+| `id_lost` | Reserviert für Zellen, deren ID im Ziel-Frame nicht mehr existierte (wird in einer späteren Erweiterung gefüllt). |
+
+Die Hit-Rate wird nur über `verified` berechnet — `no_target_frame`-Fälle verzerren die Statistik nicht mehr.
+
 Im Admin-Panel unter Genauigkeit ist die durchschnittliche Abweichung (MAE) und Hit-Rate pro Horizont über einen einstellbaren Zeitraum grafisch dargestellt.
 
 ---
@@ -352,12 +365,18 @@ Im Admin-Panel unter Genauigkeit ist die durchschnittliche Abweichung (MAE) und 
 
 Nach jedem Live-Loop-Zyklus wird eine `forecast.kmz`-Datei erzeugt und per FTP hochgeladen. Sie kann direkt in Google Earth, OziExplorer oder kompatible Kartensoftware importiert werden.
 
-- Aktuell erkannte Zellen als Polygon-Konturen
-- Vorhersage-Pfeile pro Horizont (farbcodiert)
-- Unsicherheits-Ellipsen (q10/q90) um Vorhersagepunkte
-- Ortdurchquerungsmarkierungen
+Die erzeugte `forecast.kmz` enthält ab v1.2 vier separat schaltbare Ordner:
 
-> **Hinweis:** Die KMZ enthält ausschließlich Vorhersage-Daten des aktuellen Zyklus. Historische Daten sind nicht enthalten.
+| Ordner | Inhalt |
+|---|---|
+| **Aktuelle Zellen** | Polygon-Konturen aller im aktuellen Frame erkannten Sturmzellen, Mittelpunkt-Marker (rot) mit Zell-ID. |
+| **Forecast +Hmin** (pro Horizont) | Punkt-Marker und Pfeil-Linie vom aktuellen Zellort zur prognostizierten Position, jeweils in der Horizon-Farbe aus dem Admin-Panel. Linienstärke und Strichmuster werden aus `FORECAST_ARROW_STYLE` übernommen. |
+| **Unsicherheit +Hmin** (pro Horizont) | q10/q90-Ellipse um den Vorhersagepunkt — visualisiert die Streuung der ML-Quantil-Vorhersage. |
+| **Betroffene Orte** | Locations, deren Radius im aktuellen Zyklus oder im Forecast getroffen wird. Marker-Farbe = Farbe des verantwortlichen Horizonts. Hover-Beschreibung enthält Treffertyp (current / slow_approach / forecast), Cell-ID, Distanz und Geschwindigkeit. |
+
+> **Hinweis:** Die KMZ wird in jedem Live-Loop-Zyklus zweimal geschrieben — einmal nach der Forecast-Berechnung (ohne Orte) und einmal nach der Locations-Auswertung (vollständig). Die hochgeladene Variante ist immer die vollständige.
+
+> **Historische Daten:** Die KMZ enthält ausschließlich Daten des aktuellen Zyklus. Historie wird nicht miterzeugt.
 
 ## 8.1 KMZ herunterladen
 
@@ -981,6 +1000,7 @@ Alle Parameter werden in `config.py` als Python-Konstanten definiert und können
 | Parameter | Standard | Bereich |
 |---|---:|---|
 | `UPSCALE_FACTOR` | 3.0 | Bildverarbeitung |
+| `FRAME_INTERVAL_MIN` | 2.0 | Bildverarbeitung — nominales Radar-Frame-Intervall in Minuten (siehe §27 v1.2) |
 | `MAX_CONTOUR_DISTANCE` | 30 px | Tracking |
 | `MAX_STATION_DISTANCE_KM` | 20 km | Tracking |
 | `MIN_MOVEMENT_FOR_ARROW_KMH` | 5 km/h | Darstellung |
@@ -1156,6 +1176,7 @@ ML-Modelle und Hailo-HEF-Dateien sind **Binaries** und werden **nicht** über Gi
 |---|---|---|
 | v1.0 | 2025 | Erstveröffentlichung: HSV-Segmentierung, Kalman-Tracking, LSTM + LightGBM, React Admin-Panel (10 Seiten), KMZ-Export, `install.sh`, Scheduler, Closed-Loop-Verifikation |
 | v1.1 | Mai 2026 | Phase-A-Erweiterungen: Optical Flow (pysteps), AROME icon_d2 Gitterpunkt, Erweitertes DEM (3 Kacheln, Talkanalisierung), Windscherung, Hagelindikator, Stationärrisiko, GeoSphere TAWES + Nowcast, SMS (Twilio), Daten-Rotation (90 Tage), Disk-Monitoring, nginx Basic-Auth, Adaptiver Loop-Intervall, `LOCAL_TRAINING`-Flag, API-Request-Statistik, KI-Analyse Chat (Claude API), Atmosphären-Seite, Vollbild-Karte `/karte`, 15 Admin-Panel-Seiten, Bugfixes: `parse_timestamp`, `radar_download` Timeout/Retry, `blitz_api` HTTP-Auth, `SAVE_PATHS` Zentralisierung, `runtime_config` File-Lock |
+| v1.2 | Mai 2026 | Produktreife-Welle 1: Neuer Konfigurationsparameter `FRAME_INTERVAL_MIN` (nominales Radar-Frame-Intervall in Minuten, default 2.0) — wird in `prediction.py` für die korrekte Umrechnung von Horizon-Minuten in Frames verwendet. Accuracy-Tracker liefert vier neue Felder (`verified`, `missed`, `no_target_frame`, `id_lost`) pro Horizont für transparente Verifikations-Statistik. KMZ-Export enthält jetzt vier Layer: „Aktuelle Zellen" (Konturen + Mittelpunkte), „Forecast +Hmin" pro Horizont, „Unsicherheit +Hmin" (q10/q90) und „Betroffene Orte" (Locations in Forecast-Farbe). Modell-Promotion benötigt mindestens 50 Validierungs-Samples und strikte MAE-Verbesserung (Toleranz nur bei >500 Samples). Admin-API ist nicht mehr direkt im LAN erreichbar — Flask bindet ausschließlich an `127.0.0.1`; Override via Env-Var `ADMIN_BIND_HOST`. |
 
 ---
 
