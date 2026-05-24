@@ -329,6 +329,8 @@ def create_scheduler() -> BlockingScheduler:
 
 
 def main():
+    import watchdog_heartbeat
+    watchdog_heartbeat.start()          # systemd READY=1 + Watchdog-Ping alle 25 s
     scheduler = create_scheduler()
     debug_log("[SCHEDULER] gestartet")
     try:
