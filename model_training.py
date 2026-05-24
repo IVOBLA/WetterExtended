@@ -303,13 +303,25 @@ def _check_model_compatibility(model_dir: str) -> dict:
 
 
 def load_lstm(model_dir=None):
-    model_dir = model_dir or _current_models_dir()
-    compat = _check_model_compatibility(model_dir)
-    if not compat.get("compatible", True):
-        debug_log(f"[LSTM] Modell inkompatibel, Fallback auf kinematischen Forecast: {compat.get('reason')}")
+    if load_model is None:
         return None
-    model_path = os.path.join(model_dir, "weather_lstm.keras")
-    return load_model(model_path) if load_model is not None and os.path.exists(model_path) else None
+    _dir = model_dir or _current_models_dir()
+    model_path = os.path.join(_dir, "weather_lstm.keras")
+    if not os.path.exists(model_path):
+        return None
+    # P24: Kompatibilitätsprüfung (Horizonte + Feature-Anzahl)
+    compat = _check_model_compatibility(_dir)
+    if not compat["compatible"]:
+        debug_log(
+            f"[MODEL] load_lstm: Modell inkompatibel — {compat['reason']}. "
+            f"Kinematischer Fallback aktiv."
+        )
+        return None
+    try:
+        return load_model(model_path)
+    except Exception as exc:
+        debug_log(f"[MODEL] load_lstm Fehler: {exc}")
+        return None
 
 
 def load_lgbm_models():
@@ -538,9 +550,23 @@ def retrain_all():
     _mae_old     = float(old_eval.get("mae_total", float("inf")))
 
     if not has_current:
-        status = "promoted"
-        _atomic_switch_current(timestamp)
-        debug_log(f"[TRAINING] PROMOTED {timestamp} (cold-start)")
+        # P24: Cold-Start nur mit ausreichend Validierungssamples.
+        # Ein Modell mit <50 Samples ist nicht besser als kinematischer Fallback.
+        if _new_samples >= _MIN_SAMPLES_FOR_PROMOTION:
+            status = "promoted"
+            _atomic_switch_current(timestamp)
+            debug_log(
+                f"[TRAINING] PROMOTED {timestamp} "
+                f"(cold-start, samples={_new_samples})"
+            )
+        else:
+            status = "cold_start_insufficient_samples"
+            debug_log(
+                f"[TRAINING] Cold-Start-Promotion ABGELEHNT: "
+                f"samples={_new_samples} < {_MIN_SAMPLES_FOR_PROMOTION}. "
+                f"Modell gespeichert, aber nicht als 'current' aktiviert. "
+                f"Kinematischer Fallback bleibt aktiv."
+            )
     elif getattr(X, "size", 0) == 0:
         status = "no_data"
         debug_log(
