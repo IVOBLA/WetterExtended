@@ -12,6 +12,8 @@ ExecStart=/home/ki-pi/wetterprojekt/venv/bin/python3 /home/ki-pi/wetterprojekt/a
 Restart=on-failure
 RestartSec=30
 Environment=PYTHONUNBUFFERED=1
+Environment=ADMIN_BIND_HOST=127.0.0.1
+Environment=ADMIN_BIND_PORT=5000
 
 [Install]
 WantedBy=multi-user.target
