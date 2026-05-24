@@ -44,6 +44,67 @@ def _write_last_modified(value: str) -> None:
         pass
 
 
+# Maximale erlaubte Einzeldatei-Größe nach Extract (50 MB).
+# ARSO KMZ enthält 1 KML (<10 KB) und 1 PNG (typisch 100–500 KB).
+_MAX_EXTRACT_FILE_SIZE = 50 * 1024 * 1024
+
+
+def _safe_extract_kmz(zf: zipfile.ZipFile, dest_dir: str) -> list:
+    """
+    Sichere Extraktion eines ZIP/KMZ-Archivs (Fix P05, Zip-Slip-Schutz).
+
+    Lehnt ab:
+      - Einträge mit absoluten Pfaden
+      - Einträge die durch Normalisierung das Zielverzeichnis verlassen
+      - Symlinks und Sondertypen
+      - Einzeldateien > _MAX_EXTRACT_FILE_SIZE
+
+    Gibt die Liste der erfolgreich extrahierten Dateinamen zurück.
+    """
+    extracted = []
+    dest_abs = os.path.realpath(os.path.abspath(dest_dir))
+    os.makedirs(dest_abs, exist_ok=True)
+
+    for info in zf.infolist():
+        name = info.filename
+        # 1) Sondertypen ausschließen (Symlinks: external_attr top-byte = 0xA1)
+        is_symlink = (info.external_attr >> 28) == 0xA
+        if is_symlink:
+            debug_log(f"[RADAR] Lehne Symlink ab: {name}")
+            continue
+        # 2) Absoluter Pfad?
+        if name.startswith("/") or name.startswith("\\"):
+            debug_log(f"[RADAR] Lehne absoluten Pfad ab: {name}")
+            continue
+        # 3) Windows-Drive-Letter?
+        if len(name) >= 2 and name[1] == ":":
+            debug_log(f"[RADAR] Lehne Drive-Letter-Pfad ab: {name}")
+            continue
+        # 4) Pfad normalisieren und prüfen, ob er dest_abs verlässt
+        target = os.path.realpath(os.path.abspath(os.path.join(dest_abs, name)))
+        if not (target == dest_abs or target.startswith(dest_abs + os.sep)):
+            debug_log(f"[RADAR] Lehne Path-Traversal ab: {name} → {target}")
+            continue
+        # 5) Verzeichniseinträge anlegen
+        if name.endswith("/") or name.endswith("\\"):
+            os.makedirs(target, exist_ok=True)
+            continue
+        # 6) Größenlimit
+        if info.file_size > _MAX_EXTRACT_FILE_SIZE:
+            debug_log(
+                f"[RADAR] Lehne übergroßen Eintrag ab: {name} "
+                f"({info.file_size} > {_MAX_EXTRACT_FILE_SIZE} Bytes)"
+            )
+            continue
+        # 7) Tatsächlich extrahieren
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with zf.open(info, "r") as src, open(target, "wb") as dst:
+            dst.write(src.read())
+        extracted.append(name)
+
+    return extracted
+
+
 def download_kmz() -> bool:
     """
     Lädt ARSO INCA KMZ herunter, entpackt und legt kml/png als data/latest.* ab.
@@ -126,19 +187,29 @@ def download_kmz() -> bool:
         log_api_failure("ARSO-Radar", KMZ_URL, "invalid-zip", fallback_used=False)
         return False
 
-    # Entpacken
+    # Entpacken (Fix P05: Zip-Slip-Schutz via _safe_extract_kmz)
     try:
         with zipfile.ZipFile(KMZ_PATH, "r") as zf:
-            zf.extractall("data")
-            for name in zf.namelist():
+            extracted = _safe_extract_kmz(zf, "data")
+            if not extracted:
+                debug_log("[RADAR] Sicheres Entpacken hat keine Dateien geliefert.")
+                log_api_failure(
+                    "ARSO-Radar", KMZ_URL,
+                    "unzip-error: keine sicheren Einträge im Archiv",
+                    fallback_used=False,
+                )
+                return False
+            for name in extracted:
                 if name.endswith(".kml"):
+                    src_path = os.path.join("data", name)
                     if os.path.exists("data/latest.kml"):
                         os.remove("data/latest.kml")
-                    os.rename(f"data/{name}", "data/latest.kml")
+                    os.rename(src_path, "data/latest.kml")
                 if name.endswith(".png"):
+                    src_path = os.path.join("data", name)
                     if os.path.exists("data/latest.png"):
                         os.remove("data/latest.png")
-                    os.rename(f"data/{name}", "data/latest.png")
+                    os.rename(src_path, "data/latest.png")
     except Exception as e:
         debug_log(f"[RADAR] Entpacken fehlgeschlagen: {e}")
         log_api_failure("ARSO-Radar", KMZ_URL,
