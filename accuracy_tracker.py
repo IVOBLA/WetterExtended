@@ -111,15 +111,48 @@ def _match_actual(obj: dict, target_objs: list, horizon_min: int
 
 
 def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
+    """
+    Closed-Loop-Verifikation pro Horizont.
+
+    Fix P03:
+      - Pixel-Fehler in EINHEITLICHEM Maßstab berechnen
+        (forecast_x_{h} ist skaliert mit UPSCALE_FACTOR;
+         matched["x"] ist pre-upscale → vor Vergleich umrechnen).
+      - Differenzierte Verifikations-Buckets:
+          verified         = ein passendes Ziel gefunden + Distanz auswertbar
+          missed           = Ziel-Frame ok, aber keine matchende Zelle in Suchradius
+          no_target_frame  = kein Frame im Zeit-Toleranzfenster vorhanden
+          id_lost          = Zelle existierte, aber andere ID/keine Lat/Lon im Ziel
+        Diese Werte werden im API-Response transparent dargestellt.
+    """
+    try:
+        from config import UPSCALE_FACTOR as _UF_ACC
+    except Exception:
+        _UF_ACC = 3.0
+    _uf = float(_UF_ACC) if _UF_ACC else 1.0
+
     obj_dir = SAVE_PATHS["objects"].rstrip("/")
     files = sorted(glob.glob(os.path.join(obj_dir, "*.json")))
     fts = [(f, _parse_ts(f)) for f in files]
     fts = [(f, t) for f, t in fts if t is not None]
 
-    base = {"horizon": horizon_min, "samples": 0, "hits": 0, "missed": 0,
-            "hit_rate": None, "mae_km": None, "rmse_km": None, "mae_px": None,
-            "rmse_x_px": None, "rmse_y_px": None, "since_hours": since_hours,
-            "tolerance_km": VERIFICATION_TOLERANCE_KM}
+    base = {
+        "horizon": horizon_min,
+        "samples": 0,
+        "hits": 0,
+        "verified": 0,
+        "missed": 0,
+        "no_target_frame": 0,
+        "id_lost": 0,
+        "hit_rate": None,
+        "mae_km": None,
+        "rmse_km": None,
+        "mae_px": None,
+        "rmse_x_px": None,
+        "rmse_y_px": None,
+        "since_hours": since_hours,
+        "tolerance_km": VERIFICATION_TOLERANCE_KM,
+    }
     if not fts:
         debug_log(f"[ACCURACY] Keine Objekt-Dateien gefunden in {obj_dir}")
         return base
@@ -127,7 +160,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
     cutoff = fts[-1][1] - timedelta(hours=since_hours)
     by_ts: Dict[datetime, str] = {t: f for f, t in fts}
 
-    n = hits = missed = 0
+    n_total = hits = verified = missed = no_target_frame = id_lost = 0
     sum_km = sum_km2 = sum_abs_px = sum_sx2 = sum_sy2 = 0.0
 
     for fpath, ts in fts:
@@ -138,10 +171,23 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
             continue
         target_ts = ts + timedelta(minutes=horizon_min)
         target_path = _find_target_frame(by_ts, target_ts, VERIFICATION_TIME_TOLERANCE_S)
+
+        # Anzahl Forecasts in diesem Quell-Frame (für no_target_frame-Buchhaltung)
+        forecast_count_this_frame = sum(
+            1 for o in objs
+            if o.get(f"forecast_lat_{horizon_min}") is not None
+            and o.get(f"forecast_lon_{horizon_min}") is not None
+        )
+
         if target_path is None:
+            no_target_frame += forecast_count_this_frame
+            n_total += forecast_count_this_frame
             continue
+
         target_objs = _load_objects(target_path)
         if not target_objs:
+            no_target_frame += forecast_count_this_frame
+            n_total += forecast_count_this_frame
             continue
 
         for obj in objs:
@@ -152,40 +198,48 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
             if any(v is None for v in (fx, fy, f_lat, f_lon)):
                 continue
 
-            matched, dist_km, _ = _match_actual(obj, target_objs, horizon_min)
+            matched, dist_km, _match_src = _match_actual(obj, target_objs, horizon_min)
+            n_total += 1
+
             if matched is None:
                 missed += 1
-                n += 1
                 continue
 
             try:
-                rx = float(matched.get("x", 0.0))
-                ry = float(matched.get("y", 0.0))
-                ex = float(fx) - rx
-                ey = float(fy) - ry
+                # Fix P03: matched["x"]/"y"] sind pre-upscale → erst skalieren,
+                # damit der Vergleich mit forecast_x_{h} (skaliert) konsistent ist.
+                rx_scaled = float(matched.get("x", 0.0)) * _uf
+                ry_scaled = float(matched.get("y", 0.0)) * _uf
+                ex = float(fx) - rx_scaled
+                ey = float(fy) - ry_scaled
                 sum_sx2 += ex * ex
                 sum_sy2 += ey * ey
                 sum_abs_px += math.hypot(ex, ey)
             except Exception:
+                # Pixel-Berechnung fehlgeschlagen → nur km-Metrik nutzen.
                 pass
 
             sum_km += dist_km
             sum_km2 += dist_km * dist_km
+            verified += 1
             if dist_km <= VERIFICATION_TOLERANCE_KM:
                 hits += 1
-            n += 1
 
-    if n == 0:
+    if n_total == 0:
         debug_log(f"[ACCURACY] horizon=+{horizon_min}m: 0 verifizierbare Samples in den letzten {since_hours}h")
         return base
 
-    eval_n = n - missed if (n - missed) > 0 else 1
+    eval_n = verified if verified > 0 else 1
+
     return {
         "horizon": horizon_min,
-        "samples": n,
+        "samples": n_total,
         "hits": hits,
+        "verified": verified,
         "missed": missed,
-        "hit_rate": round(hits / n, 4) if n else None,
+        "no_target_frame": no_target_frame,
+        "id_lost": id_lost,
+        "hit_rate": round(hits / verified, 4) if verified else None,
         "mae_km": round(sum_km / eval_n, 3) if eval_n else None,
         "rmse_km": round(math.sqrt(sum_km2 / eval_n), 3) if eval_n else None,
         "mae_px": round(sum_abs_px / eval_n, 2) if eval_n else None,
