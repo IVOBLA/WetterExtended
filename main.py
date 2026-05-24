@@ -214,6 +214,19 @@ def main_loop():
 
             # Blitzdaten wurden bereits vor assign_convective_indices geholt (Fix #2)
 
+        # P22: No-cell-Frame — leeres JSON damit API/KMZ/Karte nicht veraltet anzeigen.
+        # Ohne diesen Block würde kein Object-File geschrieben, und alle Downstream-
+        # Komponenten (Forecast, Location-Hits, Risk-Grid) würden den letzten bekannten
+        # Zustand weiter ausgeben, obwohl real keine Zellen mehr erkannt wurden.
+        if radar_ok and image is not None and not objects:
+            _empty_obj_path = os.path.join(SAVE_PATHS["objects"], f"{timestamp}.json")
+            try:
+                with open(_empty_obj_path, "w", encoding="utf-8") as _eof:
+                    json.dump([], _eof, ensure_ascii=False)
+                debug_log(f"[NO-CELLS] Leeres Object-File gespeichert: {timestamp}")
+            except Exception as _eoexc:
+                debug_log(f"[NO-CELLS] Schreibfehler: {_eoexc}")
+
         if radar_ok and image is not None and objects:
             if not weather_data:
                 debug_log("[WARN] Keine Wetterdaten — Forecast läuft mit Defaults.")
