@@ -720,6 +720,9 @@ if pip_install_safe -r "$TARGET/requirements.txt" $PIWHEELS_EXTRA; then
     echo "       Benötigter freier Speicher: min. 2 GB."
     echo "       Download läuft im Hintergrund-Thread — blockiert den Loop nicht."
     echo ""
+    # requirements.lock: exakter Installationszustand für Reproduzierbarkeit
+    log_info "Erzeuge requirements.lock (pip freeze)..."
+    "$VENV/bin/pip" freeze > "$TARGET/requirements.lock" 2>/dev/null         && check_ok "requirements.lock erstellt: $(wc -l < "$TARGET/requirements.lock") Pakete"         || log_warn "requirements.lock konnte nicht erstellt werden (nicht kritisch)"
 else
     log_warn "pip install hatte Fehler — bitte manuell prüfen:"
     note_manual "cd $TARGET && source venv/bin/activate && pip install -r requirements.txt --trusted-host pypi.org --trusted-host files.pythonhosted.org"
@@ -1035,8 +1038,11 @@ if [[ "$INSTALL_NODE" == true ]]; then
     if [[ -f "$TARGET/frontend/package.json" ]] && [[ "${NODE_OK:-false}" == "true" ]]; then
         cd "$TARGET/frontend"
 
-        log_info "npm install..."
-        if npm install --no-audit --no-fund 2>&1 | tail -3; then
+        # npm ci wenn package-lock.json vorhanden (reproduzierbar), sonst npm install
+        _NPM_CMD="install"
+        [[ -f "$TARGET/frontend/package-lock.json" ]] && _NPM_CMD="ci"
+        log_info "npm ${_NPM_CMD} (package-lock.json $([ "$_NPM_CMD" = ci ] && echo 'vorhanden → ci' || echo 'fehlt → install'))..."
+        if npm ${_NPM_CMD} --no-audit --no-fund 2>&1 | tail -3; then
             log_info "npm run build..."
             if NODE_OPTIONS="--max-old-space-size=2048" npm run build 2>&1 | tail -5; then
                 check_ok "Frontend-Build erfolgreich: frontend/dist/"
