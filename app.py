@@ -15,13 +15,34 @@ from accuracy_tracker import evaluate_all, load_history
 app = Flask(__name__, static_folder="frontend/dist", static_url_path="")
 
 # ---------------------------------------------------------------------------
-# Schreib-Authentifizierung (P10)
+# Schreib-Authentifizierung (P10/P25)
 # ---------------------------------------------------------------------------
 # ADMIN_API_TOKEN aus .env — wenn gesetzt, müssen alle POST/PATCH/DELETE
 # Requests den Header X-Admin-Token mit diesem Wert senden.
 # Das Frontend holt den Token einmalig via GET /api/admin_token
 # (dieser Endpoint liegt hinter nginx Basic-Auth).
 _ADMIN_TOKEN: str = os.getenv("ADMIN_API_TOKEN", "").strip()
+
+# P25: fail-closed Modus wenn ADMIN_REQUIRE_TOKEN=1 und kein Token gesetzt
+_REQUIRE_TOKEN: bool = os.getenv("ADMIN_REQUIRE_TOKEN", "0").strip() == "1"
+
+if not _ADMIN_TOKEN:
+    _warn_msg = (
+        "[SECURITY] ADMIN_API_TOKEN nicht gesetzt — "
+        "Admin-Schreiboperationen sind UNGESCHÜTZT. "
+        "Token in .env setzen oder 'openssl rand -hex 32' ausführen."
+    )
+    print(_warn_msg, flush=True)
+    try:
+        from debug_utils import debug_log as _dl
+        _dl(_warn_msg)
+    except Exception:
+        pass
+    if _REQUIRE_TOKEN:
+        raise SystemExit(
+            "ADMIN_REQUIRE_TOKEN=1 aber kein ADMIN_API_TOKEN gesetzt. "
+            "App startet nicht. Token in .env eintragen."
+        )
 
 
 def _check_write_auth() -> None:
