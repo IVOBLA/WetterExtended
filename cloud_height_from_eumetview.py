@@ -84,7 +84,8 @@ def get_latest_wms_time() -> str | None:
     try:
         import time as _t_wms_cap
         _t0_wms_cap = _t_wms_cap.monotonic()
-        r = requests.get(url, timeout=10)
+        from http_retry import retry_get
+        r = retry_get(url, service="EUMETView-WMS-Caps", timeout=10)
         _dur_ms = (_t_wms_cap.monotonic() - _t0_wms_cap) * 1000
         log_http_response(
             service="eumetview_wms_caps",
@@ -238,7 +239,8 @@ def assign_cloud_top_height(
         try:
             import time as _t_wms_tiff
             _t0_wms_tiff = _t_wms_tiff.monotonic()
-            r = requests.get(tif_url, timeout=20)
+            from http_retry import retry_get
+            r = retry_get(tif_url, service="EUMETView-WMS-TIFF", timeout=20)
             _dur_ms = (_t_wms_tiff.monotonic() - _t0_wms_tiff) * 1000
             _ts_str = timestamp_file.replace("-", "").replace("_", "")
             _tif_save = os.path.join(SAVE_DIR, f"ir108_{_ts_str}.tif") if "r" in dir() else None

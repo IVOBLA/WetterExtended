@@ -50,15 +50,20 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
         try:
             import time as _t_nowcast
             _t0_nowcast = _t_nowcast.monotonic()
-            r = requests.get(_BASE_URL, params=_qparams, timeout=_TIMEOUT if '_TIMEOUT' in dir() else 30, headers={"Accept":"application/json"})
+            from http_retry import retry_get
+            r = retry_get(
+                _BASE_URL,
+                service="geosphere_nowcast",
+                timeout=_TIMEOUT,
+                params=_qparams,
+                headers={"Accept": "application/json"},
+            )
             _dur_nowcast = (_t_nowcast.monotonic() - _t0_nowcast) * 1000
-            r.raise_for_status()
             data = r.json()
             log_http_response("geosphere_nowcast", "GET", r, _dur_nowcast)
-        except requests.exceptions.Timeout:
-            log_api_failure("geosphere_nowcast", url, "timeout", fallback_used=True); continue
         except Exception as exc:
-            log_api_failure("geosphere_nowcast", str(url), str(exc)[:80], fallback_used=True); continue
+            log_api_failure("geosphere_nowcast", str(url), str(exc)[:80], fallback_used=True)
+            continue
         result=_parse_nowcast(data, str(url)); cache_set(ck,result); obj.update(result)
     return objects
 
