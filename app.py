@@ -118,6 +118,23 @@ def _latest_location_hits():
 # ---------- JSON-APIs (von React konsumiert) ----------
 
 
+@app.route("/api/config/rollback", methods=["POST"])
+def api_config_rollback():
+    """
+    P35: Setzt runtime_overrides.json auf den Stand vor dem letzten Admin-Patch zurück.
+    Nützlich wenn eine Konfigurationsänderung das System destabilisiert hat.
+    """
+    try:
+        previous = runtime_config.rollback()
+        if "error" in previous:
+            return jsonify({"ok": False, "error": previous["error"]}), 500
+        if not previous:
+            return jsonify({"ok": False, "note": "Kein Backup vorhanden (noch keine Änderungen)"}), 404
+        return jsonify({"ok": True, "restored_keys": list(previous.keys())})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
 @app.route("/api/drift")
 def api_drift():
     """
@@ -744,10 +761,34 @@ def api_training():
 
 @app.route("/api/training", methods=["POST"])
 def api_training_save():
+    # P35: Range-Checks für Training-Parameter
+    _TRAINING_ALLOWED_KEYS = {
+        "TRAINING_SCHEDULE", "DATASET_REBUILD_INTERVAL_MIN",
+        "RETRAIN_INTERVAL_HOURS", "LOCAL_TRAINING",
+    }
     try:
         data = request.get_json(force=True)
-        assert "TRAINING_SCHEDULE" in data
-    except Exception as e:
+        if not isinstance(data, dict):
+            raise ValueError("Payload muss JSON-Objekt sein")
+        unknown = set(data.keys()) - _TRAINING_ALLOWED_KEYS
+        if unknown:
+            raise ValueError(f"Unbekannte Schlüssel: {sorted(unknown)}")
+        if "DATASET_REBUILD_INTERVAL_MIN" in data:
+            v = int(data["DATASET_REBUILD_INTERVAL_MIN"])
+            if not (5 <= v <= 1440):
+                raise ValueError(f"DATASET_REBUILD_INTERVAL_MIN muss 5-1440 sein, nicht {v}")
+        if "RETRAIN_INTERVAL_HOURS" in data:
+            v = int(data["RETRAIN_INTERVAL_HOURS"])
+            if not (1 <= v <= 168):
+                raise ValueError(f"RETRAIN_INTERVAL_HOURS muss 1-168 sein, nicht {v}")
+        if "LOCAL_TRAINING" in data:
+            if not isinstance(data["LOCAL_TRAINING"], bool):
+                raise ValueError("LOCAL_TRAINING muss bool sein")
+        if "TRAINING_SCHEDULE" in data:
+            ts = data["TRAINING_SCHEDULE"]
+            if not isinstance(ts, dict):
+                raise ValueError("TRAINING_SCHEDULE muss Objekt sein")
+    except (ValueError, TypeError, KeyError) as e:
         return jsonify({"ok": False, "error": str(e)}), 400
     runtime_config.patch(data)
     return jsonify({"ok": True})

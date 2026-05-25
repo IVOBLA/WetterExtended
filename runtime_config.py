@@ -87,15 +87,22 @@ def all_effective() -> dict:
 def save(overrides: dict) -> None:
     """
     Schreibt Overrides atomar zurück.
-    Exclusive File-Lock auf tmp-Datei verhindert gleichzeitige Schreibvorgänge.
-    Atomic-Replace via os.replace() garantiert konsistente Zieldatei.
+    P35: Sichert aktuellen Stand als .bak vor dem Überschreiben (für rollback()).
     """
     path = _get_path()
     parent = os.path.dirname(path) or "."
     os.makedirs(parent, exist_ok=True)
     tmp = path + ".tmp"
+    bak = path + ".bak"
 
     with _LOCK:
+        # P35: Backup des aktuellen Stands (einmalig pro Schreibvorgang)
+        if os.path.exists(path):
+            try:
+                import shutil as _shutil
+                _shutil.copy2(path, bak)
+            except Exception:
+                pass
         with open(tmp, "w", encoding="utf-8") as f:
             fcntl.flock(f, fcntl.LOCK_EX)   # Exclusive Lock: nur ein Schreiber
             try:
@@ -114,6 +121,35 @@ def patch(partial: dict) -> dict:
         merged = _deep_merge(_OVERRIDES, partial)
     save(merged)
     return merged
+
+
+def rollback() -> dict:
+    """
+    P35: Setzt runtime_overrides.json auf den Stand vor dem letzten patch()-Aufruf zurück.
+    Gibt die wiederhergestellten Overrides zurück, oder {} wenn kein Backup vorhanden.
+    """
+    path = _get_path()
+    bak = path + ".bak"
+    if not os.path.exists(bak):
+        return {}
+    try:
+        with open(bak, "r", encoding="utf-8") as f:
+            previous = json.load(f)
+        tmp = path + ".tmp"
+        with _LOCK:
+            with open(tmp, "w", encoding="utf-8") as f:
+                fcntl.flock(f, fcntl.LOCK_EX)
+                try:
+                    json.dump(previous, f, indent=2, ensure_ascii=False)
+                    f.flush()
+                    os.fsync(f.fileno())
+                finally:
+                    fcntl.flock(f, fcntl.LOCK_UN)
+            os.replace(tmp, path)
+        reload_overrides()
+        return previous
+    except Exception as exc:
+        return {"error": str(exc)}
 
 
 # Beim Modulimport einmalig laden
