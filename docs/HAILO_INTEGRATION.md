@@ -151,6 +151,14 @@ Abarbeitungsreihenfolge war: A1 → A2 → A3 → A4 → A5 → A6 → A8 → A7
 | A9 | File-Locking bei JSON-Schreibvorgängen | `runtime_config.py` | ✅ erledigt |
 | A10 | ConvLSTM MODEL_PATH via SAVE_PATHS + runtime_config | `radar_convlstm.py` | ✅ erledigt |
 
+### 5.7 Phase A.6 — Produktreife Welle 6 ✅
+
+| # | Task | Datei(en) | Status |
+|---|------|-----------|--------|
+| B37 | Forecast-Pfad segmentweise h[n]→h[n+1] in `annotate_locations` | `locations_check.py` | ✅ erledigt |
+| B38 | Config-Rollback + Training-Range-Checks | `runtime_config.py`, `app.py` | ✅ erledigt |
+| B39 | Täglicher API-Connectivity-Check (alle 5 externen APIs) | `api_health_check.py` (neu), `scheduler.py`, `app.py` | ✅ erledigt |
+
 ### 5.6 Phase A.5 — Produktreife Welle 5 ✅
 
 | # | Task | Datei(en) | Status |
