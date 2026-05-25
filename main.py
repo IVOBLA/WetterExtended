@@ -214,18 +214,52 @@ def main_loop():
 
             # Blitzdaten wurden bereits vor assign_convective_indices geholt (Fix #2)
 
-        # P22: No-cell-Frame — leeres JSON damit API/KMZ/Karte nicht veraltet anzeigen.
-        # Ohne diesen Block würde kein Object-File geschrieben, und alle Downstream-
-        # Komponenten (Forecast, Location-Hits, Risk-Grid) würden den letzten bekannten
-        # Zustand weiter ausgeben, obwohl real keine Zellen mehr erkannt wurden.
+        # P22/P28: No-cell-Frame — alle Downstream-States bereinigen damit
+        # API/KMZ/Karte/Location-Warnungen nicht veraltet weiterleuchten.
         if radar_ok and image is not None and not objects:
+            # 1. Leeres Object-File (P22)
             _empty_obj_path = os.path.join(SAVE_PATHS["objects"], f"{timestamp}.json")
             try:
                 with open(_empty_obj_path, "w", encoding="utf-8") as _eof:
                     json.dump([], _eof, ensure_ascii=False)
                 debug_log(f"[NO-CELLS] Leeres Object-File gespeichert: {timestamp}")
             except Exception as _eoexc:
-                debug_log(f"[NO-CELLS] Schreibfehler: {_eoexc}")
+                debug_log(f"[NO-CELLS] Object-File Schreibfehler: {_eoexc}")
+
+            # 2. Leere Location-Hits (P28) — löscht sichtbare Ort-Warnungen
+            try:
+                os.makedirs(SAVE_PATHS["evaluation"], exist_ok=True)
+                _empty_loc_path = os.path.join(SAVE_PATHS["evaluation"], f"locations_{timestamp}.json")
+                with open(_empty_loc_path, "w", encoding="utf-8") as _elf:
+                    json.dump([], _elf, ensure_ascii=False)
+                debug_log(f"[NO-CELLS] Leere Location-Hits gespeichert: {timestamp}")
+            except Exception as _elexc:
+                debug_log(f"[NO-CELLS] Location-File Schreibfehler: {_elexc}")
+
+            # 3. Leeres KMZ (P28) — überschreibt altes forecast.kmz
+            try:
+                from config import FORECAST_ARROW_COLORS as _def_colors
+                _runtime_horizons = runtime_config.get("ML_FORECAST_HORIZONS_MIN",
+                                                        [10, 20, 30, 40, 60])
+                _empty_forecasts = {h: [] for h in _runtime_horizons}
+                save_forecast_as_kmz(
+                    _empty_forecasts,
+                    _def_colors,
+                    current_objects=[],
+                    location_hits=[],
+                )
+                debug_log(f"[NO-CELLS] Leeres KMZ gespeichert: {timestamp}")
+            except Exception as _ekmz:
+                debug_log(f"[NO-CELLS] KMZ Schreibfehler: {_ekmz}")
+
+            # 4. Auto-Entwarnung für alle bisher betroffenen Orte (P28)
+            if _prev_location_hit_names:
+                debug_log(
+                    f"[NO-CELLS] Auto-Entwarnung: {_prev_location_hit_names} "
+                    f"— keine Zellen mehr sichtbar"
+                )
+                # _prev_location_hit_names wird in der nächsten Iteration
+                # durch das Fehlen aktueller Hits automatisch gecleart.
 
         if radar_ok and image is not None and objects:
             if not weather_data:
