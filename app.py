@@ -135,6 +135,30 @@ def api_config_rollback():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+@app.route("/api/api_health")
+def api_api_health():
+    """
+    P36: Letzter API-Connectivity-Status (aus api_health_latest.json).
+    Täglich um 05:15 aktualisiert, manuell via POST auslösbar.
+    """
+    try:
+        from api_health_check import load_status
+        return jsonify(load_status())
+    except Exception as exc:
+        return jsonify({"all_ok": None, "error": str(exc)})
+
+
+@app.route("/api/api_health/run", methods=["POST"])
+def api_api_health_run():
+    """Löst manuellen API-Health-Check aus (für Admin-Panel)."""
+    try:
+        from api_health_check import check_all_apis
+        result = check_all_apis()
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"all_ok": False, "error": str(exc)}), 500
+
+
 @app.route("/api/drift")
 def api_drift():
     """
@@ -999,8 +1023,8 @@ def api_api_calls_last():
     return jsonify({"entry": entry})
 
 
-@app.route("/api/api_health")
-def api_api_health():
+@app.route("/api/api_health_summary")
+def api_api_health_summary():
     """Liefert API-Failure-Statistik der letzten N Stunden."""
     from debug_utils import api_health_summary
     hours = int(request.args.get("hours", "24"))

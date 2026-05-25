@@ -225,6 +225,18 @@ def run_atmospheric_snapshot_job():
         debug_log(f"[SCHEDULER] atmospheric_snapshot Fehler: {exc}")
 
 
+def run_api_health_job():
+    """Täglicher API-Connectivity-Check (05:15 Europe/Vienna)."""
+    debug_log("[SCHEDULER] Job api_health_check gestartet")
+    try:
+        from api_health_check import check_all_apis
+        result = check_all_apis()
+        status = "OK" if result.get("all_ok") else "PROBLEME ERKANNT"
+        debug_log(f"[SCHEDULER] API-Health: {status}")
+    except Exception as exc:
+        debug_log(f"[SCHEDULER] API-Health Fehler: {exc}")
+
+
 def run_backup_job():
     """Wöchentliches Backup von Modellen + Secrets (sonntags 02:00)."""
     import subprocess
@@ -305,6 +317,13 @@ def create_scheduler() -> BlockingScheduler:
     )
 
 
+
+    # --- immer aktiv: Täglicher API-Connectivity-Check (05:15) ---
+    sched.add_job(
+        run_api_health_job,
+        trigger=CronTrigger(hour=5, minute=15, timezone="Europe/Vienna"),
+        id="api_health_check", max_instances=1, coalesce=True,
+    )
 
     # --- immer aktiv: Wöchentliches Backup (sonntags 02:00) ---
     sched.add_job(
