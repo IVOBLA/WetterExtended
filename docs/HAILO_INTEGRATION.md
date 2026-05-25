@@ -151,6 +151,17 @@ Abarbeitungsreihenfolge war: A1 → A2 → A3 → A4 → A5 → A6 → A8 → A7
 | A9 | File-Locking bei JSON-Schreibvorgängen | `runtime_config.py` | ✅ erledigt |
 | A10 | ConvLSTM MODEL_PATH via SAVE_PATHS + runtime_config | `radar_convlstm.py` | ✅ erledigt |
 
+### 5.6 Phase A.5 — Produktreife Welle 5 ✅
+
+| # | Task | Datei(en) | Status |
+|---|------|-----------|--------|
+| B31 | No-cell vollständig: leere locations + KMZ + Auto-Entwarnung | `main.py` | ✅ erledigt |
+| B32 | Training/Evaluation/Laden mit Runtime-Horizonten | `model_training.py` | ✅ erledigt |
+| B33 | Promotion mit Compat-Check + Holdout-MAE-Validierung | `model_training.py` | ✅ erledigt |
+| B34 | `ADMIN_REQUIRE_TOKEN=1` default in install.sh + Token-Endpoint nginx-only | `install.sh`, `app.py` | ✅ erledigt |
+| B35 | Unit-Tests Einheitenkonsistenz (`tests/test_units.py`) | `tests/test_units.py` (neu) | ✅ erledigt |
+| B36 | `package-lock.json` generieren für reproduzierbare Frontend-Builds | `install.sh` | ✅ erledigt |
+
 ### 5.5 Phase A.4 — Produktreife Welle 4 ✅
 
 | # | Task | Datei(en) | Status |
