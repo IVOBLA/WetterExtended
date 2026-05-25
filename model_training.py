@@ -158,10 +158,11 @@ def evaluate_on_recent(model_dir, hours=24):
 
     y_pred = scaler_y.inverse_transform(y_pred_scaled)
     mae_by_horizon = {}
-    for h_idx, horizon in enumerate(ML_FORECAST_HORIZONS_MIN):
+    _eval_horizons = _get_training_horizons()  # P29: runtime-fähig
+    for h_idx, horizon in enumerate(_eval_horizons):
         sl = slice(h_idx * 2, h_idx * 2 + 2)
         mae_by_horizon[str(horizon)] = float(np.mean(np.abs(y_pred[:, sl] - y_recent[:, sl])))
-    mae_total = float(np.mean([mae_by_horizon[str(h)] for h in ML_FORECAST_HORIZONS_MIN]))
+    mae_total = float(np.mean([mae_by_horizon[str(h)] for h in _eval_horizons]))
     return {"mae_total": mae_total, "mae_by_horizon": mae_by_horizon, "samples": len(idx)}
 
 def _build_lstm():
@@ -230,8 +231,9 @@ def train_lgbm(X, y, model_dir):
     quantiles_to_train = quantiles if len(X) >= 100 else [0.5]
     if len(X) < 100:
         debug_log(f"[LGBM] Wenig Samples ({len(X)} < 100): trainiere nur Median-Quantil (q50)")
+    _train_horizons = _get_training_horizons()  # P29: runtime-fähig
     models, best_scores, quantile_scores = {}, {}, {}
-    for h_idx, h in enumerate(ML_FORECAST_HORIZONS_MIN):
+    for h_idx, h in enumerate(_train_horizons):
         for axis_idx, axis in enumerate(["x", "y"]):
             target_idx = h_idx * 2 + axis_idx
             booster = lgb.train(
@@ -263,6 +265,18 @@ def train_lgbm(X, y, model_dir):
                 models[q_model_name] = q_path
                 quantile_scores[q_model_name] = float(q_booster.best_score.get("valid_0", {}).get("quantile", float("nan")))
     return {"trained": True, "models": models, "best_scores": best_scores, "quantile_scores": quantile_scores, "samples": len(X)}
+
+
+def _get_training_horizons() -> list:
+    """
+    P29: Runtime-Horizonte für Training/Evaluation/Laden.
+    Priorisiert runtime_config (Admin-Panel), Fallback: config.py.
+    """
+    try:
+        import runtime_config as _rc_tr
+        return list(_rc_tr.get("ML_FORECAST_HORIZONS_MIN", ML_FORECAST_HORIZONS_MIN))
+    except Exception:
+        return list(ML_FORECAST_HORIZONS_MIN)
 
 
 def _check_model_compatibility(model_dir: str) -> dict:
@@ -328,15 +342,25 @@ def load_lgbm_models():
     models = {}
     if lgb is None:
         return models
-    for h in ML_FORECAST_HORIZONS_MIN:
+    _dir = _current_models_dir()
+    # P29/P24: Kompatibilitätsprüfung vor dem Laden
+    compat = _check_model_compatibility(_dir)
+    if not compat["compatible"]:
+        debug_log(
+            f"[MODEL] load_lgbm_models: Modell inkompatibel — {compat['reason']}. "
+            f"Kinematischer Fallback aktiv."
+        )
+        return models  # leer → kinematischer Fallback in prediction.py
+    _load_horizons = _get_training_horizons()  # P29: runtime-fähig
+    for h in _load_horizons:
         for axis in ["x", "y"]:
             name = f"lgbm_h{h}_{axis}"
-            path = os.path.join(_current_models_dir(), f"{name}.txt")
+            path = os.path.join(_dir, f"{name}.txt")
             if os.path.exists(path):
                 models[name] = lgb.Booster(model_file=path)
             for q in ["q10", "q50", "q90"]:
                 q_name = f"{name}_{q}"
-                q_path = os.path.join(_current_models_dir(), f"{q_name}.txt")
+                q_path = os.path.join(_dir, f"{q_name}.txt")
                 if os.path.exists(q_path):
                     models[q_name] = lgb.Booster(model_file=q_path)
     return models
