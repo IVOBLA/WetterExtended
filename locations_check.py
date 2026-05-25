@@ -128,19 +128,37 @@ def annotate_locations(
 
             # ── Typ 2: SLOW_APPROACH ──────────────────────────────────────
             # Langsam ziehende Zelle: erweiterter Warnradius.
+            # P34: Zwischensegmente wie bei Typ 3.
             if speed_kmh <= slow_cell_max_kmh:
-                for h in horizons:
+                _fpts_slow: list = [(o_lat, o_lon)]
+                for _h in sorted(horizons):
+                    _fy = obj.get(f"forecast_lat_{_h}")
+                    _fx = obj.get(f"forecast_lon_{_h}")
+                    _fpts_slow.append(
+                        (float(_fy), float(_fx)) if _fy is not None and _fx is not None else None
+                    )
+
+                for h_idx, h in enumerate(sorted(horizons)):
                     if h in hits:
                         continue
                     fy = obj.get(f"forecast_lat_{h}")
                     fx = obj.get(f"forecast_lon_{h}")
                     if fy is None or fx is None:
                         continue
-                    d = _point_to_segment_km(
-                        loc_lat, loc_lon,
-                        o_lat,  o_lon,
-                        float(fy), float(fx),
-                    )
+                    fy_f, fx_f = float(fy), float(fx)
+
+                    d = _point_to_segment_km(loc_lat, loc_lon,
+                                             o_lat, o_lon, fy_f, fx_f)
+                    if d > extended_r and h_idx > 0:
+                        _prev_s = _fpts_slow[h_idx] if h_idx < len(_fpts_slow) else None
+                        if _prev_s is not None:
+                            d_seg = _point_to_segment_km(
+                                loc_lat, loc_lon,
+                                _prev_s[0], _prev_s[1],
+                                fy_f, fx_f,
+                            )
+                            d = min(d, d_seg)
+
                     if d <= extended_r:
                         hits[h] = {
                             "hit_type":    "slow_approach",
@@ -152,19 +170,45 @@ def annotate_locations(
 
             # ── Typ 3: FORECAST ───────────────────────────────────────────
             # Schnell ziehende Zelle: Forecast-Pfad vs. normaler Radius.
+            # P34: Zwei Prüfungsebenen:
+            #   a) origin → h (wie bisher) — erfasst direkten Pfad
+            #   b) h[n] → h[n+1]           — erfasst Kursbewegungen zwischen Horizonten
             else:
-                for h in horizons:
+                # Forecast-Punkte sammeln (für Zwischensegment-Prüfung)
+                _fpts: list = [(o_lat, o_lon)]   # [origin, h0, h1, h2, ...]
+                for _h in sorted(horizons):
+                    _fy = obj.get(f"forecast_lat_{_h}")
+                    _fx = obj.get(f"forecast_lon_{_h}")
+                    if _fy is not None and _fx is not None:
+                        _fpts.append((float(_fy), float(_fx)))
+                    else:
+                        _fpts.append(None)   # Lücke merken
+
+                for h_idx, h in enumerate(sorted(horizons)):
                     if h in hits:
                         continue
                     fy = obj.get(f"forecast_lat_{h}")
                     fx = obj.get(f"forecast_lon_{h}")
                     if fy is None or fx is None:
                         continue
-                    d = _point_to_segment_km(
-                        loc_lat, loc_lon,
-                        o_lat,  o_lon,
-                        float(fy), float(fx),
-                    )
+                    fy_f, fx_f = float(fy), float(fx)
+
+                    # a) origin → h (bestehende Prüfung)
+                    d = _point_to_segment_km(loc_lat, loc_lon,
+                                             o_lat, o_lon,
+                                             fy_f, fx_f)
+
+                    # b) P34: Zwischensegment h_prev → h prüfen (falls verfügbar)
+                    if d > radius and h_idx > 0:
+                        _prev = _fpts[h_idx] if h_idx < len(_fpts) else None
+                        if _prev is not None:
+                            d_seg = _point_to_segment_km(
+                                loc_lat, loc_lon,
+                                _prev[0], _prev[1],
+                                fy_f, fx_f,
+                            )
+                            d = min(d, d_seg)
+
                     if d <= radius:
                         hits[h] = {
                             "hit_type":    "forecast",
