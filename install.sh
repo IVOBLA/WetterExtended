@@ -846,6 +846,16 @@ else
         check_ok ".env: ADMIN_API_TOKEN vorhanden"
     fi
 
+    # P31: ADMIN_REQUIRE_TOKEN=1 — fail-closed im Produktivbetrieb.
+    # Wenn ADMIN_API_TOKEN fehlt, startet die App nicht (SystemExit).
+    # Zum Deaktivieren: ADMIN_REQUIRE_TOKEN=0 in .env setzen.
+    if ! grep -q "^ADMIN_REQUIRE_TOKEN=" "$ENV_FILE" 2>/dev/null; then
+        echo "ADMIN_REQUIRE_TOKEN=1" >> "$ENV_FILE"
+        check_ok ".env: ADMIN_REQUIRE_TOKEN=1 gesetzt (fail-closed Standard)"
+    else
+        check_ok ".env: ADMIN_REQUIRE_TOKEN vorhanden ($(grep "^ADMIN_REQUIRE_TOKEN=" "$ENV_FILE" | cut -d= -f2))"
+    fi
+
     # Blitzortung-Credentials prüfen
     BLITZ_USER_VAL=$(grep "^BLITZ_USERNAME=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ')
     BLITZ_PASS_VAL=$(grep "^BLITZ_PASSWORD=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ')

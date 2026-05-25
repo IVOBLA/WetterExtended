@@ -137,11 +137,19 @@ def api_drift():
 def api_admin_token():
     """
     Gibt den Admin-Token für das Frontend zurück.
-    Dieser Endpoint liegt hinter nginx Basic-Auth — nur eingeloggte Nutzer
-    können ihn aufrufen. Das Frontend speichert den Token im sessionStorage
-    und schickt ihn bei allen Schreiboperationen als X-Admin-Token Header.
+    Liegt hinter nginx Basic-Auth — nur eingeloggte Browser-Sessions können ihn abrufen.
+    P31: Direktzugriff auf 127.0.0.1:5000 (ohne nginx) wird abgewiesen —
+    nginx setzt immer X-Real-IP; direkter Zugriff hat diesen Header nicht.
     Wenn kein Token konfiguriert: gibt {"token": null} zurück (Token-Auth deaktiviert).
     """
+    # Nginx-Proxy-Check: nginx setzt X-Real-IP bei jedem proxied Request.
+    # Fehlt der Header → direkter Zugriff auf Flask-Port (ohne Basic-Auth) → ablehnen.
+    _via_nginx = (
+        request.headers.get("X-Real-IP")
+        or request.headers.get("X-Forwarded-For")
+    )
+    if not _via_nginx:
+        return jsonify({"error": "Nur über nginx-Proxy zugänglich (Basic-Auth erforderlich)"}), 403
     return jsonify({"token": _ADMIN_TOKEN if _ADMIN_TOKEN else None})
 
 # ---------------------------------------------------------------------------
