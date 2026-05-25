@@ -826,7 +826,7 @@ else
     # FTP-Credentials prüfen
     FTP_OK=true
     for var in FTP_SERVER FTP_USER FTP_PASS; do
-        val=$(grep "^${var}=" "$ENV_FILE" | cut -d= -f2 | tr -d ' ')
+        val=$(grep "^${var}=" "$ENV_FILE" | cut -d= -f2 | tr -d ' ' || true)
         [[ -z "$val" ]] && { FTP_OK=false; break; }
     done
     if [[ "$FTP_OK" == "true" ]]; then
@@ -837,7 +837,7 @@ else
     fi
 
     # ADMIN_API_TOKEN generieren (einmalig, bei Upgrade beibehalten)
-    EXISTING_ADMIN_TOKEN=$(grep "^ADMIN_API_TOKEN=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ')
+    EXISTING_ADMIN_TOKEN=$(grep "^ADMIN_API_TOKEN=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ' || true)
     if [[ -z "$EXISTING_ADMIN_TOKEN" ]]; then
         NEW_ADMIN_TOKEN=$(openssl rand -hex 32)
         echo "ADMIN_API_TOKEN=${NEW_ADMIN_TOKEN}" >> "$ENV_FILE"
@@ -853,12 +853,12 @@ else
         echo "ADMIN_REQUIRE_TOKEN=1" >> "$ENV_FILE"
         check_ok ".env: ADMIN_REQUIRE_TOKEN=1 gesetzt (fail-closed Standard)"
     else
-        check_ok ".env: ADMIN_REQUIRE_TOKEN vorhanden ($(grep "^ADMIN_REQUIRE_TOKEN=" "$ENV_FILE" | cut -d= -f2))"
+        check_ok ".env: ADMIN_REQUIRE_TOKEN vorhanden ($(grep "^ADMIN_REQUIRE_TOKEN=" "$ENV_FILE" | cut -d= -f2 || true))"
     fi
 
     # Blitzortung-Credentials prüfen
-    BLITZ_USER_VAL=$(grep "^BLITZ_USERNAME=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ')
-    BLITZ_PASS_VAL=$(grep "^BLITZ_PASSWORD=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ')
+    BLITZ_USER_VAL=$(grep "^BLITZ_USERNAME=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ' || true)
+    BLITZ_PASS_VAL=$(grep "^BLITZ_PASSWORD=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ' || true)
     if [[ -n "$BLITZ_USER_VAL" && -n "$BLITZ_PASS_VAL" ]]; then
         check_ok ".env: Blitzortung-Credentials konfiguriert"
     else
@@ -867,7 +867,7 @@ else
     fi
 
     # Anthropic API Key prüfen
-    ANTHROPIC_VAL=$(grep "^ANTHROPIC_API_KEY=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ')
+    ANTHROPIC_VAL=$(grep "^ANTHROPIC_API_KEY=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ' || true)
     if [[ -n "$ANTHROPIC_VAL" ]]; then
         check_ok ".env: ANTHROPIC_API_KEY konfiguriert (KI-Analyse verfügbar)"
     else
@@ -876,7 +876,7 @@ else
     fi
 
     # GitHub Token prüfen (privates Repo)
-    GITHUB_TOKEN_VAL=$(grep "^GITHUB_TOKEN=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ')
+    GITHUB_TOKEN_VAL=$(grep "^GITHUB_TOKEN=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ' || true)
     if [[ -n "$GITHUB_TOKEN_VAL" ]]; then
         check_ok ".env: GITHUB_TOKEN gesetzt (KI-Analyse kann Quellcode vom privaten Repo laden)"
     else
