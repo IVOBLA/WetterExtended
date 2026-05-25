@@ -1052,6 +1052,17 @@ if [[ "$INSTALL_NODE" == true ]]; then
         _NPM_CMD="install"
         [[ -f "$TARGET/frontend/package-lock.json" ]] && _NPM_CMD="ci"
         log_info "npm ${_NPM_CMD} (package-lock.json $([ "$_NPM_CMD" = ci ] && echo 'vorhanden → ci' || echo 'fehlt → install'))..."
+        # package-lock.json generieren wenn nicht vorhanden (P32: reproduzierbarer Build)
+        if [[ ! -f "$TARGET/frontend/package-lock.json" ]]; then
+            log_info "package-lock.json fehlt — einmalig generieren mit npm install --package-lock-only..."
+            npm install --package-lock-only --no-audit --no-fund 2>&1 | tail -3 || true
+            if [[ -f "$TARGET/frontend/package-lock.json" ]]; then
+                check_ok "package-lock.json generiert — bitte in Git committen:"
+                log_info "  cd $TARGET/frontend && git add package-lock.json && git commit -m 'add package-lock.json'"
+            else
+                log_warn "package-lock.json konnte nicht generiert werden — npm install wird verwendet"
+            fi
+        fi
         if npm ${_NPM_CMD} --no-audit --no-fund 2>&1 | tail -3; then
             log_info "npm run build..."
             if NODE_OPTIONS="--max-old-space-size=2048" npm run build 2>&1 | tail -5; then
