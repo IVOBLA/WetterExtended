@@ -573,9 +573,17 @@ def retrain_all():
     _mae_new     = float(new_eval.get("mae_total", float("inf")))
     _mae_old     = float(old_eval.get("mae_total", float("inf")))
 
-    if not has_current:
+    # P30: Zentrale Compat-Prüfung vor jeder Promotion (Cold-Start + regulär).
+    # Prüft: Horizonte, Feature-Anzahl (aus training_meta.json).
+    _compat = _check_model_compatibility(version_dir)
+    if not _compat["compatible"]:
+        status = "rejected_incompatible"
+        debug_log(
+            f"[TRAINING] REJECTED {timestamp} (inkompatibel): {_compat['reason']}. "
+            f"Retraining mit passenden Horizonten/Features erforderlich."
+        )
+    elif not has_current:
         # P24: Cold-Start nur mit ausreichend Validierungssamples.
-        # Ein Modell mit <50 Samples ist nicht besser als kinematischer Fallback.
         if _new_samples >= _MIN_SAMPLES_FOR_PROMOTION:
             status = "promoted"
             _atomic_switch_current(timestamp)
@@ -588,7 +596,6 @@ def retrain_all():
             debug_log(
                 f"[TRAINING] Cold-Start-Promotion ABGELEHNT: "
                 f"samples={_new_samples} < {_MIN_SAMPLES_FOR_PROMOTION}. "
-                f"Modell gespeichert, aber nicht als 'current' aktiviert. "
                 f"Kinematischer Fallback bleibt aktiv."
             )
     elif getattr(X, "size", 0) == 0:
@@ -613,13 +620,28 @@ def retrain_all():
             f"samples={_new_samples})"
         )
     elif _mae_new < _mae_old:
-        status = "promoted"
-        _atomic_switch_current(timestamp)
-        debug_log(
-            f"[TRAINING] PROMOTED {timestamp} "
-            f"(mae_new={_mae_new:.4f} < mae_old={_mae_old:.4f}, "
-            f"samples={_new_samples})"
-        )
+        # P30: Holdout-MAE prüfen — muss endlich sein (Training ohne Fehler abgeschlossen)
+        _holdout = meta.get("holdout", {})
+        _holdout_mae = _holdout.get("mae_px")
+        _holdout_ok = (
+            _holdout_mae is not None
+            and isinstance(_holdout_mae, (int, float))
+            and _holdout_mae < float("inf")
+        ) or _holdout.get("samples", 0) == 0  # kein Holdout-Set → trotzdem erlaubt
+        if not _holdout_ok:
+            status = "rejected_invalid_holdout"
+            debug_log(
+                f"[TRAINING] REJECTED {timestamp}: Holdout-MAE ungültig "
+                f"({_holdout_mae}) — Promotion abgebrochen."
+            )
+        else:
+            status = "promoted"
+            _atomic_switch_current(timestamp)
+            debug_log(
+                f"[TRAINING] PROMOTED {timestamp} "
+                f"(mae_new={_mae_new:.4f} < mae_old={_mae_old:.4f}, "
+                f"samples={_new_samples}, holdout_mae_px={_holdout_mae})"
+            )
     else:
         status = "rejected"
         debug_log(
