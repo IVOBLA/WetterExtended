@@ -376,8 +376,12 @@ def build_system_report(since_hours: int = 24) -> dict:
         report["system_config"] = _sanitize_config(effective_raw)
 
         # Explizit wichtige Sub-Bereiche direkt lesbar machen (falls nicht in all_effective)
+        # ML_FORECAST_HORIZONS_MIN ist bereits am Modul-Anfang importiert.
+        # Wenn es hier nochmals lokal importiert würde, markiert Python die
+        # Variable für die GESAMTE Funktion als lokal — der frühere Zugriff
+        # im accuracy-Block würde UnboundLocalError werfen.
         from config import (
-            HSV_BAND_LABELS, LOCATIONS_WATCHLIST, ML_FORECAST_HORIZONS_MIN,
+            HSV_BAND_LABELS, LOCATIONS_WATCHLIST,
             HAIL_WARN_THRESHOLD, GUST_WARN_KMH, HEAVY_RAIN_WARN_MM_PER_H,
             VERIFICATION_TOLERANCE_KM, DATA_RETENTION_DAYS,
             TAWES_GUST_STATION_IDS, BBOX_KAERNTEN_EXTENDED,
