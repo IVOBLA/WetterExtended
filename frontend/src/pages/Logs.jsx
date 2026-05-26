@@ -244,7 +244,7 @@ function CacheStatusTable() {
           <th className="p-1 text-right">Alter</th>
           <th className="p-1 text-right">TTL</th>
           <th className="p-1 text-right">Nächster Abruf in</th>
-          <th className="p-1 text-left">Letzter Abruf (UTC)</th>
+          <th className="p-1 text-left">Letzter Abruf</th>
         </tr>
       </thead>
       <tbody>
@@ -264,7 +264,12 @@ function CacheStatusTable() {
                 : s.status === 'STALE' ? 'jetzt' : '—'}
             </td>
             <td className="p-1 text-gray-500">
-              {s.last_fetch_ts ? s.last_fetch_ts.replace('T', ' ') : '—'}
+              {s.last_fetch_ts
+                ? new Date(s.last_fetch_ts).toLocaleString('de-AT', {
+                    day: '2-digit', month: '2-digit', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit', second: '2-digit'
+                  })
+                : '—'}
             </td>
           </tr>
         ))}
