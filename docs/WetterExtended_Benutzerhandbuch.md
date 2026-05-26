@@ -1221,6 +1221,70 @@ ML-Modelle und Hailo-HEF-Dateien sind **Binaries** und werden **nicht** über Gi
 
 ---
 
+
+# 31 NEU: API-Resilienz — Stale-While-Error-Cache & Verbindungspool
+
+**Module:**
+- `http_retry.py` (Connection-Pool + urllib3-Retry)
+- `api_cache.py` (Funktion `cache_get_stale()`)
+- `fetch_openmeteo_extended.py`, `fetch_atmospheric_snapshot.py`, `fetch_arome_openmeteo.py` (Stale-Fallback aktiv)
+
+## 31.1 Connection-Pool für externe APIs
+
+Alle externen GET-Requests (Open-Meteo, GeoSphere, EUMETView, Blitzortung,
+ARSO) gehen jetzt durch eine gemeinsame `requests.Session` mit `HTTPAdapter`
+und urllib3-`Retry`. Vorteile gegenüber einzelnen `requests.get`-Aufrufen:
+
+- TCP-/TLS-Verbindungen werden zwischen Aufrufen wiederverwendet (Keepalive)
+  — spart bei jedem Frame mehrere TLS-Handshakes
+- Bei Server-Fehlern (502/503/504/429) wiederholt urllib3 automatisch INNERHALB
+  des Pools mit exponentiellem Backoff und respektiert `Retry-After`-Header
+- Bei Connection-Errors (TCP-Reset, SSL-EOF) wird die kaputte Verbindung
+  aus dem Pool entfernt und beim nächsten Versuch eine neue aufgebaut —
+  löst die zuvor sichtbaren `SSLZeroReturnError`-Phasen
+
+Connect-Timeout (TLS-Handshake): 8 s. Read-Timeout: konfigurierbar je Modul,
+mindestens 30 s. Bulk-Requests gegen Open-Meteo (AROME + Atmosphere) nutzen
+jetzt durchgehend 25 s Read-Timeout.
+
+## 31.2 Stale-While-Error-Cache
+
+Wenn ein externer Service nach allen Retries unerreichbar bleibt, fällt das
+System nicht mehr auf Default-Werte (0.0) zurück, sondern liest den **letzten
+erfolgreichen Cache-Eintrag** aus den letzten 24 Stunden. ML-Features bleiben
+damit auch in 502-Phasen plausibel.
+
+| Service | Stale-Cache aktiv |
+|---|---|
+| Open-Meteo Extended (15min, Pressure, LPI, GFS) | ✅ |
+| Open-Meteo AROME (icon_d2 + icon_eu LI) | ✅ |
+| Open-Meteo Atmosphäre-Bulk | ✅ (via _bulk_get) |
+
+Das Admin-Panel zeigt unter **Logs → API-Cache Status** ob bei einem Service
+ein STALE-Eintrag verwendet wurde (Spalte „Status": STALE-FALLBACK).
+
+## 31.3 Lifted Index aus icon_eu
+
+Der ML-Feature `arome_li` (Lifted Index, Konvektions-Instabilitätsindikator)
+wird jetzt aus dem **icon_eu**-Modell geholt statt aus icon_d2 — das DWD-
+ICON-D2-Modell stellt diesen Parameter über die Open-Meteo-API gar nicht
+bereit (siehe https://open-meteo.com/en/docs/dwd-api). Der Wert ist jetzt
+**erstmals real verfügbar** und kann das Modell tatsächlich informieren
+(negative Werte = instabil, < −4 °C = Gewitter-Risiko hoch).
+
+## 31.4 Bulk-Batching > 8 Locations
+
+`fetch_atmospheric_snapshot._bulk_get_batched()` splittet Open-Meteo-Bulk-
+Anfragen in Batches à maximal 8 Locations, sobald die Watchlist mehr Orte
+enthält. Open-Meteo's Server-Antwortzeit steigt überproportional mit der
+Anzahl Locations — Batching hält jede einzelne Antwort unter dem 25-s-
+Read-Timeout.
+
+Aktuell sind 7 Orte konfiguriert (Klagenfurt, Villach, Wolfsberg, Spittal,
+St. Veit, Feldkirchen, plus konfigurierbar via Admin-Panel) — Batching greift
+erst bei Erweiterung. Rückwärtskompatibel.
+
+
 # 27 Änderungshistorie
 
 | Version | Datum | Änderungen |
