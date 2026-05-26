@@ -482,7 +482,23 @@ def api_git():
 @app.route("/api/objects")
 def api_objects():
     ts = request.args.get("ts")  # z.B. ?ts=2025-05-19_19-21-00
-    return jsonify(_objects_for_ts(ts))
+    data = _objects_for_ts(ts)
+    # Phase E: IR-Tracks anhängen wenn include_ir=1
+    from flask import request as _flask_req_ir
+    if _flask_req_ir.args.get("include_ir") == "1":
+        try:
+            from ir_cell_tracking import load_active_ir_tracks
+            ir_tracks = load_active_ir_tracks()
+            # IR-Tracks als pseudo-objects mit Typ-Marker
+            for t in ir_tracks:
+                t["_type"] = "ir_cell"
+            if isinstance(data, list):
+                data = data + ir_tracks
+            elif isinstance(data, dict) and "objects" in data:
+                data["objects"] = data["objects"] + ir_tracks
+        except Exception as _ir_api_exc:
+            debug_log(f"[API/objects] IR-Track-Anhang fehlgeschlagen: {_ir_api_exc}")
+    return jsonify(data)
 
 
 @app.route("/api/forecast")
@@ -2462,7 +2478,8 @@ def api_risk_grid():
     TRACK_RANGE = 30.0   # NEU: Korridor um Zugbahn (km, schmaler als CELL_RANGE)
     BOLT_RANGE = 30.0
     ATM_RANGE  = 45.0
-    RISK_COLORS = {1: "#facc15", 2: "#f97316", 3: "#dc2626"}
+    RISK_COLORS     = {1: "#facc15", 2: "#f97316", 3: "#dc2626"}
+    IR_CELL_COLOR   = "#a855f7"   # Violett für IR-Vorläuferzellen
     INT_WEIGHT  = {"leicht": 1.0, "maessig": 2.0, "stark": 3.0, "extrem": 4.0}
     INT_WEIGHT_ALT = {"leicht": 1.0, "mäßig": 2.0, "stark": 3.0, "extrem": 4.0}
 
@@ -2693,6 +2710,24 @@ def api_risk_grid():
                 dominant = "cell"
             elif in_track:
                 dominant = "track"
+            # Phase E: IR-Cell-Quelle prüfen
+            _ir_cell_near = False
+            try:
+                from ir_cell_tracking import load_active_ir_tracks as _load_ir
+                _ir_tracks_grid = _load_ir()
+                for _ir in _ir_tracks_grid:
+                    _ir_d = _hav(lon, lon, _ir.get("lon", 0), _ir.get("lat", 0))
+                    # Korrekte Haversine lat/lon
+                    _ir_d2 = _hav(lat, lon, _ir.get("lat", 0), _ir.get("lon", 0))
+                    if _ir_d2 <= 40.0 and _ir.get("ir_only_precursor", 0) == 1.0:
+                        _ir_cell_near = True
+                        if score < 1.0:
+                            score += 0.5  # leichter Risikobeitrag ohne Radar-Echo
+                        break
+            except Exception:
+                pass
+            if _ir_cell_near and dominant not in ("cell", "track"):
+                dominant = "ir_cell"
             elif bolt_count >= 2:
                 dominant = "lightning"
             else:
