@@ -92,12 +92,10 @@ function Legend({ horizons, colors }) {
         <span className="text-red-600 font-bold">🧊</span>
         Hagel
       </span>
-      {showIrCells && (
-        <span style={{display:'flex',alignItems:'center',gap:3}}>
-          <span style={{width:12,height:12,borderRadius:'50%',border:'2px dashed #a855f7',display:'inline-block'}}/>
-          <span style={{fontSize:10}}>IR-Vorläufer</span>
-        </span>
-      )}
+      <span style={{display:'flex',alignItems:'center',gap:3}}>
+        <span style={{width:12,height:12,borderRadius:'50%',border:'2px dashed #a855f7',display:'inline-block'}}/>
+        <span style={{fontSize:10}}>IR-Vorläufer</span>
+      </span>
     </div>
   )
 }
