@@ -122,6 +122,7 @@ rechtfertigt nur Modelle die ohne Hailo zu langsam wären.
 |-------|--------|-------|----------------|--------|
 | **A — Stabilität** | Bugfixes, Cleanup, Auth, Trainer-Architektur vorbereiten | 4–6 Wochen | Nur Pi 5 | ✅ **Abgeschlossen** |
 | **A.1 — Produktreife (Welle 1)** | Forecast-Einheiten + Frame-Intervall, Geo-Korrektur in ML-Features, Accuracy-Pixel-Maßstab, Flask-Bind 127.0.0.1, KMZ Zip-Slip-Schutz, pytest-fixe, Modell-Promotion (zeitbasierter Split + Mindestsamples), KMZ-Layer (aktuelle Zellen + Locations) | 1–2 Wochen | Nur Pi 5 | 🚧 **In Arbeit** (Prompts P01–P08) |
+| **A.3 — API-Resilienz-Hardening** | http_retry Session+Retry, Stale-While-Error-Cache, arome_li via icon_eu, WMS-Version-Vereinheitlichung, Speikkogel-Radius 15→8 km, daily_analyzer UnboundLocalError | 1 Woche | Nur Pi 5 | 🚧 **In Arbeit** (Prompts P-01 … P-09) |
 | **B — Hailo + U-Net** | Linux-Rechner anschaffen, Training auslagern, DFC-Pipeline, U-Net, Hailo-Integration | 6–8 Wochen | Pi 5 + Linux-Rechner | ⏳ Offen (wartet auf Linux-Rechner) |
 | **C — Skalierung** | Optimierungen, weitere Modelle, KI-Analyse vertiefen, Bugfixes B10–B12 | bei Bedarf | Pi 5 + Linux-Rechner | ⏳ Offen |
 | **E — IR-Sat Pre-Convection Tracking** | Hohe Wolken (BT < 230 K) aus EUMETView IR108 als eigenständige Objekte detektieren, tracken und vorhersagen. Pseudo-Zellen erweitern Risk-Grid und KMZ. 300-hPa-Steuerstrom als neue Höhenwind-Schicht. Neue ML-Features (`bt_min_k`, `bt_trend_k_per_min`, `overshooting_top`, `ir_only_precursor`, …) für Radar-Zellen. | 3–4 Wochen | Nur Pi 5 (Inferenz) + Linux-Trainer (Modelle) | 🚧 **Teilweise erledigt** (E1–E5,E7,E9,E10 ✅ — E6,E8 warten auf Linux-Trainer) |
@@ -189,6 +190,36 @@ Abarbeitungsreihenfolge war: A1 → A2 → A3 → A4 → A5 → A6 → A8 → A7
 | B23 | Drift-Detection: MAE-Trendüberwachung + E-Mail-Alarm | `drift_detector.py` (neu), `email_notifier.py`, `scheduler.py`, `app.py` | ✅ erledigt |
 | B24 | Frontend Error-Boundary + Offline-Indikator | `frontend/src/ErrorBoundary.jsx` (neu), `frontend/src/App.jsx` | ✅ erledigt |
 | B25 | Echter Day-Holdout für Test-Metriken (letzter Tag kein Training-Input) | `dataset_builder.py`, `model_training.py` | ✅ erledigt |
+
+
+### 5.4 Phase A.3 — API-Resilienz-Hardening 🚧
+
+| # | Task | Datei(en) | Status |
+|---|------|-----------|--------|
+| P-01 | `http_retry.py` mit `requests.Session` + `HTTPAdapter` + urllib3-`Retry` | `http_retry.py` | 🚧 in Arbeit |
+| P-02 | `fetch_openmeteo_extended.py` auf `retry_get` umstellen + Stale-While-Error-Fallback | `fetch_openmeteo_extended.py` | 🚧 in Arbeit |
+| P-03 | `fetch_atmospheric_snapshot.py` `_bulk_get` auf `retry_get`, Timeout 15→25 s, Batching > 8 Locations | `fetch_atmospheric_snapshot.py` | 🚧 in Arbeit |
+| P-04 | `fetch_arome_openmeteo.py`: `lifted_index` aus icon_d2 entfernen, separat aus icon_eu holen (`_fetch_arome_li_via_icon_eu`), Timeout 15→25 s | `fetch_arome_openmeteo.py` | 🚧 in Arbeit |
+| P-05 | `cloud_height_from_eumetview.py`: WMS-GetCapabilities-Version vereinheitlichen (1.3.0 → 1.1.1, identisch zu GetMap), Namespace-tolerantes Dimension-Parsing | `cloud_height_from_eumetview.py` | 🚧 in Arbeit |
+| P-06 | `api_cache.py`: Funktion `cache_get_stale(key, max_stale_seconds)` ergänzt — Voraussetzung für P-02/P-04 | `api_cache.py` | 🚧 in Arbeit |
+| P-07 | `config.py`: STATIC_EXCLUSION_ZONES Speikkogel Radius 15 → 8 km (verhindert False-Negatives östlich Wolfsberg) | `config.py` | 🚧 in Arbeit |
+| P-08 | Doku-Updates Benutzerhandbuch §31 + HAILO_INTEGRATION §5.4 | `docs/WetterExtended_Benutzerhandbuch.md`, `docs/HAILO_INTEGRATION.md` | 🚧 in Arbeit |
+| P-09 | `daily_analyzer.py`: UnboundLocalError `ML_FORECAST_HORIZONS_MIN` durch doppelten Import in `build_system_report()` fixen | `daily_analyzer.py` | 🚧 in Arbeit |
+
+**Status-Update:** Sobald ein Prompt eingespielt und verifiziert ist, Status auf ✅ erledigt.
+
+### 5.4.1 Hintergrund
+
+Bei aktiver Konvektion (mehrere Sturmzellen gleichzeitig) verbinden sich
+4 Module simultan zu Open-Meteo, je mit Bulk-Requests von 5–20 Koordinaten.
+Open-Meteo's CDN zeigt unter dieser Last zeitweise 502/504-Phasen und
+TLS-EOF-Verbindungsabbrüche (siehe API-Health-Log 26.05.2026, 14:30–15:30).
+
+Bei 0 aktiven Zellen sind 4 dieser Module inaktiv (Eingangs-Prüfung
+`if not valid: return`), nur der `atmospheric_snapshot_job` (alle 30 min,
+unabhängig von Zellen) zeigt die API-Probleme. Bei Konvektion vervielfacht
+sich die Fehlerrate proportional zur Zellzahl — daher ist Phase A.3 vor
+der nächsten Sommer-Konvektionsphase abzuschließen.
 
 ### 5.3 Phase A.2 — Produktreife Welle 2 ✅
 
