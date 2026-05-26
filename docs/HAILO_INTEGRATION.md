@@ -124,6 +124,7 @@ rechtfertigt nur Modelle die ohne Hailo zu langsam wären.
 | **A.1 — Produktreife (Welle 1)** | Forecast-Einheiten + Frame-Intervall, Geo-Korrektur in ML-Features, Accuracy-Pixel-Maßstab, Flask-Bind 127.0.0.1, KMZ Zip-Slip-Schutz, pytest-fixe, Modell-Promotion (zeitbasierter Split + Mindestsamples), KMZ-Layer (aktuelle Zellen + Locations) | 1–2 Wochen | Nur Pi 5 | 🚧 **In Arbeit** (Prompts P01–P08) |
 | **B — Hailo + U-Net** | Linux-Rechner anschaffen, Training auslagern, DFC-Pipeline, U-Net, Hailo-Integration | 6–8 Wochen | Pi 5 + Linux-Rechner | ⏳ Offen (wartet auf Linux-Rechner) |
 | **C — Skalierung** | Optimierungen, weitere Modelle, KI-Analyse vertiefen, Bugfixes B10–B12 | bei Bedarf | Pi 5 + Linux-Rechner | ⏳ Offen |
+| **E — IR-Sat Pre-Convection Tracking** | Hohe Wolken (BT < 230 K) aus EUMETView IR108 als eigenständige Objekte detektieren, tracken und vorhersagen. Pseudo-Zellen erweitern Risk-Grid und KMZ. 300-hPa-Steuerstrom als neue Höhenwind-Schicht. Neue ML-Features (`bt_min_k`, `bt_trend_k_per_min`, `overshooting_top`, `ir_only_precursor`, …) für Radar-Zellen. | 3–4 Wochen | Nur Pi 5 (Inferenz) + Linux-Trainer (Modelle) | ⏳ Offen — Detail siehe §16 |
 
 ### Pre-Conditions
 - ✅ Phase B startet erst NACH vollständiger Phase A → **Phase A ist abgeschlossen**
@@ -1181,3 +1182,95 @@ Claude:
 Bei Unklarheiten oder Konflikten zwischen diesem Dokument und Anweisungen in
 einer neuen Chat-Session gilt dieses Dokument als verbindlich, sofern der
 Nutzer es nicht explizit ändert.
+
+---
+
+## 16. Phase E — IR-Sat Pre-Convection Tracking ⏳ OFFEN
+
+### 16.1 Motivation
+
+Das Radar-Tracking erkennt eine Sturmzelle erst, sobald sie Niederschlagskerne ≥ 54 dBZ produziert (Rot/Violett im ARSO INCA si0zm). Konvektive Wolken (Cumulonimbus-Amboss) sind aber im MSG IR108 schon 15–30 min früher als kalte Wolkentops (BT < 230 K) sichtbar.
+
+Phase E ergänzt deshalb das bestehende Radar-Tracking um eine **zweite Tracking-Pipeline auf Basis des bereits gecachten IR108 TIFFs**. Es entstehen keine neuen externen API-Aufrufe — das TIFF wird heute schon alle 15 min für `cloud_top_height_msl` geladen.
+
+Ziel ist:
+1. Vorlaufzeit für Warnungen um 15–30 min verlängern
+2. Andere Zugbahn der Wolke (300 hPa) gegenüber dem Niederschlag (700 hPa) als ML-Information nutzen
+3. Lebenszyklusphase (wachsend / reif / zerfallend) per BT-Trend in `intensification_prob` einfließen lassen
+4. Overshooting-Top-Detection als zusätzlicher Hagel-Prädiktor
+5. Pseudo-Zellen ohne Radar-Echo als Vorwarn-Markierungen auf Karte und Risk-Grid
+
+Bestehende Operativ-Vorbilder: EUMETSAT NWC SAF RDT, DWD KONRAD3D, Google MetNet-3.
+
+### 16.2 Architektur-Entscheidungen (verbindlich)
+
+- **Datenquelle:** Ausschließlich das bereits gecachte EUMETView IR108 TIFF aus `cloud_height_from_eumetview.py`. Kein neuer WMS-Layer, kein neuer Endpunkt.
+- **Update-Rate IR-Pipeline:** An MSG-Full-Earth-Scan gekoppelt (15 min). Wenn das TIFF im Cache älter als 15 min ist, läuft die IR-Pipeline nicht erneut.
+- **Räumliche Auflösung:** MSG IR108 ≈ 3 km im Sub-Sat-Punkt → für Kärnten ≈ 5 km. Bewusst gröber als ARSO 1 km — IR-Cells sind Vorläufer, nicht Ersatz.
+- **300-hPa-Höhenwind:** Wird in den bestehenden Open-Meteo icon_global Bulk-Request integriert (kein neuer Request, identische Quote).
+- **Tracking:** Eigenes Kalman pro IR-Cell, getrennt von `object_tracking.py`. Keine Vermischung der ID-Räume — Radar-Zellen behalten ihre IDs, IR-Cells haben Präfix `ir_`.
+- **ML-Modelle:** Eigenes LightGBM für IR-Trajektorien (300-hPa-Steuerstrom). Das bestehende Radar-LightGBM/LSTM bekommt zusätzliche Features aus dem IR-Matching, wird aber nicht ersetzt.
+- **Training:** Wie bei Phase B auf dem Linux-Trainer (`LOCAL_TRAINING=True`), Pi macht nur Inferenz.
+- **Pseudo-Zellen in `/api/objects`:** Hinter Query-Param `include_ir=1` ausgeblendet (Default: aus), damit bestehende Frontend-Logik unverändert weiterläuft.
+- **KMZ-Export:** Eigene KMZ-Folder „IR-Cells (Vorläufer)" und „Radar-Cells". Pfeil-Style gestrichelt für IR-Cells.
+
+### 16.3 Task-Liste
+
+Abarbeitungsreihenfolge: E4 → E1 → E2 → E3 → E5 → E7 → E9 → E6 → E8 → E10
+
+| # | Task | Datei(en) | Status |
+|---|------|-----------|--------|
+| E1 | `ir_cell_detection.py` (neu): BT-Threshold-Mask aus IR108-TIFF, Connected Components mit Filter Größe/CAPE/LI, Output `train_data/ir_cells/ir_cells_<ts>.json` | `ir_cell_detection.py` (neu), `config.py` | ⏳ offen |
+| E2 | `ir_cell_tracking.py` (neu): Kalman-Tracking analog `object_tracking.py`, getrennter ID-Raum (`ir_<n>`), Optical Flow auf konsekutiven IR-TIFFs | `ir_cell_tracking.py` (neu) | ⏳ offen |
+| E3 | IR↔Radar Lineage-Matching: jede Radar-Zelle bekommt `ir_match_id`, jede IR-Zelle bekommt `radar_match_ids` (mehrere möglich beim Split) | `main.py`, `ir_cell_tracking.py` | ⏳ offen |
+| E4 | Open-Meteo icon_global Bulk-Request um `wind_speed_300hPa`, `wind_direction_300hPa`, `geopotential_height_300hPa` erweitern. Bulk + Cache wie A7. | `fetch_700hpa_wind_per_object_slim.py`, `fetch_atmospheric_snapshot.py`, `api_cache.py` (TTL) | ⏳ offen |
+| E5 | `ML_CELL_FEATURES` um 9 neue Features erweitert: `bt_min_k`, `bt_mean_k`, `bt_trend_k_per_min`, `cloud_age_min`, `anvil_extension_km`, `overshooting_top`, `ir_only_precursor`, `wind_speed_300hPa`, `wind_dir_300_cos`, `wind_dir_300_sin` | `config.py`, `dataset_builder.py`, `prediction.py` | ⏳ offen |
+| E6 | `model_training.py`: Eigenes LightGBM-Trajektorien-Modell für IR-Cells (5 Horizonte, 300-hPa-Steuerstrom). Holdout-Validierung, Promotion-Logik analog Radar | `model_training.py`, `prediction.py` | ⏳ offen |
+| E7 | `/api/risk_grid` um Quelle `ir_cell` erweitern (eigene Farb-Variante: schraffiert). `/api/objects?include_ir=1` liefert auch Pseudo-Zellen | `app.py` | ⏳ offen |
+| E8 | Intensification-Prediction: `ir_to_radar_prob_<horizon>` — Wahrscheinlichkeit, dass IR-Zelle in 15/30/45 min ein Radar-Echo erzeugt. LightGBM-Binary-Classifier | `model_training.py`, `prediction.py` | ⏳ offen |
+| E9 | KMZ-Export erweitern: getrennte Folder, gestrichelter Style für IR-Cells, `forecast.kmz` enthält beide Object-Typen | `kmz_export.py` (oder bestehender Export-Pfad) | ⏳ offen |
+| E10 | Atmosphäre-Seite + MapView/MapFullscreen-Legende ergänzen. Toggle „🛰 IR-Vorläuferzellen anzeigen" (default aus). Benutzerhandbuch um Abschnitt 30 „IR-Sat Pre-Convection Tracking" ergänzt | `frontend/src/pages/Atmosphaere.jsx`, `frontend/src/pages/MapView.jsx`, `frontend/src/pages/MapFullscreen.jsx`, `docs/WetterExtended_Benutzerhandbuch.md` | ⏳ offen |
+
+### 16.4 Pre-Conditions
+
+- ✅ Phase A (Stabilität) abgeschlossen
+- ⏳ Phase B (Hailo+U-Net) — kann parallel oder vor Phase E laufen, kein harter Block
+- ✅ EUMETView IR108 TIFF wird bereits gecacht (`cloud_height_from_eumetview.py`)
+- ✅ `runtime_config` + `SAVE_PATHS["ir_cells"]` schon vorhanden
+- ✅ Linux-Trainer existiert für E6/E8 Training
+
+### 16.5 Schwellwerte (Defaults, runtime-überschreibbar)
+
+| Konstante | Default | Bedeutung |
+|---|---:|---|
+| `IR_CONVECTION_BT_THRESHOLD_K` | 230.0 | Pixel mit BT ≤ Wert gelten als konvektiver Wolkentop |
+| `IR_OVERSHOOTING_TOP_BT_K` | 215.0 | BT-Schwelle für Overshooting-Top-Detection |
+| `IR_MIN_CELL_AREA_PX` | 30 | Mindestgröße einer IR-Cell (≈ 270 km² @ 3 km Pixel) |
+| `IR_MIN_CAPE_J_KG` | 200.0 | IR-Cell wird nur als konvektiv gewertet wenn CAPE ≥ Wert |
+| `IR_MAX_LI_C` | -0.5 | IR-Cell wird nur als konvektiv gewertet wenn LI ≤ Wert |
+| `IR_TRACK_MAX_MISSING` | 2 | Wie viele 15-min-Slots eine IR-Cell ohne Detektion überlebt |
+| `IR_INTENSIFICATION_BT_TREND_K_PER_MIN` | -1.5 | ΔBT/Δt unterhalb dieses Werts = rapide Vertiefung |
+
+### 16.6 Was Phase E NICHT umfasst (Abgrenzung)
+
+- Keine Änderung am HSV-Segmentierungs-Algorithmus für Radar
+- Keine zusätzlichen externen APIs (keine neue Lightning-Quelle, kein ALDIS)
+- Keine Änderung an `hail_prob` / `hail_prob2`. Erst Phase E.8 könnte `hail_prob3` einführen (Overshooting-Top-basiert)
+- Kein U-Net auf IR (das ist Phase B, U-Net bleibt auf ARSO-Radar)
+- Keine direkte Hailo-Beschleunigung für IR-Tracking (bleibt CPU)
+
+### 16.7 Erfolgsmetriken
+
+- Vorlaufzeit-Gewinn: median Δt(IR-Detect → erste Radar-Echo) ≥ 15 min über 30-Tage-Holdout
+- Hit-Rate IR→Radar: Anteil IR-Cells die innerhalb 60 min ein Radar-Echo erzeugen ≥ 60 %
+- False-Positive-Rate (IR-Cell ohne Radar-Echo binnen 90 min) ≤ 25 %
+- Modell-MAE der IR-Cell-Trajektorie ≤ 8 km @ Horizon 30 min (im Mittel)
+- Closed-Loop-Verifikation analog `accuracy_tracker.py` ist erweitert
+4. Was die Änderung bewirkt
+Phase E wird damit formal in der Roadmap verankert:
+
+Tabelle in §4 zeigt sofort, dass es Phase E gibt mit klarem Status („⏳ Offen — Detail siehe §16").
+Neuer §16 ist atomar und enthält Motivation, Architektur-Entscheidungen (verbindlich), 10 Tasks E1–E10, Pre-Conditions, alle Schwellwerte als Default-Werte, klare Abgrenzung zu Phase B, und messbare Erfolgskriterien.
+Keine Code-Änderung in dieser Phase — nur die Roadmap. Die nächste Iteration kann dann atomare Prompts P-E01, P-E02 … für Claude Code generieren, einer pro Task.
+Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sowohl E5 (Features) als auch E6 (Modell) ihn brauchen. E10 als letztes, weil Frontend erst sinnvoll ist, wenn Backend Daten liefert.
+
