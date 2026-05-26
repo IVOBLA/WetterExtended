@@ -69,6 +69,7 @@ def save_forecast_as_kmz(
     current_objects: list | None = None,
     location_hits: list | None = None,
     style_by_horizon: dict | None = None,
+    ir_tracks: list | None = None,
 ) -> str:
     """
     Schreibt ein KMZ mit allen geforderten Layern.
@@ -226,6 +227,52 @@ def save_forecast_as_kmz(
                 f"Distanz: {primary.get('distance_km', '?')} km\n"
                 f"Geschwindigkeit: {primary.get('speed_kmh', '?')} km/h"
             )
+
+    # ── Phase E: IR-Vorläuferzellen Layer ─────────────────────────────────────
+    if ir_tracks:
+        ir_folder = kml.newfolder(name="IR-Cells (Vorläufer)")
+        for ir in ir_tracks:
+            try:
+                ir_lat = float(ir.get("lat", 0))
+                ir_lon = float(ir.get("lon", 0))
+                ir_id  = ir.get("ir_id", "ir_?")
+                bt_min = ir.get("bt_min_k", 0.0)
+                age    = ir.get("cloud_age_min", 0.0)
+                ot     = ir.get("overshooting_top", 0.0)
+                trend  = ir.get("bt_trend_k_per_min", 0.0)
+
+                # Marker
+                pnt = ir_folder.newpoint(
+                    name=f"{ir_id} ({bt_min:.0f}K)",
+                    coords=[(ir_lon, ir_lat)],
+                    description=(
+                        f"IR-Vorläufer | BT_min={bt_min:.1f}K | "
+                        f"Trend={trend:+.2f}K/min | Age={age:.0f}min | "
+                        f"OT={'ja' if ot else 'nein'}"
+                    )
+                )
+                # Violettes Icon für IR-Cells
+                pnt.style.iconstyle.icon.href = (
+                    "http://maps.google.com/mapfiles/kml/paddle/purple-circle.png"
+                )
+                pnt.style.iconstyle.scale = 0.8
+                pnt.style.iconstyle.color = "ffff00ff"  # KML: AABBGGRR → Violett
+
+                # Bewegungspfeil (gestrichelt, wenn Geschwindigkeit > 0)
+                vx = float(ir.get("vx_deg_min", 0.0))
+                vy = float(ir.get("vy_deg_min", 0.0))
+                if abs(vx) > 0.0001 or abs(vy) > 0.0001:
+                    # 30-min-Vorhersageposition
+                    fc_lat = ir_lat + vy * 30.0
+                    fc_lon = ir_lon + vx * 30.0
+                    arrow = ir_folder.newlinestring(
+                        name=f"{ir_id}_arrow_30min",
+                        coords=[(ir_lon, ir_lat), (fc_lon, fc_lat)],
+                    )
+                    arrow.style.linestyle.color = "ffff00ff"  # Violett KML
+                    arrow.style.linestyle.width = 2
+            except Exception as _ir_kml_exc:
+                debug_log(f"[KMZ] IR-Cell {ir.get('ir_id','?')} fehlgeschlagen: {_ir_kml_exc}")
 
     kml.savekmz(output_path)
     debug_log(f"Vorhersage als KMZ gespeichert: {output_path}")
