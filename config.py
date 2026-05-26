@@ -302,6 +302,18 @@ ML_CELL_FEATURES = [
     "total_active_frames_norm",# total_active_frames / 100 → [0..1] (gekappt)
     "is_merged",               # 1.0 wenn lineage=="merged", sonst 0.0
     "is_split",                # 1.0 wenn lineage=="split", sonst 0.0
+    # ── Phase E: IR-Sat Features ──────────────────────────────────────────────
+    "bt_min_k",             # Hellstes/kältestes IR-Pixel der zugeordneten IR-Cell [K]
+    "bt_mean_k",            # Mittlere Brightness Temperature der IR-Cell [K]
+    "bt_trend_k_per_min",   # BT-Änderungsrate [K/min] — negativ = wachsend
+    "cloud_age_min",        # Alter des IR-Tracklets [min]
+    "anvil_extension_km",   # Geschätzte Anvil-Ausdehnung [km]
+    "overshooting_top",     # 1.0 wenn BT < 215 K (Overshooting Top erkannt)
+    "ir_only_precursor",    # 1.0 wenn IR-Cell ohne Radar-Match (Vorläufer)
+    # ── Phase E: 300-hPa-Höhenwind ───────────────────────────────────────────
+    "wind_speed_300hPa",    # Windgeschwindigkeit 300 hPa [km/h]
+    "wind_dir_300_cos",     # cos(Windrichtung 300 hPa)
+    "wind_dir_300_sin",     # sin(Windrichtung 300 hPa)
 ]
 
 ML_STATION_FEATURES = [

@@ -318,6 +318,35 @@ Das ML-Modell verwendet folgende Feature-Gruppen. Gesamtanzahl wird automatisch 
 | Stationsdaten [NEU] | `RR`, `DD`, `FF`, `FFX`, `GLOW`, `P`, `RF`, `TL`, `TP` | GeoSphere TAWES (31 Stationen) |
 | Zeit | `hour_sin`, `hour_cos`, `month_sin`, `month_cos` | Systemzeit |
 
+---
+
+# 30 NEU: IR-Sat Pre-Convection Features (Phase E)
+
+**Module:** `ir_cell_detection.py`, `ir_cell_tracking.py`
+**Datenquelle:** EUMETView MSG IR108 TIFF (bereits gecacht — kein neuer API-Call)
+
+Das System erkennt konvektive Wolken-Cluster (BT < 230 K) aus dem gecachten
+Satellitenbild und trackt sie als eigenständige Objekte. Jede Radar-Zelle
+bekommt die Features der nächstgelegenen IR-Cell zugeordnet (≤ 40 km).
+
+| Feature | Einheit | Beschreibung |
+|---|---|---|
+| `bt_min_k` | K | Kältestes Pixel der IR-Cell — Maß für Wolkenhöhe |
+| `bt_mean_k` | K | Mittlere Brightness Temperature der IR-Cell |
+| `bt_trend_k_per_min` | K/min | BT-Änderungsrate — negativ = Zelle wächst |
+| `cloud_age_min` | min | Alter des IR-Tracklets seit Erstdetektierung |
+| `anvil_extension_km` | km | Geschätzte Anvil-Ausdehnung |
+| `overshooting_top` | 0/1 | 1.0 wenn BT < 215 K (Cb-Turm bricht Tropopause durch) |
+| `ir_only_precursor` | 0/1 | 1.0 wenn IR-Cell ohne Radar-Echo (Vorläufer-Signal) |
+| `wind_speed_300hPa` | km/h | Höhenwind 300 hPa — steuert Anvil-Drift |
+| `wind_dir_300_cos` | — | cos(Windrichtung 300 hPa) |
+| `wind_dir_300_sin` | — | sin(Windrichtung 300 hPa) |
+
+> **Vorlaufzeit:** Konvektive Wolken sind im IR 15–30 min früher sichtbar als
+> im Radar. `bt_trend_k_per_min < -1.5` signalisiert rapide Vertiefung und
+> erhöht `intensification_prob` automatisch über das ML-Modell.
+> `overshooting_top = 1.0` ist ein starker Hagel-Prädiktor (ergänzt `hail_prob2`).
+
 > **Hinweis:** `[NEU]` = nach v1.0 eingeführt. Bei Feature-Änderungen müssen Modelle neu trainiert werden.
 
 ## 6.3 Training-Zeitplan
