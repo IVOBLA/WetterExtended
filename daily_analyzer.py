@@ -505,8 +505,30 @@ def run_analysis(cfg: Optional[dict] = None) -> Optional[dict]:
     report = build_system_report(since_hours=since_hours)
     report_json = json.dumps(report, ensure_ascii=False, separators=(",", ":"))
 
+    # Lokale Konfiguration explizit als ersten lesbaren Block voranstellen.
+    # build_system_report() enthält system_config zwar, aber im kompakten JSON
+    # vergraben. Durch den Prefix sieht die KI Schwellwerte, Horizonte, Orte
+    # und runtime_overrides als ERSTEN Kontext — prominent und gut lesbar.
+    try:
+        _cfg_block = _sanitize_config(runtime_config.all_effective())
+        _cfg_prefix = (
+            "=== LOKALE KONFIGURATION (runtime_overrides + config.py) ===\n"
+            + json.dumps(_cfg_block, ensure_ascii=False, indent=1)
+            + "\n\n"
+        )
+    except Exception as _cfg_exc:
+        debug_log(f"[ANALYZER] Konfiguration konnte nicht serialisiert werden: {_cfg_exc}")
+        _cfg_prefix = ""
+
+    _user_content = (
+        _cfg_prefix
+        + f"=== SYSTEM-REPORT (letzte {since_hours}h) ===\n"
+        + report_json
+    )
+
     debug_log(
-        f"[ANALYZER] Report erstellt ({len(report_json)} Zeichen), sende an Anthropic API..."
+        f"[ANALYZER] Report erstellt ({len(report_json)} Zeichen"
+        f" + {len(_cfg_prefix)} Zeichen Konfiguration), sende an Anthropic API..."
     )
 
     import re as _re
@@ -523,7 +545,7 @@ def run_analysis(cfg: Optional[dict] = None) -> Optional[dict]:
             messages=[
                 {
                     "role": "user",
-                    "content": (f"System-Report ({since_hours}h):\n{report_json}"),
+                    "content": _user_content,
                 }
             ],
         )
