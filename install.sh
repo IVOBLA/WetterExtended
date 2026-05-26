@@ -9,6 +9,7 @@ set -euo pipefail
 # --- Konstanten ---------------------------------------------------------------
 DEFAULT_REPO_URL="git@github.com:IVOBLA/WetterExtended.git"
 DEFAULT_BRANCH="main"
+DEFAULT_VERSION=""   # leer = main Branch; gesetzt = Git-Tag auschecken
 DEFAULT_TARGET="/home/ki-pi/wetterprojekt"
 LOCK_FILE="/tmp/wetterprojekt_install.lock"
 MIN_DISK_GB=10
@@ -86,6 +87,7 @@ SYSTEM_DEPS_ENABLED=true
 ENABLE_SERVICES=false
 LOCAL_TRAINING_FLAG=true          # --no-training setzt auf false (Phase B)
 BRANCH="$DEFAULT_BRANCH"
+GIT_TAG="$DEFAULT_VERSION"
 REPO="$DEFAULT_REPO_URL"
 TARGET="$DEFAULT_TARGET"
 APT_UPDATED=false
@@ -111,7 +113,9 @@ touch "$LOCK_FILE"
 usage() { cat <<USAGE
 Verwendung: $0 [OPTIONEN]
 
-  --branch <name>       Git-Branch (Default: ${DEFAULT_BRANCH})
+  --version <tag>       Git-Tag auschecken, z.B. v1.2.0
+                        Kein --version = ${DEFAULT_BRANCH} Branch (Default)
+  --list-versions       Alle verfügbaren Tags ausgeben und beenden
   --repo <url>          Repository-URL (Default SSH: ${DEFAULT_REPO_URL})
   --target <pfad>       Zielpfad (Default: ${DEFAULT_TARGET})
   --mode <full|upgrade> full = alles neu, upgrade = nur Source (Default: upgrade)
@@ -138,7 +142,15 @@ USAGE
 CURRENT_PHASE="Phase 1 — Argument-Parsing"
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --branch)         BRANCH="$2"; shift 2 ;;
+        --version)        GIT_TAG="$2"; shift 2 ;;
+        --list-versions)
+            log_info "Verfügbare Versionen (Tags):"
+            git ls-remote --tags "$DEFAULT_REPO_URL" \
+                | awk '{print $2}' \
+                | grep -v '\^{}' \
+                | sed 's|refs/tags/||' \
+                | sort -V
+            exit 0 ;;
         --repo)           REPO="$2"; shift 2 ;;
         --target)         TARGET="$2"; shift 2 ;;
         --mode)           MODE="$2"
@@ -366,29 +378,40 @@ elif [[ -d "$TARGET/.git" ]]; then
         git remote set-url origin "$REPO"
     fi
 
-    git fetch origin "$BRANCH"
-
-    if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
-        git checkout "$BRANCH"
-    else
-        git checkout -B "$BRANCH" "origin/$BRANCH"
-    fi
-
-    if [[ "$MODE" == "full" ]]; then
-        # Vollinstallation: lokalen Stand immer durch remote ersetzen.
-        # git pull --ff-only würde bei divergierten Branches mit Exit 128 abbrechen.
-        git reset --hard "origin/$BRANCH"
-        log_info "Repository auf remote Stand zurückgesetzt: $(git rev-parse --short HEAD)"
-    else
-        # Upgrade: fast-forward versuchen; bei Divergenz klaren Fehlertext geben.
-        if ! git pull --ff-only origin "$BRANCH"; then
-            log_error "Fast-Forward nicht möglich — lokale Commits weichen von remote ab."
-            log_error "Optionen:"
-            log_error "  a) Lokale Commits verwerfen:  git reset --hard origin/$BRANCH"
-            log_error "  b) Vollinstallation:          bash install.sh --mode=full"
+    if [[ -n "$GIT_TAG" ]]; then
+        # ── Version-Modus: fixer Tag-Stand ───────────────────────────────────
+        git fetch --tags origin
+        if ! git ls-remote --tags origin "refs/tags/$GIT_TAG" | grep -q "$GIT_TAG"; then
+            log_error "Tag '$GIT_TAG' existiert nicht im Repository."
+            log_error "Verfügbare Tags: bash install.sh --list-versions"
             exit 1
         fi
-        log_info "Repository aktualisiert: $(git rev-parse --short HEAD)"
+        git checkout -B "release-${GIT_TAG//\//-}" "refs/tags/$GIT_TAG"
+        if [[ "$MODE" == "full" ]]; then
+            git reset --hard "refs/tags/$GIT_TAG"
+        fi
+        log_info "Repository auf Tag $GIT_TAG gesetzt: $(git rev-parse --short HEAD)"
+    else
+        # ── Default-Modus: main Branch ────────────────────────────────────────
+        git fetch origin "$BRANCH"
+        if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
+            git checkout "$BRANCH"
+        else
+            git checkout -B "$BRANCH" "origin/$BRANCH"
+        fi
+        if [[ "$MODE" == "full" ]]; then
+            git reset --hard "origin/$BRANCH"
+            log_info "Repository auf remote Stand zurückgesetzt: $(git rev-parse --short HEAD)"
+        else
+            if ! git pull --ff-only origin "$BRANCH"; then
+                log_error "Fast-Forward nicht möglich — lokale Commits weichen von remote ab."
+                log_error "Optionen:"
+                log_error "  a) Lokale Commits verwerfen:  git reset --hard origin/$BRANCH"
+                log_error "  b) Vollinstallation:          bash install.sh --mode=full"
+                exit 1
+            fi
+            log_info "Repository aktualisiert: $(git rev-parse --short HEAD)"
+        fi
     fi
 else
     if [[ "$REPO" == *"<user>"* ]]; then
@@ -398,9 +421,10 @@ else
     fi
 
     github_ssh_preflight
-    git clone --branch "$BRANCH" "$REPO" "$TARGET"
+    _GIT_REF="${GIT_TAG:-$BRANCH}"
+    git clone --branch "$_GIT_REF" "$REPO" "$TARGET"
     cd "$TARGET"
-    log_info "Repository geklont: $(git rev-parse --short HEAD)"
+    log_info "Repository geklont ($_GIT_REF): $(git rev-parse --short HEAD)"
 fi
 
 # ==============================================================================

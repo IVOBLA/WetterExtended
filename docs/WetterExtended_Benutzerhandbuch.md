@@ -141,7 +141,8 @@ Beim Upgrade werden aktualisiert: Python-Pakete, Frontend-Build, systemd-Unit-Da
 |---|---|---|
 | `--mode=full\|upgrade` | `upgrade` | Installations-Modus (`full` = Neuinstallation) |
 | `--repo URL` | — | Git-Repository-URL (SSH oder HTTPS) |
-| `--branch NAME` | `main` | Git-Branch |
+| `--version TAG` | — | Git-Tag auschecken, z.B. `v1.2.0`. Ohne Angabe wird `main` verwendet. |
+| `--list-versions` | — | Alle verfügbaren Tags ausgeben und beenden |
 | `--target PFAD` | `/home/ki-pi/wetterprojekt` | Zielpfad auf dem Pi |
 | `--no-hailo` | — | Hailo-Installation überspringen |
 | `--no-node` | — | Node.js/Frontend überspringen |
