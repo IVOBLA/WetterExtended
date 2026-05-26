@@ -23,14 +23,18 @@ from api_cache import cache_key, cache_get, cache_set, get_ttl
 
 _OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 _MODEL   = "icon_global"   # Einziges Modell mit 700-hPa-Level
-_PARAMS  = "wind_speed_700hPa,wind_direction_700hPa"
+_PARAMS  = "wind_speed_700hPa,wind_direction_700hPa,wind_speed_300hPa,wind_direction_300hPa,geopotential_height_300hPa"
 _TZ      = "Europe/Vienna"
 _TIMEOUT = 15
 
 _DEFAULT_WIND = {
-    "wind_speed_700hPa": 0.0,
-    "wind_dir_cos":      0.0,
-    "wind_dir_sin":      0.0,
+    "wind_speed_700hPa":  0.0,
+    "wind_dir_cos":       0.0,
+    "wind_dir_sin":       0.0,
+    "wind_speed_300hPa":  0.0,
+    "wind_dir_300_cos":   0.0,
+    "wind_dir_300_sin":   0.0,
+    "geopotential_300hPa": 0.0,
 }
 
 
@@ -62,10 +66,25 @@ def _parse_wind_response(loc_data: dict, target_time: str) -> dict:
         return dict(_DEFAULT_WIND)
 
     dir_rad = radians(float(dir_val))
+
+    speeds_300 = hourly.get("wind_speed_300hPa", [])
+    dirs_300   = hourly.get("wind_direction_300hPa", [])
+    geo_300    = hourly.get("geopotential_height_300hPa", [])
+
+    speed_300_val = speeds_300[idx] if idx < len(speeds_300) else None
+    dir_300_val   = dirs_300[idx]   if idx < len(dirs_300)   else None
+    geo_300_val   = geo_300[idx]    if idx < len(geo_300)    else None
+
+    dir_300_rad = radians(float(dir_300_val)) if dir_300_val is not None else 0.0
+
     return {
-        "wind_speed_700hPa": round(float(speed_val), 2),
-        "wind_dir_cos":      round(cos(dir_rad), 4),
-        "wind_dir_sin":      round(sin(dir_rad), 4),
+        "wind_speed_700hPa":   round(float(speed_val), 2),
+        "wind_dir_cos":        round(cos(dir_rad), 4),
+        "wind_dir_sin":        round(sin(dir_rad), 4),
+        "wind_speed_300hPa":   round(float(speed_300_val), 2) if speed_300_val is not None else 0.0,
+        "wind_dir_300_cos":    round(cos(dir_300_rad), 4),
+        "wind_dir_300_sin":    round(sin(dir_300_rad), 4),
+        "geopotential_300hPa": round(float(geo_300_val), 1) if geo_300_val is not None else 0.0,
     }
 
 

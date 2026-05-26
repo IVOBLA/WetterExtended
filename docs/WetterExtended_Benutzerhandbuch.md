@@ -266,7 +266,7 @@ Tägliche automatische KI-Analyse des Systemzustands via Claude API. Zeigt prior
 |---|---|---:|---:|---|
 | ARSO INCA si0zm Radar | `meteo.arso.gov.si/...` | 5 Min | If-Modified-Since | KMZ, öffentlich, kein Key |
 | Open-Meteo AROME icon_d2 | `api.open-meteo.com/v1/forecast` | 3 h (Modell-Run) | 30 Min | 10000 Req/Tag (Free). Bulk-Query! |
-| Open-Meteo 700 hPa / 500 hPa | `api.open-meteo.com/v1/forecast` | 6 h (Modell-Run) | 60 Min | Höhenwind, Großwetterlage |
+| Open-Meteo 700 hPa / 300 hPa / 500 hPa | `api.open-meteo.com/v1/forecast` | 6 h (Modell-Run) | 60 Min | Höhenwind 700+300 hPa, Geopotential 300 hPa, Großwetterlage. Bulk-Query! |
 | GeoSphere CAPE | `dataset.api.hub.geosphere.at/v1/grid/forecast/nwp-v1-1h-2500m` | 3 h | 30 Min | Österreichischer WD, kein Key |
 | GeoSphere TAWES | `dataset.api.hub.geosphere.at/v1/station/current/tawes-v1-10min` | 10 Min | 10 Min | Stationsdaten Kärnten (31 Stationen) |
 | GeoSphere Nowcast | `dataset.api.hub.geosphere.at/v1/timeseries/forecast/nowcast-v1-15min-1km` | 15 Min | 12 Min | Niederschlag- und Böen-Nowcast |
