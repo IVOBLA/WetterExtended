@@ -32,11 +32,11 @@ def _check_arso() -> dict:
     import zipfile
 
     try:
-        from radar_download import _KMZ_URL as url
+        from radar_download import KMZ_URL as url
     except Exception:
         url = os.getenv(
             "ARSO_KMZ_URL",
-            "https://meteo.arso.gov.si/uploads/probase/www/observ/radar/si0-rm-anim.kmz",
+            "https://meteo.arso.gov.si/uploads/probase/www/nowcast/inca/inca_si0zm_latest.kmz",
         )
     t0 = time.monotonic()
     try:
@@ -82,12 +82,20 @@ def _check_openmeteo() -> dict:
 
 
 def _check_geosphere() -> dict:
-    """GeoSphere Nowcast v1: JSON mit features-Array."""
-    from datetime import timedelta
+    """
+    GeoSphere Nowcast v1: JSON mit features-Array.
+    WICHTIG: Parameter müssen EINZELN wiederholt werden, NICHT kommasepariert.
+    ?parameters=rr&parameters=ff&parameters=ffx → OK
+    ?parameters=rr,ff,ffx                       → HTTP 422
+    Zeitformat: %Y-%m-%dT%H:%M:00Z (mit Sekunden und Z-Suffix).
+    """
+    from datetime import timedelta, timezone as _tz
 
-    now = datetime.utcnow()
-    start = (now - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M")
-    end = now.strftime("%Y-%m-%dT%H:%M")
+    _now = datetime.now(_tz.utc)
+    # Aktuellen 15-min-Slot berechnen (wie in fetch_geosphere_nowcast.py)
+    _floor = _now.replace(minute=(_now.minute // 15) * 15, second=0, microsecond=0)
+    _start = _floor.strftime("%Y-%m-%dT%H:%M:00Z")
+    _end = (_floor + timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:00Z")
     url = "https://dataset.api.hub.geosphere.at/v1/timeseries/forecast/nowcast-v1-15min-1km"
     t0 = time.monotonic()
     try:
@@ -98,23 +106,26 @@ def _check_geosphere() -> dict:
             service="GeoSphere-Health",
             timeout=_TIMEOUT,
             max_retries=1,
+            # Wiederholte Parameter — identisch zu fetch_geosphere_nowcast.py
             params=[
                 ("lat", "46.62"),
                 ("lon", "14.31"),
+                ("parameters", "rr"),
                 ("parameters", "ff"),
-                ("start", start),
-                ("end", end),
+                ("parameters", "ffx"),
+                ("start", _start),
+                ("end", _end),
             ],
             headers={"Accept": "application/json"},
         )
         elapsed = time.monotonic() - t0
         data = r.json()
-        ok = "features" in data
+        ok = "features" in data and len(data["features"]) > 0
         return {
             "ok": ok,
             "status": r.status_code,
             "latency_ms": round(elapsed * 1000),
-            "note": "features-Key vorhanden" if ok else "features fehlt",
+            "note": f"features: {len(data.get('features', []))} Einträge" if ok else "features leer oder fehlt",
         }
     except Exception as exc:
         return {"ok": False, "status": None, "latency_ms": None, "note": str(exc)[:100]}
