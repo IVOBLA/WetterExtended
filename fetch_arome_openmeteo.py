@@ -27,13 +27,8 @@ from api_cache import cache_key, cache_get, cache_set, get_ttl
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 _MODEL = "icon_d2"
-# Open-Meteo API (icon_d2) — verifizierte Parameternamen (Stand 2026-05):
-#   "dewpoint_2m"         — KORREKT. Nicht "dew_point_2m". Verifiziert via
-#                           fetch_atmospheric_snapshot.py (zeigt reale Werte
-#                           6–10°C in Atmosphäre-Seite). icon_d2-spezifisch.
-#   "lifted_index"        — icon_d2 liefert KEINEN LI → immer 0.0 für Zellen.
-#                           Für LI gfs_seamless verwenden (fetch_atmospheric_snapshot.py).
-#   "freezing_level_height" — in Metern MSL (nicht Druckfläche).
+# icon_d2 liefert KEINEN lifted_index — der Parameter wird über icon_eu separat geholt.
+# Quelle: https://open-meteo.com/en/docs/dwd-api (icon_d2 hourly variables).
 _PARAMS = ",".join([
     "temperature_2m",
     "dewpoint_2m",
@@ -41,9 +36,12 @@ _PARAMS = ",".join([
     "wind_direction_10m",
     "freezing_level_height",
 ])
+# Sekundär-Modell für lifted_index (icon_eu liefert ihn als hourly Variable).
+_MODEL_LI = "icon_eu"
+_PARAMS_LI = "lifted_index"
 _TZ = "Europe/Vienna"
 _SAVE_DIR = SAVE_PATHS.get("arome", "train_data/arome/").rstrip("/")
-_TIMEOUT = 15   # Sekunden — etwas mehr als bei Single-Call da mehr Daten
+_TIMEOUT = 25   # Bulk-Requests mit vielen Koordinaten brauchen Read-Toleranz
 
 _DEFAULT = {
     "arome_t2m": 0.0,
@@ -80,13 +78,15 @@ def _parse_location_response(loc_data: dict, target_time: str) -> dict:
         return float(v) if v is not None else default
 
     dd_rad = radians(_val("wind_direction_10m"))
+    # arome_li wird nicht hier extrahiert — icon_d2 liefert keinen lifted_index.
+    # Der Wert wird in assign_arome_to_objects() über _fetch_arome_li_via_icon_eu()
+    # injiziert, oder bleibt auf _DEFAULT (0.0) falls icon_eu nicht erreichbar.
     return {
         "arome_t2m": round(_val("temperature_2m"), 2),
         "arome_td2m": round(_val("dewpoint_2m"), 2),
         "arome_ff10m": round(_val("wind_speed_10m"), 2),
         "arome_dd_cos": round(cos(dd_rad), 4),
         "arome_dd_sin": round(sin(dd_rad), 4),
-        "arome_li": 0.0,
         "arome_fl_height": round(_val("freezing_level_height"), 1),
     }
 
@@ -168,7 +168,11 @@ def assign_arome_to_objects(objects: list, timestamp: str) -> list:
 
 
 def _apply_data_to_objects(data, valid, objects, timestamp, bulk_url):
-    """Schreibt AROME-Werte aus der API-Response/Cache in die Objekte."""
+    """Schreibt AROME-Werte aus der API-Response/Cache in die Objekte.
+
+    Holt lifted_index getrennt über icon_eu (icon_d2 liefert ihn nicht) und
+    injiziert ihn unter arome_li. Bei Fehler bleibt arome_li auf _DEFAULT (0.0).
+    """
     # Response normalisieren: Single-Object → Liste
     if isinstance(data, dict):
         data = [data]
@@ -176,12 +180,20 @@ def _apply_data_to_objects(data, valid, objects, timestamp, bulk_url):
     target_time = _nearest_hour_str()
     results: dict = {}
 
+    # NEU: lifted_index separat aus icon_eu (icon_d2 liefert keinen LI)
+    li_map = _fetch_arome_li_via_icon_eu(valid)
+
     for loc_idx, (_, obj) in enumerate(valid):
         if loc_idx >= len(data):
             obj.update(_DEFAULT)
+            # LI-Injection auch im Fehlerfall (falls icon_eu separat geliefert hat)
+            if obj.get("id") in li_map:
+                obj["arome_li"] = li_map[obj.get("id")]
             debug_log(f"[AROME] Fehlende Response für Objekt {obj.get('id')} — Default.")
             continue
         arome_vals = _parse_location_response(data[loc_idx], target_time)
+        # arome_li aus icon_eu injizieren (Default 0.0 bleibt bei Fehlschlag)
+        arome_vals["arome_li"] = li_map.get(obj.get("id"), 0.0)
         obj.update(arome_vals)
         results[obj.get("id")] = arome_vals
 
@@ -195,6 +207,64 @@ def _apply_data_to_objects(data, valid, objects, timestamp, bulk_url):
 
     _save_results(results, timestamp)
     debug_log(f"[AROME] Bulk-Request OK: {len(valid)} Objekte in 1 API-Call.")
+
+
+def _fetch_arome_li_via_icon_eu(valid: list) -> dict:
+    """
+    Holt lifted_index aus icon_eu (DWD ICON-EU, 7 km) — icon_d2 liefert ihn nicht.
+    Returns: dict {obj_id: float} mit LI-Werten in °C (negativ = instabil).
+    Bei Fehler: leeres dict, Caller behält _DEFAULT (0.0).
+    """
+    if not valid:
+        return {}
+    from api_cache import cache_key, cache_get, cache_set, get_ttl
+    try:
+        from api_cache import cache_get_stale
+    except ImportError:
+        cache_get_stale = lambda *a, **kw: None  # noqa: E731
+
+    lats = ",".join(f"{obj['lat']:.4f}" for _, obj in valid)
+    lons = ",".join(f"{obj['lon']:.4f}" for _, obj in valid)
+    url = (
+        f"{OPEN_METEO_URL}?latitude={lats}&longitude={lons}"
+        f"&hourly={_PARAMS_LI}&models={_MODEL_LI}&timezone={_TZ}&forecast_days=1"
+    )
+
+    target_time = _nearest_hour_str()
+    coord_list = [(obj["lat"], obj["lon"]) for _, obj in valid]
+    ck = cache_key("openmeteo:icon_eu_li", coord_list, target_time, _PARAMS_LI)
+    cached = cache_get(ck, ttl_seconds=get_ttl("openmeteo_icon_eu", 3600))
+    if cached is not None:
+        debug_log(f"[AROME-LI] icon_eu Cache-HIT ({len(valid)} Objekte).")
+        data = cached
+    else:
+        try:
+            from http_retry import retry_get
+            r = retry_get(url, service="openmeteo_icon_eu_li", timeout=_TIMEOUT)
+            data = r.json()
+            cache_set(ck, data)
+        except Exception as exc:
+            debug_log(f"[AROME-LI] icon_eu fehlgeschlagen ({type(exc).__name__}) — versuche STALE-Cache")
+            data = cache_get_stale(ck, max_stale_seconds=24*3600)
+            if data is None:
+                return {}
+
+    if isinstance(data, dict):
+        data = [data]
+
+    out = {}
+    for loc_idx, (_, obj) in enumerate(valid):
+        if loc_idx >= len(data) or not data[loc_idx]:
+            continue
+        hourly = data[loc_idx].get("hourly", {})
+        times = hourly.get("time", [])
+        idx = times.index(target_time) if target_time in times else 0
+        vals = hourly.get("lifted_index", [])
+        v = vals[idx] if idx < len(vals) else None
+        if v is not None:
+            out[obj.get("id")] = round(float(v), 2)
+    debug_log(f"[AROME-LI] icon_eu: {len(out)}/{len(valid)} Objekte mit lifted_index befüllt.")
+    return out
 
 
 def _save_results(results: dict, timestamp: str) -> None:
