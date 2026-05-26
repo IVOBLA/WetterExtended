@@ -40,7 +40,12 @@ export default function Atmosphaere() {
     return () => clearInterval(t)
   }, [])
 
-  const ts = data.ts_utc ? data.ts_utc.substring(0, 16).replace('T', ' ') + ' UTC' : '—'
+  const ts = data.ts_utc
+    ? new Date(data.ts_utc).toLocaleString('de-AT', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      })
+    : '—'
   const hasHigh = data.locations.some(l => l.potential === 'hoch')
   const hasMid  = data.locations.some(l => l.potential === 'mäßig')
 

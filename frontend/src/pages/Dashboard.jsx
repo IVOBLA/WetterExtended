@@ -165,7 +165,12 @@ function ApiLastRequestResponse({ selectedService, onServiceChange, serviceList 
               </span>
               <span>
                 <b>Zeit:</b>{' '}
-                {(entry.ts || '').replace('T', ' ').substring(0, 19)} UTC
+                {entry.ts
+                  ? new Date(entry.ts).toLocaleString('de-AT', {
+                      day: '2-digit', month: '2-digit', year: 'numeric',
+                      hour: '2-digit', minute: '2-digit', second: '2-digit'
+                    })
+                  : '—'}
               </span>
               <span>
                 <b>Status:</b>{' '}
