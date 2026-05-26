@@ -82,26 +82,23 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
     ck_a = cache_key("openmeteo:extended_15min", lats[:60], _nearest_quarter_str())
     data_a = cache_get(ck_a, ttl_seconds=get_ttl("openmeteo_extended", 900))
     if data_a is None:
+        import time as _ta_ext
+        from http_retry import retry_get
+        _t0_a = _ta_ext.monotonic()
         try:
-            import time as _ta_ext
-            _t0_a = _ta_ext.monotonic()
-            r = requests.get(url_a, timeout=_TIMEOUT)
+            r = retry_get(url_a, service="openmeteo_extended_15min", timeout=_TIMEOUT)
             _dur_a = (_ta_ext.monotonic() - _t0_a) * 1000
-            r.raise_for_status()
             data_a = r.json()
             log_http_response("openmeteo_extended_arome", "GET", r, _dur_a)
             cache_set(ck_a, data_a)
-        except requests.exceptions.Timeout:
-            log_api_failure("openmeteo_extended_15min", url_a, "timeout", fallback_used=True)
-            data_a = None
-        except requests.exceptions.HTTPError as exc:
-            status = getattr(exc.response, "status_code", None)
-            hint = " (ungültige Open-Meteo-Parameter?)" if status == 400 else ""
-            log_api_failure("openmeteo_extended_15min", url_a, f"http-{status}{hint}", fallback_used=True, http_status=status)
-            data_a = None
         except Exception as exc:
-            log_api_failure("openmeteo_extended_15min", url_a, str(exc)[:80], fallback_used=True)
-            data_a = None
+            # retry_get hat bereits log_api_failure aufgerufen — hier nur Stale-Fallback.
+            from api_cache import cache_get_stale
+            data_a = cache_get_stale(ck_a, max_stale_seconds=24*3600)
+            if data_a is not None:
+                debug_log(f"[openmeteo_extended_15min] STALE-Cache-Fallback verwendet ({type(exc).__name__})")
+            else:
+                data_a = None
 
     # ── Request B: hourly 500/850 hPa (icon_global) ───────────────────────
     url_b = (
@@ -112,26 +109,22 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
     ck_b = cache_key("openmeteo:extended_pressure", lats[:60], _nearest_hour_str())
     data_b = cache_get(ck_b, ttl_seconds=get_ttl("openmeteo_extended", 900))
     if data_b is None:
+        import time as _tb_ext
+        from http_retry import retry_get
+        _t0_b = _tb_ext.monotonic()
         try:
-            import time as _tb_ext
-            _t0_b = _tb_ext.monotonic()
-            r = requests.get(url_b, timeout=_TIMEOUT)
+            r = retry_get(url_b, service="openmeteo_extended_pressure", timeout=_TIMEOUT)
             _dur_b = (_tb_ext.monotonic() - _t0_b) * 1000
-            r.raise_for_status()
             data_b = r.json()
             log_http_response("openmeteo_extended_pressure", "GET", r, _dur_b)
             cache_set(ck_b, data_b)
-        except requests.exceptions.Timeout:
-            log_api_failure("openmeteo_extended_pressure", url_b, "timeout", fallback_used=True)
-            data_b = None
-        except requests.exceptions.HTTPError as exc:
-            status = getattr(exc.response, "status_code", None)
-            hint = " (ungültige Open-Meteo-Parameter?)" if status == 400 else ""
-            log_api_failure("openmeteo_extended_pressure", url_b, f"http-{status}{hint}", fallback_used=True, http_status=status)
-            data_b = None
         except Exception as exc:
-            log_api_failure("openmeteo_extended_pressure", url_b, str(exc)[:80], fallback_used=True)
-            data_b = None
+            from api_cache import cache_get_stale
+            data_b = cache_get_stale(ck_b, max_stale_seconds=24*3600)
+            if data_b is not None:
+                debug_log(f"[openmeteo_extended_pressure] STALE-Cache-Fallback verwendet ({type(exc).__name__})")
+            else:
+                data_b = None
 
     # ── Request C: hourly LPI (icon_eu) — lightning_potential_index ist
     #    nur in icon_eu verfügbar (icon_d2 liefert es nicht → HTTP 400).
@@ -143,26 +136,22 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
     ck_c = cache_key("openmeteo:extended_lpi", lats[:60], _nearest_hour_str())
     data_c = cache_get(ck_c, ttl_seconds=get_ttl("openmeteo_extended", 900))
     if data_c is None:
+        import time as _tc_ext
+        from http_retry import retry_get
+        _t0_c = _tc_ext.monotonic()
         try:
-            import time as _tc_ext
-            _t0_c = _tc_ext.monotonic()
-            r = requests.get(url_c, timeout=_TIMEOUT)
+            r = retry_get(url_c, service="openmeteo_extended_lpi", timeout=_TIMEOUT)
             _dur_c = (_tc_ext.monotonic() - _t0_c) * 1000
-            r.raise_for_status()
             data_c = r.json()
             log_http_response("openmeteo_extended_lpi", "GET", r, _dur_c)
             cache_set(ck_c, data_c)
-        except requests.exceptions.Timeout:
-            log_api_failure("openmeteo_extended_lpi", url_c, "timeout", fallback_used=True)
-            data_c = None
-        except requests.exceptions.HTTPError as exc:
-            status = getattr(exc.response, "status_code", None)
-            hint = " (ungültige Open-Meteo-Parameter?)" if status == 400 else ""
-            log_api_failure("openmeteo_extended_lpi", url_c, f"http-{status}{hint}", fallback_used=True, http_status=status)
-            data_c = None
         except Exception as exc:
-            log_api_failure("openmeteo_extended_lpi", url_c, str(exc)[:80], fallback_used=True)
-            data_c = None
+            from api_cache import cache_get_stale
+            data_c = cache_get_stale(ck_c, max_stale_seconds=24*3600)
+            if data_c is not None:
+                debug_log(f"[openmeteo_extended_lpi] STALE-Cache-Fallback verwendet ({type(exc).__name__})")
+            else:
+                data_c = None
 
     # ── Request D: hourly CIN/PW (GFS) ─────────────────────────────────────
     url_d = (
@@ -173,26 +162,22 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
     ck_d = cache_key("openmeteo:extended_gfs_conv", lats[:60], _nearest_hour_str())
     data_d = cache_get(ck_d, ttl_seconds=get_ttl("openmeteo_extended", 900))
     if data_d is None:
+        import time as _td_ext
+        from http_retry import retry_get
+        _t0_d = _td_ext.monotonic()
         try:
-            import time as _td_ext
-            _t0_d = _td_ext.monotonic()
-            r = requests.get(url_d, timeout=_TIMEOUT)
+            r = retry_get(url_d, service="openmeteo_extended_gfs_conv", timeout=_TIMEOUT)
             _dur_d = (_td_ext.monotonic() - _t0_d) * 1000
-            r.raise_for_status()
             data_d = r.json()
             log_http_response("openmeteo_extended_gfs", "GET", r, _dur_d)
             cache_set(ck_d, data_d)
-        except requests.exceptions.Timeout:
-            log_api_failure("openmeteo_extended_gfs_conv", url_d, "timeout", fallback_used=True)
-            data_d = None
-        except requests.exceptions.HTTPError as exc:
-            status = getattr(exc.response, "status_code", None)
-            hint = " (ungültige Open-Meteo-Parameter?)" if status == 400 else ""
-            log_api_failure("openmeteo_extended_gfs_conv", url_d, f"http-{status}{hint}", fallback_used=True, http_status=status)
-            data_d = None
         except Exception as exc:
-            log_api_failure("openmeteo_extended_gfs_conv", url_d, str(exc)[:80], fallback_used=True)
-            data_d = None
+            from api_cache import cache_get_stale
+            data_d = cache_get_stale(ck_d, max_stale_seconds=24*3600)
+            if data_d is not None:
+                debug_log(f"[openmeteo_extended_gfs_conv] STALE-Cache-Fallback verwendet ({type(exc).__name__})")
+            else:
+                data_d = None
 
     _apply(data_a, data_b, data_c, data_d, valid, objects)
     return objects
