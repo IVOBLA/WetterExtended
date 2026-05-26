@@ -234,6 +234,10 @@ Statistiken über die gesammelten Trainingsdaten: Anzahl Samples pro Horizont, F
 ## 4.5 Atmosphäre (`/atmosphaere`) [NEU]
 
 Großwetterlage-Snapshot für Kärnten: 500-hPa-Geopotential, Steuerströmung, AROME-Gitterpunktwerte (T, Taupunkt, Windböen, Lifted Index, Gefriergrenze), stratiforme Niederschlagsumgebung. Wird alle 30 Minuten aktualisiert.
+Die Titelzeile zeigt **Lokalzeit** (keine UTC-Umrechnung nötig) sowie
+einen Countdown bis zur nächsten automatischen Aktualisierung. Das Intervall
+(Standard: 30 min) ist über Admin-Panel → Konfiguration →
+`ATMOSPHERIC_SNAPSHOT_INTERVAL_MIN` zur Laufzeit änderbar.
 
 ## 4.6 Orte (`/locations`)
 

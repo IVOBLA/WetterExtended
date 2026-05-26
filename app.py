@@ -1797,6 +1797,49 @@ def api_recent_frames():
     return jsonify(rows)
 
 
+@app.route("/api/atmosphere_status")
+def api_atmosphere_status():
+    """
+    Liefert Metadaten zum Atmosphären-Snapshot:
+    - last_update_ts : ISO-UTC-String des letzten Snapshot-Zeitstempels
+    - next_update_in_s : Sekunden bis zur nächsten planmäßigen Aktualisierung
+    - interval_min : konfiguriertes Aktualisierungsintervall [min]
+    """
+    import time as _t_atm
+    from config import ATMOSPHERIC_SNAPSHOT_INTERVAL_MIN as _ATM_INTERVAL
+    try:
+        import runtime_config as _rc_atm
+        interval_min = int(_rc_atm.get("ATMOSPHERIC_SNAPSHOT_INTERVAL_MIN", _ATM_INTERVAL))
+    except Exception:
+        interval_min = int(_ATM_INTERVAL)
+
+    atm_path = os.path.join(
+        SAVE_PATHS.get("evaluation", "train_data/evaluation"),
+        "atmosphere_latest.json"
+    )
+    last_ts = None
+    next_in_s = 0
+
+    if os.path.exists(atm_path):
+        try:
+            age_s = _t_atm.time() - os.path.getmtime(atm_path)
+            interval_s = interval_min * 60
+            next_in_s = max(0, int(interval_s - age_s))
+            # Zeitstempel aus Datei-Mtime
+            import datetime as _dt_atm
+            last_ts = _dt_atm.datetime.utcfromtimestamp(
+                os.path.getmtime(atm_path)
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        except Exception:
+            pass
+
+    return jsonify({
+        "last_update_ts":  last_ts,
+        "next_update_in_s": next_in_s,
+        "interval_min":    interval_min,
+    })
+
+
 @app.route("/api/atmosphere")
 def api_atmosphere():
     """Atmosphärischer Zustand für Kärnten-Referenzpunkte (unabhängig von Zellen)."""
