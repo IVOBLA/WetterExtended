@@ -79,15 +79,24 @@ export default function Atmosphaere() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b text-xs text-gray-500 uppercase">
-                <th className="p-3 text-left">Ort</th>
-                <th className="p-3 text-right">T 2m</th>
-                <th className="p-3 text-right">Td 2m</th>
-                <th className="p-3 text-right" title="Taupunkt-Spread: kleiner = feuchter">Spread</th>
-                <th className="p-3 text-right" title="Lifted Index: negativ = instabil">LI</th>
-                <th className="p-3 text-right">Gefriergrenze</th>
-                <th className="p-3 text-right">Wind 10m</th>
-                <th className="p-3 text-right">Wind 700hPa</th>
-                <th className="p-3 text-center">Gewitter-Pot.</th>
+                <th className="p-3 text-left"
+                  title="Beobachtungsort in Kärnten">Ort</th>
+                <th className="p-3 text-right"
+                  title="Temperatur in 2 m Höhe (°C) — Tageswert je nach Tageszeit">T 2m</th>
+                <th className="p-3 text-right"
+                  title="Taupunkttemperatur in 2 m Höhe (°C) — je näher an T 2m, desto feuchter die Luft">Td 2m</th>
+                <th className="p-3 text-right cursor-help"
+                  title="Taupunkt-Spread = T − Td. &lt; 3 K: sehr feucht, Gewitterrisiko erhöht. &lt; 6 K: feucht. &gt; 10 K: trocken, wenig Gewittergefahr.">Spread</th>
+                <th className="p-3 text-right cursor-help"
+                  title="Lifted Index (°C): Instabilitätsmaß. Positiv = stabil. 0 bis −1 = leicht instabil. −1 bis −3 = mäßig instabil (Gewitter möglich). &lt; −3 = hoch instabil (Gewitter wahrscheinlich).">LI</th>
+                <th className="p-3 text-right cursor-help"
+                  title="Gefriergrenze: Höhe der 0°C-Isotherme über MSL. Je höher, desto wärmer die Atmosphäre. &gt; 4000 m im Sommer = sehr warme Luftmasse. Relevant für Hagelgröße.">Gefriergrenze</th>
+                <th className="p-3 text-right cursor-help"
+                  title="Bodennaher Wind in 10 m Höhe (km/h). Lokal gemessen, beeinflusst Zell-Entwicklung kaum, relevant für Sturmböen-Prognose.">Wind 10m</th>
+                <th className="p-3 text-right cursor-help"
+                  title="Höhenwind in ca. 3000 m (700 hPa). Steuert die Zugrichtung von Gewitterzellen. Richtung und Stärke entscheidend für Nowcast-Genauigkeit.">Wind 700hPa</th>
+                <th className="p-3 text-center cursor-help"
+                  title="Gewitterpotenzial: Niedrig (LI &gt; −1) · Mäßig (LI −1 bis −3) · Hoch (LI &lt; −3). Kombiniert LI, Spread und Gefriergrenze.">Gewitter-Pot.</th>
               </tr>
             </thead>
             <tbody>

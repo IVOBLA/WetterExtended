@@ -108,7 +108,7 @@ export default function MapFullscreen() {
   const [radarTs,        setRadarTs]        = useState(0)
   const [lightning,      setLightning]      = useState([])
   const [showLightning,  setShowLightning]  = useState(true)
-  const [showRisk,      setShowRisk]      = useState(false)
+  const [showRisk,      setShowRisk]      = useState(true)
   const [riskGrid,      setRiskGrid]      = useState([])
   const [lightningAge,   setLightningAge]   = useState(30)  // Minuten
   const [frames,       setFrames]       = useState([])
@@ -684,26 +684,48 @@ export default function MapFullscreen() {
                         <span style={{ color: '#888' }}>{info.ship >= 1.0 ? ' (signifikant)' : ''}</span>
                       </div>
                     )}
-                    {info.cape != null && <div>CAPE: <b>{info.cape}</b> J/kg</div>}
+                    {info.cape != null && (
+                      <div>
+                        CAPE: <b>{info.cape}</b> J/kg
+                        <span style={{ color: '#888', marginLeft: 3 }}>
+                          {info.cape > 3000 ? '(extrem)' : info.cape > 1500 ? '(stark)' : info.cape > 500 ? '(mäßig)' : '(schwach)'}
+                        </span>
+                      </div>
+                    )}
                     {info.li != null && (
-                      <div>LI: <b>{info.li}</b> °C
-                        <span style={{ color: '#888' }}>{info.li < -3 ? ' (sehr instabil)' : info.li < -1 ? ' (instabil)' : ''}</span>
+                      <div>
+                        LI: <b>{info.li}</b> °C
+                        <span style={{ color: '#888', marginLeft: 3 }}>
+                          {info.li < -3 ? '(sehr instabil)' : info.li < -1 ? '(instabil)' : '(stabil)'}
+                        </span>
                       </div>
                     )}
                     {info.lapse_700_500 != null && (
-                      <div>Lapse 700–500: <b>{info.lapse_700_500}</b> °C/km</div>
+                      <div>
+                        Lapse 700–500: <b>{info.lapse_700_500}</b> °C/km
+                        <span style={{ color: '#888', marginLeft: 3 }}>
+                          {info.lapse_700_500 > 7 ? '(labil)' : info.lapse_700_500 > 6 ? '(mäßig labil)' : ''}
+                        </span>
+                      </div>
                     )}
                     {info.cin != null && Math.abs(info.cin) > 10 && (
                       <div style={{ color: '#92400e' }}>
                         CIN: <b>{info.cin}</b> J/kg
-                        {info.cin < -100 ? ' (Deckelung)' : ''}
+                        <span style={{ color: '#888', marginLeft: 3 }}>
+                          {info.cin < -200 ? '(starke Deckelung)' : info.cin < -100 ? '(Deckelung)' : '(schwach)'}
+                        </span>
                       </div>
                     )}
                     {info.pw != null && info.pw > 0 && (
-                      <div>PW: <b>{info.pw}</b> mm</div>
+                      <div>
+                        PW: <b>{info.pw}</b> mm
+                        <span style={{ color: '#888', marginLeft: 3 }}>
+                          {info.pw > 35 ? '(sehr feucht)' : info.pw > 25 ? '(feucht)' : ''}
+                        </span>
+                      </div>
                     )}
                     {info.lightning_count > 0 && (
-                      <div>⚡ {info.lightning_count} Blitze &lt;10 km</div>
+                      <div>⚡ <b>{info.lightning_count}</b> Blitze &lt;10 km</div>
                     )}
                   </div>
                 </Tooltip>
