@@ -1194,7 +1194,7 @@ server {
     }
 
     # SPA-Einstiegsdatei ohne Auth.
-    # try_files $uri /index.html im /karte-Block macht einen internen nginx-Redirect
+    # try_files \$uri /index.html im /karte-Block macht einen internen nginx-Redirect
     # auf /index.html. Ohne diesen Block landet der Redirect im / Block (mit auth_basic)
     # und verursacht 401 — obwohl /karte auth_basic off hat.
     location = /index.html {
