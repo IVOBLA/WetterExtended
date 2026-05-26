@@ -29,6 +29,8 @@ from fetch_openmeteo_extended import assign_extended_openmeteo
 from fetch_geosphere_nowcast import assign_nowcast_to_objects
 from compute_convective_indices import assign_convective_indices
 from fetch_tawes_gust import fetch_tawes_stations, max_gust_near
+from ir_cell_detection import detect_ir_cells
+from ir_cell_tracking import update_ir_tracking
 import math as _math_main
 import runtime_config
 from locations_check import annotate_locations
@@ -196,6 +198,75 @@ def main_loop():
             # Orographische Scores nach CAPE berechnen (brauchen cape-Wert)
             objects = assign_orographic_scores(objects)
             objects = assign_cloud_top_height(objects, weather_data=weather_data, timestamp=timestamp)
+
+            # ── Phase E: IR-Sat Pre-Convection Tracking ───────────────────────
+            # Läuft nur wenn TIFF aktuell ist (cloud_height_from_eumetview hat
+            # es bereits heruntergeladen — kein zusätzlicher API-Call).
+            try:
+                _ir_cells_raw = detect_ir_cells(timestamp=timestamp)
+                _ir_tracks = update_ir_tracking(_ir_cells_raw, timestamp)
+
+                # IR↔Radar Lineage-Matching:
+                # Maximaler Abstand für ein IR↔Radar-Match: 40 km
+                _IR_MATCH_KM = 40.0
+                _matched_ir_ids = set()
+                for _obj in objects:
+                    _obj_lat = _obj.get("lat", 0.0)
+                    _obj_lon = _obj.get("lon", 0.0)
+                    _best_dist = float("inf")
+                    _best_ir = None
+                    for _ir in _ir_tracks:
+                        from math import radians as _rad, cos as _cos, sin as _sin, sqrt as _sq, atan2 as _at2
+                        _dlat = _rad(_ir["lat"] - _obj_lat)
+                        _dlon = _rad(_ir["lon"] - _obj_lon)
+                        _a = _sin(_dlat/2)**2 + _cos(_rad(_obj_lat)) * _cos(_rad(_ir["lat"])) * _sin(_dlon/2)**2
+                        _d = 6371.0 * 2 * _at2(_sq(_a), _sq(1-_a))
+                        if _d < _best_dist:
+                            _best_dist = _d
+                            _best_ir = _ir
+                    if _best_ir is not None and _best_dist <= _IR_MATCH_KM:
+                        _obj["ir_match_id"]           = _best_ir.get("ir_id")
+                        _obj["bt_min_k"]              = _best_ir.get("bt_min_k", 0.0)
+                        _obj["bt_mean_k"]             = _best_ir.get("bt_mean_k", 0.0)
+                        _obj["bt_trend_k_per_min"]    = _best_ir.get("bt_trend_k_per_min", 0.0)
+                        _obj["cloud_age_min"]         = _best_ir.get("cloud_age_min", 0.0)
+                        _obj["anvil_extension_km"]    = _best_ir.get("anvil_extension_km", 0.0)
+                        _obj["overshooting_top"]      = _best_ir.get("overshooting_top", 0.0)
+                        _obj["ir_only_precursor"]     = 0.0
+                        _matched_ir_ids.add(_best_ir.get("ir_id"))
+                        if isinstance(_best_ir.get("radar_match_ids"), list):
+                            if _obj.get("id") not in _best_ir["radar_match_ids"]:
+                                _best_ir["radar_match_ids"].append(_obj.get("id"))
+                    else:
+                        _obj.setdefault("ir_match_id",        None)
+                        _obj.setdefault("bt_min_k",           0.0)
+                        _obj.setdefault("bt_mean_k",          0.0)
+                        _obj.setdefault("bt_trend_k_per_min", 0.0)
+                        _obj.setdefault("cloud_age_min",      0.0)
+                        _obj.setdefault("anvil_extension_km", 0.0)
+                        _obj.setdefault("overshooting_top",   0.0)
+                        _obj.setdefault("ir_only_precursor",  0.0)
+
+                # IR-Cells OHNE Radar-Match: ir_only_precursor = 1.0
+                for _ir in _ir_tracks:
+                    if _ir.get("ir_id") not in _matched_ir_ids:
+                        _ir["ir_only_precursor"] = 1.0
+
+                debug_log(f"[IR-TRACK] {len(_ir_tracks)} aktive IR-Tracks, "
+                          f"{len(_matched_ir_ids)} Radar-Matches.")
+            except Exception as _ir_exc:
+                debug_log(f"[IR-TRACK] Pipeline-Fehler (nicht kritisch): {_ir_exc}")
+                _ir_tracks = []
+                for _obj in objects:
+                    _obj.setdefault("ir_match_id",        None)
+                    _obj.setdefault("bt_min_k",           0.0)
+                    _obj.setdefault("bt_mean_k",          0.0)
+                    _obj.setdefault("bt_trend_k_per_min", 0.0)
+                    _obj.setdefault("cloud_age_min",      0.0)
+                    _obj.setdefault("anvil_extension_km", 0.0)
+                    _obj.setdefault("overshooting_top",   0.0)
+                    _obj.setdefault("ir_only_precursor",  0.0)
+
             curr_scaled_path = os.path.join("data", "radar", f"radar_{timestamp}.png")
             objects = assign_optical_flow_to_objects(
                 objects,
