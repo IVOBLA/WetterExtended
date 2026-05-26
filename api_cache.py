@@ -144,6 +144,42 @@ def _put_mem(key: str, value: Any) -> None:
     _MEM_CACHE[key] = (time.time(), value)
 
 
+def cache_get_stale(key: str, max_stale_seconds: int = 24 * 3600) -> Any | None:
+    """
+    Liefert den Cache-Eintrag wenn er existiert UND nicht älter als max_stale_seconds ist.
+    Ignoriert den normalen TTL (für Stale-While-Error-Fallback bei API-Ausfällen).
+
+    Verwendung: nach gescheitertem HTTP-Request, um nicht auf Default 0.0 zurückzufallen.
+    """
+    # 1) In-Memory
+    rec = _MEM_CACHE.get(key)
+    if rec is not None:
+        ts, value = rec
+        age = time.time() - ts
+        if age <= max_stale_seconds:
+            debug_log(f"[API-CACHE] STALE HIT (mem) {key} age={int(age)}s max_stale={max_stale_seconds}s")
+            return value
+
+    # 2) Disk
+    path = _path_for(key)
+    if not os.path.exists(path):
+        return None
+    try:
+        st = os.stat(path)
+        age = time.time() - st.st_mtime
+        if age > max_stale_seconds:
+            debug_log(f"[API-CACHE] STALE EXPIRED {key} age={int(age)}s max_stale={max_stale_seconds}s")
+            return None
+        with open(path, "r", encoding="utf-8") as f:
+            value = json.load(f)
+        _put_mem(key, value)
+        debug_log(f"[API-CACHE] STALE HIT (disk) {key} age={int(age)}s")
+        return value
+    except Exception as exc:
+        debug_log(f"[API-CACHE] STALE-Lesefehler {key}: {exc}")
+        return None
+
+
 def cache_invalidate(key: str) -> None:
     _MEM_CACHE.pop(key, None)
     path = _path_for(key)
