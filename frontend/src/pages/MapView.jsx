@@ -92,6 +92,12 @@ function Legend({ horizons, colors }) {
         <span className="text-red-600 font-bold">🧊</span>
         Hagel
       </span>
+      {showIrCells && (
+        <span style={{display:'flex',alignItems:'center',gap:3}}>
+          <span style={{width:12,height:12,borderRadius:'50%',border:'2px dashed #a855f7',display:'inline-block'}}/>
+          <span style={{fontSize:10}}>IR-Vorläufer</span>
+        </span>
+      )}
     </div>
   )
 }
@@ -349,8 +355,10 @@ export default function MapView() {
   const [radarTs,        setRadarTs]        = useState(0)
   const [lightning,      setLightning]      = useState([])
   const [showLightning,  setShowLightning]  = useState(true)
-  const [showRisk,      setShowRisk]      = useState(true)
+  const [showRisk,      setShowRisk]      = useState(false)
+  const [showIrCells,   setShowIrCells]   = useState(false)
   const [riskGrid,      setRiskGrid]      = useState([])
+  const [irCells,       setIrCells]       = useState([])
   const [lightningAge,   setLightningAge]   = useState(30)  // Minuten
 
   // Animation
@@ -435,7 +443,7 @@ export default function MapView() {
     load()
     const t = setInterval(load, 60000)
     return () => clearInterval(t)
-  }, [])
+  }, [showIrCells])
 
   // Frame-Sync für Animation: bei Scrubbing objects/forecast für den
   // angezeigten Frame laden.
@@ -490,7 +498,7 @@ export default function MapView() {
     } finally {
       setHitlLoading(false)
     }
-  }, [])
+  }, [showIrCells])
 
   // ── Handler: Benutzer bestätigt Filter-Übernahme ──────────────────────────
   const handleHitlConfirm = React.useCallback(async () => {
@@ -526,10 +534,22 @@ export default function MapView() {
         .then(d => setRiskGrid(d.cells || []))
         .catch(() => {})
     }
+    if (showIrCells) {
+      fetch('/api/objects?include_ir=1')
+        .then(r => r.json())
+        .then(d => {
+          const irOnly = (Array.isArray(d) ? d : (d.objects || []))
+            .filter(o => o._type === 'ir_cell')
+          setIrCells(irOnly)
+        })
+        .catch(() => setIrCells([]))
+    } else {
+      setIrCells([])
+    }
     loadRisk()
     const t = setInterval(loadRisk, 60_000)
     return () => clearInterval(t)
-  }, [])
+  }, [showIrCells])
 
   return (
     <div>
@@ -613,6 +633,17 @@ export default function MapView() {
             className="accent-red-500" />
           <span>🌩 Risikozonen</span>
         </label>
+        <button
+          onClick={() => setShowIrCells(r => !r)}
+          className={`text-xs px-2 py-1 rounded border transition-colors ${
+            showIrCells
+              ? 'bg-purple-600 text-white border-purple-700'
+              : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+          }`}
+          title="IR-Satellit: Konvektive Vorläufer-Wolken (BT < 230 K) aus MSG IR108 (ir_cell_tracking)"
+        >
+          🛰 IR-Vorläufer
+        </button>
         <button onClick={load}
           className="text-xs text-blue-600 hover:text-blue-800 underline ml-auto">↺ Neu laden</button>
         {/* Manuelles Zell-Markieren */}
@@ -987,6 +1018,41 @@ export default function MapView() {
             </Rectangle>
           )
         })}
+
+        {showIrCells && irCells.map((ir, i) => (
+          <CircleMarker
+            key={'ir_' + i}
+            center={[ir.lat, ir.lon]}
+            radius={Math.max(6, Math.min(20, (ir.area_px || 30) / 10))}
+            pathOptions={{
+              color: '#a855f7',
+              fillColor: ir.overshooting_top ? '#dc2626' : '#a855f7',
+              fillOpacity: 0.35,
+              weight: 2,
+              dashArray: '5,4',
+            }}
+          >
+            <Tooltip direction="top" sticky opacity={0.95}>
+              <div style={{ fontSize: 11, lineHeight: 1.4, minWidth: 150 }}>
+                <div style={{ fontWeight: 700, color: '#7c3aed' }}>
+                  🛰 IR-Vorläufer {ir.ir_id}
+                </div>
+                <div>BT_min: <b>{ir.bt_min_k?.toFixed(1)} K</b></div>
+                <div>Trend: <b>{ir.bt_trend_k_per_min >= 0 ? '+' : ''}{ir.bt_trend_k_per_min?.toFixed(2)} K/min</b>
+                  {ir.bt_trend_k_per_min < -1.5 && <span style={{color:'#dc2626'}}> ⚡ wächst</span>}
+                </div>
+                <div>Alter: {ir.cloud_age_min?.toFixed(0)} min</div>
+                {ir.overshooting_top === 1.0 && (
+                  <div style={{color:'#dc2626', fontWeight:600}}>⚠ Overshooting Top</div>
+                )}
+                {ir.ir_only_precursor === 1.0 && (
+                  <div style={{color:'#7c3aed'}}>Kein Radar-Echo — Vorläufer</div>
+                )}
+              </div>
+            </Tooltip>
+          </CircleMarker>
+        ))}
+
 
         {/* Blitz-Layer (F50) — deaktivierbar, nur letzter Frame */}
         {showLightning && (currentIdx === frames.length - 1 || frames.length === 0) &&
