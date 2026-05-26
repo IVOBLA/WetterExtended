@@ -224,6 +224,7 @@ export default function Dashboard() {
   const [forecastStats, setForecastStats] = useState(null)
   const [demStatus, setDemStatus]         = useState(null)
   const [selectedService, setSelectedService] = useState('')
+  const [cacheStatus, setCacheStatus] = useState([])
 
   useEffect(() => {
     Promise.all([
@@ -235,6 +236,7 @@ export default function Dashboard() {
       api.get('/api/api_health?hours=24').then(setApiHealth).catch(() => {}),
       api.get('/api/forecast_stats?hours=24').then(setForecastStats).catch(() => {}),
       api.get('/api/dem_status').then(setDemStatus).catch(() => {}),
+      api.get('/api/cache_status').then(d => setCacheStatus(d.services || [])).catch(() => {}),
     ])
   }, [])
 
@@ -342,6 +344,12 @@ export default function Dashboard() {
         <div className="card mt-4">
           <h2 className="text-base font-semibold mb-2">
             📡 API-Requests (24h)
+            <span
+              className="ml-2 text-xs font-normal text-gray-400 cursor-help"
+              title="Abruf-Intervalle konfigurierbar: Admin-Panel → Konfiguration → API_CACHE_TTL_SECONDS"
+            >
+              ⚙ Intervalle konfig.
+            </span>
             <span className="ml-2 text-xs font-normal text-gray-400">
               — Zeile klicken für letzten Request/Response
             </span>
@@ -353,6 +361,7 @@ export default function Dashboard() {
                 <th className="p-1 text-right">Anfragen</th>
                 <th className="p-1 text-right">Fehler</th>
                 <th className="p-1 text-right">Fehlerrate</th>
+                <th className="p-1 text-right">NÄCHSTE ABFRAGE</th>
               </tr>
             </thead>
             <tbody>
@@ -399,6 +408,22 @@ export default function Dashboard() {
                         {d.calls > 0
                           ? `${((d.errors / d.calls) * 100).toFixed(1)}%`
                           : '—'}
+                      </td>
+                      <td className="p-1 text-right text-xs">
+                        {(() => {
+                          const cs = cacheStatus.find(c => c.namespace === svc)
+                          if (!cs) return <span className="text-gray-300">—</span>
+                          if (cs.status === 'MISSING') return <span className="text-gray-400">—</span>
+                          if (cs.status === 'STALE')   return <span className="text-orange-500 font-semibold">jetzt</span>
+                          const s = cs.next_allowed_in_s || 0
+                          const m = Math.floor(s / 60)
+                          const sec = s % 60
+                          return (
+                            <span className="text-green-700">
+                              {m > 0 ? `${m}m ` : ''}{sec}s
+                            </span>
+                          )
+                        })()}
                       </td>
                     </tr>
                   )
