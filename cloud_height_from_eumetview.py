@@ -14,6 +14,7 @@ import numpy as np
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from glob import glob
+from typing import Any
 
 from config import (
     BBOX_KAERNTEN_EXTENDED,
@@ -61,6 +62,8 @@ CRS = "EPSG:4326"
 
 SAVE_DIR            = SAVE_PATHS.get("cloud", "train_data/cloud/")
 LAST_TIMESTAMP_FILE = os.path.join(SAVE_DIR, "last_wms_timestamp.txt")
+_EVAL_DIR = SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/")
+_EUMETVIEW_DEBUG_FILE = os.path.join(_EVAL_DIR, "eumetview_debug.jsonl")
 
 
 # ── Hilfsfunktionen ──────────────────────────────────────────────────────────
@@ -84,6 +87,63 @@ def get_latest_wms_time() -> str | None:
         debug_log(f"[CLOUD] WMS-Timestamp aus Cache: {cached_ts}")
         return cached_ts
 
+    def _norm_tag(tag: str) -> str:
+        return tag.split("}", 1)[-1] if "}" in tag else tag
+
+    def _norm_time_iso(raw: str | None) -> str | None:
+        if not raw or not isinstance(raw, str):
+            return None
+        v = raw.strip()
+        if not v:
+            return None
+        if v.endswith("Z"):
+            v = v[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(v)
+            return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        except Exception:
+            return None
+
+    def _extract_last_iso_from_text(raw: str | None) -> str | None:
+        if not raw:
+            return None
+        text = raw.strip()
+        if not text:
+            return None
+        if "/" in text:
+            parts = [p.strip() for p in text.split("/") if p.strip()]
+            if len(parts) >= 2:
+                return _norm_time_iso(parts[1])
+        candidates = [c.strip() for c in text.replace(",", " ").split() if c.strip()]
+        for cand in reversed(candidates):
+            norm = _norm_time_iso(cand)
+            if norm:
+                return norm
+        return None
+
+    def _dbg(event: str, **kwargs: Any) -> None:
+        rec = {
+            "ts_utc": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "event": event,
+            "service": "EUMETView-WMS",
+            "target_layer": LAYER,
+            "target_layer_found": False,
+            "time_element_found": False,
+            "raw_extent_default": None,
+            "raw_extent_text_preview": None,
+            "selected_timestamp": None,
+            "timestamp_source": None,
+            "reason": None,
+        }
+        rec.update(kwargs)
+        try:
+            os.makedirs(_EVAL_DIR, exist_ok=True)
+            with open(_EUMETVIEW_DEBUG_FILE, "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+
+    _dbg("capabilities_request", reason="start")
     try:
         import time as _t_wms_cap
         _t0_wms_cap = _t_wms_cap.monotonic()
@@ -97,20 +157,69 @@ def get_latest_wms_time() -> str | None:
             duration_ms=_dur_ms,
         )
         if r.ok:
+            _dbg("capabilities_response", reason=f"http-{r.status_code}")
             root = ET.fromstring(r.content)
-            # Namespace-tolerantes Dimension-Parsing:
-            # WMS 1.1.1: <Dimension name="time" default="..."/>
-            # WMS 1.3.0: <{http://www.opengis.net/wms}Dimension name="time" default="..."/>
-            for elem in root.iter():
-                tag = elem.tag.split("}", 1)[-1] if "}" in elem.tag else elem.tag
-                if tag == "Dimension" and elem.attrib.get("name") == "time":
-                    ts = elem.attrib.get("default")
-                    if ts:
-                        debug_log(f"[CLOUD] WMS-Timestamp gefunden: {ts}")
-                        cache_set(ck, ts)
-                        return ts
+            target_layer = None
+            for layer in root.iter():
+                if _norm_tag(layer.tag) != "Layer":
+                    continue
+                for ch in list(layer):
+                    if _norm_tag(ch.tag) == "Name" and (ch.text or "").strip() == LAYER:
+                        target_layer = layer
+                        break
+                if target_layer is not None:
+                    break
+            _dbg("target_layer_search", target_layer_found=bool(target_layer))
+            if target_layer is None:
+                _dbg("timestamp_missing", reason="target-layer-missing")
+                return None
+
+            extent_default = None
+            extent_text = None
+            dim_default = None
+            dim_text = None
+            for elem in list(target_layer):
+                tag = _norm_tag(elem.tag)
+                n = (elem.attrib.get("name") or "").strip().lower()
+                if n != "time":
+                    continue
+                txt = (elem.text or "").strip() or None
+                if tag == "Extent":
+                    extent_default = elem.attrib.get("default")
+                    extent_text = txt
+                elif tag == "Dimension":
+                    dim_default = elem.attrib.get("default")
+                    dim_text = txt
+
+            _dbg(
+                "time_dimension_search",
+                target_layer_found=True,
+                time_element_found=bool(extent_default or extent_text or dim_default or dim_text),
+                raw_extent_default=extent_default,
+                raw_extent_text_preview=(extent_text[:180] if extent_text else None),
+            )
+
+            selected = _norm_time_iso(extent_default)
+            source = "extent-default"
+            if not selected:
+                selected = _norm_time_iso(dim_default)
+                source = "dimension-default"
+            if not selected:
+                selected = _extract_last_iso_from_text(extent_text)
+                source = "extent-text"
+            if not selected:
+                selected = _extract_last_iso_from_text(dim_text)
+                source = "dimension-text"
+
+            if selected:
+                _dbg("timestamp_selected", target_layer_found=True, time_element_found=True, selected_timestamp=selected, timestamp_source=source)
+                debug_log(f"[CLOUD] WMS-Timestamp gefunden: {selected}")
+                cache_set(ck, selected)
+                return selected
+            _dbg("timestamp_missing", target_layer_found=True, time_element_found=False, reason="parser-no-timestamp")
     except Exception as e:
         debug_log(f"[CLOUD] GetCapabilities fehlgeschlagen: {e}")
+        _dbg("capabilities_response", reason=f"exception-{type(e).__name__}")
         log_api_failure(
             "EUMETView-WMS", url, f"{type(e).__name__}: {e}", fallback_used=True
         )
@@ -221,7 +330,14 @@ def assign_cloud_top_height(
     timestamp_wms = get_latest_wms_time()
     if not timestamp_wms:
         debug_log("[CLOUD] Kein gültiger WMS-Timestamp — cloud_top_height_msl=-1")
-        log_api_failure("EUMETView-WMS", "GetCapabilities", "no-timestamp", fallback_used=True)
+        log_api_call(
+            service="eumetview_wms_caps",
+            url="GetCapabilities",
+            status_code=200,
+            method="GET",
+            error="parser-no-timestamp",
+            response_payload={"severity": "warning", "reason": "parser-no-timestamp"},
+        )
         for obj in objects:
             obj["cloud_top_height_msl"] = -1.0
             obj["cloud_height_missing"] = 1.0
