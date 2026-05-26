@@ -24,6 +24,17 @@ _LOG_FILE = os.path.join(
 _PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
+def _free_gb() -> float:
+    """Freier Speicher auf der Partition von SAVE_PATHS in GB."""
+    try:
+        import shutil
+        path = list(SAVE_PATHS.values())[0] if SAVE_PATHS else "."
+        stat = shutil.disk_usage(path)
+        return stat.free / (1024 ** 3)
+    except Exception:
+        return 999.0  # Im Fehlerfall: annehmen dass genug Platz vorhanden
+
+
 def cleanup_old_data() -> dict:
     """
     Löscht Dateien in DATA_CLEANUP_PATHS die älter als DATA_RETENTION_DAYS Tage sind.
@@ -40,6 +51,11 @@ def cleanup_old_data() -> dict:
     # Retention-Override: bestimmte Verzeichnisse haben kuerzere Aufbewahrungszeit.
     # Fallback: DATA_RETENTION_DAYS (Standard 90 Tage).
     _override = DATA_CLEANUP_RETENTION_OVERRIDE
+
+    try:
+        from config import MIN_FREE_GB_BEFORE_CLEANUP as _MIN_FREE
+    except ImportError:
+        _MIN_FREE = 5.0
 
     for rel_path in DATA_CLEANUP_PATHS:
         # Per-Verzeichnis Retention bestimmen
@@ -60,11 +76,26 @@ def cleanup_old_data() -> dict:
                 if not os.path.isfile(fpath):
                     continue
                 try:
-                    if os.path.getmtime(fpath) < cutoff_ts:
-                        size = os.path.getsize(fpath)
-                        os.remove(fpath)
-                        deleted_count += 1
-                        freed_bytes += size
+                    mtime_ts = os.path.getmtime(fpath)
+                    mtime = datetime.fromtimestamp(mtime_ts)
+                    file_age_days = (datetime.now() - mtime).days
+                    # Bedingung: Datei loeschen wenn Speicher knapp ODER Datei zu alt
+                    free_now = _free_gb()
+                    too_old = mtime_ts < cutoff_ts
+                    low_space = _MIN_FREE > 0 and free_now < _MIN_FREE
+                    if not too_old and not low_space:
+                        continue  # Platz vorhanden + Datei jung genug -> behalten
+                    size = os.path.getsize(fpath)
+                    os.remove(fpath)
+                    deleted_count += 1
+                    freed_bytes += size
+                    if too_old:
+                        debug_log(f"[CLEANUP] {fname} geloescht (zu_alt, Alter: {file_age_days}d)")
+                    elif low_space:
+                        debug_log(
+                            f"[CLEANUP] {fname} geloescht (Speicher: {free_now:.1f} GB frei < "
+                            f"{_MIN_FREE} GB Limit, Alter: {file_age_days}d)"
+                        )
                 except Exception as exc:
                     errors.append(f"{fpath}: {exc}")
                     debug_log(f"[CLEANUP] Fehler bei {fpath}: {exc}")

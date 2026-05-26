@@ -518,6 +518,10 @@ EUMETVIEW_NODATA_PIXEL: int = 5     # Pixelwerte <= 5 = nodata (EUMETView Randbe
 # -------------------------------------------------------
 # Dateien älter als N Tage werden täglich gelöscht.
 DATA_RETENTION_DAYS: int = 90
+# Cleanup nur ausfuehren wenn freier Speicher unter diesen Wert faellt.
+# Solange genug Platz vorhanden ist, bleiben Daten erhalten (wertvoll fuer
+# Hailo-Calibration und Retraining). 0 = immer loeschen (altes Verhalten).
+MIN_FREE_GB_BEFORE_CLEANUP: float = 5.0
 DATA_CLEANUP_CRON_HOUR: int = 4
 DATA_CLEANUP_CRON_MINUTE: int = 30
 # Verzeichnisse die rotiert werden (relative Pfade vom Projektstamm).
