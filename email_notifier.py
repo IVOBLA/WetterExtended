@@ -251,6 +251,68 @@ def send_allclear_email(loc_name: str, email_str: str) -> bool:
     return ok
 
 
+def send_risk_alert_email(location_name: str, dominant: str,
+                          details: dict, recipient: str) -> bool:
+    """
+    P46: Alarm-E-Mail bei Gewitterrisiko=3 (Hoch) für einen Ort.
+    E-Mail-Adresse kommt aus der Ortsdefinition (Locations-Seite, email-Feld).
+    Max. 1× täglich pro Ort. Keine Entwarnung.
+    Mehrere Empfänger: Semikolon-getrennt (user1@x.com;user2@y.com).
+    """
+    if not _is_configured() or not recipient:
+        debug_log(f"[EMAIL] Risiko-Alarm nicht gesendet — SMTP oder Empfänger fehlt")
+        return False
+
+    dom_label = {
+        "cell": "🌩 Aktive Gewitterzelle in der Nähe",
+        "track": "📍 Zelle zieht auf Ort zu (Forecast-Zugbahn)",
+        "lightning": "⚡ Starke Blitzaktivität",
+        "atm": "☁ Atmosphärische Instabilität",
+    }.get(dominant, dominant)
+    li = details.get("li")
+    fl = details.get("fl_height")
+    cap = details.get("cape")
+    cin = details.get("cin")
+    cloud_h = details.get("cloud_height_m")
+    detail_rows = ""
+    if li is not None:
+        instab = "sehr instabil" if li < -3 else "instabil" if li < -1 else "stabil"
+        detail_rows += f"<tr><td style='padding:2px 8px'>Lifted Index</td><td><b>{li:.1f} °C</b> ({instab})</td></tr>"
+    if fl and fl > 0:
+        detail_rows += f"<tr><td style='padding:2px 8px'>Gefriergrenze</td><td><b>{fl:.0f} m</b></td></tr>"
+    if cloud_h and cloud_h > 0:
+        detail_rows += f"<tr><td style='padding:2px 8px'>Wolkenhöhe</td><td><b>{cloud_h:.0f} m</b></td></tr>"
+    if cap and cap > 0:
+        detail_rows += f"<tr><td style='padding:2px 8px'>CAPE</td><td><b>{cap:.0f} J/kg</b></td></tr>"
+    if cin and abs(cin) > 10:
+        detail_rows += f"<tr><td style='padding:2px 8px'>CIN</td><td><b>{cin:.0f} J/kg</b></td></tr>"
+
+    from datetime import datetime as _dt
+    ts = _dt.utcnow().strftime("%d.%m.%Y %H:%M UTC")
+    html = f"""<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8"></head>
+<body style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:16px">
+  <div style="background:#dc2626;color:white;padding:16px 20px;border-radius:8px 8px 0 0">
+    <h2 style="margin:0;font-size:20px">🔴 Hohes Gewitterrisiko — {location_name}</h2>
+    <p style="margin:4px 0 0;opacity:.9;font-size:13px">{ts}</p>
+  </div>
+  <div style="background:#fff;padding:20px;border:1px solid #ddd;border-radius:0 0 8px 8px">
+    <p style="color:#991b1b;font-weight:bold">⚠ Für <b>{location_name}</b> wurde hohes Gewitterrisiko (Stufe 3) festgestellt.</p>
+    <p><b>Hauptursache:</b> {dom_label}</p>
+    {f'<table style="font-size:13px;border-collapse:collapse">{detail_rows}</table>' if detail_rows else ''}
+    <p style="font-size:12px;color:#6b7280;margin-top:16px">Max. 1 Warnung pro Ort und Tag. Keine Entwarnung wird gesendet.</p>
+  </div>
+</body></html>"""
+    ok = True
+    for addr in [a.strip() for a in recipient.split(";") if a.strip()]:
+        ok = ok and _send_smtp(
+            to=addr,
+            subject=f"⚠ Hohes Gewitterrisiko — {location_name}",
+            html=html,
+        )
+    return ok
+
+
 def send_ai_report_email(result: dict, email_str: str) -> bool:
     """
     Sendet den täglichen KI-Analyse-Report per E-Mail.

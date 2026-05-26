@@ -461,3 +461,70 @@ def assign_cloud_top_height(
 
     write_last_timestamp(timestamp_wms)
     return objects
+
+
+def fetch_cloud_height_for_points(latlons: list) -> dict:
+    """
+    Gibt für eine Liste von (lat, lon) Tupeln die Wolkenhöhe MSL in Meter zurück.
+    Nutzt das aktuell gecachte EUMETView IR108 TIFF (kein neuer Download wenn
+    TIFF aktuell ist). Wird vom Atmospheric Snapshot aufgerufen.
+
+    Rückgabe: {(lat, lon): cloud_height_m} — 0.0 wenn keine Wolke erkannt.
+    """
+    if not HAS_RASTERIO or not HAS_NUMPY:
+        return {ll: 0.0 for ll in latlons}
+
+    # Aktuelles TIFF suchen (neuestes in SAVE_DIR)
+    tif_files = sorted(glob(os.path.join(SAVE_DIR, "ir108_*.tif")))
+    if not tif_files:
+        debug_log("[CLOUD-GRID] Kein TIFF vorhanden — fetch_cloud_height_for_points gibt 0 zurück")
+        return {ll: 0.0 for ll in latlons}
+
+    tif_path = tif_files[-1]
+    result = {}
+
+    try:
+        with rasterio.open(tif_path) as src:
+            band = src.read(1)
+            utc_hour = datetime.utcnow().hour
+            nan_threshold = get_adaptive_nan_threshold(utc_hour)
+            T_surface = 290.15   # Fallback
+            altitude_m = 600.0
+
+            for (lat, lon) in latlons:
+                try:
+                    row, col = rowcol(src.transform, lon, lat)
+                    if not (0 <= row < src.height and 0 <= col < src.width):
+                        result[(lat, lon)] = 0.0
+                        continue
+
+                    raw = band[row, col]
+
+                    # uint8 vs float32 Pfad (identisch zu assign_cloud_top_height)
+                    if band.dtype == np.float32 or band.dtype == np.float64:
+                        bt_k = float(raw)
+                        if np.isnan(bt_k) or bt_k <= 0 or bt_k > nan_threshold:
+                            result[(lat, lon)] = 0.0
+                            continue
+                        height_m = ((T_surface - bt_k) / (LAPSE_RATE / 1000.0)) + altitude_m
+                    else:
+                        pixel = int(raw)
+                        if pixel <= EUMETVIEW_NODATA_PIXEL:
+                            result[(lat, lon)] = 0.0
+                            continue
+                        bt_k = EUMETVIEW_BT_MAX_K - ((EUMETVIEW_BT_MAX_K - EUMETVIEW_BT_MIN_K) / 255.0) * pixel
+                        if bt_k > nan_threshold:
+                            result[(lat, lon)] = 0.0
+                            continue
+                        height_m = ((T_surface - bt_k) / (LAPSE_RATE / 1000.0)) + altitude_m
+
+                    result[(lat, lon)] = max(0.0, round(float(height_m), 0))
+                except Exception:
+                    result[(lat, lon)] = 0.0
+
+    except Exception as exc:
+        debug_log(f"[CLOUD-GRID] TIFF-Verarbeitung fehlgeschlagen: {exc}")
+        return {ll: 0.0 for ll in latlons}
+
+    debug_log(f"[CLOUD-GRID] Wolkenhöhe für {len(latlons)} Punkte berechnet aus {os.path.basename(tif_path)}")
+    return result

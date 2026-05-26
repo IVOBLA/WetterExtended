@@ -233,6 +233,20 @@ def fetch_atmospheric_snapshot() -> dict:
             "lapse_700_500":    round(lapse_700_500, 2),
         })
 
+    # Wolkenhöhen für alle Snapshot-Orte aus EUMETView TIFF (kein neuer API-Call
+    # wenn TIFF aktuell — nutzt Cache von cloud_height_from_eumetview.py)
+    try:
+        from cloud_height_from_eumetview import fetch_cloud_height_for_points
+        _latlons = [(loc["lat"], loc["lon"]) for loc in result_locations]
+        _cloud_heights = fetch_cloud_height_for_points(_latlons)
+        for loc in result_locations:
+            loc["cloud_height_m"] = _cloud_heights.get((loc["lat"], loc["lon"]), 0.0)
+        debug_log(f"[ATMOSPHERE] Wolkenhöhe: {[round(loc['cloud_height_m']) for loc in result_locations]} m")
+    except Exception as _ch_exc:
+        debug_log(f"[ATMOSPHERE] Wolkenhöhe fehlgeschlagen: {_ch_exc}")
+        for loc in result_locations:
+            loc.setdefault("cloud_height_m", 0.0)
+
     result = {
         "ts_utc":    datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "locations": result_locations,
