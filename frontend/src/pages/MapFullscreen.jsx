@@ -21,13 +21,14 @@ const lineageColor = {
 function TBtn({ onClick, active, children, style = {} }) {
   return (
     <button onClick={onClick} style={{
-      minWidth: 44, minHeight: 44, padding: '0 12px',  // 44px: iOS-Mindestgröße
-      border: '1px solid #d1d5db', borderRadius: 8,
-      cursor: 'pointer', fontSize: 14, fontWeight: active ? 700 : 400,
+      minWidth: 34, minHeight: 36, padding: '0 8px',
+      border: '1px solid #d1d5db', borderRadius: 6,
+      cursor: 'pointer', fontSize: 13, fontWeight: active ? 700 : 400,
       background: active ? '#2563eb' : '#f9fafb',
       color: active ? '#fff' : '#222',
       userSelect: 'none', WebkitTapHighlightColor: 'transparent',
-      touchAction: 'manipulation',  // verhindert 300ms Tap-Delay auf mobile
+      touchAction: 'manipulation',
+      flexShrink: 0,
       ...style,
     }}>
       {children}
@@ -43,33 +44,41 @@ function BottomBar({ frames, currentIdx, playing, speed, onSetIdx, onPlay, onPau
       position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 1000,
       background: 'rgba(255,255,255,0.97)',
       borderTop: '1px solid #e5e7eb',
-      // env(safe-area-inset-bottom): extra Platz für iPhone Home-Indicator (34px auf iPhone X+)
-      padding: '6px 12px',
-      paddingBottom: 'calc(6px + env(safe-area-inset-bottom, 0px))',
-      paddingLeft: 'max(12px, env(safe-area-inset-left, 0px))',
-      paddingRight: 'max(12px, env(safe-area-inset-right, 0px))',
-      display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+      padding: '4px 8px',
+      paddingBottom: 'calc(4px + env(safe-area-inset-bottom, 0px))',
+      paddingLeft: 'max(8px, env(safe-area-inset-left, 0px))',
+      paddingRight: 'max(8px, env(safe-area-inset-right, 0px))',
+      display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap',
+      overflow: 'hidden',
     }}>
+      {/* Zurück */}
       <TBtn onClick={() => { onPause(); onSetIdx(i => Math.max(0, i - 1)) }}>◀</TBtn>
-      <TBtn onClick={playing ? onPause : onPlay} active={playing} style={{ minWidth: 44 }}>
+      {/* Play/Pause */}
+      <TBtn onClick={playing ? onPause : onPlay} active={playing}>
         {playing ? '⏸' : '▶'}
       </TBtn>
+      {/* Vor */}
       <TBtn onClick={() => { onPause(); onSetIdx(i => Math.min(frames.length - 1, i + 1)) }}>▶▶</TBtn>
+      {/* Slider */}
       <input
         type="range" min="0" max={frames.length - 1} value={currentIdx < 0 ? 0 : currentIdx}
         onChange={e => { onPause(); onSetIdx(Number(e.target.value)) }}
-        style={{ flex: 1, minWidth: 80, accentColor: '#2563eb', height: 20 }}
+        style={{ flex: 1, minWidth: 40, accentColor: '#2563eb', height: 18 }}
       />
-      <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, minWidth: 38 }}>
+      {/* Zeitstempel */}
+      <span style={{
+        fontFamily: 'monospace', fontSize: 11, fontWeight: 700,
+        whiteSpace: 'nowrap', flexShrink: 0,
+      }}>
         {cur?.label ?? '—'}
       </span>
-      <div style={{ display: 'flex', gap: 4 }}>
-        {[500, 300, 150].map(s => (
-          <TBtn key={s} onClick={() => onSpeed(s)} active={speed === s}>
-            {s === 500 ? '1×' : s === 300 ? '2×' : '4×'}
-          </TBtn>
-        ))}
-      </div>
+      {/* Geschwindigkeit */}
+      {[500, 300, 150].map(s => (
+        <TBtn key={s} onClick={() => onSpeed(s)} active={speed === s}
+          style={{ minWidth: 28, padding: '0 4px', fontSize: 11 }}>
+          {s === 500 ? '1×' : s === 300 ? '2×' : '4×'}
+        </TBtn>
+      ))}
     </div>
   )
 }
