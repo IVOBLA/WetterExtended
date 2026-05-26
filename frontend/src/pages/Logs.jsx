@@ -18,9 +18,17 @@ function Logs() {
   const [hours,       setHours]       = useState(24)
   const [clearMsg,    setClearMsg]    = useState(null)   // { ok, text } für 3s-Feedback
   const [clearing,    setClearing]    = useState(false)
+  const [allowPhysicalPurge, setAllowPhysicalPurge] = useState(false)
+  const [physicalPurge, setPhysicalPurge] = useState(false)
 
   async function loadLogs() {
     try { setLogs(await api.get('/api/logs')) } catch (e) { console.error(e) }
+  }
+  async function loadCapabilities() {
+    try {
+      const caps = await api.get('/api/logs/capabilities')
+      setAllowPhysicalPurge(Boolean(caps.allow_physical_purge))
+    } catch (e) { console.error(e) }
   }
 
   async function loadHealth() {
@@ -36,21 +44,18 @@ function Logs() {
 
   async function clearAllLogs() {
     if (!window.confirm(
-      'Alle Logs löschen?\n\n' +
-      'Folgende Dateien werden geleert:\n' +
-      '  • api_health.jsonl\n' +
-      '  • api_call_counts.jsonl\n' +
-      '  • cells_log.jsonl\n' +
-      '  • cleanup_log.jsonl\n' +
-      '  • systemd-Journal (wetterprojekt-Services)\n\n' +
-      'Modelle, Trainingsdaten und Accuracy-History bleiben erhalten.'
+      'Logs wirklich löschen/zurücksetzen?\n\n' +
+      'API-/Evaluation-Logs werden gelöscht.\n' +
+      'Die Systemlog-Anzeige wird ab jetzt neu gestartet.\n' +
+      'Alte Logs vor diesem Zeitpunkt werden auch nicht mehr an die KI/Analyse übergeben.\n\n' +
+      'Optional physisches Löschen des systemd-Journals ist nur aktiv, wenn der Server dafür konfiguriert wurde.'
     )) return
 
     setClearing(true)
     try {
-      const res = await api.post('/api/logs/clear', {})
+      const res = await api.post('/api/logs/clear', { physical: allowPhysicalPurge && physicalPurge })
       if (res.ok) {
-        setClearMsg({ ok: true, text: `✓ Gelöscht: ${(res.deleted || []).join(', ')}` })
+        setClearMsg({ ok: true, text: 'API-Logs gelöscht, Systemlog-Anzeige zurückgesetzt, alte Logs für KI gesperrt.' })
         // Logs sofort neu laden
         await loadLogs()
         if (active === 'api_fehler') await loadHealth()
@@ -67,6 +72,7 @@ function Logs() {
 
   useEffect(() => {
     loadLogs()
+    loadCapabilities()
     const t = setInterval(loadLogs, 30000)
     return () => clearInterval(t)
   }, [])
@@ -94,9 +100,19 @@ function Logs() {
           onClick={clearAllLogs}
           disabled={clearing}
           className="btn-secondary text-red-600 border-red-300 hover:bg-red-50 disabled:opacity-50"
-          title="Alle JSONL-Logs und systemd-Journal leeren">
+          title="API-Logs löschen, Systemlog-Anzeige zurücksetzen und alte Logs für KI sperren">
           {clearing ? '⌛ Löschen…' : '🗑 Logs löschen'}
         </button>
+        {allowPhysicalPurge && (
+          <label className="text-sm flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={physicalPurge}
+              onChange={(e) => setPhysicalPurge(e.target.checked)}
+            />
+            Systemd-Journal physisch löschen
+          </label>
+        )}
       </div>
 
       {/* Feedback-Banner nach Löschen */}
@@ -279,4 +295,3 @@ function CacheStatusTable() {
 }
 
 export default Logs
-

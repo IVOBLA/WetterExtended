@@ -34,6 +34,24 @@ try:
 except Exception:
     _API_HEALTH_FILE = "train_data/evaluation/api_health.jsonl"
 
+def _log_clear_since_dt():
+    try:
+        eval_dir = _SAVE_PATHS_DU.get("evaluation", "train_data/evaluation").rstrip("/")
+    except Exception:
+        eval_dir = "train_data/evaluation"
+    state_path = _os.path.join(eval_dir, "log_clear_state.json")
+    if not _os.path.exists(state_path):
+        return None
+    try:
+        with open(state_path, "r", encoding="utf-8") as f:
+            state = _json.load(f)
+        val = (state or {}).get("cleared_at_utc")
+        if isinstance(val, str) and val:
+            return _dt.fromisoformat(val.replace("Z", ""))
+    except Exception:
+        return None
+    return None
+
 def log_api_failure(service: str, url: str, reason: str,
                     fallback_used: bool = False, http_status: int = None):
     """
@@ -76,6 +94,9 @@ def api_health_summary(since_hours: int = 24) -> dict:
     if not _os.path.exists(_API_HEALTH_FILE):
         return {"since_hours": since_hours, "total": 0, "by_service": {}}
     cutoff = _dt.utcnow() - _td(hours=since_hours)
+    clear_dt = _log_clear_since_dt()
+    if clear_dt:
+        cutoff = max(cutoff, clear_dt)
     total = 0
     try:
         with open(_API_HEALTH_FILE, "r", encoding="utf-8") as f:
@@ -349,6 +370,9 @@ def api_call_summary(since_hours: int = 24) -> dict:
     if not _oc.path.exists(log_path):
         return {"by_service": {}, "since_hours": since_hours}
     cutoff = _dt.datetime.utcnow() - _dt.timedelta(hours=since_hours)
+    clear_dt = _log_clear_since_dt()
+    if clear_dt:
+        cutoff = max(cutoff, clear_dt)
     by_service: dict = {}
     try:
         with open(log_path, "r", encoding="utf-8") as _f:

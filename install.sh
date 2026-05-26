@@ -856,6 +856,7 @@ GITHUB_TOKEN=
 
 # ── Debug-Modus ───────────────────────────────────────────────
 WETTER_DEBUG=0
+ALLOW_SYSTEM_LOG_PURGE=false
 ENVTEMPLATE
         log_warn ".env angelegt — Credentials eintragen:"
         note_manual "nano $ENV_FILE  # FTP, BLITZ, TWILIO, ANTHROPIC_API_KEY, GITHUB_TOKEN setzen"
@@ -892,6 +893,10 @@ else
         check_ok ".env: ADMIN_REQUIRE_TOKEN=1 gesetzt (fail-closed Standard)"
     else
         check_ok ".env: ADMIN_REQUIRE_TOKEN vorhanden ($(grep "^ADMIN_REQUIRE_TOKEN=" "$ENV_FILE" | cut -d= -f2 || true))"
+    fi
+    if ! grep -q "^ALLOW_SYSTEM_LOG_PURGE=" "$ENV_FILE" 2>/dev/null; then
+        echo "ALLOW_SYSTEM_LOG_PURGE=false" >> "$ENV_FILE"
+        check_ok ".env: ALLOW_SYSTEM_LOG_PURGE=false ergänzt"
     fi
 
     # Blitzortung-Credentials prüfen
@@ -1383,6 +1388,26 @@ JOURNALDCONF
         check_ok "journald-Limit gesetzt: max 200 MB, min 500 MB frei, max 14 Tage"
     else
         log_info "journald-Drop-In vorhanden: $_JOURNALD_DROP_IN (unverändert)"
+    fi
+
+    # Sicheres Log-Purge-Skript + sudoers (nur dieses eine Kommando)
+    PURGE_SCRIPT_SRC="$TARGET/scripts/wetterprojekt-purge-logs.sh"
+    PURGE_SCRIPT_DST="/usr/local/bin/wetterprojekt-purge-logs.sh"
+    if [[ -f "$PURGE_SCRIPT_SRC" ]]; then
+        sudo install -o root -g root -m 0750 "$PURGE_SCRIPT_SRC" "$PURGE_SCRIPT_DST"
+        check_ok "Log-Purge-Skript installiert: $PURGE_SCRIPT_DST"
+        SUDOERS_FILE="/etc/sudoers.d/wetterprojekt-logs"
+        echo "${SERVICE_USER} ALL=(root) NOPASSWD: ${PURGE_SCRIPT_DST}" | sudo tee "$SUDOERS_FILE" >/dev/null
+        sudo chmod 0440 "$SUDOERS_FILE"
+        if sudo visudo -cf "$SUDOERS_FILE" >/dev/null; then
+            check_ok "sudoers-Regel validiert: $SUDOERS_FILE"
+        else
+            sudo rm -f "$SUDOERS_FILE"
+            log_error "Ungültige sudoers-Regel entfernt: $SUDOERS_FILE"
+            exit 1
+        fi
+    else
+        check_warn "Purge-Skript fehlt: $PURGE_SCRIPT_SRC"
     fi
 
     for svc_file in wetterprojekt.service wetterprojekt-scheduler.service wetterprojekt-admin.service; do

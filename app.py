@@ -115,6 +115,50 @@ def _latest_location_hits():
         return []
 
 
+def _evaluation_dir():
+    return SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/")
+
+
+def _log_clear_state_path():
+    return os.path.join(_evaluation_dir(), "log_clear_state.json")
+
+
+def _utc_now_iso_z():
+    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+
+def _load_log_clear_state():
+    path = _log_clear_state_path()
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_log_clear_state(state):
+    os.makedirs(_evaluation_dir(), exist_ok=True)
+    with open(_log_clear_state_path(), "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+
+
+def _get_log_clear_since():
+    value = _load_log_clear_state().get("cleared_at_utc")
+    return value if isinstance(value, str) and value else None
+
+
+def _journalctl_unit_lines(unit, limit=500):
+    cmd = ["journalctl", "-u", unit, "-n", str(limit), "--no-pager"]
+    since = _get_log_clear_since()
+    if since:
+        cmd = ["journalctl", "-u", unit, "--since", since, "-n", str(limit), "--no-pager"]
+    out = subprocess.check_output(cmd, text=True)
+    return out.splitlines()[-limit:]
+
+
 # ---------- JSON-APIs (von React konsumiert) ----------
 
 
@@ -928,6 +972,12 @@ def api_api_calls_detail():
     except (ValueError, TypeError):
         hours = 24
     cutoff  = _dt2.utcnow() - _td2(hours=hours)
+    clear_since = _get_log_clear_since()
+    if clear_since:
+        try:
+            cutoff = max(cutoff, _dt2.fromisoformat(clear_since.replace("Z", "")))
+        except Exception:
+            pass
     log_path = os.path.join(
         SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/"),
         "api_call_counts.jsonl",
@@ -975,6 +1025,12 @@ def api_api_calls_last():
     except (ValueError, TypeError):
         hours = 24
     cutoff = _dt2.utcnow() - _td2(hours=hours)
+    clear_since = _get_log_clear_since()
+    if clear_since:
+        try:
+            cutoff = max(cutoff, _dt2.fromisoformat(clear_since.replace("Z", "")))
+        except Exception:
+            pass
     log_path = os.path.join(
         SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/"),
         "api_call_counts.jsonl",
@@ -1287,6 +1343,12 @@ def api_api_health_raw():
     hours  = int(request.args.get("hours", "24"))
     limit  = min(int(request.args.get("n", "200")), 1000)
     cutoff = _dt.utcnow() - _td(hours=hours)
+    clear_since = _get_log_clear_since()
+    if clear_since:
+        try:
+            cutoff = max(cutoff, _dt.fromisoformat(clear_since.replace("Z", "")))
+        except Exception:
+            pass
     health_file = os.path.join(
         SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/"),
         "api_health.jsonl",
@@ -1316,8 +1378,7 @@ def api_api_health_raw():
 def api_logs():
     def tail(unit):
         try:
-            out = subprocess.check_output(["journalctl", "-u", unit, "-n", "500", "--no-pager"], text=True)
-            return out.splitlines()[-500:]
+            return _journalctl_unit_lines(unit, limit=500)
         except Exception as e:
             return [f"Fehler: {e}"]
     return jsonify({
@@ -1325,6 +1386,12 @@ def api_logs():
         "scheduler": tail("wetterprojekt-scheduler"),
         "admin": tail("wetterprojekt-admin"),
     })
+
+
+@app.route("/api/logs/capabilities")
+def api_logs_capabilities():
+    allow = str(os.getenv("ALLOW_SYSTEM_LOG_PURGE", "false")).lower() == "true"
+    return jsonify({"allow_physical_purge": allow})
 
 
 @app.route("/api/logs/clear", methods=["POST"])
@@ -1336,7 +1403,20 @@ def api_logs_clear():
     Gelöscht:  api_health.jsonl, api_call_counts.jsonl, cells_log.jsonl, cleanup_log.jsonl
     Erhalten:  Modelle, Trainingsdaten, accuracy_*.json, ai_suggestions/, atmosphere_latest.json
     """
-    _eval_dir = SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/")
+    def _evaluation_dir():
+        return SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/")
+    def _log_clear_state_path():
+        return os.path.join(_evaluation_dir(), "log_clear_state.json")
+    def _utc_now_iso_z():
+        from datetime import datetime as _dt
+        return _dt.utcnow().isoformat(timespec="seconds") + "Z"
+    def _write_log_clear_state(state):
+        os.makedirs(_evaluation_dir(), exist_ok=True)
+        with open(_log_clear_state_path(), "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+
+    _eval_dir = _evaluation_dir()
+    os.makedirs(_eval_dir, exist_ok=True)
     _log_files = [
         "api_health.jsonl",
         "api_call_counts.jsonl",
@@ -1354,23 +1434,44 @@ def api_logs_clear():
         except Exception as exc:
             errors.append(f"{fname}: {exc}")
 
-    # systemd-Journal für Wetterprojekt-Services leeren
-    journal_ok = True
+    payload = request.get_json(silent=True) or {}
+    physical_requested = bool(payload.get("physical"))
+    allow_physical_purge = str(os.getenv("ALLOW_SYSTEM_LOG_PURGE", "false")).lower() == "true"
+    cleared_at_utc = _utc_now_iso_z()
+    state = {
+        "cleared_at_utc": cleared_at_utc,
+        "physical_purge_requested": physical_requested,
+        "physical_purge_started_at_utc": None,
+    }
     try:
-        for _unit in ["wetterprojekt", "wetterprojekt-scheduler", "wetterprojekt-admin"]:
-            subprocess.run(
-                ["sudo", "journalctl", "--vacuum-time=1s", f"--unit={_unit}"],
-                check=False, capture_output=True,
-            )
+        _write_log_clear_state(state)
     except Exception as exc:
-        journal_ok = False
-        errors.append(f"journalctl: {exc}")
+        errors.append(f"log_clear_state.json: {exc}")
+
+    physical_purge_started = False
+    if physical_requested:
+        if not allow_physical_purge:
+            errors.append("Physisches Journal-Purge ist deaktiviert (ALLOW_SYSTEM_LOG_PURGE=false).")
+        else:
+            purge_script = "/usr/local/bin/wetterprojekt-purge-logs.sh"
+            if not os.path.exists(purge_script):
+                errors.append(f"Purge-Script fehlt: {purge_script}")
+            else:
+                try:
+                    subprocess.Popen(["sudo", purge_script], start_new_session=True)
+                    physical_purge_started = True
+                    state["physical_purge_started_at_utc"] = _utc_now_iso_z()
+                    _write_log_clear_state(state)
+                except Exception as exc:
+                    errors.append(f"Physisches Journal-Purge konnte nicht gestartet werden: {exc}")
 
     return jsonify({
-        "ok":         len(errors) == 0,
-        "deleted":    deleted,
-        "journal_ok": journal_ok,
-        "errors":     errors,
+        "ok": True,
+        "deleted": deleted,
+        "cleared_at_utc": cleared_at_utc,
+        "system_logs_cleared_from_ui": True,
+        "physical_purge_started": physical_purge_started,
+        "errors": errors,
     })
 
 
@@ -1762,12 +1863,28 @@ def api_cells_log():
     n = min(int(request.args.get("n", "50")), 500)
     log_path = os.path.join(SAVE_PATHS.get("evaluation", "train_data/evaluation"), "cells_log.jsonl")
     entries = []
+    clear_since = _get_log_clear_since()
+    clear_dt = None
+    if clear_since:
+        try:
+            clear_dt = datetime.fromisoformat(clear_since.replace("Z", ""))
+        except Exception:
+            clear_dt = None
     if os.path.exists(log_path):
         try:
             with open(log_path, "r", encoding="utf-8") as _f:
                 for line in _f:
                     try:
-                        entries.append(json.loads(line.strip()))
+                        rec = json.loads(line.strip())
+                        if clear_dt:
+                            ts_val = str(rec.get("ts_utc") or rec.get("timestamp_utc") or rec.get("ts") or "").replace("Z", "")
+                            if ts_val:
+                                try:
+                                    if datetime.fromisoformat(ts_val) < clear_dt:
+                                        continue
+                                except Exception:
+                                    pass
+                        entries.append(rec)
                     except Exception:
                         continue
         except Exception:
