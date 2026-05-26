@@ -25,11 +25,15 @@ function spreadColor(s) {
 
 export default function Atmosphaere() {
   const [data,    setData]    = useState({ ts_utc: null, locations: [] })
+  const [atmStatus, setAtmStatus] = useState(null)
   const [loading, setLoading] = useState(true)
 
   function load() {
     api.get('/api/atmosphere')
       .then(setData)
+      .catch(() => {})
+    api.get('/api/atmosphere_status')
+      .then(setAtmStatus)
       .catch(() => {})
       .finally(() => setLoading(false))
   }
@@ -40,12 +44,6 @@ export default function Atmosphaere() {
     return () => clearInterval(t)
   }, [])
 
-  const ts = data.ts_utc
-    ? new Date(data.ts_utc).toLocaleString('de-AT', {
-        day: '2-digit', month: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit'
-      })
-    : '—'
   const hasHigh = data.locations.some(l => l.potential === 'hoch')
   const hasMid  = data.locations.some(l => l.potential === 'mäßig')
 
@@ -54,7 +52,36 @@ export default function Atmosphaere() {
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold">Atmosphäre Kärnten</h1>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-400">Stand: {ts}</span>
+        <div className="flex items-center gap-4 flex-wrap">
+          <span className="text-xs text-gray-500">
+            Stand:{' '}
+            {atmStatus?.last_update_ts
+              ? new Date(atmStatus.last_update_ts).toLocaleString('de-AT', {
+                  day: '2-digit', month: '2-digit', year: 'numeric',
+                  hour: '2-digit', minute: '2-digit'
+                })
+              : data?.timestamp
+                ? new Date(data.timestamp).toLocaleString('de-AT', {
+                    day: '2-digit', month: '2-digit', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit'
+                  })
+                : '—'}
+          </span>
+          {atmStatus && (
+            <span className="text-xs text-gray-400">
+              {atmStatus.next_update_in_s > 0
+                ? `⏱ Nächste Aktualisierung in ${Math.ceil(atmStatus.next_update_in_s / 60)} min`
+                : '⏱ Aktualisierung fällig'}
+              {' '}
+              <span
+                className="cursor-help underline decoration-dotted"
+                title={`Intervall: ${atmStatus.interval_min} min — konfigurierbar: Admin-Panel → Konfiguration → ATMOSPHERIC_SNAPSHOT_INTERVAL_MIN`}
+              >
+                ({atmStatus.interval_min} min Intervall ⚙)
+              </span>
+            </span>
+          )}
+        </div>
           <button onClick={load} className="btn-secondary text-sm">↺ Reload</button>
         </div>
       </div>
