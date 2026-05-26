@@ -2640,7 +2640,7 @@ def api_risk_grid():
                         bolt_count += 1
 
             # 3) Atmosphaerische Instabilitaet (LI/SHIP-Proxy/CIN-Daempfung)
-            li_val = cin_val = pw_val = lapse_val = None
+            li_val = cin_val = pw_val = lapse_val = fl_val = cloud_h_val = None
             for aloc in atm_locs:
                 d = _hav(lat, lon, float(aloc["lat"]), float(aloc["lon"]))
                 if d < ATM_RANGE:
@@ -2652,16 +2652,30 @@ def api_risk_grid():
                         li_contrib = 0.80 * w
                     elif li < -1.0:
                         li_contrib = 0.40 * w
-                    # CIN > 100 J/kg daempft den LI-Score deutlich (Deckelung)
+                    # CIN-Dämpfung bei starker Deckelung
                     if cin_l < -100.0:
                         li_contrib *= 0.5
                     score += li_contrib
+                    # Gefriergrenze: hohe 0°C-Isotherme = tiefes Einfrieren im Aufwind
+                    fl_h = float(aloc.get("fl_height", 0.0) or 0.0)
+                    if fl_h > 4000.0:
+                        score += 0.15 * w
+                    elif fl_h > 3500.0:
+                        score += 0.08 * w
+                    # Wolkenhöhe: tiefe Konvektion (>9000 m) = starkes Aufwindssignal
+                    cloud_h_atm = float(aloc.get("cloud_height_m", 0.0) or 0.0)
+                    if cloud_h_atm > 9000.0:
+                        score += 0.25 * w
+                    elif cloud_h_atm > 7000.0:
+                        score += 0.10 * w
                     # Detail-Tracking
                     if li_val is None or li < li_val:
                         li_val = li
                         cin_val = cin_l
                         pw_val = aloc.get("pw")
                         lapse_val = aloc.get("lapse_700_500")
+                        fl_val = aloc.get("fl_height")
+                        cloud_h_val = aloc.get("cloud_height_m")
 
             # Score → Risikostufe
             if score >= 2.5:
@@ -2698,6 +2712,8 @@ def api_risk_grid():
                     "cin":              round(cin_val, 1) if cin_val is not None else None,
                     "pw":               round(pw_val, 1) if pw_val is not None else None,
                     "lapse_700_500":    round(lapse_val, 2) if lapse_val is not None else None,
+                    "fl_height":        round(fl_val, 0) if fl_val else None,
+                    "cloud_height_m":   round(cloud_h_val, 0) if cloud_h_val else None,
                     "lightning_count":  int(bolt_count),
                     "in_forecast_track": bool(in_track),
                 },

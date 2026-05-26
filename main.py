@@ -36,6 +36,66 @@ from config import (HAIL_WARN_THRESHOLD, STATIONARY_RISK_MARKER_THRESHOLD,
                     GUST_WARN_KMH, HEAVY_RAIN_WARN_MM_PER_H)
 
 _ROI_CACHE = None
+_RISK_ALERT_LOG = os.path.join(
+    SAVE_PATHS.get("evaluation", "train_data/evaluation"),
+    "risk_alert_sent.json"
+)
+
+
+def _risk_alert_check(timestamp: str) -> None:
+    import json as _j
+    from datetime import datetime as _dt, timezone as _tz
+    _today = _dt.now(_tz.utc).strftime("%Y-%m-%d")
+    _sent = {}
+    try:
+        if os.path.exists(_RISK_ALERT_LOG):
+            with open(_RISK_ALERT_LOG, encoding="utf-8") as _f:
+                _sent = _j.load(_f)
+    except Exception:
+        _sent = {}
+    _locs = runtime_config.get("LOCATIONS_WATCHLIST", [])
+    _locs_with_email = [l for l in _locs if l.get("email", "").strip()]
+    if not _locs_with_email:
+        return
+    try:
+        import requests as _req
+        _resp = _req.get("http://127.0.0.1:5000/api/risk_grid", timeout=5)
+        if _resp.status_code != 200:
+            return
+        _grid = _resp.json().get("cells", [])
+    except Exception as _exc:
+        debug_log(f"[RISK-ALERT] Risk-Grid nicht erreichbar: {_exc}")
+        return
+    _changed = False
+    for loc in _locs_with_email:
+        loc_name = loc.get("name", "?")
+        loc_lat = float(loc.get("lat", 0))
+        loc_lon = float(loc.get("lon", 0))
+        email = loc.get("email", "").strip()
+        if _sent.get(loc_name) == _today:
+            continue
+        best_cell = min(_grid, key=lambda c: abs(c["lat"] - loc_lat) + abs(c["lon"] - loc_lon), default=None)
+        if not best_cell or best_cell.get("risk", 0) < 3:
+            continue
+        info = best_cell.get("info", {})
+        try:
+            from email_notifier import send_risk_alert_email
+            ok = send_risk_alert_email(location_name=loc_name, dominant=info.get("dominant", "atm"), details=info, recipient=email)
+            if ok:
+                _sent[loc_name] = _today
+                _changed = True
+                debug_log(f"[RISK-ALERT] ✅ Alarm gesendet: {loc_name} → {email}")
+            else:
+                debug_log(f"[RISK-ALERT] ❌ E-Mail fehlgeschlagen: {loc_name}")
+        except Exception as _exc:
+            debug_log(f"[RISK-ALERT] Fehler: {_exc}")
+    if _changed:
+        try:
+            os.makedirs(os.path.dirname(_RISK_ALERT_LOG), exist_ok=True)
+            with open(_RISK_ALERT_LOG, "w", encoding="utf-8") as _f:
+                _j.dump(_sent, _f, indent=2, ensure_ascii=False)
+        except Exception as _se:
+            debug_log(f"[RISK-ALERT] Cooldown speichern fehlgeschlagen: {_se}")
 
 def _count_lightning_near(lat: float, lon: float,
                           lightning_data: list, radius_km: float = 10.0) -> int:
@@ -213,6 +273,13 @@ def main_loop():
                 debug_log(f"[CELLS-LOG] Schreibfehler: {_cl_exc}")
 
             # Blitzdaten wurden bereits vor assign_convective_indices geholt (Fix #2)
+
+        # P46: Risiko-Alarm für Orte mit E-Mail (max. 1× täglich, Risiko=3)
+        if radar_ok and image is not None:
+            try:
+                _risk_alert_check(timestamp)
+            except Exception as _rac_exc:
+                debug_log(f"[RISK-ALERT] Fehler im Aufruf: {_rac_exc}")
 
         # P22/P28: No-cell-Frame — alle Downstream-States bereinigen damit
         # API/KMZ/Karte/Location-Warnungen nicht veraltet weiterleuchten.
