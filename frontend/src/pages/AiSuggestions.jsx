@@ -55,6 +55,7 @@ export default function AiSuggestions() {
     since_hours: 24, max_tokens: 3000, report_email: '',
     cron_days: 'mon,tue,wed,thu,fri,sat,sun',
     only_if_cells: false,
+    full_source_mode: false,
   })
   const [testEmailStatus, setTestEmailStatus] = useState(null)  // null | 'sending' | 'ok' | 'error'
   const [testEmailMsg,    setTestEmailMsg]    = useState('')
@@ -114,7 +115,9 @@ export default function AiSuggestions() {
     setRunning(true)
     setMsg('')
     try {
-      const r = await api.post('/api/ai_analysis/run', {})
+      const r = await api.post('/api/ai_analysis/run', {
+        source_mode: cfg.full_source_mode ? 'full' : 'short',
+      })
       if (r.ok) {
         setMsg('Analyse abgeschlossen.')
         api.get('/api/ai_analysis/suggestions?n=5').then(d => {
@@ -280,6 +283,19 @@ export default function AiSuggestions() {
                   übersprungen. Spart API-Kosten.
                 </p>
               </div>
+            </label>
+          </div>
+          <div className="md:col-span-2 flex items-center gap-3 pt-1">
+            <label className="flex items-center gap-2 cursor-pointer text-sm">
+              <input
+                type="checkbox"
+                checked={!!cfg.full_source_mode}
+                onChange={e => setCfg({ ...cfg, full_source_mode: e.target.checked })}
+              />
+              <span className="font-medium">Vollständiger Quellcode im Analyse-Lauf</span>
+              <span className="text-xs text-gray-400">
+                (alle Zeilen statt max. 120/Datei — mehr Tokens, genauere Code-Analyse)
+              </span>
             </label>
           </div>
         </div>

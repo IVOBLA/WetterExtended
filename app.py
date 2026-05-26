@@ -1479,6 +1479,19 @@ def api_ai_analysis_chat():
 
         parts = []
 
+        # Lokale Konfiguration IMMER senden — unabhängig von include_data.
+        # Die KI kann nur sinnvolle Empfehlungen machen wenn sie Schwellwerte,
+        # Horizonte, Orte und runtime_overrides als ersten Kontext sieht.
+        try:
+            from daily_analyzer import _sanitize_config
+            _local_cfg = _sanitize_config(runtime_config.all_effective())
+            parts.append(
+                "=== LOKALE KONFIGURATION (runtime_overrides + config.py) ===\n"
+                + json.dumps(_local_cfg, ensure_ascii=False, indent=1)
+            )
+        except Exception as _cfg_exc:
+            parts.append(f"=== LOKALE KONFIGURATION (Fehler: {_cfg_exc}) ===")
+
         if include_data:
             from daily_analyzer import build_system_report
             cfg     = dict(_def_cfg)
@@ -1614,6 +1627,8 @@ def api_ai_analysis_run():
         cfg = dict(_default)
         cfg.update(runtime_config.get("AI_ANALYSIS_CONFIG", {}))
         cfg["enabled"] = True
+        body = request.get_json(force=True, silent=True) or {}
+        cfg["full_source_mode"] = (body.get("source_mode", "short") == "full")
         result = run_analysis(cfg)
         if result is None:
             return jsonify({"ok": False, "error": "Analyse fehlgeschlagen (siehe Logs)"}), 500
