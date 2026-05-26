@@ -485,6 +485,7 @@ def main_loop():
                 current_objects=objects,
                 location_hits=location_hits,
                 style_by_horizon=styles,
+                ir_tracks=_ir_tracks if '_ir_tracks' in dir() else [],
             )
             # ── Fix #3: Vollständig angereichertes JSON jetzt erst speichern ─────────
             # Enthält: forecast_lat_X, wind_shear_speed, hail_prob,
