@@ -153,8 +153,9 @@ def fetch_atmospheric_snapshot() -> dict:
             "wind_speed_700hPa: alle Werte None — icon_global liefert Parameter nicht",
             fallback_used=True,
         )
-    # NEU: Datenqualitaets-Check fuer die 4 neuen Parameter
-    for _p in ("temperature_500hPa", "temperature_700hPa"):
+    # Datenqualitaets-Check Pressure-Parameter (700hPa + 300hPa)
+    for _p in ("temperature_500hPa", "temperature_700hPa",
+               "wind_speed_300hPa", "wind_direction_300hPa", "geopotential_height_300hPa"):
         if _all_none(wind_data, _p):
             log_api_failure(
                 "Open-Meteo-Atmosphere-Pressure",
@@ -186,9 +187,10 @@ def fetch_atmospheric_snapshot() -> dict:
             ff10m = _extract_slot(h, "wind_speed_10m",       target_time)
             fl_h  = _extract_slot(h, "freezing_level_height",target_time)
 
-        # 700 hPa Wind + T500/T700 aus Pressure-Response
+        # 700 hPa Wind + T500/T700 + 300 hPa Wind aus Pressure-Response
         w_speed = w_dir_cos = w_dir_sin = 0.0
         t500_c = t700_c = cin_jkg = pw_mm = 0.0
+        w_speed_300 = w_dir_300_cos = w_dir_300_sin = geo_300 = 0.0
         if wind_data and i < len(wind_data):
             h = wind_data[i].get("hourly", {})
             w_speed = _extract_slot(h, "wind_speed_700hPa",    target_time)
@@ -196,9 +198,17 @@ def fetch_atmospheric_snapshot() -> dict:
             t500_c  = _extract_slot(h, "temperature_500hPa",   target_time)
             t700_c  = _extract_slot(h, "temperature_700hPa",   target_time)
 
-            rad     = radians(w_dir)
+            rad       = radians(w_dir)
             w_dir_cos = round(cos(rad), 4)
             w_dir_sin = round(sin(rad), 4)
+
+            # 300 hPa Level (Höhenwinde für IR-Cell-Tracking)
+            w_speed_300   = _extract_slot(h, "wind_speed_300hPa",       target_time)
+            w_dir_300_raw = _extract_slot(h, "wind_direction_300hPa",   target_time)
+            geo_300       = _extract_slot(h, "geopotential_height_300hPa", target_time)
+            rad_300       = radians(w_dir_300_raw)
+            w_dir_300_cos = round(cos(rad_300), 4)
+            w_dir_300_sin = round(sin(rad_300), 4)
         # LI/CIN/PW von GFS
         if gfs_data and i < len(gfs_data):
             h_gfs = gfs_data[i].get("hourly", {})
@@ -224,6 +234,10 @@ def fetch_atmospheric_snapshot() -> dict:
             "wind_700hpa":      round(w_speed, 1),
             "wind_dir_cos":     w_dir_cos,
             "wind_dir_sin":     w_dir_sin,
+            "wind_300hpa":      round(w_speed_300, 1),
+            "wind_dir_300_cos": w_dir_300_cos,
+            "wind_dir_300_sin": w_dir_300_sin,
+            "geopotential_300hpa": round(geo_300, 0),
             "potential":        _gewitterpotenzial(li),
             # NEU: konvektive Diagnose
             "t500_c":           round(t500_c, 1),
