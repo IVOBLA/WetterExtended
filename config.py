@@ -513,6 +513,15 @@ EUMETVIEW_BT_MAX_K: float = 330.0   # Kelvin bei Pixelwert 0
 EUMETVIEW_BT_MIN_K: float = 180.0   # Kelvin bei Pixelwert 255
 EUMETVIEW_NODATA_PIXEL: int = 5     # Pixelwerte <= 5 = nodata (EUMETView Randbereiche)
 
+# ── Phase E: IR-Sat Pre-Convection Detection ──────────────────────────────────
+# Alle Schwellwerte runtime-überschreibbar via runtime_overrides.json.
+IR_CONVECTION_BT_THRESHOLD_K: float = 230.0  # BT < Wert = konvektiver Wolkentop
+IR_OVERSHOOTING_TOP_BT_K:     float = 215.0  # BT < Wert = Overshooting Top (Hagelpotenzial)
+IR_MIN_CELL_AREA_PX:          int   = 30     # Mindestgröße Cluster (Pixel im TIFF)
+IR_MIN_CAPE_J_KG:             float = 200.0  # CAPE-Filter für IR-Cell (0 = kein Filter)
+IR_MAX_LI_C:                  float = -0.5   # LI-Filter für IR-Cell (0 = kein Filter)
+IR_TRACK_MAX_MISSING:         int   = 2      # 15-min-Slots ohne Detektion bis Tracking endet
+
 # -------------------------------------------------------
 # Daten-Rotation (Task A4)
 # -------------------------------------------------------
