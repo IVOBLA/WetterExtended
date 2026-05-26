@@ -71,11 +71,14 @@ def get_latest_wms_time() -> str | None:
     Zeitstempel des MSG IR108 Layers zurück.
     Cache 10 Min (MSG Full Earth Scan aktualisiert alle 15 Min).
     """
+    # WMS-Version-Vereinheitlichung: GetMap nutzt _WMS_VERSION="1.1.1".
+    # GetCapabilities muss dieselbe Version anfragen, sonst Inkonsistenz
+    # bei Layer-Namen und Dimension-Format zwischen Versionen.
     url = (
-        "https://view.eumetsat.int/geoserver/wms"
-        "?service=WMS&request=GetCapabilities&version=1.3.0"
+        f"https://view.eumetsat.int/geoserver/wms"
+        f"?service=WMS&request=GetCapabilities&version={_WMS_VERSION}"
     )
-    ck = cache_key("eumetview:capabilities", LAYER)
+    ck = cache_key("eumetview:capabilities", LAYER, _WMS_VERSION)
     cached_ts = cache_get(ck, ttl_seconds=get_ttl("eumetview_capabilities", 600))
     if cached_ts is not None:
         debug_log(f"[CLOUD] WMS-Timestamp aus Cache: {cached_ts}")
@@ -95,8 +98,12 @@ def get_latest_wms_time() -> str | None:
         )
         if r.ok:
             root = ET.fromstring(r.content)
+            # Namespace-tolerantes Dimension-Parsing:
+            # WMS 1.1.1: <Dimension name="time" default="..."/>
+            # WMS 1.3.0: <{http://www.opengis.net/wms}Dimension name="time" default="..."/>
             for elem in root.iter():
-                if elem.tag.endswith("Dimension") and elem.attrib.get("name") == "time":
+                tag = elem.tag.split("}", 1)[-1] if "}" in elem.tag else elem.tag
+                if tag == "Dimension" and elem.attrib.get("name") == "time":
                     ts = elem.attrib.get("default")
                     if ts:
                         debug_log(f"[CLOUD] WMS-Timestamp gefunden: {ts}")
