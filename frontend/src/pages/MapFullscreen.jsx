@@ -21,12 +21,13 @@ const lineageColor = {
 function TBtn({ onClick, active, children, style = {} }) {
   return (
     <button onClick={onClick} style={{
-      minWidth: 40, minHeight: 36, padding: '0 10px',
-      border: '1px solid #d1d5db', borderRadius: 6,
-      cursor: 'pointer', fontSize: 13, fontWeight: active ? 700 : 400,
+      minWidth: 44, minHeight: 44, padding: '0 12px',  // 44px: iOS-Mindestgröße
+      border: '1px solid #d1d5db', borderRadius: 8,
+      cursor: 'pointer', fontSize: 14, fontWeight: active ? 700 : 400,
       background: active ? '#2563eb' : '#f9fafb',
       color: active ? '#fff' : '#222',
       userSelect: 'none', WebkitTapHighlightColor: 'transparent',
+      touchAction: 'manipulation',  // verhindert 300ms Tap-Delay auf mobile
       ...style,
     }}>
       {children}
@@ -40,9 +41,13 @@ function BottomBar({ frames, currentIdx, playing, speed, onSetIdx, onPlay, onPau
   return (
     <div style={{
       position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 1000,
-      background: 'rgba(255,255,255,0.95)',
+      background: 'rgba(255,255,255,0.97)',
       borderTop: '1px solid #e5e7eb',
+      // env(safe-area-inset-bottom): extra Platz für iPhone Home-Indicator (34px auf iPhone X+)
       padding: '6px 12px',
+      paddingBottom: 'calc(6px + env(safe-area-inset-bottom, 0px))',
+      paddingLeft: 'max(12px, env(safe-area-inset-left, 0px))',
+      paddingRight: 'max(12px, env(safe-area-inset-right, 0px))',
       display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
     }}>
       <TBtn onClick={() => { onPause(); onSetIdx(i => Math.max(0, i - 1)) }}>◀</TBtn>
@@ -390,6 +395,10 @@ export default function MapFullscreen() {
         minZoom={MAP_ZOOM_MIN}
         maxZoom={MAP_ZOOM_MAX}
         style={{ width: '100%', height: '100%' }}
+        tap={false}              // verhindert Leaflet-eigenen Tap-Handler (Konflikt mit Touch-Events)
+        tapTolerance={15}        // größere Tap-Toleranz auf touch-Geräten
+        touchZoom={true}         // Pinch-to-Zoom explizit aktivieren
+        doubleClickZoom={false}  // verhindert versehentliches Zoom bei Doppeltippen
       >
         <TileLayer
           url={MAP_TILE_URL}

@@ -16,8 +16,11 @@ async function _initToken() {
   }
 }
 
-// Token beim Laden holen (non-blocking — läuft parallel zu ersten Requests)
-_initToken();
+// Token nur im Admin-Bereich holen — nicht auf der öffentlichen /karte.
+// Verhindert 401-Noise in der Konsole wenn /karte ohne Login geöffnet wird.
+if (!window.location.pathname.startsWith('/karte')) {
+  _initToken();
+}
 
 function _writeHeaders(extra) {
   const h = { 'Content-Type': 'application/json', ...extra };
