@@ -600,7 +600,11 @@ STATIC_EXCLUSION_ZONES: list = [
         "name": "Großer Speikkogel – Radaranlagen Koralpe",
         "lat": 46.824,
         "lon": 14.968,
-        "radius_km": 15.0,
+        # Reduziert von 15.0 → 8.0 km: 15 km umschloss ~707 km², bei dem echte
+        # Sturmzellen östlich Wolfsberg fälschlich gefiltert wurden.
+        # 8 km Radius entspricht ~200 km² — nur der direkte Radarschatten-
+        # Bereich. Bei Bedarf via runtime_overrides.json wieder erhöhbar.
+        "radius_km": 8.0,
     },
 ]
 
