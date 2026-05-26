@@ -1439,6 +1439,7 @@ def api_logs_clear():
         "api_call_counts.jsonl",
         "cells_log.jsonl",
         "cleanup_log.jsonl",
+        "eumetview_debug.jsonl",
     ]
     deleted = []
     errors  = []
