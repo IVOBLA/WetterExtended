@@ -374,8 +374,22 @@ elif [[ -d "$TARGET/.git" ]]; then
         git checkout -B "$BRANCH" "origin/$BRANCH"
     fi
 
-    git pull --ff-only origin "$BRANCH"
-    log_info "Repository aktualisiert: $(git rev-parse --short HEAD)"
+    if [[ "$MODE" == "full" ]]; then
+        # Vollinstallation: lokalen Stand immer durch remote ersetzen.
+        # git pull --ff-only würde bei divergierten Branches mit Exit 128 abbrechen.
+        git reset --hard "origin/$BRANCH"
+        log_info "Repository auf remote Stand zurückgesetzt: $(git rev-parse --short HEAD)"
+    else
+        # Upgrade: fast-forward versuchen; bei Divergenz klaren Fehlertext geben.
+        if ! git pull --ff-only origin "$BRANCH"; then
+            log_error "Fast-Forward nicht möglich — lokale Commits weichen von remote ab."
+            log_error "Optionen:"
+            log_error "  a) Lokale Commits verwerfen:  git reset --hard origin/$BRANCH"
+            log_error "  b) Vollinstallation:          bash install.sh --mode=full"
+            exit 1
+        fi
+        log_info "Repository aktualisiert: $(git rev-parse --short HEAD)"
+    fi
 else
     if [[ "$REPO" == *"<user>"* ]]; then
         log_error "Placeholder-URL erkannt: $REPO"
