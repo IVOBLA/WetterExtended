@@ -155,8 +155,30 @@ def _journalctl_unit_lines(unit, limit=500):
     since = _get_log_clear_since()
     if since:
         cmd = ["journalctl", "-u", unit, "--since", since, "-n", str(limit), "--no-pager"]
-    out = subprocess.check_output(cmd, text=True)
-    return out.splitlines()[-limit:]
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=8,
+        check=False,
+    )
+    if result.returncode != 0:
+        unit_service = f"{unit}.service"
+        unit_check = subprocess.run(
+            ["systemctl", "list-unit-files", unit_service],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+        if unit_service not in unit_check.stdout:
+            return [f"[systemd] Unit {unit_service} ist nicht installiert."]
+        stderr = (result.stderr or "").strip()
+        msg = f"[journalctl] Keine Logs verfügbar oder Unit nicht vorhanden: {unit}"
+        if stderr:
+            msg += f"\nDetails: {stderr}"
+        return [msg]
+    return result.stdout.splitlines()[-limit:]
 
 
 # ---------- JSON-APIs (von React konsumiert) ----------
@@ -1376,15 +1398,10 @@ def api_api_health_raw():
 
 @app.route("/api/logs")
 def api_logs():
-    def tail(unit):
-        try:
-            return _journalctl_unit_lines(unit, limit=500)
-        except Exception as e:
-            return [f"Fehler: {e}"]
     return jsonify({
-        "wetterprojekt": tail("wetterprojekt"),
-        "scheduler": tail("wetterprojekt-scheduler"),
-        "admin": tail("wetterprojekt-admin"),
+        "wetterprojekt": _journalctl_unit_lines("wetterprojekt", limit=500),
+        "scheduler": _journalctl_unit_lines("wetterprojekt-scheduler", limit=500),
+        "admin": _journalctl_unit_lines("wetterprojekt-admin", limit=500),
     })
 
 
