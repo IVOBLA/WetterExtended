@@ -1155,6 +1155,23 @@ server {
         add_header Cache-Control "no-cache";
     }
 
+    # SPA-Einstiegsdatei ohne Auth.
+    # try_files $uri /index.html im /karte-Block macht einen internen nginx-Redirect
+    # auf /index.html. Ohne diesen Block landet der Redirect im / Block (mit auth_basic)
+    # und verursacht 401 — obwohl /karte auth_basic off hat.
+    location = /index.html {
+        auth_basic off;
+        add_header Cache-Control "no-cache";
+    }
+
+    # Favicon ohne Auth (404 statt 401 wenn kein favicon vorhanden)
+    location = /favicon.ico {
+        auth_basic off;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        try_files \$uri =404;
+    }
+
     # Leaflet-Assets: ohne Auth (werden von /karte geladen)
     location /assets/ {
         auth_basic off;
@@ -1164,7 +1181,7 @@ server {
 
     # API-Endpunkte fuer oeffentliche Karte (nur lesend, kein POST)
     # Fix #9: lightning + risk_grid öffentlich freigeben (öffentliche /karte-Ansicht)
-    location ~ ^/api/(objects|forecast|locations|horizons|health|radar_image|radar_bounds|radar_timing|lightning|risk_grid)$ {
+    location ~ ^/api/(objects|forecast|locations|horizons|health|radar_image|radar_bounds|radar_timing|radar_frames|lightning|risk_grid)$ {
         auth_basic off;
         proxy_pass         http://127.0.0.1:5000;
         proxy_http_version 1.1;
