@@ -182,6 +182,23 @@ Systemstatus auf einen Blick: Anzahl aktiver Zellen, letzter Radar-Zeitstempel, 
 Interaktive Leaflet-Karte mit Sturmzellen (Kontur + ID-Label), Vorhersage-Pfeilen (farbcodiert nach Horizont), Ortsdurchquerungs-Markierungen, Bewegungspfad-Historie, Hagelwarnungs-Rahmen (rot) und Stationär-Marker (⊕ amber). Farblegende unten links.
 
 
+### IR-Vorläufer-Layer (🛰 IR-Vorläufer)
+
+Zeigt konvektive Wolken-Cluster aus dem MSG IR108-Satellitenbild, die noch
+**kein Radar-Echo** erzeugen — also 15–30 Minuten bevor das Gewitter im Radar erscheint.
+
+**Aktivierung:** Toggle „🛰 IR-Vorläufer" in der Overlay-Leiste (standardmäßig aus).
+
+**Darstellung:** Gestrichelter violetter Kreis. Größe proportional zur Clusterfläche.
+Overshooting Tops (BT < 215 K) werden rot ausgefüllt dargestellt.
+
+**Tooltip-Informationen:**
+- BT_min [K]: Je kälter, desto höher und aktiver die Konvektion
+- Trend [K/min]: Negativ = Zelle wächst (< −1.5 K/min = rasch wachsend ⚡)
+- Alter [min]: Wie lange dieser IR-Cluster schon getrackt wird
+- „Kein Radar-Echo — Vorläufer": Kein übereinstimmendes Radar-Objekt in 40 km
+- „Overshooting Top ⚠": Cb-Turm bricht Tropopause durch → erhöhtes Hagelpotenzial
+
 ### Gewitterrisiko-Layer (🌩 Risikozonen)
 
 Der Risikozonen-Layer überlagert die Karte mit farbigen Flächen,

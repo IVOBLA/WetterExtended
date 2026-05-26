@@ -117,8 +117,10 @@ export default function MapFullscreen() {
   const [radarTs,        setRadarTs]        = useState(0)
   const [lightning,      setLightning]      = useState([])
   const [showLightning,  setShowLightning]  = useState(true)
-  const [showRisk,      setShowRisk]      = useState(true)
+  const [showRisk,      setShowRisk]      = useState(false)
+  const [showIrCells,   setShowIrCells]   = useState(false)
   const [riskGrid,      setRiskGrid]      = useState([])
+  const [irCells,       setIrCells]       = useState([])
   const [lightningAge,   setLightningAge]   = useState(30)  // Minuten
   const [frames,       setFrames]       = useState([])
   const [currentIdx,   setCurrentIdx]   = useState(-1)
@@ -168,7 +170,7 @@ export default function MapFullscreen() {
       }
     }
     pollRef.current = setTimeout(() => load(), delayMs)
-  }, [])
+  }, [showIrCells])
 
   const loadRef = useRef(null)
 
@@ -231,7 +233,7 @@ export default function MapFullscreen() {
       if (pollRef.current)  clearTimeout(pollRef.current)
       if (timerRef.current) clearInterval(timerRef.current)
     }
-  }, [])
+  }, [showIrCells])
 
   // Frame-Sync für Animation: bei Scrubbing objects/forecast für den
   // angezeigten Frame laden.
@@ -267,10 +269,22 @@ export default function MapFullscreen() {
         .then(d => setRiskGrid(d.cells || []))
         .catch(() => {})
     }
+    if (showIrCells) {
+      fetch('/api/objects?include_ir=1')
+        .then(r => r.json())
+        .then(d => {
+          const irOnly = (Array.isArray(d) ? d : (d.objects || []))
+            .filter(o => o._type === 'ir_cell')
+          setIrCells(irOnly)
+        })
+        .catch(() => setIrCells([]))
+    } else {
+      setIrCells([])
+    }
     loadRisk()
     const t = setInterval(loadRisk, 60_000)
     return () => clearInterval(t)
-  }, [])
+  }, [showIrCells])
 
   const fmtTime = utcStr => utcStr
     ? new Date(utcStr).toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })
@@ -390,6 +404,17 @@ export default function MapFullscreen() {
                 style={{ accentColor: '#ef4444' }} />
               <span>🌩 Risikozonen</span>
             </label>
+            <button
+              onClick={() => setShowIrCells(r => !r)}
+              className={`text-xs px-2 py-1 rounded border transition-colors ${
+                showIrCells
+                  ? 'bg-purple-600 text-white border-purple-700'
+                  : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+              }`}
+              title="IR-Satellit: Konvektive Vorläufer-Wolken (BT < 230 K) aus MSG IR108 (ir_cell_tracking)"
+            >
+              🛰 IR-Vorläufer
+            </button>
 
             {lastTs && (
               <div style={{ color: '#aaa', fontSize: 11 }}>Stand: {lastTs}</div>
@@ -742,6 +767,41 @@ export default function MapFullscreen() {
             </Rectangle>
           )
         })}
+
+        {showIrCells && irCells.map((ir, i) => (
+          <CircleMarker
+            key={'ir_' + i}
+            center={[ir.lat, ir.lon]}
+            radius={Math.max(6, Math.min(20, (ir.area_px || 30) / 10))}
+            pathOptions={{
+              color: '#a855f7',
+              fillColor: ir.overshooting_top ? '#dc2626' : '#a855f7',
+              fillOpacity: 0.35,
+              weight: 2,
+              dashArray: '5,4',
+            }}
+          >
+            <Tooltip direction="top" sticky opacity={0.95}>
+              <div style={{ fontSize: 11, lineHeight: 1.4, minWidth: 150 }}>
+                <div style={{ fontWeight: 700, color: '#7c3aed' }}>
+                  🛰 IR-Vorläufer {ir.ir_id}
+                </div>
+                <div>BT_min: <b>{ir.bt_min_k?.toFixed(1)} K</b></div>
+                <div>Trend: <b>{ir.bt_trend_k_per_min >= 0 ? '+' : ''}{ir.bt_trend_k_per_min?.toFixed(2)} K/min</b>
+                  {ir.bt_trend_k_per_min < -1.5 && <span style={{color:'#dc2626'}}> ⚡ wächst</span>}
+                </div>
+                <div>Alter: {ir.cloud_age_min?.toFixed(0)} min</div>
+                {ir.overshooting_top === 1.0 && (
+                  <div style={{color:'#dc2626', fontWeight:600}}>⚠ Overshooting Top</div>
+                )}
+                {ir.ir_only_precursor === 1.0 && (
+                  <div style={{color:'#7c3aed'}}>Kein Radar-Echo — Vorläufer</div>
+                )}
+              </div>
+            </Tooltip>
+          </CircleMarker>
+        ))}
+
 
         {/* Blitz-Layer (F50) — deaktivierbar, nur letzter Frame */}
         {showLightning && (currentIdx === frames.length - 1 || frames.length === 0) &&
