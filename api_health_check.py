@@ -92,10 +92,12 @@ def _check_geosphere() -> dict:
     from datetime import timedelta, timezone as _tz
 
     _now = datetime.now(_tz.utc)
-    # Aktuellen 15-min-Slot berechnen (wie in fetch_geosphere_nowcast.py)
+    # Vorherigen Slot abfragen — immer vollständig berechnet.
+    # Identisch zu fetch_geosphere_nowcast.py (Prompt-15-Fix):
+    # _floor selbst (= aktueller Slot) → HTTP 422 bis Nowcast berechnet ist.
     _floor = _now.replace(minute=(_now.minute // 15) * 15, second=0, microsecond=0)
-    _start = _floor.strftime("%Y-%m-%dT%H:%M:00Z")
-    _end = (_floor + timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:00Z")
+    _start = (_floor - timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:00Z")
+    _end   = _floor.strftime("%Y-%m-%dT%H:%M:00Z")
     url = "https://dataset.api.hub.geosphere.at/v1/timeseries/forecast/nowcast-v1-15min-1km"
     t0 = time.monotonic()
     try:
