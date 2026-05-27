@@ -5,6 +5,9 @@ from datetime import datetime, timezone
 from config import OPEN_METEO_URL
 
 _GFS_URL = "https://api.open-meteo.com/v1/gfs"
+# LPI (lightning_potential_index) ist NUR am DWD-spezifischen Endpoint verfügbar.
+# /v1/forecast mit models=icon_eu liefert HTTP 400 für LPI (verifiziert 2026-05).
+_DWD_URL = "https://api.open-meteo.com/v1/dwd-icon"
 from debug_utils import debug_log, log_api_failure, log_http_response
 from api_cache import cache_key, cache_get, cache_set, get_ttl
 
@@ -126,12 +129,14 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
             else:
                 data_b = None
 
-    # ── Request C: hourly LPI (icon_eu) — lightning_potential_index ist
-    #    nur in icon_eu verfügbar (icon_d2 liefert es nicht → HTTP 400).
+    # ── Request C: minutely_15 LPI (icon_d2 via DWD-Endpoint) ─────────────
+    # lightning_potential_index ist NUR am DWD-Endpoint /v1/dwd-icon verfügbar.
+    # Der generische /v1/forecast-Endpoint liefert HTTP 400 für LPI (verifiziert 2026-05).
+    # Zusätzlich: LPI ist als minutely_15 in icon_d2 verfügbar — höhere zeitliche Auflösung.
     url_c = (
-        f"{OPEN_METEO_URL}?latitude={lats}&longitude={lons}"
-        f"&hourly={_HOURLY_LPI_PARAMS}"
-        f"&models={_MODEL_LPI}&timezone={_TIMEZONE}&forecast_days=1"
+        f"{_DWD_URL}?latitude={lats}&longitude={lons}"
+        f"&minutely_15={_HOURLY_LPI_PARAMS}"
+        f"&models=icon_d2&timezone={_TIMEZONE}&forecast_days=1"
     )
     ck_c = cache_key("openmeteo:extended_lpi", lats[:60], _nearest_hour_str())
     data_c = cache_get(ck_c, ttl_seconds=get_ttl("openmeteo_extended", 900))
