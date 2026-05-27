@@ -154,7 +154,15 @@ def _journalctl_unit_lines(unit, limit=500):
     cmd = ["journalctl", "-u", unit, "-n", str(limit), "--no-pager"]
     since = _get_log_clear_since()
     if since:
-        cmd = ["journalctl", "-u", unit, "--since", since, "-n", str(limit), "--no-pager"]
+        # journalctl --since erwartet "YYYY-MM-DD HH:MM:SS", KEIN ISO-8601 mit Z-Suffix.
+        # _get_log_clear_since() liefert z.B. "2026-05-26T19:12:36Z" → wird konvertiert.
+        try:
+            from datetime import datetime as _jdt
+            _since_dt = _jdt.fromisoformat(since.replace("Z", "+00:00"))
+            _since_jctl = _since_dt.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            _since_jctl = since  # Fallback: Originalwert übergeben
+        cmd = ["journalctl", "-u", unit, "--since", _since_jctl, "-n", str(limit), "--no-pager"]
     result = subprocess.run(
         cmd,
         capture_output=True,
