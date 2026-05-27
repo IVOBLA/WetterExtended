@@ -656,21 +656,33 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             _lin = obj_clean.get("lineage", "new")
             obj_clean["is_merged"] = 1.0 if _lin == "merged" else 0.0
             obj_clean["is_split"]  = 1.0 if _lin == "split"  else 0.0
-            # Vorberechnete Geschwindigkeit [km/h] + meteorolog. Richtung [°] für Frontend
+            # Vorberechnete Geschwindigkeit [km/h] + meteorolog. Richtung [°] für Frontend.
+            # vx/vy sind in SCALED Pixel/Frame (Kalman-State × UPSCALE_FACTOR).
+            # Korrekte Umrechnung: speed_kmh = hypot(vx, vy) × (PX_TO_KMH / UPSCALE_FACTOR).
             try:
                 import math as _math_spd
-                from config import PX_TO_KMH as _ptk_spd
+                from config import PX_TO_KMH as _ptk_spd, UPSCALE_FACTOR as _uf_spd
                 _spd_vx = float(obj_clean.get("vx", 0.0))
                 _spd_vy = float(obj_clean.get("vy", 0.0))
-                obj_clean["speed_kmh"] = round(
-                    _math_spd.hypot(_spd_vx, _spd_vy) * float(_ptk_spd), 1
-                )
-                # Meteorologische Richtung: atan2(vx, -vy)
-                # vx>0=Ost, vy>0=Süd (Bild-y↓ = geogr.Süd)
-                _dir_rad = _math_spd.atan2(_spd_vx, -_spd_vy)
-                obj_clean["direction_deg"] = round(
-                    (_math_spd.degrees(_dir_rad) + 360.0) % 360.0, 1
-                )
+                # PX_TO_KMH gilt für Original-px/Frame → durch UPSCALE_FACTOR dividieren
+                _pixel_to_kmh = float(_ptk_spd) / max(float(_uf_spd or 1), 1.0)
+                _raw_speed = _math_spd.hypot(_spd_vx, _spd_vy) * _pixel_to_kmh
+                # Sicherheitsclamp: max. MAX_CELL_SPEED_KMH (Konsistenz mit Kalman-Clamp)
+                try:
+                    import runtime_config as _rc_spd
+                    _max_spd = float(_rc_spd.get("MAX_CELL_SPEED_KMH", 130.0))
+                except Exception:
+                    _max_spd = 130.0
+                obj_clean["speed_kmh"] = round(min(_raw_speed, _max_spd), 1)
+                # Richtung nur wenn Zelle sich bewegt (≥ 0.5 km/h).
+                # Verhindert IEEE-754 atan2(0.0, -0.0) = 180° bei stationären Zellen.
+                if _raw_speed >= 0.5:
+                    _dir_rad = _math_spd.atan2(_spd_vx, -_spd_vy)
+                    obj_clean["direction_deg"] = round(
+                        (_math_spd.degrees(_dir_rad) + 360.0) % 360.0, 1
+                    )
+                else:
+                    obj_clean["direction_deg"] = None  # stationär: keine Richtung
             except Exception:
                 obj_clean.setdefault("speed_kmh", 0.0)
                 obj_clean.setdefault("direction_deg", None)
