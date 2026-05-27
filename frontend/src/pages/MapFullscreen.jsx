@@ -72,6 +72,12 @@ function BottomBar({ frames, currentIdx, playing, speed, onSetIdx, onPlay, onPau
       }}>
         {cur?.label ?? '—'}
       </span>
+      {cur?.gap_min != null && cur.gap_min > 7 && (
+        <span title={`Zeitsprung: ${cur.gap_min} min seit letztem Frame`}
+          style={{ fontSize: 10, color: '#f59e0b', fontWeight: 700 }}>
+          ⏱+{Math.round(cur.gap_min)}m
+        </span>
+      )}
     </div>
   )
 }

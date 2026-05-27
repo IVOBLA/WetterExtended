@@ -470,27 +470,79 @@ def api_radar_image():
 
 @app.route("/api/radar_frames")
 def api_radar_frames():
-    """Letzte 12 Radar-Frames als Timestamp-Liste für die Karten-Animation."""
+    """
+    Radar-Frames für die Karten-Animation.
+
+    Liefert eine lückenlose Sequenz: Frames mit Zeitabstand > MAX_FRAME_GAP_MIN
+    brechen die Kontinuität — ältere Frames werden verworfen. Das verhindert
+    sichtbare Zeitsprünge beim Wechsel von 15-min-Intervall (keine Zellen) auf
+    2-min-Intervall (Zellen aktiv).
+
+    Laufzeit-Parameter (runtime_overrides.json):
+      RADAR_FRAME_MAX_GAP_MIN  — max. Abstand zwischen zwei Frames (default 10)
+      RADAR_FRAME_MAX_AGE_MIN  — max. Alter des ältesten Frames  (default 90)
+      RADAR_FRAME_MAX_COUNT    — max. Anzahl Frames in der Liste  (default 12)
+    """
     import glob as _gl
     from zoneinfo import ZoneInfo as _ZI
-    from datetime import timezone as _tz
+    from datetime import timezone as _tz, timedelta as _tdd
 
-    radar_files = sorted(_gl.glob(os.path.join("data", "radar", "radar_*.png")))[-12:]
-    frames = []
+    try:
+        _max_gap_min = int(runtime_config.get("RADAR_FRAME_MAX_GAP_MIN", 10))
+        _max_age_min = int(runtime_config.get("RADAR_FRAME_MAX_AGE_MIN", 90))
+        _max_count   = int(runtime_config.get("RADAR_FRAME_MAX_COUNT",   12))
+    except Exception:
+        _max_gap_min, _max_age_min, _max_count = 10, 90, 12
+
     _vienna = _ZI("Europe/Vienna")
-    for f in radar_files:
+    _now_utc = datetime.now(_tz.utc)
+
+    # Alle Frames parsen
+    all_frames = []
+    for f in sorted(_gl.glob(os.path.join("data", "radar", "radar_*.png"))):
         try:
             base  = os.path.basename(f)
             ts    = base.replace("radar_", "").replace(".png", "")
             ldt   = datetime.strptime(ts, "%Y-%m-%d_%H-%M-%S").replace(tzinfo=_vienna)
             utcdt = ldt.astimezone(_tz.utc)
-            frames.append({
-                "ts":    ts,
-                "utc":   utcdt.isoformat(timespec="seconds").replace("+00:00", "Z"),
-                "label": ldt.strftime("%H:%M"),
-            })
+            # Altersfilter
+            if (_now_utc - utcdt).total_seconds() > _max_age_min * 60:
+                continue
+            all_frames.append({"ts": ts, "utc": utcdt, "ldt": ldt})
         except Exception:
             continue
+
+    if not all_frames:
+        return jsonify({"frames": [], "latest_idx": -1})
+
+    # Rückwärts durch sortierte Frames gehen — kontinuierliche Sequenz sammeln
+    all_frames.sort(key=lambda x: x["utc"])
+    continuous = [all_frames[-1]]
+    for frame in reversed(all_frames[:-1]):
+        gap_s = (continuous[-1]["utc"] - frame["utc"]).total_seconds()
+        if gap_s > _max_gap_min * 60:
+            break  # Lücke zu groß — ältere Frames verwerfen
+        continuous.append(frame)
+        if len(continuous) >= _max_count:
+            break
+
+    # Älteste zuerst (Animation läuft vorwärts)
+    continuous.reverse()
+
+    # Ausgabe aufbereiten — gap_min für Frontend-Marker
+    frames = []
+    for i, f in enumerate(continuous):
+        gap_min = None
+        if i > 0:
+            delta_s = (f["utc"] - continuous[i - 1]["utc"]).total_seconds()
+            gap_min = round(delta_s / 60, 1)
+        frames.append({
+            "ts":      f["ts"],
+            "utc":     f["utc"].isoformat(timespec="seconds").replace("+00:00", "Z"),
+            "label":   f["ldt"].strftime("%H:%M"),
+            "gap_min": gap_min,   # Minuten seit Vorgänger-Frame (None beim ersten)
+        })
+
     return jsonify({
         "frames":     frames,
         "latest_idx": len(frames) - 1,
