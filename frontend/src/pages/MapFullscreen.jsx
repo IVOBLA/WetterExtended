@@ -534,9 +534,10 @@ export default function MapFullscreen() {
             const p = f.properties || {}
             const isKinematic = p.forecast_mode === 'kinematic'
             const style = horizons.styles[p.horizon] || horizons.styles[String(p.horizon)] || {}
+            const slowOpacity = p.is_slow_arrow ? 0.35 : undefined
             const pathOpts = isKinematic
-              ? { color: '#888888', weight: 1.5, dashArray: '6,5', opacity: 0.7 }
-              : { color: p.color || '#888', weight: style.weight || 2, dashArray: style.dash || '' }
+              ? { color: '#888888', weight: 1.5, dashArray: '6,5', opacity: slowOpacity ?? 0.7 }
+              : { color: p.color || '#888', weight: style.weight || 2, dashArray: p.is_slow_arrow ? '2,6' : (style.dash || ''), opacity: slowOpacity ?? 1.0 }
             const q10Lat = p.forecast_lat_q10
             const q10Lon = p.forecast_lon_q10
             const q90Lat = p.forecast_lat_q90
