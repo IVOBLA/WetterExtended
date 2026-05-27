@@ -22,8 +22,10 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
     # Aktueller Slot (_floor) ist immer verfügbar.
     _floor  = _now.replace(minute=(_now.minute // 15) * 15,
                            second=0, microsecond=0)
-    _start  = _floor
-    _end    = _floor + _td(minutes=15)
+    # Vorherigen Slot abfragen — dieser ist immer vollständig berechnet.
+    # _floor selbst (= aktueller Slot) → HTTP 422 solange Nowcast noch berechnet wird.
+    _start  = _floor - _td(minutes=15)
+    _end    = _floor
     _start_str  = _start.strftime("%Y-%m-%dT%H:%M:00Z")
     _end_str    = _end.strftime("%Y-%m-%dT%H:%M:00Z")
     _cache_hour = _start.strftime("%Y-%m-%dT%H:%M")   # inkl. Minuten → korrekter Cache-Key

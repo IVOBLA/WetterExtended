@@ -306,9 +306,9 @@ def send_risk_alert_email(location_name: str, dominant: str,
     ok = True
     for addr in [a.strip() for a in recipient.split(";") if a.strip()]:
         ok = ok and _send_smtp(
-            to=addr,
+            recipients=[addr],
             subject=f"⚠ Hohes Gewitterrisiko — {location_name}",
-            html=html,
+            html_body=html,
         )
     return ok
 
