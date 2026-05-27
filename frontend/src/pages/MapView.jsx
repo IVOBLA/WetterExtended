@@ -775,9 +775,11 @@ export default function MapView() {
               const [a,b] = f.geometry.coordinates
               const p = f.properties || {}
               const isKin = p.forecast_mode === 'kinematic'
+              // is_slow_arrow: Zelle bewegt sich langsam → transparenter Pfeil statt ausblenden
+              const slowOpacity = p.is_slow_arrow ? 0.35 : undefined
               const pathOpts = isKin
-                ? { color:'#888888', weight:1.5, dashArray:'6,5', opacity:0.7 }
-                : { color:p.color||'#888', weight:p.weight||2, dashArray:p.dash||'' }
+                ? { color:'#888888', weight:1.5, dashArray:'6,5', opacity: slowOpacity ?? 0.7 }
+                : { color:p.color||'#888', weight:p.weight||2, dashArray: p.is_slow_arrow ? '2,6' : (p.dash||''), opacity: slowOpacity ?? 1.0 }
               const q10Lat = p.forecast_lat_q10
               const q10Lon = p.forecast_lon_q10
               const q90Lat = p.forecast_lat_q90

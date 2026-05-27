@@ -989,6 +989,7 @@ _hailo_available: Optional[bool] = None
 ## 14. Aktueller Repo-Stand (Mai 2026)
 
 ### 14.1 Was funktioniert
+- **3-Stage Kalman-Matching (Mai 2026):** Zell-ID-Persistenz durch Kalman-Predicted-Polygon-Overlap (Stage 1), Zentroid-Distanz-Fallback (Stage 2), klassischer Overlap-Fallback (Stage 3). Wissenschaftliche Basis: SORT (Bewley et al. 2016), Enhanced TITAN (Han et al. 2009). ✅
 - HSV-Segmentierung + Kalman-Tracking (`object_tracking.py`)
 - **Human-in-the-Loop Filter-Verfeinerung** (`cell_filters.py` + Filter-Galerie):
   Benutzer-Polygon → HSV-Extraktion → PNG-Speicherung → KI-Vorschläge via Anthropic API

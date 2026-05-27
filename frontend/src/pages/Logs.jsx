@@ -96,6 +96,18 @@ function Logs() {
         ))}
         <button onClick={active === 'api_fehler' ? loadHealth : loadLogs}
           className="btn-secondary ml-auto">↺ Reload</button>
+        {active !== 'api_fehler' && (
+          <a href="/api/download/logs" download
+            className="btn-secondary text-blue-600 border-blue-300 hover:bg-blue-50 text-xs px-2"
+            title="Systemlogs (wetterprojekt + scheduler + admin) als .txt herunterladen">
+            ⬇ Logs .txt
+          </a>
+        )}
+        <a href="/api/download/objects" download
+          className="btn-secondary text-blue-600 border-blue-300 hover:bg-blue-50 text-xs px-2"
+          title="Aktuelles Object-JSON (neuester Frame) herunterladen">
+          ⬇ Objects .json
+        </a>
         <button
           onClick={clearAllLogs}
           disabled={clearing}
