@@ -2852,8 +2852,11 @@ def api_risk_grid():
             if flat is None or flon is None:
                 continue
             try:
-                segs.append((float(prev_lat), float(prev_lon),
-                             float(flat),     float(flon)))
+                _seg_km = _hav(float(prev_lat), float(prev_lon),
+                               float(flat), float(flon))
+                if _seg_km >= 2.0:  # Nur Segmente >= 2 km (echte Bewegung)
+                    segs.append((float(prev_lat), float(prev_lon),
+                                 float(flat),     float(flon)))
                 prev_lat = flat
                 prev_lon = flon
             except Exception:
@@ -3005,10 +3008,11 @@ def api_risk_grid():
                 pass
             if _ir_cell_near and dominant not in ("cell", "track"):
                 dominant = "ir_cell"
-            elif bolt_count >= 2:
-                dominant = "lightning"
-            else:
-                dominant = "atm"
+            elif dominant not in ("cell", "track", "ir_cell"):
+                if bolt_count >= 2:
+                    dominant = "lightning"
+                else:
+                    dominant = "atm"
 
             cells_out.append({
                 "lat":   round(lat, 4),
