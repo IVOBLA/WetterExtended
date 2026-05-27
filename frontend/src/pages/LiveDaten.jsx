@@ -259,9 +259,11 @@ export default function LiveDaten() {
                   Blitze &lt;10km: <Val v={sel.lightning_count_10km} decimals={0} />
                 </Group>
                 <Group label="Optical Flow">
-                  Speed: <Val v={sel.of_speed} decimals={2} /><br />
+                  Speed: <Val v={sel.of_speed} decimals={2} />
+                  <span className="text-gray-400 text-xs ml-1">px/Frame</span><br />
                   Divergenz: <Val v={sel.of_divergence} decimals={4} /><br />
                   vx/vy: {sel.of_vx?.toFixed(2)} / {sel.of_vy?.toFixed(2)}
+                  <span className="text-gray-400 text-xs ml-1">px/Frame</span>
                 </Group>
                 <Group label="Stratiform-Umgebung">
                   Fläche: <Val v={sel.strat_area_px} unit="px" decimals={0} /><br />
@@ -290,7 +292,22 @@ export default function LiveDaten() {
                   })()}
                   Lineage: {sel.lineage ?? '—'}<br />
                   Trend: {sel.trend === 1 ? '↑ Intensivierung' : sel.trend === -1 ? '↓ Abschwächung' : '→ Stabil'}<br />
-                  Missing: {sel.missing ?? 0} Frames
+                  Missing: {sel.missing ?? 0} Frames<br />
+                  Geschwindigkeit:{' '}
+                  <b>
+                    {(sel.speed_kmh != null
+                      ? sel.speed_kmh
+                      : (Math.hypot(sel.vx || 0, sel.vy || 0) * pxToKmh).toFixed(1)
+                    )} km/h
+                  </b>
+                  {sel.direction_deg != null && (
+                    <span className="text-gray-500 ml-1">
+                      {['N', 'NNO', 'NO', 'ONO', 'O', 'OSO', 'SO', 'SSO',
+                        'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'][
+                        Math.round(sel.direction_deg / 22.5) % 16
+                      ]}
+                    </span>
+                  )}
                 </Group>
               </div>
             </div>
