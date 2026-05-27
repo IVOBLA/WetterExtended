@@ -2788,12 +2788,23 @@ def api_risk_grid():
     import math as _m
     import glob as _g
     from datetime import datetime, timezone, timedelta
+    from debug_utils import debug_log
 
-    GRID_STEP  = 0.05
-    LAT_MIN    = 46.15
-    LAT_MAX    = 47.20
-    LON_MIN    = 12.80
-    LON_MAX    = 15.45
+    def _safe_float(val, default=0.0):
+        try:
+            out = float(val)
+            if _m.isnan(out) or _m.isinf(out):
+                return default
+            return out
+        except (TypeError, ValueError):
+            return default
+
+    GRID_STEP  = _safe_float(runtime_config.get("RISK_GRID_STEP_DEG", 0.05), 0.05)
+    _bbox = runtime_config.get("BBOX_KAERNTEN_EXTENDED", BBOX_KAERNTEN_EXTENDED)
+    LAT_MIN = _safe_float(_bbox[0], 46.15) if isinstance(_bbox, (list, tuple)) and len(_bbox) == 4 else 46.15
+    LAT_MAX = _safe_float(_bbox[1], 47.20) if isinstance(_bbox, (list, tuple)) and len(_bbox) == 4 else 47.20
+    LON_MIN = _safe_float(_bbox[2], 12.80) if isinstance(_bbox, (list, tuple)) and len(_bbox) == 4 else 12.80
+    LON_MAX = _safe_float(_bbox[3], 15.45) if isinstance(_bbox, (list, tuple)) and len(_bbox) == 4 else 15.45
     CELL_RANGE = 60.0
     TRACK_RANGE = 30.0   # NEU: Korridor um Zugbahn (km, schmaler als CELL_RANGE)
     BOLT_RANGE = 30.0
@@ -2801,8 +2812,8 @@ def api_risk_grid():
     # Geschwindigkeitsbasierte Risikogewichtung:
     # Stationäre Zellen (Dauergewitter, Starkregen) sind gefährlicher.
     # Ab FAST_CELL_KMH gibt es keinen Extra-Boost mehr.
-    _FAST_CELL_KMH    = float(_rc.get("RISK_FAST_CELL_KMH",    40.0))
-    _STATIONARY_BOOST = float(_rc.get("RISK_STATIONARY_BOOST",  0.8))
+    _FAST_CELL_KMH    = _safe_float(runtime_config.get("RISK_FAST_CELL_KMH", 40.0), 40.0)
+    _STATIONARY_BOOST = _safe_float(runtime_config.get("RISK_STATIONARY_BOOST", 0.8), 0.8)
     RISK_COLORS     = {1: "#facc15", 2: "#f97316", 3: "#dc2626"}
     IR_CELL_COLOR   = "#a855f7"   # Violett für IR-Vorläuferzellen
     INT_WEIGHT  = {"leicht": 1.0, "maessig": 2.0, "stark": 3.0, "extrem": 4.0}
@@ -2856,8 +2867,8 @@ def api_risk_grid():
                 and o.get("lat") is not None
                 and o.get("lon") is not None
             ]
-        except Exception:
-            pass
+        except Exception as exc:
+            debug_log(f"[risk_grid] active_cells load failed: {exc}")
 
     # ── Quelle 2: Blitze der letzten 20 Min ──────────────────────────────────
     bolt_dir   = SAVE_PATHS.get("lightning", "train_data/lightning")
@@ -2872,8 +2883,11 @@ def api_risk_grid():
             if ts < cutoff_utc:
                 break
             with open(path, encoding="utf-8") as _f:
-                strikes.extend(json.load(_f))
-        except Exception:
+                payload = json.load(_f)
+                if isinstance(payload, list):
+                    strikes.extend(payload)
+        except Exception as exc:
+            debug_log(f"[risk_grid] lightning parse failed path={path}: {exc}")
             continue
 
     # ── Quelle 3: Atmosphaere-Snapshot (mit neuen Feldern) ───────────────────
@@ -2887,8 +2901,8 @@ def api_risk_grid():
             for aloc in atm_data.get("locations", []):
                 if aloc.get("lat") is not None and aloc.get("lon") is not None:
                     atm_locs.append(aloc)
-        except Exception:
-            pass
+        except Exception as exc:
+            debug_log(f"[risk_grid] atmosphere load failed: {exc}")
 
     # ── Forecast-Pfad-Segmente fuer jede aktive Zelle vorbereiten ────────────
     # Segmente: now → +10, +10 → +20, +20 → +30, +30 → +40
@@ -2940,7 +2954,11 @@ def api_risk_grid():
                 clabel = cell.get("intensity_label", "leicht")
                 wt = INT_WEIGHT.get(clabel, INT_WEIGHT_ALT.get(clabel, 1.0))
                 # aktuelle Position
-                d_now = _hav(lat, lon, float(cell["lat"]), float(cell["lon"]))
+                cell_lat = _safe_float(cell.get("lat"), None)
+                cell_lon = _safe_float(cell.get("lon"), None)
+                if cell_lat is None or cell_lon is None:
+                    continue
+                d_now = _hav(lat, lon, cell_lat, cell_lon)
                 if d_now < CELL_RANGE:
                     # Geschwindigkeitsbasierter Faktor:
                     # Stationäre Zellen erhalten bis zu (1 + _STATIONARY_BOOST)-fachen Score.
@@ -2978,7 +2996,7 @@ def api_risk_grid():
                     flon = cell.get(f"forecast_lon_{hz}")
                     if flat is None or flon is None:
                         continue
-                    d = _hav(lat, lon, float(flat), float(flon))
+                    d = _hav(lat, lon, _safe_float(flat, lat), _safe_float(flon, lon))
                     if d < CELL_RANGE:
                         score += iw * wt * (1.0 - d / CELL_RANGE) ** 1.5
 
@@ -2999,7 +3017,11 @@ def api_risk_grid():
 
             # 2) Blitzdichte
             for bolt in strikes:
-                d = _hav(lat, lon, float(bolt["lat"]), float(bolt["lon"]))
+                b_lat = _safe_float(bolt.get("lat"), None)
+                b_lon = _safe_float(bolt.get("lon"), None)
+                if b_lat is None or b_lon is None:
+                    continue
+                d = _hav(lat, lon, b_lat, b_lon)
                 if d < BOLT_RANGE:
                     score += 0.15 * (1.0 - d / BOLT_RANGE)
                     if d < 10.0:
@@ -3008,10 +3030,14 @@ def api_risk_grid():
             # 3) Atmosphaerische Instabilitaet (LI/SHIP-Proxy/CIN-Daempfung)
             li_val = cin_val = pw_val = lapse_val = fl_val = cloud_h_val = None
             for aloc in atm_locs:
-                d = _hav(lat, lon, float(aloc["lat"]), float(aloc["lon"]))
+                a_lat = _safe_float(aloc.get("lat"), None)
+                a_lon = _safe_float(aloc.get("lon"), None)
+                if a_lat is None or a_lon is None:
+                    continue
+                d = _hav(lat, lon, a_lat, a_lon)
                 if d < ATM_RANGE:
-                    li = float(aloc.get("li", 0.0))
-                    cin_l = float(aloc.get("cin", 0.0))
+                    li = _safe_float(aloc.get("li", 0.0), 0.0)
+                    cin_l = _safe_float(aloc.get("cin", 0.0), 0.0)
                     w  = 1.0 - d / ATM_RANGE
                     li_contrib = 0.0
                     if li < -3.0:
@@ -3023,13 +3049,13 @@ def api_risk_grid():
                         li_contrib *= 0.5
                     score += li_contrib
                     # Gefriergrenze: hohe 0°C-Isotherme = tiefes Einfrieren im Aufwind
-                    fl_h = float(aloc.get("fl_height", 0.0) or 0.0)
+                    fl_h = _safe_float(aloc.get("fl_height", 0.0) or 0.0, 0.0)
                     if fl_h > 4000.0:
                         score += 0.15 * w
                     elif fl_h > 3500.0:
                         score += 0.08 * w
                     # Wolkenhöhe: tiefe Konvektion (>9000 m) = starkes Aufwindssignal
-                    cloud_h_atm = float(aloc.get("cloud_height_m", 0.0) or 0.0)
+                    cloud_h_atm = _safe_float(aloc.get("cloud_height_m", 0.0) or 0.0, 0.0)
                     if cloud_h_atm > 9000.0:
                         score += 0.25 * w
                     elif cloud_h_atm > 7000.0:
@@ -3055,6 +3081,7 @@ def api_risk_grid():
                 continue
 
             # Dominierende Quelle bestimmen (fuer Hover)
+            dominant = "atm"
             if nearest_cell_id is not None and not in_track:
                 dominant = "cell"
             elif in_track:
@@ -3065,16 +3092,14 @@ def api_risk_grid():
                 from ir_cell_tracking import load_active_ir_tracks as _load_ir
                 _ir_tracks_grid = _load_ir()
                 for _ir in _ir_tracks_grid:
-                    _ir_d = _hav(lon, lon, _ir.get("lon", 0), _ir.get("lat", 0))
-                    # Korrekte Haversine lat/lon
-                    _ir_d2 = _hav(lat, lon, _ir.get("lat", 0), _ir.get("lon", 0))
+                    _ir_d2 = _hav(lat, lon, _safe_float(_ir.get("lat", 0), 0.0), _safe_float(_ir.get("lon", 0), 0.0))
                     if _ir_d2 <= 40.0 and _ir.get("ir_only_precursor", 0) == 1.0:
                         _ir_cell_near = True
                         if score < 1.0:
                             score += 0.5  # leichter Risikobeitrag ohne Radar-Echo
                         break
-            except Exception:
-                pass
+            except Exception as exc:
+                debug_log(f"[risk_grid] ir_track evaluation failed: {exc}")
             if _ir_cell_near and dominant not in ("cell", "track"):
                 dominant = "ir_cell"
             elif dominant not in ("cell", "track", "ir_cell"):
@@ -3118,6 +3143,12 @@ def api_risk_grid():
         "grid_step": GRID_STEP,
         "cells":     cells_out,
         "ts":        last_ts,
+        "meta": {
+            "grid_bbox": [LAT_MIN, LAT_MAX, LON_MIN, LON_MAX],
+            "grid_resolution": GRID_STEP,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "mode": "empty" if not cells_out else ("atmosphere_only" if not active_cells else "mixed"),
+        },
         "sources": {
             "active_cells":  len(active_cells),
             "lightning":     len(strikes),

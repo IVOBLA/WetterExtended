@@ -362,6 +362,7 @@ export default function MapView() {
   const [showRisk,      setShowRisk]      = useState(true)
   const [showIrCells,   setShowIrCells]   = useState(false)
   const [riskGrid,      setRiskGrid]      = useState([])
+  const [riskGridError, setRiskGridError] = useState(false)
   const [irCells,       setIrCells]       = useState([])
   const [lightningAge,   setLightningAge]   = useState(30)  // Minuten
 
@@ -535,8 +536,15 @@ export default function MapView() {
   useEffect(() => {
     function loadRisk() {
       api.get('/api/risk_grid')
-        .then(d => setRiskGrid(d.cells || []))
-        .catch(() => {})
+        .then(d => {
+          setRiskGrid(d.cells || [])
+          setRiskGridError(false)
+        })
+        .catch((err) => {
+          console.error('Risk grid failed', err)
+          setRiskGrid([])
+          setRiskGridError(true)
+        })
     }
     if (showIrCells) {
       fetch('/api/objects?include_ir=1')
@@ -580,6 +588,16 @@ export default function MapView() {
       )}
 
       <Legend horizons={horizons.horizons} colors={horizons.colors} />
+      {showRisk && riskGridError && (
+        <div className="mb-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+          Risikozonen konnten nicht geladen werden
+        </div>
+      )}
+      {showRisk && !riskGridError && riskGrid.length === 0 && (
+        <div className="mb-2 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded px-3 py-2">
+          Keine Risikozonen im aktuellen Zeitraum
+        </div>
+      )}
 
       {/* KMZ-Export-Download (Zieldefinition §25) */}
       <div className="mb-2">
