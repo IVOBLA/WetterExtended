@@ -339,13 +339,55 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
 
     previous_snapshot = tracking_memory.copy()
     history_len = int(_rc.get("TRACK_HISTORY_LEN", 3))
-    prev_polys = []
+
+    # ── 3-Stage-Matching-Strukturen ──────────────────────────────────────────
+    # prev_polys:     (id, Polygon) an URSPRÜNGLICHER Position → Stage 3 + Merge-Fallback
+    # pred_polys:     id → Polygon an KALMAN-VORHERGESAGTER Position → Stage 1
+    # pred_centroids: id → (cx_skaliert, cy_skaliert) vorhergesagt → Stage 2
+    # Wissenschaftliche Basis: SORT (Bewley et al. 2016), Enhanced TITAN (Han et al. 2009)
+    # Kernidee: Kalman-Vorhersage schiebt altes Polygon an erwartete neue Position →
+    # schnell bewegte Zellen haben hohen Overlap mit vorhergesagter statt mit alter Position.
+    prev_polys     = []
+    pred_polys     = {}
+    pred_centroids = {}
+
     for prev_id, prev_obj in previous_snapshot.items():
         try:
-            if prev_obj.get("missing", 0) <= 10:
-                prev_polys.append((prev_id, Polygon(np.array(prev_obj["contour"]))))
+            if prev_obj.get("missing", 0) > 10:
+                continue
+            _cnt_arr = np.array(prev_obj["contour"])
+            if len(_cnt_arr) < 3:
+                continue
+            _orig_poly = Polygon(_cnt_arr)
+            prev_polys.append((prev_id, _orig_poly))
+
+            # Kalman-Verschiebung: vx/vy in ORIGINAL-px/Frame; Kontur in SKALIERTEN px.
+            # → Versatz = vx * UPSCALE_FACTOR (skalierte Pixel).
+            _vx_kf = float(prev_obj.get("vx", 0.0))
+            _vy_kf = float(prev_obj.get("vy", 0.0))
+            _dx_s  = _vx_kf * UPSCALE_FACTOR
+            _dy_s  = _vy_kf * UPSCALE_FACTOR
+            if abs(_dx_s) > 0.1 or abs(_dy_s) > 0.1:
+                pred_polys[prev_id] = Polygon(_cnt_arr + np.array([_dx_s, _dy_s]))
+            else:
+                pred_polys[prev_id] = _orig_poly  # statisch: orig = pred
+
+            # Vorhergesagter Schwerpunkt in skalierten Koordinaten
+            _x_orig = float(prev_obj.get("x", 0.0))
+            _y_orig = float(prev_obj.get("y", 0.0))
+            pred_centroids[prev_id] = (
+                (_x_orig + _vx_kf) * UPSCALE_FACTOR,
+                (_y_orig + _vy_kf) * UPSCALE_FACTOR,
+            )
         except Exception:
             continue
+
+    # Max. Stage-2-Distanzschwelle: MAX_CELL_SPEED_KMH / PX_TO_KMH × UPSCALE × 1.5
+    try:
+        from config import MAX_CELL_SPEED_KMH as _MSPD, PX_TO_KMH as _P2K_MATCH
+        _STAGE2_MAX_DIST = (_MSPD / _P2K_MATCH) * UPSCALE_FACTOR * 1.5
+    except Exception:
+        _STAGE2_MAX_DIST = 80.0
 
     assigned_old_to_new = {}
 
@@ -376,16 +418,68 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             continue
 
         current_poly = Polygon(contour[:, 0, :])
-        overlaps = []
+        _cx_s = float(np.mean(contour[:, 0, 0]))
+        _cy_s = float(np.mean(contour[:, 0, 1]))
         area_new = max(current_poly.area, 1e-6)
-        for old_id, old_poly in prev_polys:
+
+        # === Stage 1: IoU mit KALMAN-VORHERGESAGTER Position =================
+        # Verschiebt altes Polygon um Kalman-Versatz (vx*UF, vy*UF).
+        # Kernfix: schnell bewegte Zellen haben 0% Overlap mit ALTER, aber hohen
+        # Overlap mit VORHERGESAGTER Position → gleiche ID bleibt erhalten.
+        overlaps = []
+        for _oid1, _ppoly1 in pred_polys.items():
+            if _oid1 in used_ids or _ppoly1 is None:
+                continue
             try:
-                ratio = current_poly.intersection(old_poly).area / area_new
-                if ratio >= 0.3:
-                    overlaps.append((old_id, ratio))
+                _inter1 = current_poly.intersection(_ppoly1).area
+                _union1 = current_poly.union(_ppoly1).area
+                _iou1   = _inter1 / max(_union1, 1e-6)      # IoU
+                _rcl1   = _inter1 / area_new                 # Recall
+                _s1     = max(_iou1, _rcl1 * 0.7)           # kombinierter Score
+                if _s1 >= 0.10:
+                    overlaps.append((_oid1, _s1))
             except Exception:
                 continue
         overlaps.sort(key=lambda t: t[1], reverse=True)
+
+        # === Stage 2: Centroid-Distanz zur vorhergesagten Position ============
+        # Fallback wenn Stage 1 leer (z.B. Zelle wächst/schrumpft stark +
+        # bewegt sich gleichzeitig → Polygon-Overlap unter Schwelle trotz Nähe).
+        if not overlaps:
+            _best2_d  = _STAGE2_MAX_DIST
+            _best2_id = None
+            for _oid2, (_pcx2, _pcy2) in pred_centroids.items():
+                if _oid2 in used_ids:
+                    continue
+                _d2 = _math.hypot(_cx_s - _pcx2, _cy_s - _pcy2)
+                if _d2 < _best2_d:
+                    _prev_a2  = float(previous_snapshot.get(_oid2, {}).get("area", area_new))
+                    _aratio2  = min(area_new, _prev_a2) / max(area_new, _prev_a2, 1.0)
+                    if _aratio2 >= 0.10:   # max ~10× Größenänderung erlaubt
+                        _best2_d  = _d2
+                        _best2_id = _oid2
+            if _best2_id is not None:
+                _score2 = max(0.01, 1.0 - _best2_d / _STAGE2_MAX_DIST)
+                overlaps = [(_best2_id, _score2)]
+                debug_log(
+                    f"[TRACK] Stage-2-Match: {_best2_id} "
+                    f"dist={_best2_d:.1f}px score={_score2:.2f}"
+                )
+
+        # === Stage 3: IoU mit URSPRÜNGLICHER Position (statische Zellen) ======
+        # Klassischer Overlap für Zellen mit vx=vy≈0 (kein Versatz → pred=orig).
+        # Wird nur erreicht wenn Stage 1+2 leer sind.
+        if not overlaps:
+            for _oid3, _opoly3 in prev_polys:
+                if _oid3 in used_ids:
+                    continue
+                try:
+                    _r3 = current_poly.intersection(_opoly3).area / area_new
+                    if _r3 >= 0.30:
+                        overlaps.append((_oid3, _r3))
+                except Exception:
+                    continue
+            overlaps.sort(key=lambda t: t[1], reverse=True)
 
         lineage = "new"
         parents = []
