@@ -39,6 +39,12 @@ function AnimationBar({ frames, currentIdx, playing, speed,
       <span className="font-mono text-xs font-semibold w-10 text-center">
         {cur?.label ?? '—'}
       </span>
+      {cur?.gap_min != null && cur.gap_min > 7 && (
+        <span title={`Zeitsprung: ${cur.gap_min} min seit letztem Frame`}
+          style={{ fontSize: 10, color: '#f59e0b', fontWeight: 700 }}>
+          ⏱+{Math.round(cur.gap_min)}m
+        </span>
+      )}
       {[500, 300, 150].map(s => (
         <button key={s} onClick={() => onSpeed(s)}
           className={`text-xs px-1.5 py-0.5 border rounded select-none ${
