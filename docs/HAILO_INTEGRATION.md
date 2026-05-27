@@ -1019,7 +1019,14 @@ _hailo_available: Optional[bool] = None
 - nginx /karte Trailing-Slash-Fix: Regex-Match `~ ^/karte(/.*)?$` statt
   Exact-Match `= /karte`; live in install.sh und auf System angewendet
   Grid 0.05° über Kärnten, 3 Quellen (Zellen, Blitze, LI), farbige
-  Flächen ohne Rand (gelb/orange/rot), Toggle standardmäßig aus
+  Flächen ohne Rand (gelb/orange/rot), Risikozonen standardmäßig aktiv
+
+- **UI-Paket Risikozonen/IR-Vorläufer** (`MapView.jsx`, `MapFullscreen.jsx`, `app.py`):
+  Risikozonen-Layer default aktiviert; IR-Vorläufer-Toggle zu Checkbox umgebaut
+  (konsistent mit Radar/Blitze/Risikozonen); 1×/2×/4×-Geschwindigkeitsbuttons
+  auf `/karte` entfernt; Wolkentop im Risikozonen-Hover-Tooltip ergänzt
+  (max aus EUMETView Atm-Snapshot + cloud_top_height_msl der Sturmzellen);
+  IR-Vorläufer-Schwellwert dokumentiert: BT < 230 K ≈ 9.800 m MSL
 
 - **Fix-Paket Mai 2026** (Reihenfolge + Vollständigkeit der Objekt-Pipeline):
   Blitzdaten werden jetzt vor `assign_convective_indices()` geholt
@@ -1261,7 +1268,8 @@ Abarbeitungsreihenfolge: E4 → E1 → E2 → E3 → E5 → E7 → E9 → E6 →
 | E7 | `/api/risk_grid` um Quelle `ir_cell` erweitern (eigene Farb-Variante: schraffiert). `/api/objects?include_ir=1` liefert auch Pseudo-Zellen | `app.py` | ✅ erledigt |
 | E8 | Intensification-Prediction: `ir_to_radar_prob_<horizon>` — Wahrscheinlichkeit, dass IR-Zelle in 15/30/45 min ein Radar-Echo erzeugt. LightGBM-Binary-Classifier | `model_training.py`, `prediction.py` | ⏳ offen |
 | E9 | KMZ-Export erweitern: getrennte Folder, gestrichelter Style für IR-Cells, `forecast.kmz` enthält beide Object-Typen | `kmz_export.py` (oder bestehender Export-Pfad) | ✅ erledigt |
-| E10 | Atmosphäre-Seite + MapView/MapFullscreen-Legende ergänzen. Toggle „🛰 IR-Vorläuferzellen anzeigen" (default aus). Benutzerhandbuch um Abschnitt 30 „IR-Sat Pre-Convection Tracking" ergänzt | `frontend/src/pages/Atmosphaere.jsx`, `frontend/src/pages/MapView.jsx`, `frontend/src/pages/MapFullscreen.jsx`, `docs/WetterExtended_Benutzerhandbuch.md` | ✅ erledigt |
+| E10 | Atmosphäre-Seite + MapView/MapFullscreen-Legende ergänzen. Toggle „🛰 IR-Vorläuferzellen anzeigen" (default aus). | `MapView.jsx`, `MapFullscreen.jsx` | ✅ erledigt |
+| E11 | UI-Verbesserungen: Risikozonen default aktiv, IR-Vorläufer als Checkbox, 1×/2×/4×-Buttons auf /karte entfernt, Wolkentop im Risikozonen-Tooltip (max aus Atm-Snapshot + Sturmzellen-cloud_top_height_msl) | `MapView.jsx`, `MapFullscreen.jsx`, `app.py` | ✅ erledigt | Benutzerhandbuch um Abschnitt 30 „IR-Sat Pre-Convection Tracking" ergänzt | `frontend/src/pages/Atmosphaere.jsx`, `frontend/src/pages/MapView.jsx`, `frontend/src/pages/MapFullscreen.jsx`, `docs/WetterExtended_Benutzerhandbuch.md` | ✅ erledigt |
 
 ### 16.4 Pre-Conditions
 

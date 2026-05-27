@@ -188,7 +188,7 @@ Interaktive Leaflet-Karte mit Sturmzellen (Kontur + ID-Label), Vorhersage-Pfeile
 Zeigt konvektive Wolken-Cluster aus dem MSG IR108-Satellitenbild, die noch
 **kein Radar-Echo** erzeugen — also 15–30 Minuten bevor das Gewitter im Radar erscheint.
 
-**Aktivierung:** Toggle „🛰 IR-Vorläufer" in der Overlay-Leiste (standardmäßig aus).
+**Aktivierung:** Checkbox „🛰 IR-Vorläufer" in der Overlay-Leiste (standardmäßig aus).
 
 **Darstellung:** Gestrichelter violetter Kreis. Größe proportional zur Clusterfläche.
 Overshooting Tops (BT < 215 K) werden rot ausgefüllt dargestellt.
@@ -207,7 +207,7 @@ die das Gewitterrisiko für jedes ~5×5 km Gebiet in Kärnten anzeigen.
 Der Layer ist **unabhängig von erkannten Zellen** — er wird auch bei
 reiner Blitzaktivität oder atmosphärischer Instabilität ohne Radar-Treffer aktiv.
 
-**Aktivierung:** Checkbox „🌩 Risikozonen" in der Overlay-Leiste (standardmäßig aus).
+**Aktivierung:** Checkbox „🌩 Risikozonen" in der Overlay-Leiste (**standardmäßig aktiv**).
 
 **Farbskala:**
 
@@ -223,6 +223,20 @@ reiner Blitzaktivität oder atmosphärischer Instabilität ohne Radar-Treffer ak
 - Atmosphärischer Snapshot: Lifted Index (LI) für Kärnten-Referenzpunkte
 
 **Aktualisierung:** alle 60 Sekunden automatisch (API-Endpoint `/api/risk_grid`).
+
+**Wolkentop im Tooltip:**
+Beim Hovern über eine Risikofläche wird neben SHIP, CAPE, LI, CIN, PW und
+Blitzanzahl auch die **maximale Wolkenoberkante** des Bereichs angezeigt
+(in km MSL). Der Wert ist das Maximum aus:
+- EUMETView IR108-Ableitung (nächster Atmosphären-Snapshot-Gitterpunkt)
+- `cloud_top_height_msl` der nächstliegenden Sturmzelle (≤ 60 km)
+
+| Anzeige | Klassifikation |
+|---------|----------------|
+| > 9,0 km | sehr hoch (Cb-Niveau) |
+| 7,0 – 9,0 km | hoch |
+| 5,0 – 7,0 km | mittel |
+| < 5,0 km | tief |
 
 ## 4.3 Live-Daten (`/live`)
 
@@ -368,6 +382,27 @@ bekommt die Features der nächstgelegenen IR-Cell zugeordnet (≤ 40 km).
 > im Radar. `bt_trend_k_per_min < -1.5` signalisiert rapide Vertiefung und
 > erhöht `intensification_prob` automatisch über das ML-Modell.
 > `overshooting_top = 1.0` ist ein starker Hagel-Prädiktor (ergänzt `hail_prob2`).
+
+### IR-Vorläufer: Definiton der Erkennungsschwelle
+
+Die Erkennung von IR-Vorläufer-Wolken basiert auf der Brightness Temperature
+des MSG IR108-Satelliten. Die Schwellwerte sind in `config.py` definiert und
+können zur Laufzeit über `runtime_overrides.json` überschrieben werden:
+
+| Parameter | Wert | Physikalische Bedeutung |
+|-----------|------|------------------------|
+| `IR_CONVECTION_BT_THRESHOLD_K` | **230 K** | BT < 230 K → konvektiver Wolkentop erkannt (~9.800 m MSL) |
+| `IR_OVERSHOOTING_TOP_BT_K` | **215 K** | BT < 215 K → Overshooting Top (Cb-Turm bricht Tropopause) |
+| `IR_MIN_CELL_AREA_PX` | 30 Pixel | Mindestgröße eines IR-Clusters (~15×15 km) |
+
+**Umrechnung BT → Höhe:**
+```
+h [m] ≈ (T_Oberfläche − BT_Schwelle) / LAPSE_RATE + Geländehöhe
+h ≈ (290 K − 230 K) / 0,0065 K/m + 600 m ≈ 9.846 m MSL
+```
+Der adaptive Schwellwert in `cloud_height_from_eumetview.py`
+(265/260/255 K je nach Tageszeit) dient ausschließlich der
+Hintergrund-Maskierung im WMS-TIFF und **nicht** der IR-Vorläufer-Erkennung.
 
 > **Hinweis:** `[NEU]` = nach v1.0 eingeführt. Bei Feature-Änderungen müssen Modelle neu trainiert werden.
 
