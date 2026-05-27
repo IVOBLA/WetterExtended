@@ -664,12 +664,18 @@ def api_forecast():
         vx = float(o.get("vx") or 0.0)
         vy = float(o.get("vy") or 0.0)
         speed_kmh = _math.hypot(vx, vy) * PX_TO_KMH
-        has_arrow = speed_kmh >= min_kmh
+        # is_slow_arrow: Zelle bewegt sich < MIN_MOVEMENT_FOR_ARROW_KMH.
+        # has_arrow: True wenn Forecast-Position vom Zell-Zentrum abweicht (min 0.001°).
+        # Trennung: langsame Zellen werden sichtbar (aber transparent), nicht ausgeblendet.
+        is_slow = speed_kmh < min_kmh
         for h in horizons:
             fy = o.get(f"forecast_lat_{h}")
             fx = o.get(f"forecast_lon_{h}")
             if fy is None or fx is None:
                 continue
+            # Kein Pfeil wenn Forecast-Position identisch mit Zell-Position
+            _dist_deg = _math.hypot(float(fx) - o["lon"], float(fy) - o["lat"])
+            has_arrow = _dist_deg > 0.001   # < 0.001° ≈ < 100m → kein sinnvoller Pfeil
             color = colors.get(h) or colors.get(str(h))
             style = styles.get(h) or styles.get(str(h)) or {}
             feats.append({
@@ -684,6 +690,7 @@ def api_forecast():
                     "forecast_mode":   o.get("forecast_mode", "kinematic"),
                     "kinematic_source": o.get("kinematic_source"),
                     "has_arrow":       has_arrow,
+                    "is_slow_arrow":   is_slow,
                     "speed_kmh":       round(speed_kmh, 1),
                     # q10/q90 Unsicherheitspositionen (F23/F25)
                     "forecast_lat_q10": o.get(f"forecast_lat_{h}_q10"),
