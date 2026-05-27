@@ -35,6 +35,12 @@ export default function Accuracy() {
   return (
     <div>
       <h1 className="text-2xl font-bold mb-4">Vorhersagegenauigkeit (Closed-Loop)</h1>
+      <div className="card mb-4 bg-blue-50 border-blue-200 text-sm text-blue-900">
+        <p className="font-semibold mb-1">📍 Closed-Loop-Verifikation: Vorhersage vs. tatsächliche Beobachtung</p>
+        <p>Das System vergleicht automatisch jede Vorhersage mit dem was tatsächlich eingetroffen ist.
+        Für jeden Horizont (+10 bis +60 min) wird geprüft: War die vorhergesagte Position
+        innerhalb der Toleranz von der tatsächlichen Zellposition?</p>
+      </div>
 
       <div className="card mb-4">
         <label className="label">Zeitraum</label>
@@ -53,15 +59,15 @@ export default function Accuracy() {
       <div className="card mb-4">
         <h3 className="text-lg font-medium mb-2">Aktuelle Auswertung (letzte {hours} h)</h3>
         <table className="w-full text-sm">
-          <thead><tr className="border-b">
-            <th className="text-left p-1">Horizont</th>
-            <th className="text-left p-1">Samples</th>
-            <th className="text-left p-1">Hits</th>
-            <th className="text-left p-1">Missed</th>
-            <th className="text-left p-1">Hit-Rate</th>
-            <th className="text-left p-1">MAE (km)</th>
-            <th className="text-left p-1">RMSE (km)</th>
-            <th className="text-left p-1">MAE (px)</th>
+          <thead><tr className="border-b text-xs">
+            <th className="text-left p-1" title="Wie viele Minuten in die Zukunft vorhergesagt wird">Horizont ⓘ</th>
+            <th className="text-left p-1" title="Gesamtzahl ausgewerteter Vorhersagen in diesem Zeitraum">Samples ⓘ</th>
+            <th className="text-left p-1" title="Vorhersagen bei denen die echte Zelle innerhalb der Toleranz gefunden wurde">Hits ⓘ</th>
+            <th className="text-left p-1" title="Keine passende Zelle innerhalb 25 km gefunden — Zelle verschwunden oder stark abgewichen">Missed ⓘ</th>
+            <th className="text-left p-1" title="Hits ÷ verifizierte Samples. Hohe Rate = präzise Vorhersage. Basis: Toleranz 5 km">Hit-Rate ⓘ</th>
+            <th className="text-left p-1" title="Mittlerer absoluter Abstand zwischen vorhergesagter und tatsächlicher Position in km">MAE (km) ⓘ</th>
+            <th className="text-left p-1" title="Wurzel des mittleren quadratischen Fehlers — empfindlicher für große Ausreißer als MAE">RMSE (km) ⓘ</th>
+            <th className="text-left p-1" title="MAE in Bildpixeln des upskalierten Radarbildes (1 px ≈ 0,5 km im Original)">MAE (px) ⓘ</th>
           </tr></thead>
           <tbody>
             {data.current.horizons.map(h => (
@@ -82,6 +88,12 @@ export default function Accuracy() {
 
       <div className="card mb-4">
         <h3 className="text-lg font-medium mb-2">MAE (km) — Verlauf</h3>
+        <p className="text-xs text-gray-500 mb-2">
+          Mittlerer absoluter Positionsfehler in km über die Zeit, getrennt nach Horizont.
+          Jeder Punkt = eine Genauigkeits-Messung (stündlich durch den Scheduler).
+          <b> Niedrigere Werte = bessere Vorhersage.</b>
+          Kürzere Horizonte (+10 min) haben typischerweise geringeren Fehler als längere (+60 min).
+        </p>
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={seriesKm}>
             <CartesianGrid strokeDasharray="3 3" />
@@ -96,6 +108,13 @@ export default function Accuracy() {
 
       <div className="card mb-4">
         <h3 className="text-lg font-medium mb-2">Hit-Rate (%) — Verlauf</h3>
+        <p className="text-xs text-gray-500 mb-2">
+          Anteil der Vorhersagen bei denen die tatsächliche Zelle innerhalb <b>5 km Toleranz</b>
+          gefunden wurde (config: VERIFICATION_TOLERANCE_KM).
+          <b> 100 % = alle Vorhersagen korrekt innerhalb der Toleranz.</b>
+          Hit-Rate kann sinken wenn Zellen sehr schnell wachsen/verschwinden
+          oder das Modell noch wenig Trainingsdaten hat.
+        </p>
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={seriesHit}>
             <CartesianGrid strokeDasharray="3 3" />
