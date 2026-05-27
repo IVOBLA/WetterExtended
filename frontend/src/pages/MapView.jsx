@@ -955,7 +955,7 @@ export default function MapView() {
                     {dominantLabel && (
                       <div style={{ color: '#555', marginBottom: 2 }}>{dominantLabel}</div>
                     )}
-                    {info.in_forecast_track && (
+                    {info.in_forecast_track && info.dominant !== 'track' && (
                       <div style={{ color: '#dc2626', fontWeight: 600 }}>
                         ⚠ In berechneter Zugbahn
                       </div>
@@ -1010,7 +1010,7 @@ export default function MapView() {
                     )}
                     {info.cloud_height_m != null && info.cloud_height_m > 0 && (
                       <div>
-                        Wolkentop: <b>{(info.cloud_height_m / 1000).toFixed(1)} km</b>
+                        Wolkentop: <b>{Math.round(info.cloud_height_m).toLocaleString('de-AT')} m</b>
                         <span style={{ color: '#888', marginLeft: 3 }}>
                           {info.cloud_height_m > 9000 ? '(sehr hoch, Cb)' : info.cloud_height_m > 7000 ? '(hoch)' : info.cloud_height_m > 5000 ? '(mittel)' : ''}
                         </span>
@@ -1054,6 +1054,11 @@ export default function MapView() {
                 )}
                 {ir.ir_only_precursor === 1.0 && (
                   <div style={{color:'#7c3aed'}}>Kein Radar-Echo — Vorläufer</div>
+                )}
+                {ir.cloud_height_m > 0 && (
+                  <div style={{ marginTop: 2 }}>
+                    Wolkentop: <b>{Math.round(ir.cloud_height_m).toLocaleString('de-AT')} m</b>
+                  </div>
                 )}
               </div>
             </Tooltip>
