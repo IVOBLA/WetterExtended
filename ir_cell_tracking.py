@@ -129,9 +129,24 @@ def update_ir_tracking(new_cells: list, timestamp: str) -> list:
             vx = (cell["lon"] - prev_lon) / dt_min
             vy = (cell["lat"] - prev_lat) / dt_min
 
-            # BT-Trend [K/min]
-            prev_bt = track.get("bt_mean_k", cell["bt_mean_k"])
-            bt_trend = (cell["bt_mean_k"] - prev_bt) / dt_min
+            # BT-Trend [K/min]:
+            # MSG IR108 aktualisiert alle ~15 min. Wenn tiff_file sich nicht
+            # geändert hat, ist bt_mean_k identisch → Trend würde 0 liefern
+            # und den zuletzt berechneten Wert überschreiben.
+            # Fix: Trend nur berechnen wenn neues TIFF, sonst letzten Wert behalten.
+            _prev_tiff = track.get("tiff_file", "")
+            _curr_tiff = cell.get("tiff_file", "")
+            if _curr_tiff and _curr_tiff != _prev_tiff:
+                # Neues TIFF → echten Trend über MSG-Intervall berechnen
+                _prev_bt_tiff = track.get("bt_mean_k_at_last_tiff", track.get("bt_mean_k", cell["bt_mean_k"]))
+                # MSG-Intervall: 15 min als Basis, dt_min als Obergrenze
+                _tiff_dt = max(min(dt_min, 20.0), 5.0)   # Klammerung: 5–20 min
+                bt_trend = round((cell["bt_mean_k"] - _prev_bt_tiff) / _tiff_dt, 3)
+                # Neuen BT-Basiswert speichern
+                track["bt_mean_k_at_last_tiff"] = cell["bt_mean_k"]
+            else:
+                # Gleiches TIFF → letzten berechneten Trend beibehalten
+                bt_trend = track.get("bt_trend_k_per_min", 0.0)
 
             # Alter des Tracklets
             age_min = track.get("cloud_age_min", 0.0) + dt_min
@@ -172,26 +187,27 @@ def update_ir_tracking(new_cells: list, timestamp: str) -> list:
         track_id = f"ir_{next_id}"
         next_id += 1
         tracks[track_id] = {
-            "ir_id":               track_id,
-            "lat":                 cell["lat"],
-            "lon":                 cell["lon"],
-            "bt_min_k":            cell["bt_min_k"],
-            "bt_mean_k":           cell["bt_mean_k"],
-            "bt_trend_k_per_min":  0.0,
-            "area_px":             cell["area_px"],
-            "overshooting_top":    cell["overshooting_top"],
-            "cloud_height_m":      cell["cloud_height_m"],
-            "cape":                cell["cape"],
-            "arome_li":            cell["arome_li"],
-            "vx_deg_min":          0.0,
-            "vy_deg_min":          0.0,
-            "cloud_age_min":       0.0,
-            "anvil_extension_km":  0.0,
-            "missing":             0,
-            "last_timestamp":      timestamp,
-            "tiff_file":           cell["tiff_file"],
-            "ir_only_precursor":   1.0,
-            "radar_match_ids":     [],
+            "ir_id":                  track_id,
+            "lat":                    cell["lat"],
+            "lon":                    cell["lon"],
+            "bt_min_k":               cell["bt_min_k"],
+            "bt_mean_k":              cell["bt_mean_k"],
+            "bt_mean_k_at_last_tiff": cell["bt_mean_k"],  # Basis für Trend-Berechnung
+            "bt_trend_k_per_min":     0.0,
+            "area_px":                cell["area_px"],
+            "overshooting_top":       cell["overshooting_top"],
+            "cloud_height_m":         cell["cloud_height_m"],
+            "cape":                   cell["cape"],
+            "arome_li":               cell["arome_li"],
+            "vx_deg_min":             0.0,
+            "vy_deg_min":             0.0,
+            "cloud_age_min":          0.0,
+            "anvil_extension_km":     0.0,
+            "missing":                0,
+            "last_timestamp":         timestamp,
+            "tiff_file":              cell["tiff_file"],
+            "ir_only_precursor":      1.0,
+            "radar_match_ids":        [],
         }
 
     # ── Abgestorbene Tracks löschen ───────────────────────────────────────────
