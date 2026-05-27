@@ -691,6 +691,7 @@ export default function MapView() {
                 positions={outerPos}
                 pathOptions={{ color:borderColor, weight:2, fillColor:'#ff8800', fillOpacity:0.25, interactive:true }}
                 eventHandlers={{ click: (e) => { e.target.openPopup(e.latlng) } }}
+                pane="tooltipPane"
               >
                 <Popup autoPan={true} keepInView={true}>
                   <div><strong>{o.id}</strong> ({o.lineage})</div>
@@ -910,11 +911,25 @@ export default function MapView() {
             Sturmzelle liegt — sonst Konflikt mit Zellen-Popup. */}
         {showRisk && riskGrid.map((cell, i) => {
           // Pruefen ob eine markierte Zelle in diesem Grid-Rechteck liegt
-          const hasCellHere = objects.some(o =>
-            o?.lat != null && o?.lon != null &&
-            Math.abs(o.lat - cell.lat) < 0.025 &&
-            Math.abs(o.lon - cell.lon) < 0.025
-          )
+          const hasCellHere = objects.some(o => {
+            // Polygon-BBOX prüfen statt nur Zentrum:
+            // Alle Grid-Rechtecke INNERHALB des Cell-Polygons werden non-interactive,
+            // damit Klick-Events das Cell-Polygon darunter erreichen.
+            if (o.contour_geo && o.contour_geo.length >= 3) {
+              const cLons = o.contour_geo.map(p => p[0])
+              const cLats = o.contour_geo.map(p => p[1])
+              const bboxMinLat = Math.min(...cLats) - 0.025
+              const bboxMaxLat = Math.max(...cLats) + 0.025
+              const bboxMinLon = Math.min(...cLons) - 0.025
+              const bboxMaxLon = Math.max(...cLons) + 0.025
+              return cell.lat >= bboxMinLat && cell.lat <= bboxMaxLat &&
+                     cell.lon >= bboxMinLon && cell.lon <= bboxMaxLon
+            }
+            // Fallback: Zentrum ±0.15° (ca. 15 km Buffer)
+            return o?.lat != null && o?.lon != null &&
+              Math.abs(o.lat - cell.lat) < 0.15 &&
+              Math.abs(o.lon - cell.lon) < 0.15
+          })
           const info = cell.info || {}
           const riskLabel = cell.risk === 3 ? 'Hoch'
                           : cell.risk === 2 ? 'Maessig'
