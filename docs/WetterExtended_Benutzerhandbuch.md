@@ -224,6 +224,14 @@ reiner Blitzaktivität oder atmosphärischer Instabilität ohne Radar-Treffer ak
 
 **Aktualisierung:** alle 60 Sekunden automatisch (API-Endpoint `/api/risk_grid`).
 
+**Zugbahn-Korridor:**
+Der Risiko-Score wird nur für Grid-Zellen erhöht, die auf einer **tatsächlich
+berechneten Zugbahn** liegen (Forecast-Segment ≥ 2 km). Zellen ohne Bewegung
+oder mit minimalem Drift erzeugen keinen Zugbahn-Einfluss. Der Korridor beträgt
+30 km seitlich um den Pfad (lineare Gewichtung). In der Tooltip-Anzeige erscheint
+„📍 In berechneter Zugbahn" nur, wenn die Zugbahn die dominierende Risikoquelle ist.
+
+
 **Wolkentop im Tooltip:**
 Beim Hovern über eine Risikofläche wird neben SHIP, CAPE, LI, CIN, PW und
 Blitzanzahl auch die **maximale Wolkenoberkante** des Bereichs angezeigt
@@ -233,10 +241,13 @@ Blitzanzahl auch die **maximale Wolkenoberkante** des Bereichs angezeigt
 
 | Anzeige | Klassifikation |
 |---------|----------------|
-| > 9,0 km | sehr hoch (Cb-Niveau) |
-| 7,0 – 9,0 km | hoch |
-| 5,0 – 7,0 km | mittel |
-| < 5,0 km | tief |
+| > 9.000 m | sehr hoch (Cb-Niveau) |
+| 7.000 – 9.000 m | hoch |
+| 5.000 – 7.000 m | mittel |
+| < 5.000 m | tief |
+
+Der Wert wird in der Tooltip-Anzeige in Metern (m MSL) mit Tausender-Trennpunkt dargestellt
+(Beispiel: `9.846 m`). IR-Vorläufer-Tooltips zeigen die Wolkenhöhe ebenfalls in Metern.
 
 ## 4.3 Live-Daten (`/live`)
 

@@ -1028,6 +1028,13 @@ _hailo_available: Optional[bool] = None
   (max aus EUMETView Atm-Snapshot + cloud_top_height_msl der Sturmzellen);
   IR-Vorläufer-Schwellwert dokumentiert: BT < 230 K ≈ 9.800 m MSL
 
+- **Fix-Paket Zugbahn + Wolkenhöhe** (`app.py`, `MapView.jsx`, `MapFullscreen.jsx`):
+  Forecast-Segment-Mindestlänge 2 km eingeführt (Nullsegmente → kein false-positive
+  in_forecast_track); Dominant-Overwrite-Bug behoben (dominant="track" wird nicht mehr
+  durch dominant="atm" überschrieben); Wolkenhöhe im Risikozonen-Tooltip und
+  IR-Vorläufer-Tooltip jetzt in Meter (statt km) mit Tausender-Trennpunkt;
+  IR-Vorläufer-Tooltip zeigt jetzt auch cloud_height_m aus ir_cell_detection.py
+
 - **Fix-Paket Mai 2026** (Reihenfolge + Vollständigkeit der Objekt-Pipeline):
   Blitzdaten werden jetzt vor `assign_convective_indices()` geholt
   (`lightning_count_10km` korrekt für hail_prob2); Objekt-JSON wird erst
