@@ -27,8 +27,23 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
     _start_str  = _start.strftime("%Y-%m-%dT%H:%M:00Z")
     _end_str    = _end.strftime("%Y-%m-%dT%H:%M:00Z")
     _cache_hour = _start.strftime("%Y-%m-%dT%H:%M")   # inkl. Minuten → korrekter Cache-Key
+    # GeoSphere Nowcast-Domain: Österreich + 0.2° Puffer.
+    # Koordinaten außerhalb dieses Bereichs liefern HTTP 422 (Unprocessable Content).
+    # BBOX_KAERNTEN_EXTENDED reicht bis lat 45.5 (Norditalien/Slowenien) — diese überspringen.
+    # Verifiziert: GeoSphere Dataset API nowcast-v1-15min-1km Domäne.
+    _NC_LAT_MIN, _NC_LAT_MAX = 46.2, 49.2
+    _NC_LON_MIN, _NC_LON_MAX =  9.3, 17.3
+
     for _, obj in valid:
         lat, lon = round(float(obj['lat']),3), round(float(obj['lon']),3)
+        # Domain-Check: Koordinate außerhalb Österreich → Default-Werte, kein HTTP-Call.
+        if not (_NC_LAT_MIN <= lat <= _NC_LAT_MAX and _NC_LON_MIN <= lon <= _NC_LON_MAX):
+            debug_log(
+                f"[NOWCAST] lat={lat},lon={lon} außerhalb GeoSphere-Domain "
+                f"({_NC_LAT_MIN}–{_NC_LAT_MAX}N, {_NC_LON_MIN}–{_NC_LON_MAX}E) — übersprungen."
+            )
+            obj.update(_DEFAULT)
+            continue
         ck=cache_key("geosphere:nowcast", lat, lon, _cache_hour)
         cached=cache_get(ck, ttl_seconds=_TTL)
         if cached is not None: obj.update(cached); continue
