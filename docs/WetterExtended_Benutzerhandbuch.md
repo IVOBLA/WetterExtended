@@ -188,7 +188,7 @@ Interaktive Leaflet-Karte mit Sturmzellen (Kontur + ID-Label), Vorhersage-Pfeile
 Zeigt konvektive Wolken-Cluster aus dem MSG IR108-Satellitenbild, die noch
 **kein Radar-Echo** erzeugen — also 15–30 Minuten bevor das Gewitter im Radar erscheint.
 
-**Aktivierung:** Checkbox „🛰 IR-Vorläufer" in der Overlay-Leiste (standardmäßig aus).
+**Aktivierung:** Checkbox „🛰 CB > 10.000" in der Overlay-Leiste (standardmäßig aus).
 
 **Darstellung:** Gestrichelter violetter Kreis. Größe proportional zur Clusterfläche.
 Overshooting Tops (BT < 215 K) werden rot ausgefüllt dargestellt.
@@ -388,6 +388,15 @@ bekommt die Features der nächstgelegenen IR-Cell zugeordnet (≤ 40 km).
 | `wind_speed_300hPa` | km/h | Höhenwind 300 hPa — steuert Anvil-Drift |
 | `wind_dir_300_cos` | — | cos(Windrichtung 300 hPa) |
 | `wind_dir_300_sin` | — | sin(Windrichtung 300 hPa) |
+
+### CB > 10.000: Farbkodierung
+
+| Darstellung | Bedeutung |
+|---|---|
+| **Lila/Violett** (Füllung + Rand gestrichelt) | Konvektiver Wolkentop BT < 230 K (≈ > 9.800 m MSL) |
+| **Rot** (Füllung) + Lila Rand | Overshooting Top: BT < 215 K (≈ > 12.300 m MSL) — Cb-Turm durchstößt die Tropopause, starker Hagel-Prädiktor |
+
+Die Markergröße skaliert mit der detektierten Cluster-Fläche (min. 6 px, max. 20 px Bildschirmradius).
 
 > **Vorlaufzeit:** Konvektive Wolken sind im IR 15–30 min früher sichtbar als
 > im Radar. `bt_trend_k_per_min < -1.5` signalisiert rapide Vertiefung und
