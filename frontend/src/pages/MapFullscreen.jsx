@@ -403,9 +403,9 @@ export default function MapFullscreen() {
                 checked={showIrCells}
                 onChange={e => setShowIrCells(e.target.checked)}
                 className="accent-purple-600"
-                title="IR-Satellit: Konvektive Vorläufer-Wolken (BT < 230 K) aus MSG IR108 (ir_cell_tracking)"
+                title="CB > 10.000 m: Cumulonimbus-Wolkentops über 10.000 m MSL (BT < 230 K, MSG IR108). Rot = Overshooting Top (BT < 215 K, > 12.300 m)."
               />
-              <span>🛰 IR-Vorläufer</span>
+              <span>🛰 CB &gt; 10.000</span>
             </label>
 
             {lastTs && (
@@ -811,7 +811,7 @@ export default function MapFullscreen() {
             <Tooltip direction="top" sticky opacity={0.95}>
               <div style={{ fontSize: 11, lineHeight: 1.4, minWidth: 150 }}>
                 <div style={{ fontWeight: 700, color: '#7c3aed' }}>
-                  🛰 IR-Vorläufer {ir.ir_id}
+                  🛰 CB &gt; 10.000 — {ir.ir_id}
                 </div>
                 <div>BT_min: <b>{ir.bt_min_k?.toFixed(1)} K</b></div>
                 <div>Trend: <b>{ir.bt_trend_k_per_min >= 0 ? '+' : ''}{ir.bt_trend_k_per_min?.toFixed(2)} K/min</b>
