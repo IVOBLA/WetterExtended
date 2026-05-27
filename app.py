@@ -150,6 +150,27 @@ def _get_log_clear_since():
     return value if isinstance(value, str) and value else None
 
 
+def _sanitize_for_json(obj, _depth=0):
+    """
+    Ersetzt float NaN/Inf durch None (JSON-kompatibel).
+    Verhindert JSON.parse-Fehler im Frontend bei ML-Accuracy-Daten die
+    float('nan') oder float('inf') aus numpy-Statistiken enthalten können.
+    Maximale Rekursionstiefe: 50.
+    """
+    import math as _m
+    if _depth > 50:
+        return None
+    if isinstance(obj, float):
+        if _m.isnan(obj) or _m.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v, _depth+1) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_for_json(v, _depth+1) for v in obj]
+    return obj
+
+
 def _journalctl_unit_lines(unit, limit=500):
     cmd = ["journalctl", "-u", unit, "-n", str(limit), "--no-pager"]
     since = _get_log_clear_since()
@@ -551,6 +572,57 @@ def api_radar_bounds():
 def api_git():
     branch, commit = _git_info()
     return jsonify({"branch": branch, "commit": commit})
+
+
+@app.route("/api/download/logs")
+def api_download_logs():
+    """
+    Download: Systemlogs aller drei Services als einzelne .txt-Datei.
+    Enthält wetterprojekt, scheduler und admin-Logs.
+    Kein Auth-Check nötig — liegt hinter nginx Basic-Auth.
+    """
+    import io as _io_dl
+    units = ["wetterprojekt", "wetterprojekt-scheduler", "wetterprojekt-admin"]
+    lines = []
+    for unit in units:
+        lines.append(f"{'='*60}")
+        lines.append(f"=== {unit} ===")
+        lines.append(f"{'='*60}")
+        lines.extend(_journalctl_unit_lines(unit, limit=500))
+        lines.append("")
+    content = "\n".join(lines)
+    buf = _io_dl.BytesIO(content.encode("utf-8", errors="replace"))
+    from datetime import datetime as _dl_dt
+    fname = f"wetterprojekt_logs_{_dl_dt.utcnow().strftime('%Y%m%d_%H%M%S')}.txt"
+    from flask import Response as _FlaskResponse
+    return _FlaskResponse(
+        buf.getvalue(),
+        mimetype="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@app.route("/api/download/objects")
+def api_download_objects():
+    """
+    Download: Aktuelles oder frame-spezifisches Object-JSON als .json-Datei.
+    Query-Parameter: ?ts=YYYY-MM-DD_HH-MM-SS (optional, leer = neuester Frame)
+    Kein Auth-Check nötig — liegt hinter nginx Basic-Auth.
+    """
+    ts = request.args.get("ts")
+    data = _objects_for_ts(ts)
+    import io as _io_dl2
+    from datetime import datetime as _dl_dt2
+    ts_label = ts if ts else _dl_dt2.utcnow().strftime("%Y%m%d_%H%M%S")
+    fname = f"objects_{ts_label}.json"
+    content = json.dumps(data, ensure_ascii=False, indent=2)
+    buf = _io_dl2.BytesIO(content.encode("utf-8", errors="replace"))
+    from flask import Response as _FlaskResponse2
+    return _FlaskResponse2(
+        buf.getvalue(),
+        mimetype="application/json; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
 
 
 @app.route("/api/objects")
@@ -1775,7 +1847,10 @@ def api_ai_analysis_run():
         result = run_analysis(cfg)
         if result is None:
             return jsonify({"ok": False, "error": "Analyse fehlgeschlagen (siehe Logs)"}), 500
-        return jsonify({"ok": True, "result": result})
+        # NaN/Inf-Bereinigung: ML-Accuracy-Daten können float('nan') enthalten
+        # → ungültiges JSON → JSON.parse-Fehler im Frontend
+        result_clean = _sanitize_for_json(result)
+        return jsonify({"ok": True, "result": result_clean})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
