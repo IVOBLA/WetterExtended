@@ -468,6 +468,17 @@ export default function MapFullscreen() {
                       Aktiv: {o.active_frames} Frames (~{Math.round(o.active_frames * 2)} min)
                     </div>
                   )}
+                  {o.speed_kmh != null && (
+                    <div style={{fontSize:'0.85em'}}>
+                      🧭 {o.speed_kmh} km/h
+                      {o.direction_deg != null && (
+                        ' ' + ['N','NNO','NO','ONO','O','OSO','SO','SSO',
+                                'S','SSW','SW','WSW','W','WNW','NW','NNW'][
+                          Math.round(o.direction_deg / 22.5) % 16
+                        ]
+                      )}
+                    </div>
+                  )}
                   <div>core_ratio: {(o.core_ratio || 0).toFixed(2)}</div>
                   {o.cape != null && <div>CAPE: {o.cape?.toFixed(0)} J/kg</div>}
                   {o.lightning_count_10km > 0 &&
