@@ -148,6 +148,14 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
             r = retry_get(url_c, service="openmeteo_extended_lpi", timeout=_TIMEOUT)
             _dur_c = (_tc_ext.monotonic() - _t0_c) * 1000
             data_c = r.json()
+            # Antwort normalisieren: minutely_15 → hourly-kompatible Struktur für Parser
+            if isinstance(data_c, dict) and "minutely_15" in data_c and "hourly" not in data_c:
+                data_c["hourly"] = data_c["minutely_15"]
+                data_c["hourly"]["time"] = data_c["minutely_15"].get("time", [])
+            elif isinstance(data_c, list):
+                for _d in data_c:
+                    if isinstance(_d, dict) and "minutely_15" in _d and "hourly" not in _d:
+                        _d["hourly"] = _d["minutely_15"]
             log_http_response("openmeteo_extended_lpi", "GET", r, _dur_c)
             cache_set(ck_c, data_c)
         except Exception as exc:
