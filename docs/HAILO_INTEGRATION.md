@@ -1028,6 +1028,12 @@ _hailo_available: Optional[bool] = None
   (max aus EUMETView Atm-Snapshot + cloud_top_height_msl der Sturmzellen);
   IR-Vorläufer-Schwellwert dokumentiert: BT < 230 K ≈ 9.800 m MSL
 
+- **UI-Rename CB > 10.000** (`MapView.jsx`, `MapFullscreen.jsx`):
+  Alle sichtbaren UI-Texte „IR-Vorläufer" wurden in „CB > 10.000" umbenannt.
+  Checkbox-Label, Tooltip-Titel und title-Attribute aktualisiert.
+  Farbkodierung dokumentiert: Violett = BT < 230 K, Rot = Overshooting Top BT < 215 K.
+  Interne Variablennamen (showIrCells, irCells) unverändert.
+
 - **Fix-Paket Zugbahn + Wolkenhöhe** (`app.py`, `MapView.jsx`, `MapFullscreen.jsx`):
   Forecast-Segment-Mindestlänge 2 km eingeführt (Nullsegmente → kein false-positive
   in_forecast_track); Dominant-Overwrite-Bug behoben (dominant="track" wird nicht mehr
