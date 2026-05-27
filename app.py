@@ -2746,6 +2746,11 @@ def api_risk_grid():
     TRACK_RANGE = 30.0   # NEU: Korridor um Zugbahn (km, schmaler als CELL_RANGE)
     BOLT_RANGE = 30.0
     ATM_RANGE  = 45.0
+    # Geschwindigkeitsbasierte Risikogewichtung:
+    # Stationäre Zellen (Dauergewitter, Starkregen) sind gefährlicher.
+    # Ab FAST_CELL_KMH gibt es keinen Extra-Boost mehr.
+    _FAST_CELL_KMH    = float(_rc.get("RISK_FAST_CELL_KMH",    40.0))
+    _STATIONARY_BOOST = float(_rc.get("RISK_STATIONARY_BOOST",  0.8))
     RISK_COLORS     = {1: "#facc15", 2: "#f97316", 3: "#dc2626"}
     IR_CELL_COLOR   = "#a855f7"   # Violett für IR-Vorläuferzellen
     INT_WEIGHT  = {"leicht": 1.0, "maessig": 2.0, "stark": 3.0, "extrem": 4.0}
@@ -2885,7 +2890,19 @@ def api_risk_grid():
                 # aktuelle Position
                 d_now = _hav(lat, lon, float(cell["lat"]), float(cell["lon"]))
                 if d_now < CELL_RANGE:
-                    contrib = wt * (1.0 - d_now / CELL_RANGE) ** 1.5
+                    # Geschwindigkeitsbasierter Faktor:
+                    # Stationäre Zellen erhalten bis zu (1 + _STATIONARY_BOOST)-fachen Score.
+                    _cell_vx = float(cell.get("vx", 0.0))
+                    _cell_vy = float(cell.get("vy", 0.0))
+                    try:
+                        from config import PX_TO_KMH as _ptk_rg
+                        _cell_speed_kmh = (_cell_vx ** 2 + _cell_vy ** 2) ** 0.5 * float(_ptk_rg)
+                    except Exception:
+                        _cell_speed_kmh = 0.0
+                    _speed_factor = 1.0 + max(
+                        0.0, 1.0 - _cell_speed_kmh / max(_FAST_CELL_KMH, 1.0)
+                    ) * _STATIONARY_BOOST
+                    contrib = wt * (1.0 - d_now / CELL_RANGE) ** 1.5 * _speed_factor
                     score += contrib
                     if nearest_cell_id is None or d_now < 15.0:
                         nearest_cell_id = cell.get("id")
