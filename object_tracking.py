@@ -656,6 +656,24 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             _lin = obj_clean.get("lineage", "new")
             obj_clean["is_merged"] = 1.0 if _lin == "merged" else 0.0
             obj_clean["is_split"]  = 1.0 if _lin == "split"  else 0.0
+            # Vorberechnete Geschwindigkeit [km/h] + meteorolog. Richtung [°] für Frontend
+            try:
+                import math as _math_spd
+                from config import PX_TO_KMH as _ptk_spd
+                _spd_vx = float(obj_clean.get("vx", 0.0))
+                _spd_vy = float(obj_clean.get("vy", 0.0))
+                obj_clean["speed_kmh"] = round(
+                    _math_spd.hypot(_spd_vx, _spd_vy) * float(_ptk_spd), 1
+                )
+                # Meteorologische Richtung: atan2(vx, -vy)
+                # vx>0=Ost, vy>0=Süd (Bild-y↓ = geogr.Süd)
+                _dir_rad = _math_spd.atan2(_spd_vx, -_spd_vy)
+                obj_clean["direction_deg"] = round(
+                    (_math_spd.degrees(_dir_rad) + 360.0) % 360.0, 1
+                )
+            except Exception:
+                obj_clean.setdefault("speed_kmh", 0.0)
+                obj_clean.setdefault("direction_deg", None)
             objects.append({"id": obj_id, **obj_clean})
     return objects
 
