@@ -26,6 +26,7 @@ from debug_utils import debug_log, log_api_failure, log_api_call
 from api_cache import cache_key, cache_get, cache_set, get_ttl
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+_GFS_URL = "https://api.open-meteo.com/v1/gfs"   # für lifted_index (icon_eu liefert null)
 _MODEL = "icon_d2"
 # icon_d2 liefert KEINEN lifted_index — der Parameter wird über icon_eu separat geholt.
 # Quelle: https://open-meteo.com/en/docs/dwd-api (icon_d2 hourly variables).
@@ -225,9 +226,11 @@ def _fetch_arome_li_via_icon_eu(valid: list) -> dict:
 
     lats = ",".join(f"{obj['lat']:.4f}" for _, obj in valid)
     lons = ",".join(f"{obj['lon']:.4f}" for _, obj in valid)
+    # GFS liefert lifted_index zuverlässig (icon_eu gibt null zurück).
+    # Identische Quelle wie fetch_atmospheric_snapshot.py (_GFS_CONV_PARAMS).
     url = (
-        f"{OPEN_METEO_URL}?latitude={lats}&longitude={lons}"
-        f"&hourly={_PARAMS_LI}&models={_MODEL_LI}&timezone={_TZ}&forecast_days=1"
+        f"{_GFS_URL}?latitude={lats}&longitude={lons}"
+        f"&hourly={_PARAMS_LI}&timezone={_TZ}&forecast_days=1"
     )
 
     target_time = _nearest_hour_str()
