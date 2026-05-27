@@ -2870,6 +2870,7 @@ def api_risk_grid():
             # Detail-Tracking fuer Hover
             best_ship = None
             best_cape = None
+            best_cloud_top_m = None
             nearest_cell_id = None
             in_track = False
             bolt_count = 0
@@ -2891,6 +2892,14 @@ def api_risk_grid():
                             best_ship = sh
                         if cp is not None and (best_cape is None or cp > best_cape):
                             best_cape = cp
+                        _ch = cell.get("cloud_top_height_msl")
+                        if _ch is not None:
+                            try:
+                                _ch_f = float(_ch)
+                                if _ch_f > 0 and (best_cloud_top_m is None or _ch_f > best_cloud_top_m):
+                                    best_cloud_top_m = _ch_f
+                            except (TypeError, ValueError):
+                                pass
                 # Fix #8: Runtime-Horizonte verwenden statt hardcoded Liste
                 for hz, iw in [(h, _rg_weights.get(h, 0.2)) for h in _rg_horizons]:
                     flat = cell.get(f"forecast_lat_{hz}")
@@ -3016,7 +3025,14 @@ def api_risk_grid():
                     "pw":               round(pw_val, 1) if pw_val is not None else None,
                     "lapse_700_500":    round(lapse_val, 2) if lapse_val is not None else None,
                     "fl_height":        round(fl_val, 0) if fl_val else None,
-                    "cloud_height_m":   round(cloud_h_val, 0) if cloud_h_val else None,
+                    "cloud_height_m":   round(max(
+                        x for x in [
+                            float(cloud_h_val) if cloud_h_val else 0.0,
+                            best_cloud_top_m if best_cloud_top_m else 0.0,
+                        ] if x > 0
+                    ), 0) if any(
+                        x and float(x) > 0 for x in [cloud_h_val, best_cloud_top_m]
+                    ) else None,
                     "lightning_count":  int(bolt_count),
                     "in_forecast_track": bool(in_track),
                 },
