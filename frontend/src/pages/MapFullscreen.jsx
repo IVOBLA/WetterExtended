@@ -72,13 +72,6 @@ function BottomBar({ frames, currentIdx, playing, speed, onSetIdx, onPlay, onPau
       }}>
         {cur?.label ?? '—'}
       </span>
-      {/* Geschwindigkeit */}
-      {[500, 300, 150].map(s => (
-        <TBtn key={s} onClick={() => onSpeed(s)} active={speed === s}
-          style={{ minWidth: 28, padding: '0 4px', fontSize: 11 }}>
-          {s === 500 ? '1×' : s === 300 ? '2×' : '4×'}
-        </TBtn>
-      ))}
     </div>
   )
 }
@@ -117,7 +110,7 @@ export default function MapFullscreen() {
   const [radarTs,        setRadarTs]        = useState(0)
   const [lightning,      setLightning]      = useState([])
   const [showLightning,  setShowLightning]  = useState(true)
-  const [showRisk,      setShowRisk]      = useState(false)
+  const [showRisk,      setShowRisk]      = useState(true)
   const [showIrCells,   setShowIrCells]   = useState(false)
   const [riskGrid,      setRiskGrid]      = useState([])
   const [irCells,       setIrCells]       = useState([])
@@ -404,17 +397,16 @@ export default function MapFullscreen() {
                 style={{ accentColor: '#ef4444' }} />
               <span>🌩 Risikozonen</span>
             </label>
-            <button
-              onClick={() => setShowIrCells(r => !r)}
-              className={`text-xs px-2 py-1 rounded border transition-colors ${
-                showIrCells
-                  ? 'bg-purple-600 text-white border-purple-700'
-                  : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
-              }`}
-              title="IR-Satellit: Konvektive Vorläufer-Wolken (BT < 230 K) aus MSG IR108 (ir_cell_tracking)"
-            >
-              🛰 IR-Vorläufer
-            </button>
+            <label className="flex items-center gap-1 cursor-pointer select-none text-xs">
+              <input
+                type="checkbox"
+                checked={showIrCells}
+                onChange={e => setShowIrCells(e.target.checked)}
+                className="accent-purple-600"
+                title="IR-Satellit: Konvektive Vorläufer-Wolken (BT < 230 K) aus MSG IR108 (ir_cell_tracking)"
+              />
+              <span>🛰 IR-Vorläufer</span>
+            </label>
 
             {lastTs && (
               <div style={{ color: '#aaa', fontSize: 11 }}>Stand: {lastTs}</div>
@@ -756,6 +748,14 @@ export default function MapFullscreen() {
                         PW: <b>{info.pw}</b> mm
                         <span style={{ color: '#888', marginLeft: 3 }}>
                           {info.pw > 35 ? '(sehr feucht)' : info.pw > 25 ? '(feucht)' : ''}
+                        </span>
+                      </div>
+                    )}
+                    {info.cloud_height_m != null && info.cloud_height_m > 0 && (
+                      <div>
+                        Wolkentop: <b>{(info.cloud_height_m / 1000).toFixed(1)} km</b>
+                        <span style={{ color: '#888', marginLeft: 3 }}>
+                          {info.cloud_height_m > 9000 ? '(sehr hoch, Cb)' : info.cloud_height_m > 7000 ? '(hoch)' : info.cloud_height_m > 5000 ? '(mittel)' : ''}
                         </span>
                       </div>
                     )}
