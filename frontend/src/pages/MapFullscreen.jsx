@@ -807,9 +807,9 @@ export default function MapFullscreen() {
             center={[ir.lat, ir.lon]}
             radius={Math.max(6, Math.min(20, (ir.area_px || 30) / 10))}
             pathOptions={{
-              color: '#a855f7',
-              fillColor: ir.overshooting_top ? '#dc2626' : '#a855f7',
-              fillOpacity: 0.35,
+              color:       ir.overshooting_top ? '#a855f7' : '#6b7280',
+              fillColor:   ir.overshooting_top ? '#dc2626' : '#9ca3af',
+              fillOpacity: ir.overshooting_top ? 0.40 : 0.25,
               weight: 2,
               dashArray: '5,4',
             }}
