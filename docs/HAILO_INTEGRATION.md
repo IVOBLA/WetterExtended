@@ -161,6 +161,40 @@ Abarbeitungsreihenfolge war: A1 → A2 → A3 → A4 → A5 → A6 → A8 → A7
 | B38 | Config-Rollback + Training-Range-Checks | `runtime_config.py`, `app.py` | ✅ erledigt |
 | B39 | Täglicher API-Connectivity-Check (alle 5 externen APIs) | `api_health_check.py` (neu), `scheduler.py`, `app.py` | ✅ erledigt |
 
+
+### 5.8 Phase A.7 — Produktreife Welle 7: Zeitstempel-Korrektheit ✅
+
+Alle Zeit- und Datumsangaben im Projekt müssen den Zeitpunkt der **Aufnahme
+bzw. Erfassung** widerspiegeln — nicht den Verarbeitungszeitpunkt.
+
+Systematische Analyse aller externen Schnittstellen und Zeitstempel-Verwendungen
+ergab 7 Bugs (T1–T4, A3–A5) sowie 10 als korrekt bestätigte Stellen.
+
+| # | Task | Datei(en) | Status |
+|---|------|-----------|--------|
+| B40 | `get_acquisition_timestamp()` Hilfsfunktion — liest HTTP Last-Modified aus `data/.kmz_last_modified` und gibt Wien-Lokalzeit zurück | `radar_download.py` | ✅ erledigt |
+| B41 | `object_tracking.py`: "latest"-Modus und ValueError-Fallback nutzen `get_acquisition_timestamp()` statt `datetime.now()` | `object_tracking.py` | ✅ erledigt |
+| B42 | `fetch_arome_openmeteo.py`: `_nearest_hour_str(ref_ts_str)` + `_fetch_arome_li_via_icon_eu(valid, ref_ts_str)` — Aufnahme-Zeitstempel für icon_d2 und GFS-LI-Slot-Selektion | `fetch_arome_openmeteo.py` | ✅ erledigt |
+| B43 | `app.py`: `last_obj_utc` aus Dateinamen-Parse statt `os.path.getmtime()` — konsistent mit `last_radar_utc` | `app.py` | ✅ erledigt |
+| B44 | `fetch_700hpa_wind_per_object_slim.py`: `_nearest_hour_str(ref_ts_str)` für 700-hPa-Slot und Cache-Key | `fetch_700hpa_wind_per_object_slim.py` | ✅ erledigt |
+| B45 | `fetch_openmeteo_extended.py`: `_nearest_quarter_str(ref_ts_str)` + `_nearest_hour_str(ref_ts_str)` für alle 4 Requests (Böen, Druckflächen, LPI, GFS) | `fetch_openmeteo_extended.py` | ✅ erledigt |
+| B46 | `fetch_synoptic_features.py`: `_nearest_hour(ref_ts_str)` für 500-hPa-Slot und Cache-Key | `fetch_synoptic_features.py` | ✅ erledigt |
+
+**Als korrekt bestätigt (kein Fix nötig):**
+
+| Datei | Begründung |
+|-------|-----------|
+| `fetch_atmospheric_snapshot.py` — `_nearest_hour_str()` | Geplanter Job (alle 30 min, Frame-unabhängig) → `datetime.now()` korrekt |
+| `assign_cape_from_forecast.py` — `_build_cape_url()` BBOX | `south,west,north,east` laut GeoSphere API-Spec verifiziert |
+| `fetch_geosphere_nowcast.py` — Parameter-Format | `parameters=rr&parameters=ff&...` (wiederholt) korrekt für Nowcast-Endpoint |
+| `fetch_tawes_gust.py` — `?parameters=RR,DD,...` | Kommasepariert korrekt für TAWES station/current-Endpoint |
+| `cloud_height_from_eumetview.py` — WMS 1.1.1 + `srs=` | Axis-Order-Fix bereits vorhanden (1.3.0 würde BBOX-Achsen tauschen) |
+| `blitz_api.py` — HTTP Basic Auth | Credentials nur im Header, nicht in URL |
+| `fetch_openmeteo_extended.py` — LPI via `/v1/dwd-icon` | `/v1/forecast` liefert HTTP 400 für LPI — DWD-Endpoint korrekt |
+| `radar_download.py` — `If-Modified-Since` | 304 vermeidet unnötigen Re-Download korrekt implementiert |
+| `fetch_700hpa_wind_per_object_slim.py` — `get_700hpa_wind()` Einzelabfrage | Standalone-Funktion ohne Frame-Kontext — `_nearest_hour_str()` ohne Argument OK |
+| `fetch_atmospheric_snapshot.py` — Bulk-Batching | Batches à 8 Locations korrekt, verhindert Open-Meteo-Timeout bei > 8 Orten |
+
 ### 5.6 Phase A.5 — Produktreife Welle 5 ✅
 
 | # | Task | Datei(en) | Status |
