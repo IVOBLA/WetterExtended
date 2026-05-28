@@ -359,10 +359,19 @@ def api_radar_timing():
     last_obj_utc = None
     if obj_files:
         try:
-            mtime = os.path.getmtime(obj_files[-1])
-            last_obj_utc = datetime.utcfromtimestamp(mtime).isoformat(timespec="seconds") + "Z"
+            from zoneinfo import ZoneInfo as _ZI_obj
+            from datetime import timezone as _tz_obj
+            _vienna_obj = _ZI_obj("Europe/Vienna")
+            _base_obj = os.path.basename(obj_files[-1]).replace(".json", "")
+            _local_obj = datetime.strptime(_base_obj, "%Y-%m-%d_%H-%M-%S").replace(tzinfo=_vienna_obj)
+            last_obj_utc = _local_obj.astimezone(_tz_obj.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
         except Exception:
-            pass
+            # Fallback: Datei-Mtime wenn Dateiname kein gültiges Datum enthält
+            try:
+                mtime = os.path.getmtime(obj_files[-1])
+                last_obj_utc = datetime.utcfromtimestamp(mtime).isoformat(timespec="seconds") + "Z"
+            except Exception:
+                pass
 
     cells_active = False
     if obj_files:
