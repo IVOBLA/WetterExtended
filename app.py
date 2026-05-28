@@ -2140,6 +2140,37 @@ def api_atmosphere():
         return jsonify({"error": str(exc), "locations": []}), 500
 
 
+@app.route("/api/cpu_history")
+def api_cpu_history():
+    """
+    CPU-Auslastungs-Zeitreihe der letzten N Stunden.
+
+    Query-Parameter:
+        hours (int, default 24): Zeitfenster in Stunden (max. 48)
+
+    Response:
+        {
+            "samples": [
+                {"ts_utc": "2026-05-28T11:00:00Z", "cores": [12.5, 8.2, 45.1, 6.0], "avg": 17.95},
+                ...
+            ],
+            "core_count": 4,
+            "hours": 24
+        }
+    """
+    try:
+        hours = min(int(request.args.get("hours", "24")), 48)
+    except (ValueError, TypeError):
+        hours = 24
+    try:
+        from cpu_monitor import get_cpu_history
+        samples = get_cpu_history(hours=hours)
+    except Exception as exc:
+        return jsonify({"error": str(exc), "samples": [], "core_count": 0, "hours": hours}), 500
+    core_count = len(samples[0]["cores"]) if samples else 0
+    return jsonify({"samples": samples, "core_count": core_count, "hours": hours})
+
+
 @app.route("/api/disk")
 def api_disk():
     """Disk-Usage des Raspberry Pi für Dashboard-Monitoring."""
