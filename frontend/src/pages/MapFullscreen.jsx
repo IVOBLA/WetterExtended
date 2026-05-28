@@ -119,6 +119,7 @@ export default function MapFullscreen() {
   const [showRisk,      setShowRisk]      = useState(true)
   const [showIrCells,   setShowIrCells]   = useState(false)
   const [riskGrid,      setRiskGrid]      = useState([])
+  const [riskGridError, setRiskGridError] = useState(false)
   const [irCells,       setIrCells]       = useState([])
   const [lightningAge,   setLightningAge]   = useState(30)  // Minuten
   const [frames,       setFrames]       = useState([])
@@ -265,8 +266,15 @@ export default function MapFullscreen() {
   useEffect(() => {
     function loadRisk() {
       api.get('/api/risk_grid')
-        .then(d => setRiskGrid(d.cells || []))
-        .catch(() => {})
+        .then(d => {
+          setRiskGrid(d.cells || [])
+          setRiskGridError(false)
+        })
+        .catch((err) => {
+          console.error('Risk grid failed', err)
+          setRiskGrid([])
+          setRiskGridError(true)
+        })
     }
     if (showIrCells) {
       fetch('/api/objects?include_ir=1')
@@ -420,6 +428,23 @@ export default function MapFullscreen() {
           </div>
         )}
       </div>
+
+      {riskGridError && showRisk && (
+        <div style={{
+          position: 'absolute', bottom: 60, left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 1100,
+          background: 'rgba(220,38,38,0.92)',
+          color: '#fff',
+          padding: '6px 14px',
+          borderRadius: 8,
+          fontSize: 13,
+          fontWeight: 600,
+          pointerEvents: 'none',
+        }}>
+          ⚠ Risikozonen konnten nicht geladen werden
+        </div>
+      )}
 
       <MapContainer
         center={MAP_CENTER_KAERNTEN}
