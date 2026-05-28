@@ -115,6 +115,9 @@ MIN_CONTOUR_TOUCH = 5
 # Überschreibbar via runtime_overrides.json: "MIN_MOVEMENT_FOR_ARROW_KMH": 8.0
 MIN_MOVEMENT_FOR_ARROW_KMH = 5.0
 
+# Risikozonen-Grid — IR-Vorläufer
+RISK_IR_RANGE_KM = 15
+
 # px/Frame → km/h (UPSCALE=3, ~2 km/px orig., Zyklus 120 s).
 # Einzelne Quelle der Wahrheit — wird von app.py, locations_check.py,
 # object_tracking.py (_clamp_kalman_velocity) und LiveDaten.jsx verwendet.

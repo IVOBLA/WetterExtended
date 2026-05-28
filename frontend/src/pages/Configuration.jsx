@@ -13,6 +13,7 @@ const PARAM_GROUPS = [
       { key: 'RISK_GRID_STEP_DEG',     type: 'number', default: 0.05, unit: '°',    desc: 'Gitter-Schrittweite in Grad (0.05° ≈ 5,5 km). Kleinere Werte → feineres Raster, höhere Rechenlast.', example: 0.05 },
       { key: 'RISK_FAST_CELL_KMH',     type: 'number', default: 30,   unit: 'km/h', desc: 'Ab dieser Geschwindigkeit gilt eine Zelle als "schnell" und erhält keinen Stationär-Bonus mehr.', example: 30 },
       { key: 'RISK_STATIONARY_BOOST',  type: 'number', default: 0.8,  unit: '',     desc: 'Multiplikator-Bonus für stationäre Zellen (Dauergewitter). 0 = kein Bonus, 1 = +100%.', example: 0.8 },
+      { key: 'RISK_IR_RANGE_KM',       type: 'number', default: 15,   unit: 'km',   desc: 'Einfluss-Radius von IR-Vorläuferzellen (Cumulonimbus, BT < 230 K) auf das Risk-Grid. Kleinere Werte = engerer Warnbereich.', example: 15 },
     ],
   },
   {
