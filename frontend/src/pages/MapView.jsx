@@ -985,7 +985,7 @@ export default function MapView() {
               case 'atm':
                 return `☁ Atmosphärische Instabilität${info.li != null ? ` · LI ${info.li} °C` : ''}`
               case 'ir_cell':
-                return `🛰 IR-Vorläufer (Cumulonimbus)${info.ir_bt_min_k != null ? ` · ${info.ir_bt_min_k} K` : ''}${info.ir_cell_dist_km != null ? ` · ${info.ir_cell_dist_km} km` : ''}`
+                return `Cumulonimbus${info.ir_cell_dist_km != null ? ` — ${info.ir_cell_dist_km} km entfernt` : ''}`
               default:
                 return ''
             }
