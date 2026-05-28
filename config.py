@@ -532,7 +532,8 @@ EUMETVIEW_NODATA_PIXEL: int = 5     # Pixelwerte <= 5 = nodata (EUMETView Randbe
 # Alle Schwellwerte runtime-überschreibbar via runtime_overrides.json.
 IR_CONVECTION_BT_THRESHOLD_K: float = 230.0  # BT < Wert = konvektiver Wolkentop
 IR_OVERSHOOTING_TOP_BT_K:     float = 215.0  # BT < Wert = Overshooting Top (Hagelpotenzial)
-IR_MIN_CELL_AREA_PX:          int   = 30     # Mindestgröße Cluster (Pixel im TIFF)
+IR_MIN_CELL_AREA_PX:          int   = 300    # Mindestgröße Cluster (Pixel im TIFF)
+                                              # Bei 0.12 km/Pixel ≈ 4 km² ≈ echter CB-Kern
 IR_MIN_CAPE_J_KG:             float = 200.0  # CAPE-Filter für IR-Cell (0 = kein Filter)
 IR_MAX_LI_C:                  float = -0.5   # LI-Filter für IR-Cell (0 = kein Filter)
 IR_TRACK_MAX_MISSING:         int   = 2      # 15-min-Slots ohne Detektion bis Tracking endet
