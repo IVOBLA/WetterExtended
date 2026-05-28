@@ -55,8 +55,26 @@ _DEFAULT = {
 }
 
 
-def _nearest_hour_str() -> str:
-    """Aktuelle volle Stunde als ISO-String, z. B. '2025-05-16T14:00'."""
+def _nearest_hour_str(ref_ts_str: str | None = None) -> str:
+    """
+    Gibt die volle Stunde des Referenz-Zeitstempels als ISO-String zurück.
+    Falls ref_ts_str angegeben (Format YYYY-MM-DD_HH-MM-SS oder ähnlich):
+      Aufnahme-Zeitstempel parsen und auf volle Stunde runden.
+    Fallback: aktuelle Systemzeit (Europe/Vienna).
+    Beispiel-Rückgabe: '2026-05-28T14:00'
+    """
+    _FORMATS = (
+        "%Y-%m-%d_%H-%M-%S",
+        "%Y%m%d_%H%M%S",
+        "%Y-%m-%dT%H:%M:%S",
+    )
+    if ref_ts_str:
+        for fmt in _FORMATS:
+            try:
+                dt = datetime.strptime(ref_ts_str, fmt).replace(tzinfo=ZoneInfo(_TZ))
+                return dt.strftime("%Y-%m-%dT%H:00")
+            except ValueError:
+                continue
     return datetime.now(ZoneInfo(_TZ)).strftime("%Y-%m-%dT%H:00")
 
 
@@ -134,7 +152,7 @@ def assign_arome_to_objects(objects: list, timestamp: str) -> list:
     )
 
     # --- Cache-Lookup (TTL 30 Min — Modell-Run alle 3 h, Werte stündlich) ---
-    target_time_cache = _nearest_hour_str()
+    target_time_cache = _nearest_hour_str(timestamp)
     coord_list = [(obj["lat"], obj["lon"]) for _, obj in valid]
     ck = cache_key("openmeteo:icon_d2", coord_list, target_time_cache, _PARAMS)
     cached = cache_get(ck, ttl_seconds=get_ttl("openmeteo_icon_d2", 1800))
@@ -178,11 +196,11 @@ def _apply_data_to_objects(data, valid, objects, timestamp, bulk_url):
     if isinstance(data, dict):
         data = [data]
 
-    target_time = _nearest_hour_str()
+    target_time = _nearest_hour_str(timestamp)
     results: dict = {}
 
     # NEU: lifted_index separat aus icon_eu (icon_d2 liefert keinen LI)
-    li_map = _fetch_arome_li_via_icon_eu(valid)
+    li_map = _fetch_arome_li_via_icon_eu(valid, timestamp)
 
     for loc_idx, (_, obj) in enumerate(valid):
         if loc_idx >= len(data):
@@ -210,7 +228,7 @@ def _apply_data_to_objects(data, valid, objects, timestamp, bulk_url):
     debug_log(f"[AROME] Bulk-Request OK: {len(valid)} Objekte in 1 API-Call.")
 
 
-def _fetch_arome_li_via_icon_eu(valid: list) -> dict:
+def _fetch_arome_li_via_icon_eu(valid: list, ref_ts_str: str | None = None) -> dict:
     """
     Holt lifted_index aus icon_eu (DWD ICON-EU, 7 km) — icon_d2 liefert ihn nicht.
     Returns: dict {obj_id: float} mit LI-Werten in °C (negativ = instabil).
@@ -233,7 +251,7 @@ def _fetch_arome_li_via_icon_eu(valid: list) -> dict:
         f"&hourly={_PARAMS_LI}&timezone={_TZ}&forecast_days=1"
     )
 
-    target_time = _nearest_hour_str()
+    target_time = _nearest_hour_str(ref_ts_str)
     coord_list = [(obj["lat"], obj["lon"]) for _, obj in valid]
     ck = cache_key("openmeteo:icon_eu_li", coord_list, target_time, _PARAMS_LI)
     cached = cache_get(ck, ttl_seconds=get_ttl("openmeteo_icon_eu", 3600))
