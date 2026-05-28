@@ -137,13 +137,24 @@ def update_ir_tracking(new_cells: list, timestamp: str) -> list:
             _prev_tiff = track.get("tiff_file", "")
             _curr_tiff = cell.get("tiff_file", "")
             if _curr_tiff and _curr_tiff != _prev_tiff:
-                # Neues TIFF → echten Trend über MSG-Intervall berechnen
+                # Neues TIFF → echten Trend über MSG-Intervall berechnen.
+                # _tiff_dt = tatsächliches Intervall seit letztem TIFF-Wechsel.
+                # Fallback: 15 min (MSG Full Earth Scan Intervall).
                 _prev_bt_tiff = track.get("bt_mean_k_at_last_tiff", track.get("bt_mean_k", cell["bt_mean_k"]))
-                # MSG-Intervall: 15 min als Basis, dt_min als Obergrenze
-                _tiff_dt = max(min(dt_min, 20.0), 5.0)   # Klammerung: 5–20 min
+                _last_tiff_ts = track.get("last_tiff_timestamp")
+                if _last_tiff_ts and dt_now:
+                    _dt_tiff_prev = _ts_to_dt(_last_tiff_ts)
+                    if _dt_tiff_prev:
+                        _delta_tiff = (dt_now - _dt_tiff_prev).total_seconds() / 60.0
+                        _tiff_dt = max(min(_delta_tiff, 60.0), 5.0)
+                    else:
+                        _tiff_dt = 15.0
+                else:
+                    _tiff_dt = 15.0
                 bt_trend = round((cell["bt_mean_k"] - _prev_bt_tiff) / _tiff_dt, 3)
-                # Neuen BT-Basiswert speichern
+                # Zeitstempel und BT-Basiswert des aktuellen TIFFs speichern
                 track["bt_mean_k_at_last_tiff"] = cell["bt_mean_k"]
+                track["last_tiff_timestamp"] = timestamp
             else:
                 # Gleiches TIFF → letzten berechneten Trend beibehalten
                 bt_trend = track.get("bt_trend_k_per_min", 0.0)
@@ -193,6 +204,7 @@ def update_ir_tracking(new_cells: list, timestamp: str) -> list:
             "bt_min_k":               cell["bt_min_k"],
             "bt_mean_k":              cell["bt_mean_k"],
             "bt_mean_k_at_last_tiff": cell["bt_mean_k"],  # Basis für Trend-Berechnung
+            "last_tiff_timestamp":    timestamp,           # Zeitpunkt des ersten TIFFs
             "bt_trend_k_per_min":     0.0,
             "area_px":                cell["area_px"],
             "overshooting_top":       cell["overshooting_top"],

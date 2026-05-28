@@ -1121,9 +1121,9 @@ export default function MapView() {
                   🛰 CB &gt; 10.000 — {ir.ir_id}
                 </div>
                 <div>Trend: <b>
-                  {ir.bt_trend_k_per_min < -1.5
+                  {ir.bt_trend_k_per_min < -0.1
                     ? <span style={{color:'#dc2626'}}>↑ Intensiviert ⚡</span>
-                    : ir.bt_trend_k_per_min > 0.5
+                    : ir.bt_trend_k_per_min > 0.1
                       ? <span style={{color:'#6b7280'}}>↓ Löst sich auf</span>
                       : <span>→ Stabil</span>}
                 </b></div>
