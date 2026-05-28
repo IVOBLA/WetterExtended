@@ -392,6 +392,7 @@ export default function MapView() {
   const timerRef        = useRef(null)
   const frameLoadTimer  = useRef(null)
   const frameDataCache  = useRef({})
+  const playingRef      = useRef(false)
 
   // ── Manuelles Zell-Markieren ──────────────────────────────────────────────
   const [cellMarkActive,   setCellMarkActive]   = useState(false)
@@ -422,11 +423,11 @@ export default function MapView() {
     return () => clearInterval(timerRef.current)
   }, [playing, speed, frames.length])
 
-  const handlePlay  = useCallback(() => setPlaying(true),  [])
-  const handlePause = useCallback(() => setPlaying(false), [])
+  const handlePlay  = useCallback(() => { setPlaying(true);  playingRef.current = true  }, [])
+  const handlePause = useCallback(() => { setPlaying(false); playingRef.current = false }, [])
 
   async function load() {
-    frameDataCache.current = {}
+    if (!playingRef.current) frameDataCache.current = {}
     try {
       // Schritt 1: Metadaten + Frames parallel laden
       const [c, d, timing, bounds, framesData, lightningData] = await Promise.all([
@@ -450,14 +451,16 @@ export default function MapView() {
         const latestIdx = framesData.latest_idx ?? framesData.frames.length - 1
         latestTs = framesData.frames[latestIdx]?.ts ?? null
         setFrames(framesData.frames)
-        setCurrentIdx(latestIdx)
+        if (!playingRef.current) setCurrentIdx(latestIdx)
       }
       const [objs, fc] = await Promise.all([
         api.get(latestTs ? `/api/objects?ts=${latestTs}` : '/api/objects'),
         api.get(latestTs ? `/api/forecast?ts=${latestTs}` : '/api/forecast'),
       ])
-      setObjects(objs)
-      setForecast(fc)
+      if (!playingRef.current) {
+        setObjects(objs)
+        setForecast(fc)
+      }
       setRadarTs(Date.now())
     } catch (e) { console.error(e) }
   }
