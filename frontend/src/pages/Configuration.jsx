@@ -6,12 +6,12 @@ const PARAM_GROUPS = [
   {
     label: '🗺 Risikozonen-Grid',
     params: [
-      { key: 'RISK_CELL_RANGE_KM',     type: 'number', default: 30,   unit: 'km',   desc: 'Einfluss-Radius aktiver Sturmzellen auf das Risk-Grid.',         example: 30 },
-      { key: 'RISK_TRACK_RANGE_KM',    type: 'number', default: 20,   unit: 'km',   desc: 'Breite des Korridors um die berechnete Zugbahn (Forecast-Pfad).', example: 20 },
-      { key: 'RISK_BOLT_RANGE_KM',     type: 'number', default: 20,   unit: 'km',   desc: 'Einfluss-Radius von Blitzeinschlägen auf das Risk-Grid.',         example: 20 },
-      { key: 'RISK_ATM_RANGE_KM',      type: 'number', default: 30,   unit: 'km',   desc: 'Einfluss-Radius atmosphärischer Instabilität (LI, CAPE, CIN).',   example: 30 },
+      { key: 'RISK_CELL_RANGE_KM',     type: 'number', default: 20,   unit: 'km',   desc: 'Einfluss-Radius aktiver Sturmzellen auf das Risk-Grid.',         example: 20 },
+      { key: 'RISK_TRACK_RANGE_KM',    type: 'number', default: 10,   unit: 'km',   desc: 'Breite des Korridors um die berechnete Zugbahn (Forecast-Pfad).', example: 10 },
+      { key: 'RISK_BOLT_RANGE_KM',     type: 'number', default: 10,   unit: 'km',   desc: 'Einfluss-Radius von Blitzeinschlägen auf das Risk-Grid.',         example: 10 },
+      { key: 'RISK_ATM_RANGE_KM',      type: 'number', default: 20,   unit: 'km',   desc: 'Einfluss-Radius atmosphärischer Instabilität (LI, CAPE, CIN).',   example: 20 },
       { key: 'RISK_GRID_STEP_DEG',     type: 'number', default: 0.05, unit: '°',    desc: 'Gitter-Schrittweite in Grad (0.05° ≈ 5,5 km). Kleinere Werte → feineres Raster, höhere Rechenlast.', example: 0.05 },
-      { key: 'RISK_FAST_CELL_KMH',     type: 'number', default: 40,   unit: 'km/h', desc: 'Ab dieser Geschwindigkeit gilt eine Zelle als "schnell" und erhält keinen Stationär-Bonus mehr.', example: 40 },
+      { key: 'RISK_FAST_CELL_KMH',     type: 'number', default: 30,   unit: 'km/h', desc: 'Ab dieser Geschwindigkeit gilt eine Zelle als "schnell" und erhält keinen Stationär-Bonus mehr.', example: 30 },
       { key: 'RISK_STATIONARY_BOOST',  type: 'number', default: 0.8,  unit: '',     desc: 'Multiplikator-Bonus für stationäre Zellen (Dauergewitter). 0 = kein Bonus, 1 = +100%.', example: 0.8 },
     ],
   },

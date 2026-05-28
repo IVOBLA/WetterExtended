@@ -2830,14 +2830,14 @@ def api_risk_grid():
     GRID_STEP  = _safe_float(runtime_config.get("RISK_GRID_STEP_DEG", 0.05), 0.05)
     _bbox = runtime_config.get("BBOX_KAERNTEN_EXTENDED", _DEFAULT_RISK_BBOX)
     LAT_MIN, LAT_MAX, LON_MIN, LON_MAX = _bbox_to_limits(_bbox)
-    CELL_RANGE  = _safe_float(runtime_config.get("RISK_CELL_RANGE_KM",  30.0), 30.0)
-    TRACK_RANGE = _safe_float(runtime_config.get("RISK_TRACK_RANGE_KM", 20.0), 20.0)
-    BOLT_RANGE  = _safe_float(runtime_config.get("RISK_BOLT_RANGE_KM",  20.0), 20.0)
-    ATM_RANGE   = _safe_float(runtime_config.get("RISK_ATM_RANGE_KM",   30.0), 30.0)
+    CELL_RANGE  = _safe_float(runtime_config.get("RISK_CELL_RANGE_KM",  20.0), 20.0)
+    TRACK_RANGE = _safe_float(runtime_config.get("RISK_TRACK_RANGE_KM", 10.0), 10.0)
+    BOLT_RANGE  = _safe_float(runtime_config.get("RISK_BOLT_RANGE_KM",  10.0), 10.0)
+    ATM_RANGE   = _safe_float(runtime_config.get("RISK_ATM_RANGE_KM",   20.0), 20.0)
     # Geschwindigkeitsbasierte Risikogewichtung:
     # Stationäre Zellen (Dauergewitter, Starkregen) sind gefährlicher.
     # Ab FAST_CELL_KMH gibt es keinen Extra-Boost mehr.
-    _FAST_CELL_KMH    = _safe_float(runtime_config.get("RISK_FAST_CELL_KMH", 40.0), 40.0)
+    _FAST_CELL_KMH    = _safe_float(runtime_config.get("RISK_FAST_CELL_KMH", 30.0), 30.0)
     _STATIONARY_BOOST = _safe_float(runtime_config.get("RISK_STATIONARY_BOOST", 0.8), 0.8)
     RISK_COLORS     = {1: "#facc15", 2: "#f97316", 3: "#dc2626"}
     IR_CELL_COLOR   = "#a855f7"   # Violett für IR-Vorläuferzellen
