@@ -2951,6 +2951,14 @@ def api_risk_grid():
         if segs:
             forecast_segments.append((cell, segs))
 
+    # ── IR-Tracks einmal laden (nicht pro Grid-Zelle) ─────────────────────────
+    try:
+        from ir_cell_tracking import load_active_ir_tracks as _load_ir_once
+        _ir_tracks_all = _load_ir_once()
+    except Exception as _ir_load_exc:
+        debug_log(f"[risk_grid] IR-Track-Vorladen fehlgeschlagen: {_ir_load_exc}")
+        _ir_tracks_all = []
+
     cells_out = []
     lat = LAT_MIN
     while lat <= LAT_MAX:
@@ -3085,7 +3093,27 @@ def api_risk_grid():
                         fl_val = aloc.get("fl_height")
                         cloud_h_val = aloc.get("cloud_height_m")
 
-            # Score → Risikostufe
+            # Dominierende Quelle bestimmen (fuer Hover)
+            dominant = "atm"
+            if nearest_cell_id is not None and not in_track:
+                dominant = "cell"
+            elif in_track:
+                dominant = "track"
+            # ── IR-Score VOR Risk-Klassifikation addieren ────────────────────
+            _ir_cell_near = False
+            for _ir in _ir_tracks_all:
+                _ir_d2 = _hav(
+                    lat, lon,
+                    _safe_float(_ir.get("lat", 0), 0.0),
+                    _safe_float(_ir.get("lon", 0), 0.0),
+                )
+                if _ir_d2 <= 40.0 and _ir.get("ir_only_precursor", 0) == 1.0:
+                    _ir_cell_near = True
+                    if score < 1.0:
+                        score += 0.5  # leichter Risikobeitrag ohne Radar-Echo
+                    break
+
+            # ── Risk-Klassifikation (nach IR-Score-Beitrag) ───────────────────
             if score >= 2.5:
                 risk = 3
             elif score >= 1.0:
@@ -3096,26 +3124,7 @@ def api_risk_grid():
                 lon = round(lon + GRID_STEP, 6)
                 continue
 
-            # Dominierende Quelle bestimmen (fuer Hover)
-            dominant = "atm"
-            if nearest_cell_id is not None and not in_track:
-                dominant = "cell"
-            elif in_track:
-                dominant = "track"
-            # Phase E: IR-Cell-Quelle prüfen
-            _ir_cell_near = False
-            try:
-                from ir_cell_tracking import load_active_ir_tracks as _load_ir
-                _ir_tracks_grid = _load_ir()
-                for _ir in _ir_tracks_grid:
-                    _ir_d2 = _hav(lat, lon, _safe_float(_ir.get("lat", 0), 0.0), _safe_float(_ir.get("lon", 0), 0.0))
-                    if _ir_d2 <= 40.0 and _ir.get("ir_only_precursor", 0) == 1.0:
-                        _ir_cell_near = True
-                        if score < 1.0:
-                            score += 0.5  # leichter Risikobeitrag ohne Radar-Echo
-                        break
-            except Exception as exc:
-                debug_log(f"[risk_grid] ir_track evaluation failed: {exc}")
+            # ── Dominante Quelle bestimmen ────────────────────────────────────
             if _ir_cell_near and dominant not in ("cell", "track"):
                 dominant = "ir_cell"
             elif dominant not in ("cell", "track", "ir_cell"):
