@@ -2985,6 +2985,7 @@ def api_risk_grid():
             bolt_count = 0
             _ir_cell_id_near = None
             _ir_bt_min_k_near = None
+            _ir_cell_dist_km_near = None
 
             # 1) Aktive Zellen — Distanz-gewichtet (wie vorher)
             for cell in active_cells:
@@ -3126,6 +3127,7 @@ def api_risk_grid():
                     _ir_cell_near = True
                     _ir_cell_id_near = _ir.get("ir_id")
                     _ir_bt_min_k_near = _ir.get("bt_min_k")
+                    _ir_cell_dist_km_near = round(_ir_d2, 1)
                     if score < 1.0:
                         score += 0.5  # leichter Risikobeitrag ohne Radar-Echo
                     break
@@ -3179,6 +3181,7 @@ def api_risk_grid():
                     "cell_speed_kmh":   nearest_cell_speed_kmh,
                     "ir_cell_id":       _ir_cell_id_near,
                     "ir_bt_min_k":      round(float(_ir_bt_min_k_near), 0) if _ir_bt_min_k_near is not None else None,
+                    "ir_cell_dist_km":  _ir_cell_dist_km_near,
                     "score":            round(score, 2),
                 },
             })
