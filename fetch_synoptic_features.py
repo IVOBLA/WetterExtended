@@ -42,7 +42,26 @@ _DEFAULT = {
 }
 
 
-def _nearest_hour():
+def _nearest_hour(ref_ts_str: str | None = None) -> str:
+    """
+    Gibt die volle Stunde des Referenz-Zeitstempels als ISO-String zurück.
+    Falls ref_ts_str angegeben (Format YYYY-MM-DD_HH-MM-SS oder ähnlich):
+      Aufnahme-Zeitstempel parsen und auf volle Stunde runden (Europe/Vienna).
+    Fallback: aktuelle Systemzeit.
+    Beispiel-Rückgabe: '2026-05-28T14:00'
+    """
+    _FORMATS = (
+        "%Y-%m-%d_%H-%M-%S",
+        "%Y%m%d_%H%M%S",
+        "%Y-%m-%dT%H:%M:%S",
+    )
+    if ref_ts_str:
+        for fmt in _FORMATS:
+            try:
+                dt = datetime.strptime(ref_ts_str, fmt).replace(tzinfo=ZoneInfo(_TZ))
+                return dt.strftime("%Y-%m-%dT%H:00")
+            except ValueError:
+                continue
     return datetime.now(ZoneInfo(_TZ)).strftime("%Y-%m-%dT%H:00")
 
 
@@ -89,7 +108,7 @@ def assign_synoptic_features(objects, timestamp):
     url = (f"{_URL}?latitude={lats}&longitude={lons}"
            f"&hourly={_PARAMS}&models={_MODEL}&timezone={_TZ}&forecast_days=1")
 
-    t = _nearest_hour()
+    t = _nearest_hour(timestamp)
     ck = cache_key("openmeteo:synoptic_500",
                    [(o["lat"], o["lon"]) for _, o in valid], t, _PARAMS)
     cached = cache_get(ck, ttl_seconds=get_ttl("openmeteo_synoptic", 3600))
