@@ -38,8 +38,26 @@ _DEFAULT_WIND = {
 }
 
 
-def _nearest_hour_str() -> str:
-    """Aktuelle volle Stunde als ISO-String, z. B. '2025-05-16T14:00'."""
+def _nearest_hour_str(ref_ts_str: str | None = None) -> str:
+    """
+    Gibt die volle Stunde des Referenz-Zeitstempels als ISO-String zurück.
+    Falls ref_ts_str angegeben (Format YYYY-MM-DD_HH-MM-SS oder ähnlich):
+      Aufnahme-Zeitstempel parsen und auf volle Stunde runden.
+    Fallback: aktuelle Systemzeit (Europe/Vienna).
+    Beispiel-Rückgabe: '2026-05-28T14:00'
+    """
+    _FORMATS = (
+        "%Y-%m-%d_%H-%M-%S",
+        "%Y%m%d_%H%M%S",
+        "%Y-%m-%dT%H:%M:%S",
+    )
+    if ref_ts_str:
+        for fmt in _FORMATS:
+            try:
+                dt = datetime.strptime(ref_ts_str, fmt).replace(tzinfo=ZoneInfo(_TZ))
+                return dt.strftime("%Y-%m-%dT%H:00")
+            except ValueError:
+                continue
     return datetime.now(ZoneInfo(_TZ)).strftime("%Y-%m-%dT%H:00")
 
 
@@ -131,7 +149,7 @@ def fetch_and_assign_700hpa_wind(objects: list, timestamp: str) -> list:
     )
 
     # --- Cache-Lookup (TTL 60 Min — icon_global alle 6 h, Werte stündlich) ---
-    target_time_cache = _nearest_hour_str()
+    target_time_cache = _nearest_hour_str(timestamp)
     coord_list = [(obj["lat"], obj["lon"]) for _, obj in valid]
     ck = cache_key("openmeteo:icon_global", coord_list, target_time_cache, _PARAMS)
     cached = cache_get(ck, ttl_seconds=get_ttl("openmeteo_icon_global", 3600))
@@ -178,7 +196,7 @@ def fetch_and_assign_700hpa_wind(objects: list, timestamp: str) -> list:
     if isinstance(data, dict):
         data = [data]
 
-    target_time = _nearest_hour_str()
+    target_time = _nearest_hour_str(timestamp)
     wind_records: list = []
 
     for loc_idx, (_, obj) in enumerate(valid):
