@@ -488,8 +488,8 @@ def api_radar_frames():
     2-min-Intervall (Zellen aktiv).
 
     Laufzeit-Parameter (runtime_overrides.json):
-      RADAR_FRAME_MAX_GAP_MIN  — max. Abstand zwischen zwei Frames (default 10)
-      RADAR_FRAME_MAX_AGE_MIN  — max. Alter des ältesten Frames  (default 90)
+      RADAR_FRAME_MAX_GAP_MIN  — max. Abstand zwischen zwei Frames (default 20)
+      RADAR_FRAME_MAX_AGE_MIN  — max. Alter des ältesten Frames  (default 150)
       RADAR_FRAME_MAX_COUNT    — max. Anzahl Frames in der Liste  (default 12)
     """
     import glob as _gl
@@ -497,8 +497,8 @@ def api_radar_frames():
     from datetime import timezone as _tz, timedelta as _tdd
 
     try:
-        _max_gap_min = int(runtime_config.get("RADAR_FRAME_MAX_GAP_MIN", 10))
-        _max_age_min = int(runtime_config.get("RADAR_FRAME_MAX_AGE_MIN", 90))
+        _max_gap_min = int(runtime_config.get("RADAR_FRAME_MAX_GAP_MIN", 20))
+        _max_age_min = int(runtime_config.get("RADAR_FRAME_MAX_AGE_MIN", 150))
         _max_count   = int(runtime_config.get("RADAR_FRAME_MAX_COUNT",   12))
     except Exception:
         _max_gap_min, _max_age_min, _max_count = 10, 90, 12
