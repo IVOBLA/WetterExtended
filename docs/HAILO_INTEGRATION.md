@@ -208,6 +208,11 @@ Abarbeitungsreihenfolge war: A1 → A2 → A3 → A4 → A5 → A6 → A8 → A7
 
 **Status-Update:** Sobald ein Prompt eingespielt und verifiziert ist, Status auf ✅ erledigt.
 
+- **UI-Paket Training + Live-Karte** (`Training.jsx`, `MapView.jsx`):
+  Trainings-Schedule-Formular: erläuternde Hilfetexte unter jedem Feld (7 Felder).
+  Live-Karte: KMZ-Download-Button entfernt (KMZ bleibt über FTP/Auto-Export verfügbar).
+  Risikozonen-Status in Timing-Bar integriert (kompakter Inline-Span statt separater Banner).
+
 #### Risk-Grid Stabilitätsfixes ✅
 
 | Item | Beschreibung | Status |

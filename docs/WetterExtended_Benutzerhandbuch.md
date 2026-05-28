@@ -442,6 +442,19 @@ Hintergrund-Maskierung im WMS-TIFF und **nicht** der IR-Vorläufer-Erkennung.
 | KI-Analyse | täglich 06:00 | `AI_ANALYSIS_CONFIG.cron_hour` |
 | Daten-Cleanup | täglich 04:30 | `DATA_CLEANUP_CRON_HOUR` / `DATA_CLEANUP_CRON_MINUTE` |
 
+**Bedeutung der Einstellungen:**
+
+| Feld | Bedeutung | Default |
+|---|---|---|
+| Datensatz-Rebuild (Min.) | Intervall in Minuten, in dem der ML-Datensatz aus den gesammelten Radar-Frames neu aufgebaut wird | 60 |
+| Retrain-Interval (Stunden) | LightGBM/LSTM werden zusätzlich zum Nightly-Retrain alle N Stunden neu trainiert | 6 |
+| Nightly Retrain Stunde/Minute | Uhrzeit für den täglichen LightGBM/LSTM-Retrain | 03:00 |
+| ConvLSTM Tag | Wochentag für das wöchentliche ConvLSTM-Training (Radar-Bildfolgen-Modell) | Montag |
+| ConvLSTM Stunde/Minute | Uhrzeit für den wöchentlichen ConvLSTM-Trainingslauf | 02:00 |
+
+> **Hinweis:** Änderungen werden erst nach Neustart des `wetterprojekt-scheduler`-Dienstes aktiv:
+> `sudo systemctl restart wetterprojekt-scheduler`
+
 ---
 
 # 7 Vorhersage-Verifikation (Closed-Loop)
@@ -1348,6 +1361,7 @@ erst bei Erweiterung. Rückwärtskompatibel.
 
 | Version | Datum | Änderungen |
 |---|---|---|
+| v2.0 | Mai 2026 | **Trainings-Schedule Hilftexte:** Jedes Einstellungsfeld im Trainings-Schedule erhält einen erläuternden Hilfetext direkt unter dem Eingabefeld (Datensatz-Rebuild, Retrain-Interval, Nightly Retrain, ConvLSTM Zeitplan). **Live-Karte UX:** KMZ-Download-Button aus der Live-Karte entfernt (KMZ wird weiterhin automatisch per FTP hochgeladen). Risikozonen-Statusmeldungen („Keine Risikozonen im aktuellen Zeitraum" / „Risikozonen nicht verfügbar") werden jetzt kompakt in der Timing-Bar neben „✓ Keine aktiven Schwergewitter-Zellen" angezeigt statt als separate Banner. |
 | v1.9 | Mai 2026 | **Risk-Grid-Fix:** `/api/risk_grid` ist jetzt 200-stabil — `BBOX_KAERNTEN_EXTENDED` wird korrekt importiert und als Dict (`north/south/east/west`) und als List/Tuple verarbeitet. Die Kärnten-BBOX wird immer korrekt verwendet statt auf Fallback-Werte zu fallen. **IR-Vorläufer-Bewertung:** IR-Tracks werden einmalig vor der Grid-Schleife geladen (nicht mehr ~1000× pro API-Call). Der IR-Score-Beitrag wird jetzt korrekt VOR der Risk-Klassifikation addiert, sodass reine IR-Vorläuferzellen tatsächlich Risk-1-Zellen erzeugen können. **Vollbild-Karte Fehleranzeige:** `/karte` (MapFullscreen) zeigt jetzt wie die Admin-Karte eine sichtbare Fehlermeldung wenn das Risk-Grid nicht geladen werden kann. |
 | v1.8 | Mai 2026 | **3-Stage Kalman-Matching:** Zell-Tracking nutzt jetzt Kalman-vorhergesagte Polygonpositionen (Stage 1: IoU gegen verschobenes Polygon; Stage 2: Zentroid-Distanz; Stage 3: klassischer Overlap). Zellen behalten ihre ID auch bei schneller Bewegung oder Formänderung. **Richtungspfeile** werden für alle Zellen gezeigt (langsame mit 35% Opazität statt ausgeblendet). **Download-Buttons** (⬇ Logs .txt, ⬇ Objects .json) in der Logs-Seite. |
 | v1.0 | 2025 | Erstveröffentlichung: HSV-Segmentierung, Kalman-Tracking, LSTM + LightGBM, React Admin-Panel (10 Seiten), KMZ-Export, `install.sh`, Scheduler, Closed-Loop-Verifikation |
