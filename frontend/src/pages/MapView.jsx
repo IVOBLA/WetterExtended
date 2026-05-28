@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   MapContainer, TileLayer, CircleMarker, Polyline,
   Polygon, Circle, Popup, ImageOverlay, Tooltip,
@@ -16,6 +17,23 @@ import {
 
 const lineageColor = {
   new: 'green', continued: 'blue', merged: 'orange', split: 'magenta',
+}
+
+// FlyToCell: Liest URL-Parameter lat/lon/zoom aus und zentriert die Karte.
+// Muss als Kind-Komponente innerhalb von <MapContainer> eingebunden werden
+// (benötigt den Leaflet-Karten-Context via useMap()).
+function FlyToCell() {
+  const map = useMap()
+  const [searchParams] = useSearchParams()
+  useEffect(() => {
+    const lat  = parseFloat(searchParams.get('lat'))
+    const lon  = parseFloat(searchParams.get('lon'))
+    const zoom = parseInt(searchParams.get('zoom') || '12', 10)
+    if (!isNaN(lat) && !isNaN(lon)) {
+      map.setView([lat, lon], isNaN(zoom) ? 12 : zoom, { animate: true })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  return null
 }
 
 // ── Animations-Steuerleiste ──────────────────────────────────────────────────
@@ -1081,16 +1099,16 @@ export default function MapView() {
                 <div style={{ fontWeight: 700, color: '#7c3aed' }}>
                   🛰 CB &gt; 10.000 — {ir.ir_id}
                 </div>
-                <div>BT_min: <b>{ir.bt_min_k?.toFixed(1)} K</b></div>
-                <div>Trend: <b>{ir.bt_trend_k_per_min >= 0 ? '+' : ''}{ir.bt_trend_k_per_min?.toFixed(2)} K/min</b>
-                  {ir.bt_trend_k_per_min < -1.5 && <span style={{color:'#dc2626'}}> ⚡ wächst</span>}
-                </div>
+                <div>Trend: <b>
+                  {ir.bt_trend_k_per_min < -1.5
+                    ? <span style={{color:'#dc2626'}}>↑ Intensiviert ⚡</span>
+                    : ir.bt_trend_k_per_min > 0.5
+                      ? <span style={{color:'#6b7280'}}>↓ Löst sich auf</span>
+                      : <span>→ Stabil</span>}
+                </b></div>
                 <div>Alter: {ir.cloud_age_min?.toFixed(0)} min</div>
                 {ir.overshooting_top === 1.0 && (
                   <div style={{color:'#dc2626', fontWeight:600}}>⚠ Overshooting Top</div>
-                )}
-                {ir.ir_only_precursor === 1.0 && (
-                  <div style={{color:'#7c3aed'}}>Kein Radar-Echo — Vorläufer</div>
                 )}
                 {ir.cloud_height_m > 0 && (
                   <div style={{ marginTop: 2 }}>
@@ -1137,6 +1155,7 @@ export default function MapView() {
           onComplete={handlePolygonComplete}
           onCancel={() => setCellMarkActive(false)}
         />
+        <FlyToCell />
         <MapStateProbe targetRef={mapStateRef} />
       </MapContainer>
 
