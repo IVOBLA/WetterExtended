@@ -47,15 +47,55 @@ _DEFAULT = {
 }
 
 
-def _nearest_quarter_str() -> str:
+def _nearest_quarter_str(ref_ts_str: str | None = None) -> str:
+    """
+    Gibt das nächste 15-Minuten-Intervall des Referenz-Zeitstempels zurück.
+    Falls ref_ts_str angegeben: Aufnahme-Zeitstempel parsen und auf Viertelstunde runden.
+    Fallback: aktuelle UTC-Systemzeit.
+    Beispiel-Rückgabe: '2026-05-28T13:45'
+    """
+    _FORMATS = (
+        "%Y-%m-%d_%H-%M-%S",
+        "%Y%m%d_%H%M%S",
+        "%Y-%m-%dT%H:%M:%S",
+    )
+    if ref_ts_str:
+        for fmt in _FORMATS:
+            try:
+                from zoneinfo import ZoneInfo as _ZI_q
+                dt = datetime.strptime(ref_ts_str, fmt).replace(tzinfo=_ZI_q("Europe/Vienna"))
+                dt_utc = dt.astimezone(timezone.utc)
+                q = (dt_utc.minute // 15) * 15
+                return f"{dt_utc.strftime('%Y-%m-%dT%H')}:{q:02d}"
+            except ValueError:
+                continue
     now = datetime.now(timezone.utc)
     q = (now.minute // 15) * 15
     return f"{now.strftime('%Y-%m-%dT%H')}:{q:02d}"
 
 
-def _nearest_hour_str() -> str:
-    now = datetime.now(timezone.utc)
-    return now.strftime("%Y-%m-%dT%H:00")
+def _nearest_hour_str(ref_ts_str: str | None = None) -> str:
+    """
+    Gibt die volle Stunde des Referenz-Zeitstempels zurück (UTC).
+    Falls ref_ts_str angegeben: Aufnahme-Zeitstempel parsen und auf volle Stunde runden.
+    Fallback: aktuelle UTC-Systemzeit.
+    Beispiel-Rückgabe: '2026-05-28T13:00'
+    """
+    _FORMATS = (
+        "%Y-%m-%d_%H-%M-%S",
+        "%Y%m%d_%H%M%S",
+        "%Y-%m-%dT%H:%M:%S",
+    )
+    if ref_ts_str:
+        for fmt in _FORMATS:
+            try:
+                from zoneinfo import ZoneInfo as _ZI_h
+                dt = datetime.strptime(ref_ts_str, fmt).replace(tzinfo=_ZI_h("Europe/Vienna"))
+                dt_utc = dt.astimezone(timezone.utc)
+                return dt_utc.strftime("%Y-%m-%dT%H:00")
+            except ValueError:
+                continue
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:00")
 
 
 def _dir_to_cos_sin(deg: float) -> tuple:
@@ -82,7 +122,7 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
         f"&minutely_15={_MINUTELY_PARAMS}"
         f"&models={_MODEL_15MIN}&timezone={_TIMEZONE}&forecast_days=1"
     )
-    ck_a = cache_key("openmeteo:extended_15min", lats[:60], _nearest_quarter_str())
+    ck_a = cache_key("openmeteo:extended_15min", lats[:60], _nearest_quarter_str(timestamp))
     data_a = cache_get(ck_a, ttl_seconds=get_ttl("openmeteo_extended", 900))
     if data_a is None:
         import time as _ta_ext
@@ -109,7 +149,7 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
         f"&hourly={_PRESSURE_PARAMS}"
         f"&models={_MODEL_PRESSURE}&timezone={_TIMEZONE}&forecast_days=1"
     )
-    ck_b = cache_key("openmeteo:extended_pressure", lats[:60], _nearest_hour_str())
+    ck_b = cache_key("openmeteo:extended_pressure", lats[:60], _nearest_hour_str(timestamp))
     data_b = cache_get(ck_b, ttl_seconds=get_ttl("openmeteo_extended", 900))
     if data_b is None:
         import time as _tb_ext
@@ -138,7 +178,7 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
         f"&hourly={_HOURLY_LPI_PARAMS}"
         f"&models={_MODEL_LPI}&timezone={_TIMEZONE}&forecast_days=1"
     )
-    ck_c = cache_key("openmeteo:extended_lpi", lats[:60], _nearest_hour_str())
+    ck_c = cache_key("openmeteo:extended_lpi", lats[:60], _nearest_hour_str(timestamp))
     data_c = cache_get(ck_c, ttl_seconds=get_ttl("openmeteo_extended", 900))
     if data_c is None:
         import time as _tc_ext
@@ -172,7 +212,7 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
         f"&hourly={_GFS_CONV_PARAMS}"
         f"&timezone={_TIMEZONE}&forecast_days=1"
     )
-    ck_d = cache_key("openmeteo:extended_gfs_conv", lats[:60], _nearest_hour_str())
+    ck_d = cache_key("openmeteo:extended_gfs_conv", lats[:60], _nearest_hour_str(timestamp))
     data_d = cache_get(ck_d, ttl_seconds=get_ttl("openmeteo_extended", 900))
     if data_d is None:
         import time as _td_ext
