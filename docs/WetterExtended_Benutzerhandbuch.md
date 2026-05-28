@@ -1331,6 +1331,56 @@ ML-Modelle und Hailo-HEF-Dateien sind **Binaries** und werden **nicht** über Gi
 ---
 
 
+# 32 NEU: Atmosphärisches 24-Punkt-Raster (ATM_SNAPSHOT_LOCATIONS)
+
+**Modul:** `fetch_atmospheric_snapshot.py`
+**Konfiguration:** `ATM_SNAPSHOT_LOCATIONS` in `config.py`
+
+## 32.1 Motivation
+
+Das bisherige System verwendete die 6 Orte aus `LOCATIONS_WATCHLIST` (Klagenfurt,
+Villach, Wolfsberg, Spittal, St. Veit, Feldkirchen) auch als atmosphärische
+Referenzpunkte. Bei `ATM_RANGE = 20 km` blieben damit ca. 30 % des Kärnten-Grids
+ohne LI/CIN-Bewertung (Randlagen: westliches Gailtal, Lavanttal-Ost, Nordkärnten).
+
+## 32.2 Neue Konstante ATM_SNAPSHOT_LOCATIONS
+
+`ATM_SNAPSHOT_LOCATIONS` in `config.py` ist vom Alarmierungs-System (`LOCATIONS_WATCHLIST`)
+vollständig getrennt. Die 24 Punkte werden **ausschließlich** für das atmosphärische
+Risk-Grid verwendet — kein `radius_km`, keine Ortsdurchquerungsalarme.
+
+## 32.3 Gitter-Design (8 × 3)
+
+| Zone | Breite | Längen (8 Spalten) |
+|---|---|---|
+| Süd-Kärnten | 46.50° N | 12.68 / 13.05 / 13.42 / 13.79 / 14.16 / 14.53 / 14.90 / 15.15 |
+| Zentral-Kärnten | 46.82° N | (gleiche Längen) |
+| Nord-Kärnten | 47.13° N | (gleiche Längen) |
+
+Abstand Ost-West: ~27 km · Abstand Nord-Süd: ~35 km
+→ Jeder Grid-Punkt in Kärnten liegt innerhalb von 20 km eines Snapshot-Punkts.
+
+## 32.4 Batching
+
+`_bulk_get_batched()` splittet die 24 Locations automatisch in Batches à 8 und
+macht 3 × 3 = **9 API-Calls pro Snapshot-Zyklus** (war: 3 Calls für 6 Locations).
+Bei 48 Zyklen/Tag: **432 Requests/Tag** — weit unter dem Open-Meteo-Limit von 10.000/Tag.
+
+## 32.5 Laufzeit-Überschreibung
+
+Der Schlüssel `ATM_SNAPSHOT_LOCATIONS` ist über `runtime_overrides.json` überschreibbar:
+
+```json
+{
+  "ATM_SNAPSHOT_LOCATIONS": [
+    {"name": "MeinPunkt", "lat": 46.80, "lon": 14.00},
+    ...
+  ]
+}
+```
+
+---
+
 # 31 NEU: API-Resilienz — Stale-While-Error-Cache & Verbindungspool
 
 **Module:**
@@ -1398,6 +1448,7 @@ erst bei Erweiterung. Rückwärtskompatibel.
 
 | Version | Datum | Änderungen |
 |---|---|---|
+| v2.1 | Mai 2026 | **Atmosphärisches 24-Punkt-Raster:** `ATM_SNAPSHOT_LOCATIONS` in `config.py` — 8×3-Gitter (~27 km Abstand) für lückenlose Kärnten-Abdeckung. `_bulk_get_batched()` in `fetch_atmospheric_snapshot.py` splittet Requests automatisch in Batches à 8 Locations. Getrennt von `LOCATIONS_WATCHLIST` (Alarmierung unverändert). |
 | v2.0 | Mai 2026 | **Trainings-Schedule Hilftexte:** Jedes Einstellungsfeld im Trainings-Schedule erhält einen erläuternden Hilfetext direkt unter dem Eingabefeld (Datensatz-Rebuild, Retrain-Interval, Nightly Retrain, ConvLSTM Zeitplan). **Live-Karte UX:** KMZ-Download-Button aus der Live-Karte entfernt (KMZ wird weiterhin automatisch per FTP hochgeladen). Risikozonen-Statusmeldungen („Keine Risikozonen im aktuellen Zeitraum" / „Risikozonen nicht verfügbar") werden jetzt kompakt in der Timing-Bar neben „✓ Keine aktiven Schwergewitter-Zellen" angezeigt statt als separate Banner. |
 | v1.11 | Mai 2026 | **Risikozonen-Radien kalibriert:** Einfluss-Radien des Risk-Grids auf meteorologisch realistische Werte reduziert (CELL_RANGE 60→30 km, TRACK_RANGE 30→20 km, BOLT_RANGE 30→20 km, ATM_RANGE 45→30 km, IR-Vorläufer 40→25 km, in_track-Schwelle 15→10 km). Alle Radien über Runtime-Overrides konfigurierbar (`RISK_CELL_RANGE_KM`, `RISK_TRACK_RANGE_KM`, `RISK_BOLT_RANGE_KM`, `RISK_ATM_RANGE_KM`). **Config-Hilfe:** Die Konfigurationsseite (`/config`) zeigt jetzt eine vollständige, durchsuchbare Parameter-Referenz mit allen 34 konfigurierbaren Runtime-Keys, Typen, Defaults, Beschreibungen und Beispiel-JSON. |
 | v1.10 | Mai 2026 | **IR-Vorläufer Tooltip — Trendanzeige:** Der IR-Vorläufer-Tooltip (🛰 CB > 10.000) zeigt den Trend jetzt als qualitatives Label: `↑ Intensiviert ⚡` (BT-Trend < −1,5 K/min), `↓ Löst sich auf` (BT-Trend > +0,5 K/min) oder `→ Stabil`. Der numerische K/min-Wert und das technische Label „Kein Radar-Echo — Vorläufer" wurden entfernt. **Zell-Navigation aus Live-Daten:** In der `/live`-Ansicht öffnet ein Klick auf die Zell-ID ein neues Fenster mit `/map`, das sofort auf diese Zelle zoomt (URL-Parameter `lat`, `lon`, `zoom`, `cell`). **Zusammenführungs- und Teilungs-Badge:** Zellen mit `lineage == merged` erhalten in der Tabelle ein oranges ⊕-Badge, Zellen mit `lineage == split` ein violettes ⊗-Badge. Im Detail-Panel werden bei Merged-Zellen zusätzlich die Parent-IDs angezeigt. |

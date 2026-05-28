@@ -363,6 +363,41 @@ LOCATIONS_WATCHLIST = [
     {"name": "Feldkirchen", "lat": 46.7233, "lon": 14.0992, "radius_km": 5.0},
 ]
 
+# 8×3-Raster-Gitterpunkte für den atmosphärischen Snapshot.
+# Verwendet ausschließlich von fetch_atmospheric_snapshot.py für das Risk-Grid
+# (LI/CAPE/CIN-Einfluss). NICHT für Alarm-Prüfungen (kein radius_km).
+# 24 Punkte mit ~27 km Abstand → lückenlose Abdeckung bei ATM_RANGE 20 km.
+# Zur Laufzeit überschreibbar via runtime_config "ATM_SNAPSHOT_LOCATIONS".
+ATM_SNAPSHOT_LOCATIONS: list = [
+    # ── Süd-Kärnten (lat ≈ 46.50) ────────────────────────────────────────────
+    {"name": "Nassfeld",           "lat": 46.50, "lon": 12.68},
+    {"name": "Hermagor",           "lat": 46.50, "lon": 13.05},
+    {"name": "Arnoldstein",        "lat": 46.50, "lon": 13.42},
+    {"name": "Finkenstein",        "lat": 46.50, "lon": 13.79},
+    {"name": "Ferlach",            "lat": 46.50, "lon": 14.16},
+    {"name": "Voelkermarkt",       "lat": 46.50, "lon": 14.53},
+    {"name": "Griffen",            "lat": 46.50, "lon": 14.90},
+    {"name": "Bleiburg",           "lat": 46.50, "lon": 15.15},
+    # ── Zentral-Kärnten (lat ≈ 46.82) ────────────────────────────────────────
+    {"name": "Lesachtal",          "lat": 46.82, "lon": 12.68},
+    {"name": "Koetschach",         "lat": 46.82, "lon": 13.05},
+    {"name": "Spittal-Drau",       "lat": 46.82, "lon": 13.42},
+    {"name": "Villach-Grid",       "lat": 46.82, "lon": 13.79},
+    {"name": "Feldkirchen-Grid",   "lat": 46.82, "lon": 14.16},
+    {"name": "St-Veit-Grid",       "lat": 46.82, "lon": 14.53},
+    {"name": "Wolfsberg-Grid",     "lat": 46.82, "lon": 14.90},
+    {"name": "Lavanttal-Ost",      "lat": 46.82, "lon": 15.15},
+    # ── Nord-Kärnten (lat ≈ 47.13) ────────────────────────────────────────────
+    {"name": "Karnische-West",     "lat": 47.13, "lon": 12.68},
+    {"name": "Kreuzeckgruppe",     "lat": 47.13, "lon": 13.05},
+    {"name": "Gmuend",             "lat": 47.13, "lon": 13.42},
+    {"name": "Millstatt",          "lat": 47.13, "lon": 13.79},
+    {"name": "Bad-Kleinkirchheim", "lat": 47.13, "lon": 14.16},
+    {"name": "Friesach",           "lat": 47.13, "lon": 14.53},
+    {"name": "Neumarkt",           "lat": 47.13, "lon": 14.90},
+    {"name": "Koralpe-Nord",       "lat": 47.13, "lon": 15.15},
+]
+
 # TAWES-Stationen für Böen-Monitoring (GeoSphere Austria).
 # IDs entsprechen Kärntner Stationen: Klagenfurt, Villach, Wolfsberg, Spittal, Feldkirchen.
 # Alle Kärntner TAWES-Stationen (GeoSphere Austria, tawes-v1-10min).

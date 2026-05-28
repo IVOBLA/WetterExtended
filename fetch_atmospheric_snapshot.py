@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from math import atan2, cos, pi, radians, sin
 from zoneinfo import ZoneInfo
 
-from config import LOCATIONS_WATCHLIST, SAVE_PATHS
+from config import ATM_SNAPSHOT_LOCATIONS, SAVE_PATHS
 from debug_utils import debug_log, log_api_failure, log_http_response
 import runtime_config
 
@@ -46,6 +46,10 @@ _GFS_CONV_PARAMS = (
     "convective_inhibition,"
     "total_column_integrated_water_vapour"
 )
+
+# Max. Locations pro Open-Meteo-Bulk-Request.
+# Open-Meteo-Antwortzeit steigt überproportional → Batching hält Antwort unter _TIMEOUT.
+_BATCH_SIZE = 8
 
 
 def _nearest_hour_str() -> str:
@@ -89,6 +93,31 @@ def _bulk_get(url: str, label: str) -> list | None:
     return None
 
 
+def _bulk_get_batched(url_base: str, label: str, locations: list) -> list | None:
+    """
+    Splittet *locations* in Batches à _BATCH_SIZE, sendet je einen Bulk-Request
+    und konkateniert die Ergebnisse in der Reihenfolge der Eingabeliste.
+
+    url_base  : URL ohne latitude= und longitude= Parameter.
+    label     : Logging-Label (Batch-Nummer wird angehängt).
+    locations : Liste von Dicts mit Feldern 'lat' und 'lon'.
+
+    Rückgabe  : Konkatenierte Ergebnisliste oder None beim ersten Fehler.
+    """
+    results: list = []
+    n_batches = (len(locations) + _BATCH_SIZE - 1) // _BATCH_SIZE
+    for b in range(n_batches):
+        batch = locations[b * _BATCH_SIZE: (b + 1) * _BATCH_SIZE]
+        lats = ",".join(f"{loc['lat']:.4f}" for loc in batch)
+        lons = ",".join(f"{loc['lon']:.4f}" for loc in batch)
+        url = f"{url_base}&latitude={lats}&longitude={lons}"
+        data = _bulk_get(url, f"{label}-B{b + 1}")
+        if data is None:
+            return None
+        results.extend(data)
+    return results
+
+
 def _gewitterpotenzial(li: float) -> str:
     if li < -3.0:
         return "hoch"
@@ -99,38 +128,36 @@ def _gewitterpotenzial(li: float) -> str:
 
 def fetch_atmospheric_snapshot() -> dict:
     """
-    Holt atmosphärische Werte für alle Orte in LOCATIONS_WATCHLIST.
+    Holt atmosphärische Werte für alle Orte in ATM_SNAPSHOT_LOCATIONS.
     Gibt das Ergebnis-Dict zurück und speichert es in atmosphere_latest.json.
     """
-    locations = runtime_config.get("LOCATIONS_WATCHLIST", LOCATIONS_WATCHLIST)
+    locations = runtime_config.get("ATM_SNAPSHOT_LOCATIONS", ATM_SNAPSHOT_LOCATIONS)
     if not locations:
-        debug_log("[ATMOSPHERE] LOCATIONS_WATCHLIST leer — übersprungen.")
+        debug_log("[ATMOSPHERE] ATM_SNAPSHOT_LOCATIONS leer — übersprungen.")
         return {}
 
     target_time = _nearest_hour_str()
-    lats = ",".join(f"{loc['lat']:.4f}" for loc in locations)
-    lons = ",".join(f"{loc['lon']:.4f}" for loc in locations)
 
-    # --- AROME bulk (icon_d2) ---
-    arome_url = (
-        f"{_OPEN_METEO_URL}?latitude={lats}&longitude={lons}"
-        f"&hourly={_AROME_PARAMS}&models=icon_d2&timezone={_TZ}&forecast_days=1"
+    # --- AROME bulk (icon_d2) — batched à _BATCH_SIZE Locations ---
+    _arome_base = (
+        f"{_OPEN_METEO_URL}?hourly={_AROME_PARAMS}&models=icon_d2"
+        f"&timezone={_TZ}&forecast_days=1"
     )
-    arome_data = _bulk_get(arome_url, "Open-Meteo-Atmosphere-AROME")
+    arome_data = _bulk_get_batched(_arome_base, "Open-Meteo-Atmosphere-AROME", locations)
 
-    # --- 700 hPa Wind bulk (icon_global) ---
-    wind_url = (
-        f"{_OPEN_METEO_URL}?latitude={lats}&longitude={lons}"
-        f"&hourly={_WIND_PARAMS}&models=icon_global&timezone={_TZ}&forecast_days=1"
+    # --- 700 hPa Wind bulk (icon_global) — batched ---
+    _wind_base = (
+        f"{_OPEN_METEO_URL}?hourly={_WIND_PARAMS}&models=icon_global"
+        f"&timezone={_TZ}&forecast_days=1"
     )
-    wind_data = _bulk_get(wind_url, "Open-Meteo-Atmosphere-Pressure")
+    wind_data = _bulk_get_batched(_wind_base, "Open-Meteo-Atmosphere-Pressure", locations)
 
-    # --- GFS bulk (LI/CIN/PW) ---
-    gfs_url = (
-        f"{_GFS_URL}?latitude={lats}&longitude={lons}"
-        f"&hourly={_GFS_CONV_PARAMS}&timezone={_TZ}&forecast_days=1"
+    # --- GFS bulk (LI/CIN/PW) — batched ---
+    _gfs_base = (
+        f"{_GFS_URL}?hourly={_GFS_CONV_PARAMS}"
+        f"&timezone={_TZ}&forecast_days=1"
     )
-    gfs_data = _bulk_get(gfs_url, "Open-Meteo-Atmosphere-GFS")
+    gfs_data = _bulk_get_batched(_gfs_base, "Open-Meteo-Atmosphere-GFS", locations)
 
     # --- Datenqualitäts-Check: stille None-Fehler sichtbar machen ---
     def _all_none(dataset, key):
@@ -142,14 +169,14 @@ def fetch_atmospheric_snapshot() -> dict:
     if _all_none(arome_data, "temperature_2m"):
         log_api_failure(
             "Open-Meteo-Atmosphere-AROME",
-            arome_url,
+            _arome_base,
             "temperature_2m: alle Werte None — icon_d2 liefert Parameter nicht",
             fallback_used=True,
         )
     if _all_none(wind_data, "wind_speed_700hPa"):
         log_api_failure(
             "Open-Meteo-Atmosphere-Pressure",
-            wind_url,
+            _wind_base,
             "wind_speed_700hPa: alle Werte None — icon_global liefert Parameter nicht",
             fallback_used=True,
         )
@@ -159,7 +186,7 @@ def fetch_atmospheric_snapshot() -> dict:
         if _all_none(wind_data, _p):
             log_api_failure(
                 "Open-Meteo-Atmosphere-Pressure",
-                wind_url,
+                _wind_base,
                 f"{_p}: alle Werte None — pressure request liefert Parameter nicht",
                 fallback_used=True,
             )
@@ -167,7 +194,7 @@ def fetch_atmospheric_snapshot() -> dict:
         if _all_none(gfs_data, _p):
             log_api_failure(
                 "Open-Meteo-Atmosphere-GFS",
-                gfs_url,
+                _gfs_base,
                 f"{_p}: alle Werte None — GFS liefert Parameter nicht",
                 fallback_used=True,
             )
