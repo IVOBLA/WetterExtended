@@ -584,34 +584,21 @@ export default function MapView() {
           <span className={radarTiming.cells_active ? 'text-red-600 font-semibold' : 'text-gray-400'}>
             {radarTiming.cells_active ? '⚡ Zellen aktiv' : '✓ Keine aktiven Schwergewitter-Zellen'}
           </span>
+          {showRisk && riskGridError && (
+            <span className="text-red-500 font-semibold">
+              ⚠ Risikozonen nicht verfügbar
+            </span>
+          )}
+          {showRisk && !riskGridError && riskGrid.length === 0 && (
+            <span className="text-gray-400">
+              — Keine Risikozonen
+            </span>
+          )}
         </div>
       )}
 
       <Legend horizons={horizons.horizons} colors={horizons.colors} />
-      {showRisk && riskGridError && (
-        <div className="mb-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
-          Risikozonen konnten nicht geladen werden
-        </div>
-      )}
-      {showRisk && !riskGridError && riskGrid.length === 0 && (
-        <div className="mb-2 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded px-3 py-2">
-          Keine Risikozonen im aktuellen Zeitraum
-        </div>
-      )}
 
-      {/* KMZ-Export-Download (Zieldefinition §25) */}
-      <div className="mb-2">
-        <a
-          href="/api/export/forecast.kmz"
-          download="forecast.kmz"
-          className="inline-flex items-center gap-1 px-3 py-1.5 rounded shadow
-                     bg-white border border-gray-300 text-xs text-gray-700
-                     hover:bg-gray-50 transition-colors"
-          title="Aktuelle Vorhersage als KMZ herunterladen (Google Earth, OziExplorer)"
-        >
-          📥 KMZ
-        </a>
-      </div>
 
       {/* Overlay-Steuerung + Animation */}
       <div className="flex flex-wrap items-center gap-4 mb-2 text-sm bg-gray-50 border rounded px-3 py-2">
