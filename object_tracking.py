@@ -2,6 +2,7 @@ import os
 import cv2
 import numpy as np
 from datetime import datetime
+from radar_download import get_acquisition_timestamp
 from filterpy.kalman import KalmanFilter
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
@@ -770,16 +771,28 @@ def detect_and_track_objects(image_path=None, weather_data=None):
     # 📆 Timestamp extrahieren
     filename = os.path.basename(image_path).replace(".png", "")
     if "latest" in filename:
-        ts_dt = datetime.now()
-        timestamp = ts_dt.strftime("%Y-%m-%d_%H-%M-%S")
-        debug_log(f"[INFO] Live-Modus erkannt → Timestamp: {timestamp}")
+        _acq = get_acquisition_timestamp()
+        if _acq:
+            timestamp = _acq
+            ts_dt = datetime.strptime(_acq, "%Y-%m-%d_%H-%M-%S")
+            debug_log(f"[INFO] Live-Modus: Aufnahme-Timestamp aus KMZ (Last-Modified): {timestamp}")
+        else:
+            ts_dt = datetime.now()
+            timestamp = ts_dt.strftime("%Y-%m-%d_%H-%M-%S")
+            debug_log(f"[WARN] Live-Modus: Last-Modified nicht verfügbar → Systemzeit: {timestamp}")
     else:
         try:
             ts_dt = datetime.strptime(filename.replace("radar_", ""), "%Y-%m-%d_%H-%M-%S")
             timestamp = ts_dt.strftime("%Y-%m-%d_%H-%M-%S")
         except ValueError:
-            ts_dt = datetime.now()
-            timestamp = ts_dt.strftime("%Y-%m-%d_%H-%M-%S")
+            _acq = get_acquisition_timestamp()
+            if _acq:
+                timestamp = _acq
+                ts_dt = datetime.strptime(_acq, "%Y-%m-%d_%H-%M-%S")
+                debug_log(f"[WARN] Dateiname-Parse fehlgeschlagen, nutze KMZ Last-Modified: {timestamp}")
+            else:
+                ts_dt = datetime.now()
+                timestamp = ts_dt.strftime("%Y-%m-%d_%H-%M-%S")
 
     # ✂️ Bild zuschneiden & hochskalieren
     scaled_path = os.path.join("data/radar", f"radar_{timestamp}.png")
