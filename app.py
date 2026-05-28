@@ -2821,10 +2821,10 @@ def api_risk_grid():
     GRID_STEP  = _safe_float(runtime_config.get("RISK_GRID_STEP_DEG", 0.05), 0.05)
     _bbox = runtime_config.get("BBOX_KAERNTEN_EXTENDED", _DEFAULT_RISK_BBOX)
     LAT_MIN, LAT_MAX, LON_MIN, LON_MAX = _bbox_to_limits(_bbox)
-    CELL_RANGE = 60.0
-    TRACK_RANGE = 30.0   # NEU: Korridor um Zugbahn (km, schmaler als CELL_RANGE)
-    BOLT_RANGE = 30.0
-    ATM_RANGE  = 45.0
+    CELL_RANGE  = _safe_float(runtime_config.get("RISK_CELL_RANGE_KM",  30.0), 30.0)
+    TRACK_RANGE = _safe_float(runtime_config.get("RISK_TRACK_RANGE_KM", 20.0), 20.0)
+    BOLT_RANGE  = _safe_float(runtime_config.get("RISK_BOLT_RANGE_KM",  20.0), 20.0)
+    ATM_RANGE   = _safe_float(runtime_config.get("RISK_ATM_RANGE_KM",   30.0), 30.0)
     # Geschwindigkeitsbasierte Risikogewichtung:
     # Stationäre Zellen (Dauergewitter, Starkregen) sind gefährlicher.
     # Ab FAST_CELL_KMH gibt es keinen Extra-Boost mehr.
@@ -3034,7 +3034,7 @@ def api_risk_grid():
                     if d_seg < TRACK_RANGE:
                         track_contrib = 0.6 * wt * (1.0 - d_seg / TRACK_RANGE) ** 2
                         score += track_contrib
-                        if d_seg < 15.0:
+                        if d_seg < 10.0:
                             in_track = True
                             if nearest_cell_id is None:
                                 nearest_cell_id = cell.get("id")
@@ -3107,7 +3107,7 @@ def api_risk_grid():
                     _safe_float(_ir.get("lat", 0), 0.0),
                     _safe_float(_ir.get("lon", 0), 0.0),
                 )
-                if _ir_d2 <= 40.0 and _ir.get("ir_only_precursor", 0) == 1.0:
+                if _ir_d2 <= 25.0 and _ir.get("ir_only_precursor", 0) == 1.0:
                     _ir_cell_near = True
                     if score < 1.0:
                         score += 0.5  # leichter Risikobeitrag ohne Radar-Echo
