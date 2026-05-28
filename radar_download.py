@@ -44,6 +44,28 @@ def _write_last_modified(value: str) -> None:
         pass
 
 
+def get_acquisition_timestamp() -> str | None:
+    """
+    Gibt den Aufnahme-Zeitstempel des zuletzt heruntergeladenen ARSO-KMZ zurück.
+
+    Quelle: HTTP Last-Modified-Header aus data/.kmz_last_modified (RFC 2822).
+    parsedate_to_datetime ist bereits im Modul importiert (email.utils).
+
+    Rückgabe: 'YYYY-MM-DD_HH-MM-SS' in Europe/Vienna-Lokalzeit.
+             None wenn keine gespeicherte Zeit verfügbar oder Parse fehlschlägt.
+    """
+    raw = _read_last_modified()
+    if not raw:
+        return None
+    try:
+        from zoneinfo import ZoneInfo
+        dt_utc = parsedate_to_datetime(raw)
+        dt_vienna = dt_utc.astimezone(ZoneInfo("Europe/Vienna"))
+        return dt_vienna.strftime("%Y-%m-%d_%H-%M-%S")
+    except Exception:
+        return None
+
+
 # Maximale erlaubte Einzeldatei-Größe nach Extract (50 MB).
 # ARSO KMZ enthält 1 KML (<10 KB) und 1 PNG (typisch 100–500 KB).
 _MAX_EXTRACT_FILE_SIZE = 50 * 1024 * 1024
