@@ -205,6 +205,7 @@ Abarbeitungsreihenfolge war: A1 → A2 → A3 → A4 → A5 → A6 → A8 → A7
 | P-07 | `config.py`: STATIC_EXCLUSION_ZONES Speikkogel Radius 15 → 8 km (verhindert False-Negatives östlich Wolfsberg) | `config.py` | 🚧 in Arbeit |
 | P-08 | Doku-Updates Benutzerhandbuch §31 + HAILO_INTEGRATION §5.4 | `docs/WetterExtended_Benutzerhandbuch.md`, `docs/HAILO_INTEGRATION.md` | 🚧 in Arbeit |
 | P-09 | `daily_analyzer.py`: UnboundLocalError `ML_FORECAST_HORIZONS_MIN` durch doppelten Import in `build_system_report()` fixen | `daily_analyzer.py` | 🚧 in Arbeit |
+| P-10 | `app.py` `api_risk_grid()`: Bereichsradien reduziert (CELL_RANGE 60→30 km, TRACK_RANGE 30→20 km, BOLT_RANGE 30→20 km, ATM_RANGE 45→30 km, IR-Track 40→25 km, in_track-Schwelle 15→10 km) und als Runtime-Override konfigurierbar; `Configuration.jsx`: vollständige Parameter-Referenz mit Suche für alle 34 runtime_config-Keys | `app.py`, `frontend/src/pages/Configuration.jsx` | 🚧 in Arbeit |
 
 **Status-Update:** Sobald ein Prompt eingespielt und verifiziert ist, Status auf ✅ erledigt.
 

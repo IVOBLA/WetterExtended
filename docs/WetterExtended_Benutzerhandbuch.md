@@ -1143,8 +1143,23 @@ Alle Parameter werden in `config.py` als Python-Konstanten definiert und können
 | `AI_ANALYSIS_CONFIG.enabled` | `false` | KI-Analyse |
 | `AI_ANALYSIS_CONFIG.cron_hour` | 6 | KI-Analyse |
 | `LOCAL_TRAINING` | `true` | Multi-Rechner |
+| `RISK_CELL_RANGE_KM` | 30 km | Risikozonen |
+| `RISK_TRACK_RANGE_KM` | 20 km | Risikozonen |
+| `RISK_BOLT_RANGE_KM` | 20 km | Risikozonen |
+| `RISK_ATM_RANGE_KM` | 30 km | Risikozonen |
+| `RISK_GRID_STEP_DEG` | 0.05° | Risikozonen |
+| `RISK_FAST_CELL_KMH` | 40 km/h | Risikozonen |
+| `RISK_STATIONARY_BOOST` | 0.8 | Risikozonen |
+| `TAWES_GUST_STATION_IDS` | (alle Kärntner) | TAWES |
+| `TAWES_PARAMS` | `RR,DD,FF,FFX,...` | TAWES |
+| `API_CACHE_TTL_SECONDS` | `{}` (Dict) | API-Cache |
+| `CONVLSTM_MODEL_PATH` | (auto) | ML |
+| `SLOW_CELL_MAX_KMH` | 15 km/h | Warnungen |
+| `SLOW_CELL_RADIUS_FACTOR` | 1.5 | Warnungen |
 
-> **Hinweis:** Alle Parameter unter `runtime_overrides.json` überschreiben die `config.py`-Defaults. Änderungen über das Admin-Panel sind sofort wirksam.
+> **Hinweis:** Alle Parameter unter `runtime_overrides.json` überschreiben die `config.py`-Defaults.
+> Änderungen über das Admin-Panel (`/config`) sind sofort wirksam — kein Service-Neustart nötig.
+> Die Konfigurationsseite enthält eine vollständige, durchsuchbare Referenz aller 34 konfigurierbaren Keys.
 
 ---
 
@@ -1362,6 +1377,7 @@ erst bei Erweiterung. Rückwärtskompatibel.
 | Version | Datum | Änderungen |
 |---|---|---|
 | v2.0 | Mai 2026 | **Trainings-Schedule Hilftexte:** Jedes Einstellungsfeld im Trainings-Schedule erhält einen erläuternden Hilfetext direkt unter dem Eingabefeld (Datensatz-Rebuild, Retrain-Interval, Nightly Retrain, ConvLSTM Zeitplan). **Live-Karte UX:** KMZ-Download-Button aus der Live-Karte entfernt (KMZ wird weiterhin automatisch per FTP hochgeladen). Risikozonen-Statusmeldungen („Keine Risikozonen im aktuellen Zeitraum" / „Risikozonen nicht verfügbar") werden jetzt kompakt in der Timing-Bar neben „✓ Keine aktiven Schwergewitter-Zellen" angezeigt statt als separate Banner. |
+| v1.11 | Mai 2026 | **Risikozonen-Radien kalibriert:** Einfluss-Radien des Risk-Grids auf meteorologisch realistische Werte reduziert (CELL_RANGE 60→30 km, TRACK_RANGE 30→20 km, BOLT_RANGE 30→20 km, ATM_RANGE 45→30 km, IR-Vorläufer 40→25 km, in_track-Schwelle 15→10 km). Alle Radien über Runtime-Overrides konfigurierbar (`RISK_CELL_RANGE_KM`, `RISK_TRACK_RANGE_KM`, `RISK_BOLT_RANGE_KM`, `RISK_ATM_RANGE_KM`). **Config-Hilfe:** Die Konfigurationsseite (`/config`) zeigt jetzt eine vollständige, durchsuchbare Parameter-Referenz mit allen 34 konfigurierbaren Runtime-Keys, Typen, Defaults, Beschreibungen und Beispiel-JSON. |
 | v1.10 | Mai 2026 | **IR-Vorläufer Tooltip — Trendanzeige:** Der IR-Vorläufer-Tooltip (🛰 CB > 10.000) zeigt den Trend jetzt als qualitatives Label: `↑ Intensiviert ⚡` (BT-Trend < −1,5 K/min), `↓ Löst sich auf` (BT-Trend > +0,5 K/min) oder `→ Stabil`. Der numerische K/min-Wert und das technische Label „Kein Radar-Echo — Vorläufer" wurden entfernt. **Zell-Navigation aus Live-Daten:** In der `/live`-Ansicht öffnet ein Klick auf die Zell-ID ein neues Fenster mit `/map`, das sofort auf diese Zelle zoomt (URL-Parameter `lat`, `lon`, `zoom`, `cell`). **Zusammenführungs- und Teilungs-Badge:** Zellen mit `lineage == merged` erhalten in der Tabelle ein oranges ⊕-Badge, Zellen mit `lineage == split` ein violettes ⊗-Badge. Im Detail-Panel werden bei Merged-Zellen zusätzlich die Parent-IDs angezeigt. |
 | v1.9 | Mai 2026 | **Risk-Grid-Fix:** `/api/risk_grid` ist jetzt 200-stabil — `BBOX_KAERNTEN_EXTENDED` wird korrekt importiert und als Dict (`north/south/east/west`) und als List/Tuple verarbeitet. Die Kärnten-BBOX wird immer korrekt verwendet statt auf Fallback-Werte zu fallen. **IR-Vorläufer-Bewertung:** IR-Tracks werden einmalig vor der Grid-Schleife geladen (nicht mehr ~1000× pro API-Call). Der IR-Score-Beitrag wird jetzt korrekt VOR der Risk-Klassifikation addiert, sodass reine IR-Vorläuferzellen tatsächlich Risk-1-Zellen erzeugen können. **Vollbild-Karte Fehleranzeige:** `/karte` (MapFullscreen) zeigt jetzt wie die Admin-Karte eine sichtbare Fehlermeldung wenn das Risk-Grid nicht geladen werden kann. |
 | v1.8 | Mai 2026 | **3-Stage Kalman-Matching:** Zell-Tracking nutzt jetzt Kalman-vorhergesagte Polygonpositionen (Stage 1: IoU gegen verschobenes Polygon; Stage 2: Zentroid-Distanz; Stage 3: klassischer Overlap). Zellen behalten ihre ID auch bei schneller Bewegung oder Formänderung. **Richtungspfeile** werden für alle Zellen gezeigt (langsame mit 35% Opazität statt ausgeblendet). **Download-Buttons** (⬇ Logs .txt, ⬇ Objects .json) in der Logs-Seite. |
