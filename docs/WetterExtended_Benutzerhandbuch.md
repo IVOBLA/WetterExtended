@@ -1143,12 +1143,12 @@ Alle Parameter werden in `config.py` als Python-Konstanten definiert und können
 | `AI_ANALYSIS_CONFIG.enabled` | `false` | KI-Analyse |
 | `AI_ANALYSIS_CONFIG.cron_hour` | 6 | KI-Analyse |
 | `LOCAL_TRAINING` | `true` | Multi-Rechner |
-| `RISK_CELL_RANGE_KM` | 30 km | Risikozonen |
-| `RISK_TRACK_RANGE_KM` | 20 km | Risikozonen |
-| `RISK_BOLT_RANGE_KM` | 20 km | Risikozonen |
-| `RISK_ATM_RANGE_KM` | 30 km | Risikozonen |
+| `RISK_CELL_RANGE_KM` | 20 km | Risikozonen |
+| `RISK_TRACK_RANGE_KM` | 10 km | Risikozonen |
+| `RISK_BOLT_RANGE_KM` | 10 km | Risikozonen |
+| `RISK_ATM_RANGE_KM` | 20 km | Risikozonen |
 | `RISK_GRID_STEP_DEG` | 0.05° | Risikozonen |
-| `RISK_FAST_CELL_KMH` | 40 km/h | Risikozonen |
+| `RISK_FAST_CELL_KMH` | 30 km/h | Risikozonen |
 | `RISK_STATIONARY_BOOST` | 0.8 | Risikozonen |
 | `TAWES_GUST_STATION_IDS` | (alle Kärntner) | TAWES |
 | `TAWES_PARAMS` | `RR,DD,FF,FFX,...` | TAWES |
