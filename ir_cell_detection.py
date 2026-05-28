@@ -47,6 +47,8 @@ from config import (
     IR_CONVECTION_BT_THRESHOLD_K,
     IR_OVERSHOOTING_TOP_BT_K,
     IR_MIN_CELL_AREA_PX,
+    IR_MIN_CAPE_J_KG,
+    IR_MAX_LI_C,
     LAPSE_RATE,
 )
 from debug_utils import debug_log, log_api_failure
@@ -112,22 +114,27 @@ def _load_arome_snapshot() -> dict:
         return {}
 
 
-def _lookup_atm(lat: float, lon: float, snapshot: dict) -> tuple:
+def _lookup_atm(lat: float, lon: float, snapshot: dict,
+                max_dist_km: float = 50.0) -> tuple:
     """
     Sucht nächstgelegene AROME-Snapshot-Location für lat/lon.
-    Rückgabe: (cape, li) — (0.0, 0.0) wenn kein Snapshot.
+    Rückgabe: (cape, li) — (None, None) wenn kein Snapshot oder
+    kein Ort innerhalb max_dist_km.
+    None = keine Daten verfügbar → Filter wird nicht angewendet.
     """
     locs = snapshot.get("locations", [])
     if not locs:
-        return 0.0, 0.0
+        return None, None
     best_dist = float("inf")
-    cape_val = li_val = 0.0
+    cape_val = li_val = None
     for loc in locs:
         d = _haversine_km(lat, lon, loc.get("lat", 0), loc.get("lon", 0))
         if d < best_dist:
             best_dist = d
             cape_val = float(loc.get("cape", 0.0) or 0.0)
             li_val   = float(loc.get("li", 0.0) or 0.0)
+    if best_dist > max_dist_km:
+        return None, None   # zu weit → keine verlässlichen Daten
     return cape_val, li_val
 
 
@@ -229,6 +236,24 @@ def detect_ir_cells(timestamp: str | None = None) -> list:
 
                 # CAPE / LI aus Snapshot
                 cape_val, li_val = _lookup_atm(lat_c, lon_c, snapshot)
+
+                # ── CAPE/LI-Filter ─────────────────────────────────────────
+                # Nur anwenden wenn Atmosphären-Daten verfügbar sind.
+                # cape_val = None → kein ATM-Ort in Reichweite → nicht filtern.
+                if cape_val is not None:
+                    if IR_MIN_CAPE_J_KG > 0 and cape_val < IR_MIN_CAPE_J_KG:
+                        debug_log(
+                            f"[IR-DET] Cluster {cell_idx} verworfen: "
+                            f"CAPE={cape_val:.0f} < {IR_MIN_CAPE_J_KG} J/kg"
+                        )
+                        continue
+                if li_val is not None:
+                    if IR_MAX_LI_C < 0 and li_val > IR_MAX_LI_C:
+                        debug_log(
+                            f"[IR-DET] Cluster {cell_idx} verworfen: "
+                            f"LI={li_val:.2f} > {IR_MAX_LI_C} °C (zu stabil)"
+                        )
+                        continue
 
                 cells.append({
                     "ir_id":            f"ir_{cell_idx}",

@@ -17,6 +17,15 @@ const PARAM_GROUPS = [
     ],
   },
   {
+    label: '🛰 IR-Vorläufer-Erkennung',
+    params: [
+      { key: 'IR_CONVECTION_BT_THRESHOLD_K', type: 'number', default: 230, unit: 'K',     desc: 'Brightness-Temperature-Schwelle: Pixel mit BT < Wert gelten als konvektiver Wolkentop. Niedriger = strenger (220 K ≈ 11.500 m MSL).', example: 230 },
+      { key: 'IR_MIN_CELL_AREA_PX',          type: 'number', default: 300, unit: 'Pixel', desc: 'Mindestgröße eines IR-Clusters in TIFF-Pixeln. Kleiner = mehr Detektionen, aber mehr Fehlalarme. Bei 0.12 km/Pixel: 300 ≈ 4 km².', example: 300 },
+      { key: 'IR_MIN_CAPE_J_KG',             type: 'number', default: 200, unit: 'J/kg',  desc: 'Mindest-CAPE für IR-Cell-Erkennung. 0 = Filter deaktiviert. Nur angewendet wenn ATM-Daten innerhalb 50 km verfügbar.', example: 200 },
+      { key: 'IR_MAX_LI_C',                  type: 'number', default: -0.5, unit: '°C',   desc: 'Maximaler Lifted Index für IR-Cell-Erkennung (negativ = instabil). -0.5 = nur bei leichter Instabilität. 0 = Filter deaktiviert.', example: -0.5 },
+    ],
+  },
+  {
     label: '📍 Orts-Watchlist',
     params: [
       {
