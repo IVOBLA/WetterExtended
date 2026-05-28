@@ -2799,12 +2799,28 @@ def api_risk_grid():
         except (TypeError, ValueError):
             return default
 
+    def _bbox_to_limits(bbox):
+        """Konvertiert BBOX aus dict {north,south,east,west} oder list/tuple [s,n,w,e]."""
+        if isinstance(bbox, dict):
+            return (
+                _safe_float(bbox.get("south"), 46.36),
+                _safe_float(bbox.get("north"), 47.18),
+                _safe_float(bbox.get("west"),  12.60),
+                _safe_float(bbox.get("east"),  15.20),
+            )
+        if isinstance(bbox, (list, tuple)) and len(bbox) == 4:
+            return (
+                _safe_float(bbox[0], 46.36),
+                _safe_float(bbox[1], 47.18),
+                _safe_float(bbox[2], 12.60),
+                _safe_float(bbox[3], 15.20),
+            )
+        return 46.36, 47.18, 12.60, 15.20
+
+    from config import BBOX_KAERNTEN_EXTENDED as _DEFAULT_RISK_BBOX
     GRID_STEP  = _safe_float(runtime_config.get("RISK_GRID_STEP_DEG", 0.05), 0.05)
-    _bbox = runtime_config.get("BBOX_KAERNTEN_EXTENDED", BBOX_KAERNTEN_EXTENDED)
-    LAT_MIN = _safe_float(_bbox[0], 46.15) if isinstance(_bbox, (list, tuple)) and len(_bbox) == 4 else 46.15
-    LAT_MAX = _safe_float(_bbox[1], 47.20) if isinstance(_bbox, (list, tuple)) and len(_bbox) == 4 else 47.20
-    LON_MIN = _safe_float(_bbox[2], 12.80) if isinstance(_bbox, (list, tuple)) and len(_bbox) == 4 else 12.80
-    LON_MAX = _safe_float(_bbox[3], 15.45) if isinstance(_bbox, (list, tuple)) and len(_bbox) == 4 else 15.45
+    _bbox = runtime_config.get("BBOX_KAERNTEN_EXTENDED", _DEFAULT_RISK_BBOX)
+    LAT_MIN, LAT_MAX, LON_MIN, LON_MAX = _bbox_to_limits(_bbox)
     CELL_RANGE = 60.0
     TRACK_RANGE = 30.0   # NEU: Korridor um Zugbahn (km, schmaler als CELL_RANGE)
     BOLT_RANGE = 30.0
