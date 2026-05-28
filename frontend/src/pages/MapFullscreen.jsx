@@ -134,6 +134,7 @@ export default function MapFullscreen() {
   const lastImgRef     = useRef(null)
   const frameLoadTimer = useRef(null)
   const frameDataCache = useRef({})
+  const playingRef     = useRef(false)
 
   const currentFrame = frames[currentIdx] ?? null
   const radarUrl = currentFrame
@@ -153,8 +154,8 @@ export default function MapFullscreen() {
     return () => clearInterval(timerRef.current)
   }, [playing, speed, frames.length])
 
-  const handlePlay  = useCallback(() => setPlaying(true),  [])
-  const handlePause = useCallback(() => setPlaying(false), [])
+  const handlePlay  = useCallback(() => { setPlaying(true);  playingRef.current = true  }, [])
+  const handlePause = useCallback(() => { setPlaying(false); playingRef.current = false }, [])
 
   const schedulePoll = useCallback((timing) => {
     if (pollRef.current) clearTimeout(pollRef.current)
@@ -175,7 +176,7 @@ export default function MapFullscreen() {
   const loadRef = useRef(null)
 
   async function load() {
-    frameDataCache.current = {}
+    if (!playingRef.current) frameDataCache.current = {}
     setLoading(true)
     try {
       // Schritt 1: Metadaten + Frames parallel laden
@@ -208,14 +209,16 @@ export default function MapFullscreen() {
         const latestIdx = framesData.latest_idx ?? framesData.frames.length - 1
         latestTs = framesData.frames[latestIdx]?.ts ?? null
         setFrames(framesData.frames)
-        setCurrentIdx(latestIdx)
+        if (!playingRef.current) setCurrentIdx(latestIdx)
       }
       const [objs, fc] = await Promise.all([
         api.get(latestTs ? `/api/objects?ts=${latestTs}` : '/api/objects'),
         api.get(latestTs ? `/api/forecast?ts=${latestTs}` : '/api/forecast'),
       ])
-      setObjects(objs)
-      setForecast(fc)
+      if (!playingRef.current) {
+        setObjects(objs)
+        setForecast(fc)
+      }
       setLastTs(new Date().toLocaleTimeString('de-AT'))
     } catch (e) {
       console.error(e)
