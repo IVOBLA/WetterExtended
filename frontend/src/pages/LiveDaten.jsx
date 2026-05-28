@@ -127,9 +127,9 @@ export default function LiveDaten() {
                   <th className="p-2 text-left">Seit</th>
                   <th className="p-2 text-left">Position</th>
                   <th className="p-2 text-right">Größe</th>
-                  <th className="p-2 text-right">Core</th>
+                  <th className="p-2 text-right">Kern</th>
                   <th className="p-2 text-right">vx/vy</th>
-                  <th className="p-2 text-center">Mode</th>
+                  <th className="p-2 text-center">Modus</th>
                   <th className="p-2 text-right">CAPE</th>
                   <th className="p-2 text-right">LI</th>
                   <th className="p-2 text-right">T 2m</th>
@@ -138,7 +138,7 @@ export default function LiveDaten() {
                   <th className="p-2 text-right">Wind 700hPa</th>
                   <th className="p-2 text-right">Wolkenhöhe</th>
                   <th className="p-2 text-right">⚡ &lt;10km</th>
-                  <th className="p-2 text-right">OF-Speed</th>
+                  <th className="p-2 text-right">OF-Geschw.</th>
                 </tr>
               </thead>
               <tbody>
@@ -148,7 +148,30 @@ export default function LiveDaten() {
                     className={`border-b cursor-pointer hover:bg-blue-50 ${selected === o.id ? 'bg-blue-50' : ''}`}
                     onClick={() => setSelected(selected === o.id ? null : o.id)}
                   >
-                    <td className="p-2 font-mono font-semibold text-blue-700">{o.id}</td>
+                    <td className="p-2 font-mono font-semibold text-blue-700">
+                      <button
+                        style={{ background: 'none', border: 'none', padding: 0, color: 'inherit', font: 'inherit', cursor: 'pointer' }}
+                        title="In Karte anzeigen (neues Fenster)"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          window.open(`/map?lat=${o.lat}&lon=${o.lon}&zoom=12&cell=${o.id}`, '_blank')
+                        }}
+                      >
+                        {o.id}
+                      </button>
+                      {(o.lineage === 'merged' || o.lineage === 'split') && (
+                        <span
+                          className={`ml-1 text-xs px-1 rounded font-normal ${
+                            o.lineage === 'merged'
+                              ? 'bg-orange-100 text-orange-700'
+                              : 'bg-purple-100 text-purple-700'
+                          }`}
+                          title={o.lineage === 'merged' ? 'Zusammengeführte Zelle' : 'Geteilte Zelle'}
+                        >
+                          {o.lineage === 'merged' ? '⊕' : '⊗'}
+                        </span>
+                      )}
+                    </td>
                     <td className="p-2 text-xs">
                       {o.first_seen
                         ? (() => {
@@ -290,9 +313,22 @@ export default function LiveDaten() {
                       </>
                     )
                   })()}
-                  Lineage: {sel.lineage ?? '—'}<br />
+                  Lineage:{' '}
+                  <span className={
+                    sel.lineage === 'merged'    ? 'text-orange-600 font-semibold' :
+                    sel.lineage === 'split'     ? 'text-purple-600 font-semibold' : ''
+                  }>
+                    {sel.lineage === 'merged'    ? '⊕ Zusammengeführt' :
+                     sel.lineage === 'split'     ? '⊗ Geteilt' :
+                     sel.lineage === 'continued' ? 'Fortgeführt' :
+                     sel.lineage === 'new'       ? 'Neu' :
+                     sel.lineage ?? '—'}
+                  </span>
+                  {sel.lineage === 'merged' && sel.parents?.length > 0 && (
+                    <span className="text-xs text-gray-400 ml-1">(aus: {sel.parents.join(', ')})</span>
+                  )}<br />
                   Trend: {sel.trend === 1 ? '↑ Intensivierung' : sel.trend === -1 ? '↓ Abschwächung' : '→ Stabil'}<br />
-                  Missing: {sel.missing ?? 0} Frames<br />
+                  Fehlend: {sel.missing ?? 0} Frames<br />
                   Geschwindigkeit:{' '}
                   <b>
                     {(sel.speed_kmh != null
