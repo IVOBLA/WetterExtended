@@ -49,6 +49,8 @@ filterpy>=1.4
 flask>=3.0
 werkzeug>=3.0
 jinja2>=3.1
+PyJWT>=2.8
+bcrypt>=4.0
 
 # --- Visualisierung (für /progress-Plots und evaluation.py) ---
 matplotlib>=3.7
