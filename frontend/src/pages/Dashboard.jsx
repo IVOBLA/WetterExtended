@@ -1,5 +1,106 @@
 import React, { useEffect, useState } from 'react'
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip, Legend, ResponsiveContainer,
+} from 'recharts'
 import api from '../api.js'
+
+/** CPU-Auslastungsdiagramm fuer Dashboard */
+function CpuChart({ data }) {
+  const [showCores, setShowCores] = useState(false)
+
+  if (!data || data.length === 0) {
+    return (
+      <div className="text-sm text-gray-400 italic py-4 text-center">
+        Noch keine CPU-Daten — erster Sample erscheint nach dem naechsten
+        Scheduler-Zyklus (max. 5 Min nach Neustart).
+      </div>
+    )
+  }
+
+  const coreCount = data[0]?.cores?.length || 0
+  const CORE_COLORS = ['#f97316', '#22c55e', '#a855f7', '#ef4444']
+  const AVG_COLOR   = '#3b82f6'
+
+  // Zeitstempel auf HH:MM (lokale Zeit des Browsers) kuerzen
+  const fmtTs = (ts) => {
+    try {
+      return new Date(ts).toLocaleTimeString('de-AT', {
+        hour: '2-digit', minute: '2-digit', hour12: false,
+      })
+    } catch {
+      return ts.substring(11, 16)
+    }
+  }
+
+  const chartData = data.map((s) => {
+    const row = { t: fmtTs(s.ts_utc), avg: s.avg }
+    ;(s.cores || []).forEach((c, i) => { row[`CPU${i}`] = c })
+    return row
+  })
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-2 text-xs text-gray-500">
+        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={showCores}
+            onChange={(e) => setShowCores(e.target.checked)}
+            className="accent-blue-500"
+          />
+          Einzelkerne anzeigen ({coreCount} Kerne)
+        </label>
+        <span className="text-gray-400">· Letzter Wert: Ø {data[data.length - 1]?.avg ?? '—'} %</span>
+      </div>
+      <ResponsiveContainer width="100%" height={200}>
+        <LineChart data={chartData} margin={{ top: 4, right: 12, bottom: 4, left: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+          <XAxis
+            dataKey="t"
+            tick={{ fontSize: 10 }}
+            interval="preserveStartEnd"
+            minTickGap={40}
+          />
+          <YAxis
+            domain={[0, 100]}
+            tickFormatter={(v) => `${v}%`}
+            tick={{ fontSize: 10 }}
+            width={36}
+          />
+          <Tooltip
+            formatter={(v, name) => [`${v} %`, name]}
+            labelStyle={{ fontSize: 11 }}
+            contentStyle={{ fontSize: 11 }}
+          />
+          <Legend wrapperStyle={{ fontSize: 11 }} />
+          <Line
+            type="monotone"
+            dataKey="avg"
+            name="Ø Gesamt"
+            stroke={AVG_COLOR}
+            strokeWidth={2}
+            dot={false}
+            activeDot={{ r: 3 }}
+          />
+          {showCores &&
+            Array.from({ length: coreCount }, (_, i) => (
+              <Line
+                key={i}
+                type="monotone"
+                dataKey={`CPU${i}`}
+                name={`Core ${i}`}
+                stroke={CORE_COLORS[i] || '#9ca3af'}
+                strokeWidth={1}
+                dot={false}
+                strokeDasharray="4 2"
+              />
+            ))}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
 
 function Card({ title, value, subtitle, colorClass }) {
   return (
@@ -225,6 +326,7 @@ export default function Dashboard() {
   const [demStatus, setDemStatus]         = useState(null)
   const [selectedService, setSelectedService] = useState('')
   const [cacheStatus, setCacheStatus] = useState([])
+  const [cpuHistory, setCpuHistory]   = useState([])
 
   useEffect(() => {
     Promise.all([
@@ -237,6 +339,7 @@ export default function Dashboard() {
       api.get('/api/forecast_stats?hours=24').then(setForecastStats).catch(() => {}),
       api.get('/api/dem_status').then(setDemStatus).catch(() => {}),
       api.get('/api/cache_status').then(d => setCacheStatus(d.services || [])).catch(() => {}),
+      api.get('/api/cpu_history?hours=24').then(d => setCpuHistory(d.samples || [])).catch(() => {}),
     ])
   }, [])
 
@@ -337,6 +440,20 @@ export default function Dashboard() {
             colorClass={diskColorClass}
           />
         )}
+      </div>
+
+      {/* CPU-Auslastung 24h */}
+      <div className="card mt-4">
+        <h2 className="text-base font-semibold mb-2">
+          🖥 CPU-Auslastung (24h)
+          {cpuHistory.length > 0 && (
+            <span className="ml-2 text-xs font-normal text-gray-400">
+              {cpuHistory[0]?.cores?.length || 0} Kerne · 5-Minuten-Takt ·{' '}
+              {cpuHistory.length} Messpunkte
+            </span>
+          )}
+        </h2>
+        <CpuChart data={cpuHistory} />
       </div>
 
       {/* 24h-Statistiktabelle — Anfragen / Fehler / Fehlerrate */}
