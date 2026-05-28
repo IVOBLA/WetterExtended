@@ -178,6 +178,28 @@ Das Admin-Panel ist eine React-Applikation (Vite + React 18 + Tailwind CSS + Lea
 
 Systemstatus auf einen Blick: Anzahl aktiver Zellen, letzter Radar-Zeitstempel, Modell-Status, API-Gesundheit, Disk-Nutzung mit Farbampel (grün/gelb/rot), RAM-Auslastung.
 
+### CPU-Auslastungsdiagramm
+
+Das Dashboard zeigt unterhalb der Status-Cards ein Liniendiagramm der CPU-Auslastung
+der letzten 24 Stunden.
+
+| Element | Beschreibung |
+|---|---|
+| Ø Gesamt (blau) | Durchschnitt aller Kerne — immer sichtbar |
+| Core 0–3 (farbig, gestrichelt) | Auslastung je CPU-Kern — per Checkbox "Einzelkerne anzeigen" togglebar |
+| X-Achse | Uhrzeit (HH:MM, lokale Browserzeit) |
+| Y-Achse | Prozent (0–100 %) |
+| Takt | 5 Minuten (288 Messpunkte pro 24 h) |
+
+**Datenquelle:** `cpu_monitor.py` — sampelt via `psutil.cpu_percent(percpu=True)` mit 1 s
+Messintervall. Ergebnisse in `train_data/system/cpu_history.jsonl`.
+
+**API-Endpoint:** `GET /api/cpu_history?hours=<1-48>` (Default: 24 h)
+
+**Hinweis Raspberry Pi 5:** Das Geraet besitzt 4 ARM Cortex-A76 Kerne. Bei hoher Auslastung
+eines einzelnen Kerns (z. B. waehrend Training oder Radar-Verarbeitung) ist dies in
+den Einzelkern-Linien sichtbar.
+
 ## 4.2 Karte (`/map`)
 
 Interaktive Leaflet-Karte mit Sturmzellen (Kontur + ID-Label), Vorhersage-Pfeilen (farbcodiert nach Horizont), Ortsdurchquerungs-Markierungen, Bewegungspfad-Historie, Hagelwarnungs-Rahmen (rot) und Stationär-Marker (⊕ amber). Farblegende unten links.
@@ -1389,6 +1411,7 @@ erst bei Erweiterung. Rückwärtskompatibel.
 | v1.5 | Mai 2026 | Produktreife-Welle 4 (P0-Findings): No-cell-Frames werden jetzt immer als leere `[]`-Objektdatei gespeichert — API, KMZ und Karte zeigen bei erkannungsfreien Frames korrekt „keine Zellen" statt veralteter Daten. Dataset-Builder und Trainingsläufe nutzen die im Admin-Panel konfigurierten Forecast-Horizonte (`runtime_config`) statt der statischen `config.py`-Werte; eine neue `_check_model_compatibility()`-Funktion verhindert Einsatz von Modellen mit abweichenden Horizonten oder Feature-Dimensionen (kinematischer Fallback). Cold-Start-Promotion wird erst ab `MIN_SAMPLES_FOR_PROMOTION` Validierungssamples zugelassen — kein Einsetzen eines zu schwach validierten Modells ohne Referenzmodell mehr. Accuracy-Metriken enthalten jetzt `coverage_rate` (Anteil verifizierbarer Forecasts), das zusammen mit der Hit-Rate die echte Aussagekraft der Metriken bewertet. Startup-Warnung wenn `ADMIN_API_TOKEN` fehlt; optionaler Hard-Stop via `ADMIN_REQUIRE_TOKEN=1`. `pytest.ini` steuert pytest auf `tests/` ein und verhindert das Einsammeln von Root-Skripten. Kinematischer Forecast nutzt echte Zeitdifferenzen aus History-Timestamps (`x/y` im History-Eintrag, px/min statt px/Frame). |
 | v1.6 | Mai 2026 | Produktreife-Welle 5 (P0-Review-Findings): No-cell-Zustand vollständig propagiert — bei erkannungsfreien Frames werden jetzt auch `locations_{ts}.json` (leere Liste) und `forecast.kmz` (leeres KMZ) aktualisiert, und Auto-Entwarnung für bisher betroffene Orte wird ausgelöst. Training (`train_lgbm`, `train_lstm`, `evaluate_on_recent`) und LGBM-Modellladen (`load_lgbm_models`) nutzen konsequent runtime-konfigurierbare Forecast-Horizonte — Admin-Änderungen über das Panel wirken jetzt durchgängig bis ins Training. Modell-Promotion prüft vor dem Aktivieren Horizont- und Feature-Kompatibilität (`_check_model_compatibility`) sowie Gültigkeit des Holdout-MAE. `ADMIN_REQUIRE_TOKEN=1` wird bei jeder Installation automatisch in `.env` geschrieben (fail-closed Standard); `/api/admin_token` lehnt Direktzugriffe ohne nginx-Proxy-Header ab. Neue `tests/test_units.py` mit 6 Unit-Tests für Einheitenkonsistenz (Kalman/Velocity, Forecast-Pixel-Rechnung, Lineage-Normierung, Feature-Dimension). `install.sh` generiert `package-lock.json` einmalig mit `npm install --package-lock-only` für reproduzierbare Frontend-Builds. |
 | v1.7 | Mai 2026 | Produktreife-Welle 6 (P1-Punkte): Forecast-Pfadprüfung in `annotate_locations` prüft jetzt zusätzlich die Zwischensegmente h[n]→h[n+1] — Orte die der Forecast-Pfad zwischen zwei Horizonten schneidet werden zuverlässig erkannt (wichtig bei Kursänderungen der Zelle). `runtime_config.rollback()` setzt `runtime_overrides.json` auf den Stand vor dem letzten `patch()`-Aufruf zurück; Admin-Endpoint `POST /api/config/rollback` stellt diesen Mechanismus im Panel bereit. `/api/training` POST validiert Range-Checks für `RETRAIN_INTERVAL_HOURS` (1–168) und `DATASET_REBUILD_INTERVAL_MIN` (5–1440). Neue `api_health_check.py` prüft täglich um 05:15 die Erreichbarkeit aller 5 externen APIs (ARSO, Open-Meteo, GeoSphere, EUMETView, Blitzortung) mit Latenz-Messung und Spec-Prüfung; Status im Admin-Panel via `GET /api/api_health`, manueller Trigger via `POST /api/api_health/run`. |
+| v1.8 | Mai 2026 | CPU-Monitoring: `cpu_monitor.py` sampelt alle 5 Min CPU-Auslastung aller Kerne via psutil. Dashboard zeigt 24h-Liniendiagramm (Ø Gesamt + Einzelkerne togglebar). Neuer Scheduler-Job `cpu_monitor` (IntervalTrigger 5 Min). Neuer API-Endpoint `GET /api/cpu_history`. Pfad `SAVE_PATHS["system"]` in `config.py` ergaenzt. |
 
 ---
 
