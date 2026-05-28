@@ -64,6 +64,10 @@ export default function Training() {
             className="input" type="number" value={rebuild}
             onChange={e => setRebuild(parseInt(e.target.value) || 60)}
           />
+          <p className="text-xs text-gray-500 mt-1">
+            Wie oft (in Minuten) der Trainings-Datensatz aus den gesammelten
+            Radar-Frames neu aufgebaut wird. Empfohlen: 60 Min.
+          </p>
         </div>
         <div>
           <label className="label">Retrain-Interval (Stunden)</label>
@@ -71,6 +75,11 @@ export default function Training() {
             className="input" type="number" value={s.retrain_interval_hours}
             onChange={e => setS({ ...s, retrain_interval_hours: parseInt(e.target.value) || 6 })}
           />
+          <p className="text-xs text-gray-500 mt-1">
+            LightGBM- und LSTM-Modelle werden zusätzlich zum Nightly-Retrain
+            alle N Stunden neu trainiert, wenn genug neue Samples vorliegen.
+            Empfohlen: 6 h.
+          </p>
         </div>
         <div></div>
 
@@ -80,6 +89,10 @@ export default function Training() {
             className="input" type="number" min="0" max="23" value={s.retrain_cron_hour}
             onChange={e => setS({ ...s, retrain_cron_hour: parseInt(e.target.value) || 0 })}
           />
+          <p className="text-xs text-gray-500 mt-1">
+            Stunde (0–23, Lokalzeit) für den täglichen LightGBM/LSTM-Retrain.
+            Empfohlen: 3 (03:00 Uhr nachts).
+          </p>
         </div>
         <div>
           <label className="label">Nightly Retrain Minute</label>
@@ -87,6 +100,10 @@ export default function Training() {
             className="input" type="number" min="0" max="59" value={s.retrain_cron_minute}
             onChange={e => setS({ ...s, retrain_cron_minute: parseInt(e.target.value) || 0 })}
           />
+          <p className="text-xs text-gray-500 mt-1">
+            Minute (0–59) für den täglichen LightGBM/LSTM-Retrain.
+            Empfohlen: 0.
+          </p>
         </div>
         <div></div>
 
@@ -100,6 +117,10 @@ export default function Training() {
               <option key={d}>{d}</option>
             ))}
           </select>
+          <p className="text-xs text-gray-500 mt-1">
+            Wochentag für das ConvLSTM-Training (Radar-Bildfolgen-Modell).
+            Das Training dauert länger als LightGBM — wöchentlich empfohlen.
+          </p>
         </div>
         <div>
           <label className="label">ConvLSTM Stunde</label>
@@ -107,6 +128,10 @@ export default function Training() {
             className="input" type="number" min="0" max="23" value={s.convlstm_cron_hour}
             onChange={e => setS({ ...s, convlstm_cron_hour: parseInt(e.target.value) || 0 })}
           />
+          <p className="text-xs text-gray-500 mt-1">
+            Stunde (0–23) für den wöchentlichen ConvLSTM-Trainingslauf.
+            Empfohlen: 2 (02:00 Uhr, Montag).
+          </p>
         </div>
         <div>
           <label className="label">ConvLSTM Minute</label>
@@ -114,6 +139,10 @@ export default function Training() {
             className="input" type="number" min="0" max="59" value={s.convlstm_cron_minute}
             onChange={e => setS({ ...s, convlstm_cron_minute: parseInt(e.target.value) || 0 })}
           />
+          <p className="text-xs text-gray-500 mt-1">
+            Minute (0–59) für den wöchentlichen ConvLSTM-Trainingslauf.
+            Empfohlen: 0.
+          </p>
         </div>
       </div>
 
