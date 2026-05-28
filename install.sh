@@ -1501,6 +1501,15 @@ if [[ "${NEEDS_REBOOT:-false}" == "true" ]]; then
     echo "   sudo reboot"
 fi
 
+# ── runtime_overrides.json mit Defaults initialisieren (merge-only) ──────────
+echo "[INSTALL] Initialisiere runtime_overrides.json mit Default-Werten..."
+if python3 "$_SCRIPT_DIR/init_runtime_overrides.py"; then
+    echo "[OK] runtime_overrides.json initialisiert."
+else
+    echo "[WARN] init_runtime_overrides.py fehlgeschlagen — bitte manuell ausführen:"
+    echo "       python3 init_runtime_overrides.py"
+fi
+
 # Nächste Schritte
 cat <<NEXTSTEPS
 
