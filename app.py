@@ -2834,6 +2834,7 @@ def api_risk_grid():
     TRACK_RANGE = _safe_float(runtime_config.get("RISK_TRACK_RANGE_KM", 10.0), 10.0)
     BOLT_RANGE  = _safe_float(runtime_config.get("RISK_BOLT_RANGE_KM",  10.0), 10.0)
     ATM_RANGE   = _safe_float(runtime_config.get("RISK_ATM_RANGE_KM",   20.0), 20.0)
+    IR_RANGE    = _safe_float(runtime_config.get("RISK_IR_RANGE_KM",    15.0), 15.0)
     # Geschwindigkeitsbasierte Risikogewichtung:
     # Stationäre Zellen (Dauergewitter, Starkregen) sind gefährlicher.
     # Ab FAST_CELL_KMH gibt es keinen Extra-Boost mehr.
@@ -3123,7 +3124,7 @@ def api_risk_grid():
                     _safe_float(_ir.get("lat", 0), 0.0),
                     _safe_float(_ir.get("lon", 0), 0.0),
                 )
-                if _ir_d2 <= 25.0 and _ir.get("ir_only_precursor", 0) == 1.0:
+                if _ir_d2 <= IR_RANGE and _ir.get("ir_only_precursor", 0) == 1.0:
                     _ir_cell_near = True
                     _ir_cell_id_near = _ir.get("ir_id")
                     _ir_bt_min_k_near = _ir.get("bt_min_k")

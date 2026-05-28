@@ -25,6 +25,7 @@ DEFAULTS: dict = {
     "RISK_GRID_STEP_DEG":    0.05,
     "RISK_FAST_CELL_KMH":    30,
     "RISK_STATIONARY_BOOST": 0.8,
+    "RISK_IR_RANGE_KM":      15,
 
     # ── Orts-Watchlist (5 Kärntner Orte als Defaults) ──────────────────────
     "LOCATIONS_WATCHLIST": [
