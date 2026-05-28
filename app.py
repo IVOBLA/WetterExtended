@@ -11,55 +11,70 @@ import config as cfg
 from config import SAVE_PATHS
 import runtime_config
 from accuracy_tracker import evaluate_all, load_history
+from auth import auth_bp, init_db, get_current_user, ROLE_LEVEL
 
 app = Flask(__name__, static_folder="frontend/dist", static_url_path="")
+app.register_blueprint(auth_bp)
+init_db()
 
 # ---------------------------------------------------------------------------
-# Schreib-Authentifizierung (P10/P25)
+# JWT-Authentifizierung (rollenbasiert)
 # ---------------------------------------------------------------------------
-# ADMIN_API_TOKEN aus .env — wenn gesetzt, müssen alle POST/PATCH/DELETE
-# Requests den Header X-Admin-Token mit diesem Wert senden.
-# Das Frontend holt den Token einmalig via GET /api/admin_token
-# (dieser Endpoint liegt hinter nginx Basic-Auth).
-_ADMIN_TOKEN: str = os.getenv("ADMIN_API_TOKEN", "").strip()
+# Alle GET-Requests sind öffentlich (kein Token erforderlich).
+# POST/PATCH/DELETE/PUT erfordern einen gültigen JWT Access Token.
+#
+# Rollenhierarchie:
+#   viewer(10) < operator(20) < admin(30) < superadmin(40)
+#
+# Pfade die admin-Level (30) erfordern:
+_ADMIN_WRITE_PREFIXES = (
+    "/api/config",
+    "/api/thresholds",
+    "/api/locations",
+    "/api/horizons",
+    "/api/cell_filters",
+    "/api/runtime",
+    "/api/ai_analysis/config",
+    "/api/log/",
+    "/api/system/",
+    "/api/drift/",
+    "/api/hailo/reload",
+    "/api/email_config",
+    "/api/sms_config",
+    "/api/notification",
+)
+# Alle anderen POST/PATCH/DELETE erfordern operator-Level (20):
+# Training, Scheduler, API-Health-Run, manuelle Trigger usw.
 
-# P25: fail-closed Modus wenn ADMIN_REQUIRE_TOKEN=1 und kein Token gesetzt
-_REQUIRE_TOKEN: bool = os.getenv("ADMIN_REQUIRE_TOKEN", "0").strip() == "1"
 
-if not _ADMIN_TOKEN:
-    _warn_msg = (
-        "[SECURITY] ADMIN_API_TOKEN nicht gesetzt — "
-        "Admin-Schreiboperationen sind UNGESCHÜTZT. "
-        "Token in .env setzen oder 'openssl rand -hex 32' ausführen."
-    )
-    print(_warn_msg, flush=True)
-    try:
-        from debug_utils import debug_log as _dl
-        _dl(_warn_msg)
-    except Exception:
-        pass
-    if _REQUIRE_TOKEN:
-        raise SystemExit(
-            "ADMIN_REQUIRE_TOKEN=1 aber kein ADMIN_API_TOKEN gesetzt. "
-            "App startet nicht. Token in .env eintragen."
-        )
-
-
-def _check_write_auth() -> None:
-    """before_request-Hook: prüft X-Admin-Token für Schreiboperationen."""
-    if not _ADMIN_TOKEN:
-        return  # Token-Schutz deaktiviert (kein ADMIN_API_TOKEN in .env)
-    if request.method not in ("POST", "PATCH", "DELETE", "PUT"):
+@app.before_request
+def _jwt_auth_check():
+    """JWT-basierter Authentifizierungs-Hook für alle Schreiboperationen."""
+    # OPTIONS (CORS preflight) immer erlauben
+    if request.method == "OPTIONS":
         return
-    # Ausnahme: /api/admin_token selbst braucht keinen Token
-    if request.endpoint == "api_admin_token":
+    # Auth-Endpunkte selbst benötigen kein Token
+    if request.path.startswith("/api/auth/"):
         return
-    sent = request.headers.get("X-Admin-Token", "").strip()
-    if not sent or sent != _ADMIN_TOKEN:
-        return jsonify({"error": "Unauthorized: X-Admin-Token fehlt oder ungültig"}), 401
+    # Alle GET- und HEAD-Requests sind öffentlich
+    if request.method in ("GET", "HEAD"):
+        return
+    # Statische Assets sind öffentlich
+    if request.path.startswith("/assets/") or request.path in ("/favicon.ico",):
+        return
 
+    user = get_current_user()
+    if user is None:
+        return jsonify({"error": "Nicht authentifiziert — JWT Bearer Token erforderlich"}), 401
 
-app.before_request(_check_write_auth)
+    user_level = ROLE_LEVEL.get(user.get("role", ""), 0)
+
+    is_admin_path = any(request.path.startswith(p) for p in _ADMIN_WRITE_PREFIXES)
+
+    if is_admin_path and user_level < ROLE_LEVEL["admin"]:
+        return jsonify({"error": "Admin-Berechtigung erforderlich (role: admin oder superadmin)"}), 403
+    if not is_admin_path and user_level < ROLE_LEVEL["operator"]:
+        return jsonify({"error": "Operator-Berechtigung erforderlich"}), 403
 
 
 # ---------- Helper ----------
@@ -268,25 +283,6 @@ def api_drift():
         return jsonify({"drift_detected": False, "message": f"Fehler: {exc}"})
 
 
-
-@app.route("/api/admin_token")
-def api_admin_token():
-    """
-    Gibt den Admin-Token für das Frontend zurück.
-    Liegt hinter nginx Basic-Auth — nur eingeloggte Browser-Sessions können ihn abrufen.
-    P31: Direktzugriff auf 127.0.0.1:5000 (ohne nginx) wird abgewiesen —
-    nginx setzt immer X-Real-IP; direkter Zugriff hat diesen Header nicht.
-    Wenn kein Token konfiguriert: gibt {"token": null} zurück (Token-Auth deaktiviert).
-    """
-    # Nginx-Proxy-Check: nginx setzt X-Real-IP bei jedem proxied Request.
-    # Fehlt der Header → direkter Zugriff auf Flask-Port (ohne Basic-Auth) → ablehnen.
-    _via_nginx = (
-        request.headers.get("X-Real-IP")
-        or request.headers.get("X-Forwarded-For")
-    )
-    if not _via_nginx:
-        return jsonify({"error": "Nur über nginx-Proxy zugänglich (Basic-Auth erforderlich)"}), 403
-    return jsonify({"token": _ADMIN_TOKEN if _ADMIN_TOKEN else None})
 
 # ---------------------------------------------------------------------------
 # Sicherheits-Hilfsfunktion: Secrets aus Config-Responses entfernen
