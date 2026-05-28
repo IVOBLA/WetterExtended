@@ -208,6 +208,18 @@ Abarbeitungsreihenfolge war: A1 → A2 → A3 → A4 → A5 → A6 → A8 → A7
 
 **Status-Update:** Sobald ein Prompt eingespielt und verifiziert ist, Status auf ✅ erledigt.
 
+#### Risk-Grid Stabilitätsfixes ✅
+
+| Item | Beschreibung | Status |
+|---|---|---|
+| RG1 | `BBOX_KAERNTEN_EXTENDED` Import in `api_risk_grid()` | ✅ erledigt |
+| RG2 | BBOX Dict-Format (north/south/east/west) korrekt verarbeiten | ✅ erledigt |
+| RG3 | IR-Tracks einmalig vor Grid-Schleife laden | ✅ erledigt |
+| RG4 | IR-Score vor Risk-Klassifikation addieren | ✅ erledigt |
+| RG5 | `MapFullscreen.jsx` Risk-Grid-Fehleranzeige | ✅ erledigt |
+| RG6 | Alle 3 `test_risk_grid_api.py`-Tests grün | ✅ erledigt |
+
+
 ### 5.4.1 Hintergrund
 
 Bei aktiver Konvektion (mehrere Sturmzellen gleichzeitig) verbinden sich

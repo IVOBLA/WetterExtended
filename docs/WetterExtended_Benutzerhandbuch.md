@@ -209,6 +209,10 @@ reiner Blitzaktivität oder atmosphärischer Instabilität ohne Radar-Treffer ak
 
 **Aktivierung:** Checkbox „🌩 Risikozonen" in der Overlay-Leiste (**standardmäßig aktiv**).
 
+**Hinweis zur BBOX:** Das Risikogrid berechnet sich für ganz Kärnten (lat 46.36–47.18,
+lon 12.60–15.20). Die Grenzen werden aus `BBOX_KAERNTEN_EXTENDED` in `config.py` gelesen
+und können über die Admin-Laufzeitkonfiguration überschrieben werden.
+
 **Farbskala:**
 
 | Farbe | Risikostufe | Typische Ursache |
@@ -1344,6 +1348,7 @@ erst bei Erweiterung. Rückwärtskompatibel.
 
 | Version | Datum | Änderungen |
 |---|---|---|
+| v1.9 | Mai 2026 | **Risk-Grid-Fix:** `/api/risk_grid` ist jetzt 200-stabil — `BBOX_KAERNTEN_EXTENDED` wird korrekt importiert und als Dict (`north/south/east/west`) und als List/Tuple verarbeitet. Die Kärnten-BBOX wird immer korrekt verwendet statt auf Fallback-Werte zu fallen. **IR-Vorläufer-Bewertung:** IR-Tracks werden einmalig vor der Grid-Schleife geladen (nicht mehr ~1000× pro API-Call). Der IR-Score-Beitrag wird jetzt korrekt VOR der Risk-Klassifikation addiert, sodass reine IR-Vorläuferzellen tatsächlich Risk-1-Zellen erzeugen können. **Vollbild-Karte Fehleranzeige:** `/karte` (MapFullscreen) zeigt jetzt wie die Admin-Karte eine sichtbare Fehlermeldung wenn das Risk-Grid nicht geladen werden kann. |
 | v1.8 | Mai 2026 | **3-Stage Kalman-Matching:** Zell-Tracking nutzt jetzt Kalman-vorhergesagte Polygonpositionen (Stage 1: IoU gegen verschobenes Polygon; Stage 2: Zentroid-Distanz; Stage 3: klassischer Overlap). Zellen behalten ihre ID auch bei schneller Bewegung oder Formänderung. **Richtungspfeile** werden für alle Zellen gezeigt (langsame mit 35% Opazität statt ausgeblendet). **Download-Buttons** (⬇ Logs .txt, ⬇ Objects .json) in der Logs-Seite. |
 | v1.0 | 2025 | Erstveröffentlichung: HSV-Segmentierung, Kalman-Tracking, LSTM + LightGBM, React Admin-Panel (10 Seiten), KMZ-Export, `install.sh`, Scheduler, Closed-Loop-Verifikation |
 | v1.1 | Mai 2026 | Phase-A-Erweiterungen: Optical Flow (pysteps), AROME icon_d2 Gitterpunkt, Erweitertes DEM (3 Kacheln, Talkanalisierung), Windscherung, Hagelindikator, Stationärrisiko, GeoSphere TAWES + Nowcast, SMS (Twilio), Daten-Rotation (90 Tage), Disk-Monitoring, nginx Basic-Auth, Adaptiver Loop-Intervall, `LOCAL_TRAINING`-Flag, API-Request-Statistik, KI-Analyse Chat (Claude API), Atmosphären-Seite, Vollbild-Karte `/karte`, 15 Admin-Panel-Seiten, Bugfixes: `parse_timestamp`, `radar_download` Timeout/Retry, `blitz_api` HTTP-Auth, `SAVE_PATHS` Zentralisierung, `runtime_config` File-Lock |
