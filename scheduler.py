@@ -33,6 +33,7 @@ from model_training import retrain_all
 import runtime_config
 from accuracy_tracker import evaluate_all, append_history_point
 from radar_convlstm import train_convlstm
+from cpu_monitor import append_cpu_sample
 
 
 # ---------------------------------------------------------------------------
@@ -264,6 +265,14 @@ def run_backup_job():
         debug_log(f"[BACKUP] Exception: {type(exc).__name__}: {exc}")
 
 
+def run_cpu_monitor_job():
+    """CPU-Auslastung aller Kerne sampeln und in cpu_history.jsonl speichern."""
+    try:
+        append_cpu_sample()
+    except Exception as exc:
+        debug_log(f"[SCHEDULER] Job cpu_monitor Fehler: {exc}")
+
+
 # ---------------------------------------------------------------------------
 # Scheduler erstellen
 # ---------------------------------------------------------------------------
@@ -342,6 +351,13 @@ def create_scheduler() -> BlockingScheduler:
         run_api_cache_cleanup_job,
         trigger=CronTrigger(hour=4, minute=45, timezone="Europe/Vienna"),
         id="api_cache_cleanup", max_instances=1, coalesce=True,
+    )
+
+    # --- immer aktiv: CPU-Monitoring (alle 5 Min) ---
+    sched.add_job(
+        run_cpu_monitor_job,
+        trigger=IntervalTrigger(minutes=5),
+        id="cpu_monitor", max_instances=1, coalesce=True,
     )
     # --- immer aktiv: Atmosphären-Snapshot ---
     sched.add_job(
