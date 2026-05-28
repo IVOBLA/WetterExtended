@@ -974,12 +974,22 @@ export default function MapView() {
           const riskLabel = cell.risk === 3 ? 'Hoch'
                           : cell.risk === 2 ? 'Maessig'
                           : 'Niedrig'
-          const dominantLabel = {
-            cell:      '🌩 Aktive Zelle in der Naehe',
-            track:     '📍 In berechneter Zugbahn',
-            lightning: '⚡ Blitzaktivitaet',
-            atm:       '☁ Atmosphaerische Instabilitaet',
-          }[info.dominant] || ''
+          const dominantLabel = (() => {
+            switch (info.dominant) {
+              case 'cell':
+                return `🌩 Aktive Zelle in der Nähe${info.cell_dist_km != null ? ` (${info.cell_dist_km} km)` : ''}`
+              case 'track':
+                return `📍 In berechneter Zugbahn${info.cell_id != null ? ` von Zelle #${info.cell_id}` : ''}`
+              case 'lightning':
+                return `⚡ Blitzaktivität${info.lightning_count > 0 ? ` — ${info.lightning_count} Blitze < 10 km` : ''}`
+              case 'atm':
+                return `☁ Atmosphärische Instabilität${info.li != null ? ` · LI ${info.li} °C` : ''}`
+              case 'ir_cell':
+                return `🛰 IR-Vorläufer (Cumulonimbus)${info.ir_bt_min_k != null ? ` · ${info.ir_bt_min_k} K` : ''}`
+              default:
+                return ''
+            }
+          })()
           return (
             <Rectangle
               key={'risk_' + i}
@@ -1047,32 +1057,42 @@ export default function MapView() {
                         </span>
                       </div>
                     )}
-                    {info.cin != null && Math.abs(info.cin) > 10 && (
-                      <div style={{ color: '#92400e' }}>
+                    {info.lightning_count > 0 && (
+                      <div style={{ color: '#d97706' }}>
+                        ⚡ Blitze in 10 km: <b>{info.lightning_count}</b>
+                      </div>
+                    )}
+                    {info.ir_cell_id != null && (
+                      <div style={{ color: '#9333ea' }}>
+                        🛰 IR-Vorläufer: <b>{info.ir_cell_id}</b>
+                        {info.ir_bt_min_k != null && <span style={{ color: '#888', marginLeft: 3 }}>({info.ir_bt_min_k} K)</span>}
+                      </div>
+                    )}
+                    {info.cin != null && info.cin < -50 && (
+                      <div>
                         CIN: <b>{info.cin}</b> J/kg
                         <span style={{ color: '#888', marginLeft: 3 }}>
-                          {info.cin < -200 ? '(starke Deckelung)' : info.cin < -100 ? '(Deckelung)' : '(schwach)'}
+                          {info.cin < -200 ? '(starke Deckelung)' : '(Deckelung)'}
                         </span>
                       </div>
                     )}
-                    {info.pw != null && info.pw > 0 && (
+                    {info.pw != null && info.pw > 25 && (
                       <div>
                         PW: <b>{info.pw}</b> mm
                         <span style={{ color: '#888', marginLeft: 3 }}>
-                          {info.pw > 35 ? '(sehr feucht)' : info.pw > 25 ? '(feucht)' : ''}
+                          {info.pw > 40 ? '(sehr hoch)' : '(erhöht)'}
                         </span>
                       </div>
                     )}
-                    {info.cloud_height_m != null && info.cloud_height_m > 0 && (
+                    {info.cloud_height_m != null && (
                       <div>
-                        Wolkentop: <b>{Math.round(info.cloud_height_m).toLocaleString('de-AT')} m</b>
-                        <span style={{ color: '#888', marginLeft: 3 }}>
-                          {info.cloud_height_m > 9000 ? '(sehr hoch, Cb)' : info.cloud_height_m > 7000 ? '(hoch)' : info.cloud_height_m > 5000 ? '(mittel)' : ''}
-                        </span>
+                        Wolkentop: <b>{info.cloud_height_m?.toLocaleString('de-AT')}</b> m
                       </div>
                     )}
-                    {info.lightning_count > 0 && (
-                      <div>⚡ <b>{info.lightning_count}</b> Blitze &lt;10 km</div>
+                    {info.score != null && (
+                      <div style={{ color: '#aaa', fontSize: 10, marginTop: 3, borderTop: '1px solid #eee', paddingTop: 2 }}>
+                        Score: {info.score}
+                      </div>
                     )}
                   </div>
                 </Tooltip>

@@ -2979,8 +2979,12 @@ def api_risk_grid():
             best_cape = None
             best_cloud_top_m = None
             nearest_cell_id = None
+            nearest_cell_dist_km = None
+            nearest_cell_speed_kmh = None
             in_track = False
             bolt_count = 0
+            _ir_cell_id_near = None
+            _ir_bt_min_k_near = None
 
             # 1) Aktive Zellen — Distanz-gewichtet (wie vorher)
             for cell in active_cells:
@@ -3007,8 +3011,10 @@ def api_risk_grid():
                     ) * _STATIONARY_BOOST
                     contrib = wt * (1.0 - d_now / CELL_RANGE) ** 1.5 * _speed_factor
                     score += contrib
-                    if nearest_cell_id is None or d_now < 15.0:
+                    if nearest_cell_id is None or d_now < (nearest_cell_dist_km if nearest_cell_dist_km is not None else float("inf")):
                         nearest_cell_id = cell.get("id")
+                        nearest_cell_dist_km = round(d_now, 1)
+                        nearest_cell_speed_kmh = round(_cell_speed_kmh, 1)
                         sh = cell.get("ship_index")
                         cp = cell.get("cape")
                         if sh is not None and (best_ship is None or sh > best_ship):
@@ -3118,6 +3124,8 @@ def api_risk_grid():
                 )
                 if _ir_d2 <= 25.0 and _ir.get("ir_only_precursor", 0) == 1.0:
                     _ir_cell_near = True
+                    _ir_cell_id_near = _ir.get("ir_id")
+                    _ir_bt_min_k_near = _ir.get("bt_min_k")
                     if score < 1.0:
                         score += 0.5  # leichter Risikobeitrag ohne Radar-Echo
                     break
@@ -3167,6 +3175,11 @@ def api_risk_grid():
                     ) else None,
                     "lightning_count":  int(bolt_count),
                     "in_forecast_track": bool(in_track),
+                    "cell_dist_km":     nearest_cell_dist_km,
+                    "cell_speed_kmh":   nearest_cell_speed_kmh,
+                    "ir_cell_id":       _ir_cell_id_near,
+                    "ir_bt_min_k":      round(float(_ir_bt_min_k_near), 0) if _ir_bt_min_k_near is not None else None,
+                    "score":            round(score, 2),
                 },
             })
 
