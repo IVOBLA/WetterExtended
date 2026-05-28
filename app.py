@@ -3117,6 +3117,7 @@ def api_risk_grid():
             elif in_track:
                 dominant = "track"
             # ── IR-Score VOR Risk-Klassifikation addieren ────────────────────
+            _score_without_ir = score   # Score vor IR-Beitrag merken
             _ir_cell_near = False
             for _ir in _ir_tracks_all:
                 _ir_d2 = _hav(
@@ -3132,6 +3133,13 @@ def api_risk_grid():
                     if score < 1.0:
                         score += 0.5  # leichter Risikobeitrag ohne Radar-Echo
                     break
+
+            # ── IR-Only-Unterdrückung ─────────────────────────────────────────
+            # IR-Vorläufer darf kein alleiniger Grund für eine Risikozone sein.
+            # War der Score vor dem IR-Beitrag < 0.3, wird der Punkt übersprungen.
+            if _ir_cell_near and _score_without_ir < 0.3:
+                lon = round(lon + GRID_STEP, 6)
+                continue
 
             # ── Risk-Klassifikation (nach IR-Score-Beitrag) ───────────────────
             if score >= 2.5:
