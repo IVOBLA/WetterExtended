@@ -3137,7 +3137,7 @@ def api_risk_grid():
             # ── IR-Only-Unterdrückung ─────────────────────────────────────────
             # IR-Vorläufer darf kein alleiniger Grund für eine Risikozone sein.
             # War der Score vor dem IR-Beitrag < 0.3, wird der Punkt übersprungen.
-            if _ir_cell_near and _score_without_ir < 0.3:
+            if _ir_cell_near and _score_without_ir < 0.05:
                 lon = round(lon + GRID_STEP, 6)
                 continue
 
