@@ -500,6 +500,7 @@ SAVE_PATHS = {
     "arome": "train_data/arome/",
     "ir_cells": "train_data/ir_cells/",
     "cell_filters": "train_data/cell_filters/",   # HitL: Filter + Polygon-PNGs
+    "system": "train_data/system/",               # CPU/System-Monitoring
 }
 # Ausgabeauflösung in Pixeln (z. B. für GeoTIFF via WMS)
 WIDTH = 1600
