@@ -619,7 +619,6 @@ if [[ "$SYSTEM_DEPS_ENABLED" == true && ( "$MODE" == "full" || "${UPDATE_DEPS:-f
         libjpeg-dev zlib1g-dev         # Pillow
         ffmpeg                         # movement.gif
         nginx                          # Reverse-Proxy für Flask-API + React-Frontend
-        apache2-utils                  # htpasswd für nginx Basic-Auth
         ca-certificates                # TLS-Root-Zertifikate aktuell halten
         openssl                        # SSL-Bibliothek
         ntp                            # Zeitsynchronisation (verhindert TLS-Fehler)
@@ -859,9 +858,17 @@ GITHUB_TOKEN=
 # ── Debug-Modus ───────────────────────────────────────────────
 WETTER_DEBUG=0
 ALLOW_SYSTEM_LOG_PURGE=false
+JWT_SECRET=
 ENVTEMPLATE
         log_warn ".env angelegt — Credentials eintragen:"
         note_manual "nano $ENV_FILE  # FTP, BLITZ, TWILIO, ANTHROPIC_API_KEY, GITHUB_TOKEN setzen"
+    fi
+    if ! grep -q "^JWT_SECRET=" "$ENV_FILE" 2>/dev/null || [[ -z "$(grep "^JWT_SECRET=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ' || true)" ]]; then
+        sed -i '/^JWT_SECRET=$/d' "$ENV_FILE"
+        echo "JWT_SECRET=$(openssl rand -hex 32)" >> "$ENV_FILE"
+        check_ok ".env: JWT_SECRET generiert"
+    else
+        check_ok ".env: JWT_SECRET vorhanden"
     fi
 else
     # FTP-Credentials prüfen
@@ -877,24 +884,13 @@ else
         note_manual "nano $ENV_FILE  # FTP_SERVER, FTP_USER, FTP_PASS prüfen"
     fi
 
-    # ADMIN_API_TOKEN generieren (einmalig, bei Upgrade beibehalten)
-    EXISTING_ADMIN_TOKEN=$(grep "^ADMIN_API_TOKEN=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ' || true)
-    if [[ -z "$EXISTING_ADMIN_TOKEN" ]]; then
-        NEW_ADMIN_TOKEN=$(openssl rand -hex 32)
-        echo "ADMIN_API_TOKEN=${NEW_ADMIN_TOKEN}" >> "$ENV_FILE"
-        check_ok ".env: ADMIN_API_TOKEN generiert ($(echo "${NEW_ADMIN_TOKEN}" | cut -c1-8)...)"
+    # JWT_SECRET generieren (einmalig, bei Upgrade beibehalten)
+    if ! grep -q "^JWT_SECRET=" "$ENV_FILE" 2>/dev/null || [[ -z "$(grep "^JWT_SECRET=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ' || true)" ]]; then
+        sed -i '/^JWT_SECRET=$/d' "$ENV_FILE"
+        echo "JWT_SECRET=$(openssl rand -hex 32)" >> "$ENV_FILE"
+        check_ok ".env: JWT_SECRET generiert"
     else
-        check_ok ".env: ADMIN_API_TOKEN vorhanden"
-    fi
-
-    # P31: ADMIN_REQUIRE_TOKEN=1 — fail-closed im Produktivbetrieb.
-    # Wenn ADMIN_API_TOKEN fehlt, startet die App nicht (SystemExit).
-    # Zum Deaktivieren: ADMIN_REQUIRE_TOKEN=0 in .env setzen.
-    if ! grep -q "^ADMIN_REQUIRE_TOKEN=" "$ENV_FILE" 2>/dev/null; then
-        echo "ADMIN_REQUIRE_TOKEN=1" >> "$ENV_FILE"
-        check_ok ".env: ADMIN_REQUIRE_TOKEN=1 gesetzt (fail-closed Standard)"
-    else
-        check_ok ".env: ADMIN_REQUIRE_TOKEN vorhanden ($(grep "^ADMIN_REQUIRE_TOKEN=" "$ENV_FILE" | cut -d= -f2 || true))"
+        check_ok ".env: JWT_SECRET vorhanden"
     fi
     if ! grep -q "^ALLOW_SYSTEM_LOG_PURGE=" "$ENV_FILE" 2>/dev/null; then
         echo "ALLOW_SYSTEM_LOG_PURGE=false" >> "$ENV_FILE"
@@ -1143,30 +1139,6 @@ FRONTEND_DIST="$TARGET/frontend/dist"
 
 if command -v nginx &>/dev/null; then
 
-    # Basic-Auth: Passwort generieren (einmalig, bei Upgrade beibehalten)
-    ADMIN_PASS_FILE="$TARGET/.admin_password"
-    if [[ ! -f "$ADMIN_PASS_FILE" ]]; then
-        ADMIN_PASS=$(openssl rand -base64 16 | tr -d '/+=\n' | head -c 16)
-        echo "$ADMIN_PASS" | sudo htpasswd -ic /etc/nginx/.htpasswd admin
-        echo "$ADMIN_PASS" > "$ADMIN_PASS_FILE"
-        chmod 600 "$ADMIN_PASS_FILE"
-        check_ok "nginx Basic-Auth: Passwort generiert → $ADMIN_PASS_FILE"
-        echo -e "${YELLOW}  Admin-Passwort: ${ADMIN_PASS}${NC}"
-        echo -e "${YELLOW}  (auch gespeichert in: $ADMIN_PASS_FILE)${NC}"
-    else
-        log_info "nginx Basic-Auth: $ADMIN_PASS_FILE vorhanden — Passwort unverändert."
-        # htpasswd wiederherstellen falls gelöscht (z. B. nach OS-Neuinstallation)
-        if [[ ! -f /etc/nginx/.htpasswd ]]; then
-            EXISTING_PASS=$(cat "$ADMIN_PASS_FILE" 2>/dev/null || true)
-            if [[ -n "$EXISTING_PASS" ]]; then
-                echo "$EXISTING_PASS" | sudo htpasswd -ic /etc/nginx/.htpasswd admin
-                check_ok "nginx Basic-Auth: .htpasswd aus $ADMIN_PASS_FILE wiederhergestellt."
-            else
-                check_warn "nginx Basic-Auth: .admin_password leer — Basic-Auth deaktiviert."
-            fi
-        fi
-    fi
-
     log_info "Generiere nginx-Konfiguration: $NGINX_SITE_CONF"
     sudo tee "$NGINX_SITE_CONF" > /dev/null <<NGINXCONF
 # WetterExtended — nginx Reverse-Proxy
@@ -1177,8 +1149,6 @@ server {
     listen [::]:80;
     server_name _;
 
-    auth_basic           "WetterExtended Admin";
-    auth_basic_user_file /etc/nginx/.htpasswd;
 
     root ${FRONTEND_DIST};
     index index.html;
@@ -1195,23 +1165,18 @@ server {
     # Vollbild-Karte: ohne Authentifizierung erreichbar
     # Regex-Match deckt /karte, /karte/ und /karte/* ab (Trailing-Slash-Fix)
     location ~ ^/karte(/.*)?$ {
-        auth_basic off;
         try_files \$uri /index.html;
         add_header Cache-Control "no-cache";
     }
 
     # SPA-Einstiegsdatei ohne Auth.
     # try_files \$uri /index.html im /karte-Block macht einen internen nginx-Redirect
-    # auf /index.html. Ohne diesen Block landet der Redirect im / Block (mit auth_basic)
-    # und verursacht 401 — obwohl /karte auth_basic off hat.
     location = /index.html {
-        auth_basic off;
         add_header Cache-Control "no-cache";
     }
 
     # Favicon ohne Auth (404 statt 401 wenn kein favicon vorhanden)
     location = /favicon.ico {
-        auth_basic off;
         expires 1y;
         add_header Cache-Control "public, immutable";
         try_files \$uri =404;
@@ -1219,7 +1184,6 @@ server {
 
     # Leaflet-Assets: ohne Auth (werden von /karte geladen)
     location /assets/ {
-        auth_basic off;
         expires 1y;
         add_header Cache-Control "public, immutable";
     }
@@ -1227,7 +1191,6 @@ server {
     # API-Endpunkte fuer oeffentliche Karte (nur lesend, kein POST)
     # Fix #9: lightning + risk_grid öffentlich freigeben (öffentliche /karte-Ansicht)
     location ~ ^/api/(objects|forecast|locations|horizons|health|radar_image|radar_bounds|radar_timing|radar_frames|lightning|risk_grid)$ {
-        auth_basic off;
         proxy_pass         http://127.0.0.1:5000;
         proxy_http_version 1.1;
         proxy_set_header   Host              \$host;
