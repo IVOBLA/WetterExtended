@@ -1759,3 +1759,23 @@ Live-Pipeline nach den konvektiven Diagnose-Indizes und stehen LightGBM/LSTM zur
 > **Hinweis:** Es handelt sich um Approximationen aus vorhandenen Größen, keine NWP-Direktwerte.
 > Trend-Features nutzen einen prozess-lokalen Ringpuffer (40-min-Fenster) und liefern erst nach
 > ~20 min Laufzeit von Null verschiedene Werte. Bei Feature-Änderung müssen Modelle neu trainiert werden.
+
+---
+
+# 32 NEU: Schwere-Vorhersage — Trainingsdatensatz
+
+**Modul:** `severity_dataset.py`
+**Ausgabe:** `train_data/dataset/tabular_severity.parquet`
+
+Baut die Trainingsbasis für die hazard-spezifische Schwere-Vorhersage (Regen, Böen).
+Die Zielwerte sind **real beobachtete** Werte +20 min an der Zellposition — gewonnen aus
+GeoSphere-Nowcast und TAWES-Stationsdaten (kein zusätzlicher API-Call, nutzt die bereits
+gespeicherten Objekt-/Wetterdateien).
+
+| Zielwert | Einheit | Quelle (Maximum der verfügbaren) |
+|---|---|---|
+| `rain_mm_h` | mm/h | Nowcast-Regenrate, 15-min-Summe×4, TAWES-RR×6 |
+| `gust_kmh` | km/h | Nowcast-Böen, TAWES-FFX, 10-m-Böen |
+
+> Hagel hat keine Bodenwahrheit und wird **nicht** trainiert (physikalischer Index in der
+> Vorhersage). Mindestens 30 Samples sind nötig, sonst wird keine Datei geschrieben.
