@@ -244,6 +244,18 @@ def run_atmospheric_snapshot_job():
         debug_log(f"[SCHEDULER] atmospheric_snapshot Fehler: {exc}")
 
 
+def run_outlook_series_job():
+    """Holt die 12-h-Zeitreihe der konvektiven Felder (Frische-Guard inside)."""
+    runtime_config.reload_overrides()
+    debug_log("[SCHEDULER] Job outlook_series gestartet")
+    try:
+        from fetch_outlook_series import fetch_outlook_series
+        res = fetch_outlook_series()
+        debug_log(f"[SCHEDULER] outlook_series abgeschlossen ({len(res.get('points', []))} Punkte)")
+    except Exception as exc:
+        debug_log(f"[SCHEDULER] outlook_series Fehler: {exc}")
+
+
 def run_api_health_job():
     """Täglicher API-Connectivity-Check (05:15 Europe/Vienna)."""
     debug_log("[SCHEDULER] Job api_health_check gestartet")
@@ -386,6 +398,15 @@ def create_scheduler() -> BlockingScheduler:
             )
         ),
         id="atmospheric_snapshot", max_instances=1, coalesce=True,
+    )
+
+    # --- immer aktiv: 12-h-Ausblick-Zeitreihe (Frische-Guard verhindert Mehrfach-Requests) ---
+    sched.add_job(
+        run_outlook_series_job,
+        trigger=IntervalTrigger(
+            minutes=runtime_config.get("OUTLOOK_SERIES_INTERVAL_MIN", 30)
+        ),
+        id="outlook_series", max_instances=1, coalesce=True,
     )
 
     # --- nur wenn LOCAL_TRAINING=True ---

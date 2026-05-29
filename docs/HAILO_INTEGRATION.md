@@ -1117,6 +1117,14 @@ _hailo_available: Optional[bool] = None
 - **Forecast-Zugbahn im Risk-Grid** (`/api/risk_grid`): Punkt-zu-Linien-Distanz
   fuer den gesamten Pfad, Korridor 30 km
 
+### Konvektions-Ausblick (12 h) — Phasen-Status
+
+| Phase | Inhalt | Status |
+|---|---|---|
+| O1 | 12-h-Zeitreihe der konvektiven Felder (`fetch_outlook_series.py`) | ✅ erledigt (Prompt 7) |
+| O2 | Stündliche Risiko-/Schwere-Raster (`convective_outlook.py`) | 🔄 Prompt 8 |
+| O3 | Ausblick-Seite mit Zeit-Slider (`/ausblick`) | 🔄 Prompt 9 |
+
 ### 14.2 Was fehlt noch
 
 #### Konvektive Diagnose — Phasen-Status

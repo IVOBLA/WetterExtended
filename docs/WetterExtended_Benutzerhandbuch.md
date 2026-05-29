@@ -1850,3 +1850,20 @@ verschoben und als **gestricheltes, halbtransparentes violettes Polygon** darges
 
 Die Berechnung erfolgt rein im Browser aus `contour_geo` und den Forecast-Positionen —
 **kein zusätzlicher Server-/API-Aufruf**.
+
+---
+
+# 37 NEU: 12-Stunden-Ausblick — Datenbasis
+
+**Modul:** `fetch_outlook_series.py`
+**Ausgabe:** `train_data/forecast/atmosphere_timeseries.json`
+**Scheduler-Job:** `outlook_series` (alle 30 min, mit Frische-Guard)
+
+Holt für die 36 Kärnten-Rasterpunkte die stündliche Vorhersage-Zeitreihe (+0…+12 h) der
+konvektionsrelevanten Felder (CAPE, Lifted Index, CIN, Precipitable Water, 10-m-/700-hPa-Wind,
+Böen, Gefriergrenze, T500/T700). Diese Zeitreihe ist die Eingangsgröße für den
+Konvektions-Ausblick.
+
+> **API-Schonung:** Ein Frische-Guard verhindert einen Netz-Request, solange die Datei jünger als
+> `OUTLOOK_SERIES_TTL_MIN` (Default 30) ist. Pro Lauf max. 5 Batch-Requests → ≈ 240 Req/Tag.
+> Bei Parameter-Fehlern wird automatisch auf einen Minimalsatz zurückgefallen.
