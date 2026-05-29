@@ -462,6 +462,7 @@ if [[ "$MODE" == "full" ]]; then
     echo "  train_data/dem/         (Copernicus DEM — grosser Einmal-Download)"
     echo "  .env                    (Zugangsdaten: FTP, Blitzortung, Twilio)"
     echo "  runtime_overrides.json  (Admin-Panel-Einstellungen)"
+    echo "  users.db                (Benutzerkonten und Passwörter — bleiben immer erhalten)"
     echo ""
     printf "Fortfahren? Tippe 'ja' und drücke Enter: "
     read -r CONFIRM
@@ -507,9 +508,20 @@ if [[ "$MODE" == "full" ]]; then
     rm -f  "${TARGET}/data/overlay.png"            "${TARGET}/data/latest.png"             "${TARGET}/data/latest.kml"             "${TARGET}/data/.kmz_last_modified"
     rm -f  "${TARGET}/forecast.kmz"            "${TARGET}/movement.gif"
 
-    # ── users.db loeschen (wird von init_db() beim App-Start neu angelegt) ──────
-    echo "[FULL] Loesche users.db (Benutzer-Datenbank)..."
-    rm -f "${TARGET}/users.db"
+    # ── users.db WIRD ERHALTEN — Benutzerkonten und Passwörter bleiben bestehen ──
+    if [[ -f "${TARGET}/users.db" ]]; then
+        _user_count=$(python3 -c "
+import sqlite3, sys
+try:
+    c = sqlite3.connect('${TARGET}/users.db')
+    n = c.execute('SELECT COUNT(*) FROM users WHERE active=1').fetchone()[0]
+    print(n)
+    c.close()
+except Exception:
+    print('?')
+" 2>/dev/null || echo "?")
+        log_info "users.db erhalten: ${_user_count} aktive Benutzer bleiben bestehen."
+    fi
 
     # ── venv und Frontend-Build loeschen (werden in Phase 5/7 neu gebaut) ──────
     echo "[FULL] Loesche venv/ ..."

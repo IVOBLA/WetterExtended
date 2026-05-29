@@ -1405,6 +1405,7 @@ Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sow
 |---|------|-----------|--------|
 | B47 | Open-Meteo 400 Bad Request: `wind_speed_700hPa` → `windspeed_700hPa`, `wind_direction_700hPa` → `winddirection_700hPa` in `_HOURLY_FULL` | `fetch_outlook_series.py` | ✅ erledigt (dieser Prompt) |
 | B48 | JWT Token-Rotation Multi-Tab Race Condition: BroadcastChannel in AuthContext.jsx | `frontend/src/context/AuthContext.jsx` | ✅ erledigt |
+| B49 | `--mode=full` löscht `users.db` nicht mehr — Benutzerkonten bleiben bei Vollinstallation erhalten | `install.sh`, `docs/WetterExtended_Benutzerhandbuch.md` | ✅ erledigt |
 
 **Bestätigter Normalbetrieb (kein Fix):**
 - Keine Radar-Zellen erkannt (klarer Tag) → korrekt
