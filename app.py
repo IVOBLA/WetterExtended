@@ -1081,6 +1081,21 @@ def api_progress():
     return jsonify({"versions": rows})
 
 
+@app.route("/api/severity_accuracy")
+def api_severity_accuracy():
+    try:
+        hours = int(request.args.get("hours", 24))
+    except (TypeError, ValueError):
+        hours = 24
+    hours = max(1, min(hours, 168))
+    try:
+        from severity_verification import evaluate_severity
+        return jsonify(evaluate_severity(hours))
+    except Exception as exc:
+        debug_log(f"[API] /api/severity_accuracy Fehler: {exc}")
+        return jsonify({"samples": 0, "error": str(exc)}), 200
+
+
 @app.route("/api/accuracy")
 def api_accuracy():
     since = int(request.args.get("hours", "24"))

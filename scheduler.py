@@ -158,6 +158,13 @@ def run_accuracy_eval_job():
         result = evaluate_all(horizons, since_hours=24)
         append_history_point(result)
 
+        try:
+            from severity_verification import evaluate_severity
+            sev = evaluate_severity(24)
+            debug_log(f"[SCHEDULER] severity_verify: {sev}")
+        except Exception as _sev_exc:
+            debug_log(f"[SCHEDULER] severity_verify Fehler: {_sev_exc}")
+
         # Drift-Detection: MAE-Trend prüfen + ggf. Alarm senden
         try:
             from drift_detector import check_and_alert as _drift_check
