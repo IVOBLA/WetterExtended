@@ -66,6 +66,17 @@ def run_retrain_job(job_name: str):
     except Exception as exc:
         debug_log(f"[SCHEDULER] Job {job_name} Fehler: {exc}")
 
+    # NEU: Schwere-Datensatz + Modelle (Regen/Boeen) mittrainieren
+    try:
+        from severity_dataset import build_severity_dataset
+        from severity_training import train_severity_models
+        ds = build_severity_dataset()
+        debug_log(f"[SCHEDULER] severity_dataset: {ds}")
+        tr = train_severity_models()
+        debug_log(f"[SCHEDULER] severity_training: {tr}")
+    except Exception as exc:
+        debug_log(f"[SCHEDULER] Schwere-Training Fehler: {exc}")
+
 
 def run_convlstm_weekly_job():
     runtime_config.reload_overrides()
