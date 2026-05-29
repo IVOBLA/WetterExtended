@@ -1665,3 +1665,68 @@ cd ~/wetterprojekt
 python3 tests/test_locations_e2e.py
 ```
 
+
+---
+
+# 22 NEU: Rollenbasiertes Benutzermanagement
+
+**Dateien:** `auth.py`, `frontend/src/context/AuthContext.jsx`,
+`frontend/src/pages/UserManagement.jsx`, `frontend/src/pages/Login.jsx`
+
+Das Admin-Panel ist ab dieser Version durch ein vollständiges JWT-basiertes
+Benutzermanagement gesichert. Die frühere nginx Basic-Auth und der
+`ADMIN_API_TOKEN`-Mechanismus wurden vollständig ersetzt.
+
+## 22.1 Rollen
+
+| Rolle | Beschreibung |
+|---|---|
+| `superadmin` | Alle Rechte + Benutzerverwaltung (`/users`) |
+| `admin` | Alle Konfigurationen ändern, kein User-Management |
+| `operator` | Training starten, Radar-Refresh — keine Konfiguration |
+| `viewer` | Nur lesender Zugriff auf alle Daten |
+
+## 22.2 Login
+
+Das Admin-Panel leitet nicht eingeloggte Benutzer automatisch auf `/login` weiter.
+Das Passwort des initialen `admin`-Benutzers (superadmin) steht in
+`.admin_password` im Projektverzeichnis.
+
+| Endpoint | Methode | Beschreibung |
+|---|---|---|
+| `/api/auth/login` | POST | Login: gibt JWT Access Token zurück |
+| `/api/auth/logout` | POST | Logout: invalidiert Refresh-Cookie |
+| `/api/auth/refresh` | POST | Access Token erneuern via HttpOnly-Cookie |
+| `/api/auth/me` | GET | Aktuellen User abfragen |
+
+## 22.3 Token-Strategie
+
+- **Access Token:** JWT, 1 Stunde Laufzeit, lebt nur im Browser-Memory (kein localStorage)
+- **Refresh Token:** JWT, 7 Tage, HttpOnly-Cookie — wird bei jedem Refresh rotiert
+- **Auto-Refresh:** 5 Minuten vor Ablauf des Access Tokens automatisch erneuert
+- **Blacklist:** Invalidierte Refresh-Tokens werden in `users.db` gespeichert
+
+## 22.4 Benutzerverwaltung
+
+Die Seite **👥 Benutzer** im Admin-Panel (nur für `superadmin` sichtbar) ermöglicht:
+
+- Neue Benutzer anlegen (mit Rolle)
+- Rolle eines bestehenden Benutzers ändern
+- Benutzer deaktivieren / reaktivieren (kein echtes Löschen — Audit-Trail bleibt)
+- Passwort zurücksetzen
+
+## 22.5 Datenbank
+
+`users.db` (SQLite, WAL-Modus) liegt im Projektverzeichnis.
+
+- **`--mode=upgrade`:** `users.db` wird NICHT angefasst — alle Benutzer bleiben erhalten
+- **`--mode=full`:** `users.db` wird gelöscht und neu angelegt (Superadmin aus `.admin_password`)
+
+## 22.6 `.env`-Variablen
+
+| Variable | Beschreibung |
+|---|---|
+| `JWT_SECRET` | Zufälliger Secret für JWT-Signierung (wird bei install.sh generiert). Wenn nicht gesetzt: zufälliger Wert pro App-Start (Sessions werden nach Neustart ungültig). |
+
+> **Hinweis:** `ADMIN_API_TOKEN` und `ADMIN_REQUIRE_TOKEN` werden nicht mehr verwendet
+> und können aus `.env` entfernt werden.

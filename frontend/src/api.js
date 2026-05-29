@@ -1,69 +1,76 @@
 // api.js — WetterExtended Frontend API-Client
-// Sendet JWT Access Tokens als Bearer Header und meldet 401-Antworten
-// an den AuthContext zurück, damit die Session lokal beendet werden kann.
+//
+// JWT-Auth: Token wird von AuthContext via setToken() gesetzt.
+// Alle Requests senden Authorization: Bearer <token> wenn Token vorhanden.
+// Bei 401-Response → onUnauthorized-Callback wird aufgerufen (AuthContext
+// registriert diesen und löscht daraufhin den User-State).
+//
+// Öffentliche GET-Endpunkte (/karte, /api/objects usw.) funktionieren
+// ohne Token — da Backend alle GETs öffentlich lässt.
 
-let _accessToken = ''
-let _unauthorizedCallback = null
+let _token = '';
+let _onUnauthorized = null;
 
-export function setToken(token) {
-  _accessToken = token || ''
+/** Wird von AuthContext aufgerufen wenn Token gesetzt/gelöscht wird. */
+export function setToken(t) {
+  _token = t || '';
 }
 
-export function onUnauthorized(callback) {
-  _unauthorizedCallback = typeof callback === 'function' ? callback : null
+/** Wird von AuthContext registriert — löst Logout aus bei 401. */
+export function onUnauthorized(cb) {
+  _onUnauthorized = cb;
 }
 
-function _headers(extra = {}) {
-  const h = { 'Content-Type': 'application/json', ...extra }
-  if (_accessToken) h.Authorization = `Bearer ${_accessToken}`
-  return h
+function _authHeaders(extra = {}) {
+  const h = { 'Content-Type': 'application/json', ...extra };
+  if (_token) h['Authorization'] = `Bearer ${_token}`;
+  return h;
+}
+
+function _readHeaders() {
+  return _token ? { Authorization: `Bearer ${_token}` } : {};
 }
 
 async function _handleResponse(r, url) {
-  if (r.status === 401 && _unauthorizedCallback) {
-    _unauthorizedCallback()
+  if (r.status === 401) {
+    if (_onUnauthorized) _onUnauthorized();
+    throw new Error('Nicht authentifiziert');
   }
   if (!r.ok) {
-    const err = await r.json().catch(() => ({}))
-    throw new Error(err.error || `${url}: ${r.status}`)
+    const err = await r.json().catch(() => ({}));
+    throw new Error(err.error || `${url}: ${r.status}`);
   }
-  return r.json()
+  return r.json();
 }
 
 const api = {
   async get(url) {
-    const r = await fetch(url, {
-      headers: _accessToken ? { Authorization: `Bearer ${_accessToken}` } : {},
-      credentials: 'include',
-    })
-    return _handleResponse(r, url)
+    const r = await fetch(url, { headers: _readHeaders() });
+    return _handleResponse(r, url);
   },
   async post(url, body) {
     const r = await fetch(url, {
       method: 'POST',
-      headers: _headers(),
-      credentials: 'include',
+      headers: _authHeaders(),
       body: JSON.stringify(body),
-    })
-    return _handleResponse(r, url)
+    });
+    return _handleResponse(r, url);
   },
   async patch(url, body) {
     const r = await fetch(url, {
       method: 'PATCH',
-      headers: _headers(),
-      credentials: 'include',
+      headers: _authHeaders(),
       body: JSON.stringify(body),
-    })
-    return _handleResponse(r, url)
+    });
+    return _handleResponse(r, url);
   },
   async delete(url) {
     const r = await fetch(url, {
       method: 'DELETE',
-      headers: _accessToken ? { Authorization: `Bearer ${_accessToken}` } : {},
-      credentials: 'include',
-    })
-    return _handleResponse(r, url)
+      headers: _authHeaders(),
+    });
+    return _handleResponse(r, url);
   },
-}
+};
 
-export default api
+export default api;
