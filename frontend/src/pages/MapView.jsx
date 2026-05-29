@@ -74,6 +74,85 @@ function AnimationBar({ frames, currentIdx, playing, speed,
   )
 }
 
+// ── Forecast-Ghost-Layer ─────────────────────────────────────────────────────
+// Verschiebt die Zell-Kontur entlang des vorhergesagten Pfades und zeigt sie
+// als gestricheltes, halbtransparentes "Prognose"-Polygon. Rein clientseitig.
+function _forecastPoints(o, forecast) {
+  // Robust gegen verschiedene Forecast-Strukturen: Objekt traegt Felder selbst,
+  // ODER forecast ist nach ID gekeyt, ODER forecast ist ein Array mit id.
+  const horizons = [10, 20, 30, 40, 60]
+  let src = o
+  if (forecast) {
+    if (!Number.isNaN(Number(forecast?.[o.id]?.lat ?? NaN)) || forecast?.[o.id]) src = forecast[o.id]
+    else if (Array.isArray(forecast)) {
+      const f = forecast.find(x => String(x.id) === String(o.id))
+      if (f) src = f
+    } else if (Array.isArray(forecast?.objects)) {
+      const f = forecast.objects.find(x => String(x.id) === String(o.id))
+      if (f) src = f
+    }
+  }
+  const pts = { 0: [o.lat, o.lon] }
+  horizons.forEach(h => {
+    const la = src?.[`forecast_lat_${h}`]
+    const lo = src?.[`forecast_lon_${h}`]
+    if (la != null && lo != null) pts[h] = [Number(la), Number(lo)]
+  })
+  return pts
+}
+
+function _interpDelta(o, forecast, leadMin) {
+  // Liefert [dLat, dLon] der Schwerpunktverschiebung bei leadMin Minuten.
+  const pts = _forecastPoints(o, forecast)
+  const keys = Object.keys(pts).map(Number).sort((a, b) => a - b)
+  if (keys.length < 2 || o.lat == null || o.lon == null) return null
+  const maxH = keys[keys.length - 1]
+  const L = Math.min(leadMin, maxH)
+  let lo = keys[0], hi = keys[keys.length - 1]
+  for (let i = 0; i < keys.length - 1; i++) {
+    if (L >= keys[i] && L <= keys[i + 1]) { lo = keys[i]; hi = keys[i + 1]; break }
+  }
+  const [laLo, loLo] = pts[lo]
+  const [laHi, loHi] = pts[hi]
+  const t = hi === lo ? 0 : (L - lo) / (hi - lo)
+  const la = laLo + (laHi - laLo) * t
+  const ln = loLo + (loHi - loLo) * t
+  return [la - o.lat, ln - o.lon]
+}
+
+function ForecastGhostLayer({ objects, forecast, leadMin }) {
+  if (!leadMin || leadMin <= 0) return null
+  return (
+    <>
+      {objects.map(o => {
+        if (!o.contour_geo || o.contour_geo.length < 3) return null
+        const d = _interpDelta(o, forecast, leadMin)
+        if (!d) return null
+        const [dLat, dLon] = d
+        // contour_geo ist [lon, lat] -> Leaflet braucht [lat, lon]
+        const shifted = o.contour_geo.map(p => [p[1] + dLat, p[0] + dLon])
+        const frac = Math.min(leadMin / 60, 1)
+        const opacity = 0.30 * (1 - 0.6 * frac)   // weiter in Zukunft = blasser
+        return (
+          <Polygon
+            key={'ghost_' + o.id}
+            positions={shifted}
+            pathOptions={{
+              color: '#6a1b9a', weight: 2, dashArray: '6,5',
+              fillColor: '#9c27b0', fillOpacity: opacity, interactive: false,
+            }}
+            pane="overlayPane"
+          >
+            <Tooltip direction="top" opacity={0.9}>
+              <span>Prognose +{leadMin} min · Zelle {o.id}</span>
+            </Tooltip>
+          </Polygon>
+        )
+      })}
+    </>
+  )
+}
+
 function Legend({ horizons, colors }) {
   return (
     <div className="bg-white border rounded p-2 mb-2 shadow-sm text-sm flex flex-wrap gap-4 items-center">
@@ -368,6 +447,8 @@ function HitlModal({ loading, result, onConfirm, onClose }) {
 export default function MapView() {
   const [objects,      setObjects]      = useState([])
   const [forecast,     setForecast]     = useState({ features: [] })
+  const [showGhosts, setShowGhosts] = useState(true)
+  const [ghostLead, setGhostLead] = useState(30)
   const [locations,    setLocations]    = useState({ watchlist: [], hits: [], colors: {} })
   const [horizons,     setHorizons]     = useState({ horizons: [10,20,30,40,60], colors: {}, styles: {} })
   const [radarTiming,  setRadarTiming]  = useState(null)
@@ -694,6 +775,22 @@ export default function MapView() {
         </button>
       </div>
 
+      <div className="flex items-center gap-3 text-sm mb-2 bg-white border rounded p-2 shadow-sm">
+        <label className="flex items-center gap-1 select-none">
+          <input type="checkbox" checked={showGhosts}
+            onChange={e => setShowGhosts(e.target.checked)} />
+          🔮 Zell-Prognose
+        </label>
+        <span className="text-gray-600">+{ghostLead} min</span>
+        <input type="range" min="0" max="60" step="5" value={ghostLead}
+          disabled={!showGhosts}
+          onChange={e => setGhostLead(Number(e.target.value))}
+          className="w-40 accent-purple-600" />
+        <span className="text-xs text-gray-400">
+          gestricheltes violettes Polygon = vorhergesagte Zellposition (keine Messung)
+        </span>
+      </div>
+
       <MapContainer
         center={MAP_CENTER_KAERNTEN}
         zoom={MAP_ZOOM_DEFAULT}
@@ -966,6 +1063,10 @@ export default function MapView() {
         {/* Gewitterrisiko-Grid — farbige Flaechen ohne Rand, Hovertext mit Indizes.
             Tooltip wird unterdrueckt wenn unter dem Quadrat bereits eine
             Sturmzelle liegt — sonst Konflikt mit Zellen-Popup. */}
+        {showGhosts && (
+          <ForecastGhostLayer objects={objects} forecast={forecast} leadMin={ghostLead} />
+        )}
+
         {showRisk && riskGrid.map((cell, i) => {
           // Pruefen ob eine markierte Zelle in diesem Grid-Rechteck liegt
           const hasCellHere = objects.some(o => {

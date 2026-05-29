@@ -1048,6 +1048,8 @@ _hailo_available: Optional[bool] = None
 - LSTM, LightGBM-Punkt + Quantile (`model_training.py`)
 - ConvLSTM-Modell (`radar_convlstm.py`) — MODEL_PATH via SAVE_PATHS + runtime_config
 - 5 Forecast-Horizonte (10/20/30/40/60 min)
+- Zell-Prognose-Animation (`MapView.jsx` / `ForecastGhostLayer`): Kontur wandert
+  gestrichelt entlang des Forecast-Pfades bis +60 min, rein clientseitig ✅
 - Closed-Loop-Verifikation (`accuracy_tracker.py`)
 - KI-Analyse via Anthropic API (`daily_analyzer.py`)
 - React/Vite Admin-Panel mit 14 Seiten (inkl. Atmosphäre)
