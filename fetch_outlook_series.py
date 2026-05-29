@@ -37,7 +37,7 @@ _OUT_FILE = os.path.join(_OUT_DIR, "atmosphere_timeseries.json")
 _HOURLY_FULL = ",".join([
     "cape", "convective_inhibition", "lifted_index", "precipitable_water",
     "wind_speed_10m", "wind_direction_10m", "wind_gusts_10m",
-    "wind_speed_700hPa", "wind_direction_700hPa",
+    "windspeed_700hPa", "winddirection_700hPa",
     "temperature_500hPa", "temperature_700hPa", "freezing_level_height",
 ])
 _HOURLY_MIN = ",".join([

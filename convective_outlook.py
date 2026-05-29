@@ -140,7 +140,7 @@ def _cell_severity(s, attr_prior, valid_iso):
     t500 = _f(s.get("temperature_500hPa")); t700 = _f(s.get("temperature_700hPa"))
     fl   = _f(s.get("freezing_level_height"))
     gust = _f(s.get("wind_gusts_10m"))
-    w10  = _f(s.get("wind_speed_10m")); w700 = _f(s.get("wind_speed_700hPa"))
+    w10  = _f(s.get("wind_speed_10m")); w700 = _f(s.get("windspeed_700hPa"))
     lapse = (t700 - t500) / 3.0 if (t500 or t700) else 0.0
     shear = abs(w700 - w10)
     diur = _diurnal_weight(valid_iso)
