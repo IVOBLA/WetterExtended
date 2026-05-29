@@ -8,6 +8,7 @@ const NAV = [
   { to: '/map',          label: 'Karte' },
   { to: '/live',         label: 'Live-Daten' },
   { to: '/atmosphaere',  label: 'Atmosphäre' },
+  { to: '/ausblick',      label: '🔭 12-h-Ausblick' },
   { to: '/data',         label: 'Datensatz' },
   { to: '/locations',    label: 'Orte' },
   { to: '/thresholds',   label: 'Schwellwerte' },
