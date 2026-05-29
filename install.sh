@@ -507,6 +507,10 @@ if [[ "$MODE" == "full" ]]; then
     rm -f  "${TARGET}/data/overlay.png"            "${TARGET}/data/latest.png"             "${TARGET}/data/latest.kml"             "${TARGET}/data/.kmz_last_modified"
     rm -f  "${TARGET}/forecast.kmz"            "${TARGET}/movement.gif"
 
+    # ── users.db loeschen (wird von init_db() beim App-Start neu angelegt) ──────
+    echo "[FULL] Loesche users.db (Benutzer-Datenbank)..."
+    rm -f "${TARGET}/users.db"
+
     # ── venv und Frontend-Build loeschen (werden in Phase 5/7 neu gebaut) ──────
     echo "[FULL] Loesche venv/ ..."
     rm -rf "${TARGET}/venv"
@@ -855,18 +859,27 @@ ANTHROPIC_API_KEY=
 # ── GitHub-Token (privates Repo) ─────────────────────────────
 GITHUB_TOKEN=
 
+# ── JWT-Authentifizierung ─────────────────────────────────────
+# Wird automatisch von install.sh generiert (openssl rand -hex 32).
+# Bei Neustart ohne JWT_SECRET: zufälliger Secret → alle Sessions ungültig.
+JWT_SECRET=
+
 # ── Debug-Modus ───────────────────────────────────────────────
 WETTER_DEBUG=0
 ALLOW_SYSTEM_LOG_PURGE=false
-JWT_SECRET=
 ENVTEMPLATE
         log_warn ".env angelegt — Credentials eintragen:"
         note_manual "nano $ENV_FILE  # FTP, BLITZ, TWILIO, ANTHROPIC_API_KEY, GITHUB_TOKEN setzen"
     fi
-    if ! grep -q "^JWT_SECRET=" "$ENV_FILE" 2>/dev/null || [[ -z "$(grep "^JWT_SECRET=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ' || true)" ]]; then
+
+    # JWT_SECRET generieren (einmalig, bei Upgrade beibehalten)
+    # Wird von auth.py fuer JWT-Signierung verwendet.
+    EXISTING_JWT_SECRET=$(grep "^JWT_SECRET=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ' || true)
+    if [[ -z "$EXISTING_JWT_SECRET" ]]; then
+        NEW_JWT_SECRET=$(openssl rand -hex 32)
         sed -i '/^JWT_SECRET=$/d' "$ENV_FILE"
-        echo "JWT_SECRET=$(openssl rand -hex 32)" >> "$ENV_FILE"
-        check_ok ".env: JWT_SECRET generiert"
+        echo "JWT_SECRET=${NEW_JWT_SECRET}" >> "$ENV_FILE"
+        check_ok ".env: JWT_SECRET generiert ($(echo "${NEW_JWT_SECRET}" | cut -c1-8)...)"
     else
         check_ok ".env: JWT_SECRET vorhanden"
     fi
@@ -885,10 +898,13 @@ else
     fi
 
     # JWT_SECRET generieren (einmalig, bei Upgrade beibehalten)
-    if ! grep -q "^JWT_SECRET=" "$ENV_FILE" 2>/dev/null || [[ -z "$(grep "^JWT_SECRET=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ' || true)" ]]; then
+    # Wird von auth.py fuer JWT-Signierung verwendet.
+    EXISTING_JWT_SECRET=$(grep "^JWT_SECRET=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ' || true)
+    if [[ -z "$EXISTING_JWT_SECRET" ]]; then
+        NEW_JWT_SECRET=$(openssl rand -hex 32)
         sed -i '/^JWT_SECRET=$/d' "$ENV_FILE"
-        echo "JWT_SECRET=$(openssl rand -hex 32)" >> "$ENV_FILE"
-        check_ok ".env: JWT_SECRET generiert"
+        echo "JWT_SECRET=${NEW_JWT_SECRET}" >> "$ENV_FILE"
+        check_ok ".env: JWT_SECRET generiert ($(echo "${NEW_JWT_SECRET}" | cut -c1-8)...)"
     else
         check_ok ".env: JWT_SECRET vorhanden"
     fi
@@ -1126,6 +1142,21 @@ else
     note_manual "cd $TARGET/frontend && npm install && npm run build"
 fi
 
+# .admin_password: Passwort fuer initialen Superadmin sicherstellen.
+# Wird von auth.py / init_db() beim ersten App-Start gelesen.
+ADMIN_PASS_FILE="$TARGET/.admin_password"
+if [[ ! -f "$ADMIN_PASS_FILE" ]]; then
+    ADMIN_PASS=$(openssl rand -base64 16 | tr -d '/+=\n' | head -c 16)
+    echo "$ADMIN_PASS" > "$ADMIN_PASS_FILE"
+    chmod 600 "$ADMIN_PASS_FILE"
+    check_ok "Admin-Passwort generiert → $ADMIN_PASS_FILE"
+    echo -e "${YELLOW}  Admin-Passwort (Erstlogin): ${ADMIN_PASS}${NC}"
+    echo -e "${YELLOW}  (auch gespeichert in: $ADMIN_PASS_FILE)${NC}"
+    echo -e "${YELLOW}  Login: http://<pi-ip>/ → Benutzer: admin${NC}"
+else
+    log_info ".admin_password vorhanden — Passwort unverändert."
+fi
+
 # ==============================================================================
 # PHASE 7d — nginx: Reverse-Proxy für Flask-API + React-SPA
 # ==============================================================================
@@ -1143,12 +1174,12 @@ if command -v nginx &>/dev/null; then
     sudo tee "$NGINX_SITE_CONF" > /dev/null <<NGINXCONF
 # WetterExtended — nginx Reverse-Proxy
 # Generiert von install.sh am $(date '+%Y-%m-%d %H:%M:%S')
+# Authentifizierung: JWT via Flask (auth.py) — kein nginx Basic-Auth mehr.
 
 server {
     listen 80;
     listen [::]:80;
     server_name _;
-
 
     root ${FRONTEND_DIST};
     index index.html;
@@ -1162,43 +1193,29 @@ server {
         add_header Cache-Control "no-cache";
     }
 
-    # Vollbild-Karte: ohne Authentifizierung erreichbar
+    # Vollbild-Karte: oeffentlich (Flask behandelt Auth fuer alle API-Requests)
     # Regex-Match deckt /karte, /karte/ und /karte/* ab (Trailing-Slash-Fix)
     location ~ ^/karte(/.*)?$ {
         try_files \$uri /index.html;
         add_header Cache-Control "no-cache";
     }
 
-    # SPA-Einstiegsdatei ohne Auth.
-    # try_files \$uri /index.html im /karte-Block macht einen internen nginx-Redirect
-    location = /index.html {
-        add_header Cache-Control "no-cache";
-    }
-
-    # Favicon ohne Auth (404 statt 401 wenn kein favicon vorhanden)
+    # Favicon
     location = /favicon.ico {
         expires 1y;
         add_header Cache-Control "public, immutable";
         try_files \$uri =404;
     }
 
-    # Leaflet-Assets: ohne Auth (werden von /karte geladen)
+    # Leaflet-Assets + Frontend-Assets (statisch, kein Auth)
     location /assets/ {
         expires 1y;
         add_header Cache-Control "public, immutable";
     }
 
-    # API-Endpunkte fuer oeffentliche Karte (nur lesend, kein POST)
-    # Fix #9: lightning + risk_grid öffentlich freigeben (öffentliche /karte-Ansicht)
-    location ~ ^/api/(objects|forecast|locations|horizons|health|radar_image|radar_bounds|radar_timing|radar_frames|lightning|risk_grid)$ {
-        proxy_pass         http://127.0.0.1:5000;
-        proxy_http_version 1.1;
-        proxy_set_header   Host              \$host;
-        proxy_set_header   X-Real-IP         \$remote_addr;
-        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_read_timeout 30s;
-    }
-
+    # Alle API-Endpunkte an Flask weiterleiten.
+    # Flask (auth.py / _jwt_auth_check) entscheidet welche Endpunkte Auth benoetigen.
+    # GET-Requests sind oeffentlich; POST/PATCH/DELETE benoetigen JWT Bearer Token.
     location /api/ {
         proxy_pass         http://127.0.0.1:5000/api/;
         proxy_http_version 1.1;
@@ -1211,7 +1228,6 @@ server {
     }
 
     # Finding #4 Fix: /export/ ist keine Flask-Route.
-    # Redirect auf kanonische API-Route /api/export/forecast.kmz
     location = /export/forecast.kmz {
         return 301 /api/export/forecast.kmz;
     }
