@@ -3,15 +3,22 @@
 APScheduler-basierter Hintergrund-Scheduler für WetterExtended.
 
 Jobs die immer aktiv sind:
-  ai_analysis     — tägliche KI-Analyse (nur wenn enabled=True in config)
-  accuracy_eval   — stündliche Closed-Loop-Verifikation
-  data_cleanup    — tägliche Daten-Rotation (04:30, konfigurierbar)
+  ai_analysis        — tägliche KI-Analyse (nur wenn enabled=True in config)
+  accuracy_eval      — stündliche Closed-Loop-Verifikation + Schwere-Verifikation
+  data_cleanup       — tägliche Daten-Rotation (04:30, konfigurierbar)
+  api_health_check   — täglicher API-Connectivity-Check (05:15)
+  weekly_backup      — wöchentliches Backup (sonntags 02:00)
+  atmospheric_snapshot — Atmosphären-Snapshot (Intervall konfigurierbar)
+  outlook_series     — 12-h-Ausblick-Zeitreihe (alle 30 min, mit Frische-Guard)
+  outlook_compute    — 12-h-Risiko-Raster berechnen (alle 30 min, lokal)
+  cpu_monitor        — CPU-Monitoring (alle 5 min)
 
 Jobs nur wenn LOCAL_TRAINING=True:
-  rebuild_dataset  — Datensatz-Rebuild (Intervall konfigurierbar)
-  retrain_interval — LightGBM/LSTM Retrain nach Intervall
-  retrain_nightly  — Nightly Retrain per Cron
-  convlstm_weekly  — ConvLSTM-Training wöchentlich per Cron
+  rebuild_dataset    — Datensatz-Rebuild (Intervall konfigurierbar)
+  retrain_interval   — LightGBM/LSTM Retrain nach Intervall
+                       (+ Schwere-Datensatz rebuild + Schwere-Modelle Regen/Böen)
+  retrain_nightly    — Nightly Retrain per Cron (inkl. Schwere-Training)
+  convlstm_weekly    — ConvLSTM-Training wöchentlich per Cron
 """
 
 from apscheduler.schedulers.blocking import BlockingScheduler
