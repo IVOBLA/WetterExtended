@@ -1867,3 +1867,30 @@ Konvektions-Ausblick.
 > **API-Schonung:** Ein Frische-Guard verhindert einen Netz-Request, solange die Datei jünger als
 > `OUTLOOK_SERIES_TTL_MIN` (Default 30) ist. Pro Lauf max. 5 Batch-Requests → ≈ 240 Req/Tag.
 > Bei Parameter-Fehlern wird automatisch auf einen Minimalsatz zurückgefallen.
+
+---
+
+# 38 NEU: 12-Stunden-Konvektions-Ausblick
+
+**Modul:** `convective_outlook.py`
+**API:** `GET /api/outlook` (optional `?hour=N`)
+**Ausgabe:** `train_data/forecast/outlook_12h.json`
+**Scheduler-Job:** `outlook_compute` (alle 30 min, nur lokale Dateien)
+
+Der Ausblick beantwortet **wo und wann** in den nächsten 12 Stunden Risikozonen entstehen und
+**wie schwer** sie ausfallen könnten. Pro Stunde (+1…+12 h) entsteht ein Risiko-Raster (1–3) mit
+Schwere-Proxys je ~5×5-km-Zelle:
+
+| Feld | Bedeutung |
+|---|---|
+| `risk` | 1 = niedrig (gelb), 2 = mäßig (orange), 3 = hoch (rot) |
+| `severity.rain_mm_h` | erwartete Niederschlagsrate (Proxy aus PW × CAPE) |
+| `severity.gust_kmh` | erwartete Böe (Proxy aus Böen-Feld + Lapse-Rate) |
+| `severity.hail_index` | SHIP-ähnlicher Hagel-Index; `hail_cat` = kein/klein/gross |
+| `info.dominant` | dominante Ursache (Hagel/Regen/Böe/Instabilität) |
+
+> **Methode:** zutatenbasierte Heuristik (CAPE/LI/CIN/Scherung/Gefriergrenze) mit Tagesgang-Gewichtung,
+> moduliert durch einen **klimatologischen Attraktor-Prior** aus der eigenen Zell-Historie
+> (Frequenzkarte je Grobraster × Monat). Damit lernt das System, an welchen Orten zu welcher
+> Jahreszeit Gewitter bevorzugt auftreten (Berge/Täler) — ohne externen API-Call.
+> Liegt keine Historie vor, wird die reine Heuristik verwendet (Fallback).

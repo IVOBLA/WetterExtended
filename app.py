@@ -3260,6 +3260,21 @@ def api_risk_grid():
     })
 
 
+@app.route("/api/outlook")
+def api_outlook():
+    """12-h-Konvektions-Ausblick. Optional ?hour=N filtert eine Stunde."""
+    try:
+        from convective_outlook import load_outlook
+        data = load_outlook()
+        hour = request.args.get("hour", type=int)
+        if hour is not None:
+            data = dict(data)
+            data["hours"] = [h for h in data.get("hours", []) if h.get("offset_h") == hour]
+        return jsonify(data)
+    except Exception as exc:
+        return jsonify({"hours": [], "error": str(exc)}), 200
+
+
 if __name__ == "__main__":
     # Fix P04: Standardmäßig nur auf 127.0.0.1 lauschen.
     # nginx reverse-proxyt von außen auf diesen Port — direkter LAN-Zugriff
