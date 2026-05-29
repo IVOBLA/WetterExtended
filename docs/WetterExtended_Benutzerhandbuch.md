@@ -1812,3 +1812,22 @@ Jede Sturmzelle erhält ein `severity`-Objekt, das im Karten-Popup angezeigt wir
 > Genauigkeits-Seite). Hagel ist ein physikalischer Index ohne ML, da keine Bodenwahrheit vorliegt.
 > `mode: fallback` bedeutet: noch kein trainiertes Modell — Nowcast-Persistenz wird verwendet.
 
+
+---
+
+# 35 NEU: Schwere-Verifikation (Closed-Loop)
+
+**Modul:** `severity_verification.py`
+**API:** `GET /api/severity_accuracy?hours=<1-168>` (Default 24 h)
+
+Vergleicht die vorhergesagten Regen-/Böen-Werte mit den +20 min später beobachteten Werten
+(Nowcast/TAWES) und liefert die mittlere Abweichung:
+
+| Feld | Bedeutung |
+|---|---|
+| `samples` | Anzahl verifizierter Zell-Vorhersagen |
+| `mae_rain_mm_h` | mittlere absolute Abweichung Niederschlag (mm/h) |
+| `mae_gust_kmh` | mittlere absolute Abweichung Böen (km/h) |
+
+Die Verifikation läuft stündlich im Accuracy-Job mit. Die grafische Darstellung im Admin-Panel
+(Genauigkeits-Seite) folgt in einem separaten Schritt.
