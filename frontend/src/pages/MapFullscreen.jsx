@@ -489,6 +489,20 @@ export default function MapFullscreen() {
               >
                 <Popup autoPan={true} keepInView={true}>
                   <div><b>{o.id}</b> ({o.lineage})</div>
+                  {o.severity && (
+                    <div style={{fontSize:'0.8em', marginTop:2}}>
+                      <span style={{
+                        display:'inline-block', padding:'1px 5px', borderRadius:3, color:'#fff',
+                        background: o.severity.level >= 4 ? '#6a1b9a'
+                                  : o.severity.level === 3 ? '#c62828'
+                                  : o.severity.level === 2 ? '#f9a825' : '#9e9e9e'
+                      }}>Schwere {o.severity.level}/4</span>
+                      <div style={{marginTop:2,color:'#444'}}>
+                        🌧 {o.severity.rain_mm_h} mm/h · 💨 {o.severity.gust_kmh} km/h
+                        {o.severity.hail_cat !== 'keiner' && <> · 🧊 {o.severity.hail_cat} ({Math.round(o.severity.hail_prob*100)}%)</>}
+                      </div>
+                    </div>
+                  )}
                   {o.first_seen && (
                     <div style={{fontSize:'0.8em',color:'#666'}}>
                       Erstmals: {(() => { try {
