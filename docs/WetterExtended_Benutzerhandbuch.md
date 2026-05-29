@@ -1735,3 +1735,27 @@ Die Seite **👥 Benutzer** im Admin-Panel (nur für `superadmin` sichtbar) erm�
 
 > **Hinweis:** `ADMIN_API_TOKEN` und `ADMIN_REQUIRE_TOKEN` werden nicht mehr verwendet
 > und können aus `.env` entfernt werden.
+
+---
+
+# 31 NEU: Erweiterte konvektive ML-Features
+
+**Modul:** `compute_extra_features.py`
+**Datenquelle:** rein rechnerisch aus bereits abgerufenen Werten — **kein zusätzlicher API-Call**.
+
+Sieben physikalisch motivierte **Approximations-Features** wurden ergänzt. Sie laufen in der
+Live-Pipeline nach den konvektiven Diagnose-Indizes und stehen LightGBM/LSTM zur Verfügung.
+
+| Feature | Einheit | Bedeutung |
+|---|---|---|
+| `dcape` | J/kg | Downdraft-CAPE-Proxy (trockene Mittelschicht + steile Lapse-Rate → starke Fallwinde) |
+| `shear_0_1km_speed` | km/h | Low-Level-Scherung 10 m → 850 hPa |
+| `shear_0_3km_speed` | km/h | Scherung 10 m → 700 hPa |
+| `srh_0_3km` | m²/s² | Storm-Relative-Helicity-Proxy (Rotationspotenzial) |
+| `cape_trend_30min` | J/kg | CAPE-Trend der Zelle über ~30 min (Intensivierung) |
+| `li_trend_30min` | °C | Lifted-Index-Trend der Zelle über ~30 min |
+| `vil_proxy` | — | Vertikal-integrierter-Flüssigwasser-Proxy (Hagel-/Schwere-Indikator) |
+
+> **Hinweis:** Es handelt sich um Approximationen aus vorhandenen Größen, keine NWP-Direktwerte.
+> Trend-Features nutzen einen prozess-lokalen Ringpuffer (40-min-Fenster) und liefern erst nach
+> ~20 min Laufzeit von Null verschiedene Werte. Bei Feature-Änderung müssen Modelle neu trainiert werden.

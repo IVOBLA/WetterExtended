@@ -304,6 +304,8 @@ def main_loop():
             # wind_speed_500hPa, wind_dir_500_*, arome_td2m, arome_ff10m,
             # arome_dd_*, arome_fl_height, core_ratio, lightning_count_10km.
             objects = assign_convective_indices(objects, timestamp)
+            from compute_extra_features import assign_extra_features
+            objects = assign_extra_features(objects)
             _tawes_stations = fetch_tawes_stations()
             for _obj in objects:
                 if _obj.get("lat") is not None and _obj.get("lon") is not None:
