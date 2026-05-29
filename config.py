@@ -317,6 +317,15 @@ ML_CELL_FEATURES = [
     "wind_speed_300hPa",    # Windgeschwindigkeit 300 hPa [km/h]
     "wind_dir_300_cos",     # cos(Windrichtung 300 hPa)
     "wind_dir_300_sin",     # sin(Windrichtung 300 hPa)
+    # ── NEU: Erweiterte konvektive Features (compute_extra_features.py) ───────
+    # Rein rechnerische Approximationen aus bereits geholten Daten — kein API-Call.
+    "dcape",                # Downdraft-CAPE-Proxy [J/kg]
+    "shear_0_1km_speed",    # 0-1 km Scherung [km/h]
+    "shear_0_3km_speed",    # 0-3 km Scherung [km/h]
+    "srh_0_3km",            # Storm-Relative-Helicity-Proxy [m^2/s^2]
+    "cape_trend_30min",     # ΔCAPE ueber ~30 min [J/kg]
+    "li_trend_30min",       # ΔLifted-Index ueber ~30 min [Grad C]
+    "vil_proxy",            # VIL-Proxy (core_ratio x Flaeche) [dimensionslos]
 ]
 
 ML_STATION_FEATURES = [
