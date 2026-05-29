@@ -1831,3 +1831,22 @@ Vergleicht die vorhergesagten Regen-/Böen-Werte mit den +20 min später beobach
 
 Die Verifikation läuft stündlich im Accuracy-Job mit. Die grafische Darstellung im Admin-Panel
 (Genauigkeits-Seite) folgt in einem separaten Schritt.
+
+---
+
+# 36 NEU: Zell-Prognose-Animation auf der Karte
+
+**Modul:** `MapView.jsx` (Komponente `ForecastGhostLayer`)
+
+Über der Karte gibt es einen Schalter **🔮 Zell-Prognose** und einen Schieberegler **+N min**
+(0–60 min). Bei aktiviertem Schalter wird die Zell-Kontur entlang des vorhergesagten Pfades
+verschoben und als **gestricheltes, halbtransparentes violettes Polygon** dargestellt.
+
+| Eigenschaft | Bedeutung |
+|---|---|
+| Position | linear interpolierte Forecast-Position der Zelle bei +N min |
+| Stil | gestrichelt, violett — **klar als Prognose**, keine Messung |
+| Deckkraft | nimmt mit zunehmendem Vorlauf ab (Unsicherheit steigt) |
+
+Die Berechnung erfolgt rein im Browser aus `contour_geo` und den Forecast-Positionen —
+**kein zusätzlicher Server-/API-Aufruf**.
