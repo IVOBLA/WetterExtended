@@ -1393,3 +1393,25 @@ Tabelle in §4 zeigt sofort, dass es Phase E gibt mit klarem Status („⏳ Offe
 Neuer §16 ist atomar und enthält Motivation, Architektur-Entscheidungen (verbindlich), 10 Tasks E1–E10, Pre-Conditions, alle Schwellwerte als Default-Werte, klare Abgrenzung zu Phase B, und messbare Erfolgskriterien.
 Keine Code-Änderung in dieser Phase — nur die Roadmap. Die nächste Iteration kann dann atomare Prompts P-E01, P-E02 … für Claude Code generieren, einer pro Task.
 Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sowohl E5 (Features) als auch E6 (Modell) ihn brauchen. E10 als letztes, weil Frontend erst sinnvoll ist, wenn Backend Daten liefert.
+
+---
+
+### 5.7 Phase A.6 — Hotfixes aus Produktions-Log-Analyse 2026-05-29 🔄 IN BEARBEITUNG
+
+**Analysiertes Log:** `wetterprojekt_logs_20260529_202402.txt`
+**Ergebnis:** 1 kritischer Bug, 1 Medium-Bug, alle anderen Meldungen = Normalbetrieb
+
+| # | Task | Datei(en) | Status |
+|---|------|-----------|--------|
+| B47 | Open-Meteo 400 Bad Request: `wind_speed_700hPa` → `windspeed_700hPa`, `wind_direction_700hPa` → `winddirection_700hPa` in `_HOURLY_FULL` | `fetch_outlook_series.py` | ✅ erledigt (dieser Prompt) |
+| B48 | JWT Token-Rotation Multi-Tab Race Condition: BroadcastChannel in AuthContext.jsx | `frontend/src/context/AuthContext.jsx` | 🔲 ausstehend (Prompt 02) |
+
+**Bestätigter Normalbetrieb (kein Fix):**
+- Keine Radar-Zellen erkannt (klarer Tag) → korrekt
+- 0 Dataset-Samples → erwartet ohne Zellen
+- Wolkenhöhe 0m alle Punkte → korrekt (IR-Pixel alle > 265K)
+- Adaptiver Loop 900s (Ruhe > 60 min) → korrekt
+- HEALTH-WARN 0 Samples → informativer Hinweis, kein Code-Bug
+
+**Hailo-Integrationsstatus (unverändert):**
+- Phase 1 (Installation) ✅ — Phase 2 (HEF-Export) 🔲 — Phase 3 (Runtime) 🔲
