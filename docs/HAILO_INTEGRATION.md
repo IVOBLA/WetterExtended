@@ -1122,7 +1122,7 @@ _hailo_available: Optional[bool] = None
 | Phase | Inhalt | Status |
 |---|---|---|
 | O1 | 12-h-Zeitreihe der konvektiven Felder (`fetch_outlook_series.py`) | ✅ erledigt (Prompt 7) |
-| O2 | Stündliche Risiko-/Schwere-Raster (`convective_outlook.py`) | 🔄 Prompt 8 |
+| O2 | Stündliche Risiko-/Schwere-Raster (`convective_outlook.py`) | ✅ erledigt (Prompt 8) |
 | O3 | Ausblick-Seite mit Zeit-Slider (`/ausblick`) | 🔄 Prompt 9 |
 
 ### 14.2 Was fehlt noch

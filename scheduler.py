@@ -256,6 +256,18 @@ def run_outlook_series_job():
         debug_log(f"[SCHEDULER] outlook_series Fehler: {exc}")
 
 
+def run_outlook_compute_job():
+    """Berechnet die 12 Stunden-Raster aus der Zeitreihe."""
+    runtime_config.reload_overrides()
+    debug_log("[SCHEDULER] Job outlook_compute gestartet")
+    try:
+        from convective_outlook import compute_outlook
+        r = compute_outlook()
+        debug_log(f"[SCHEDULER] outlook_compute abgeschlossen ({len(r.get('hours', []))} Stunden)")
+    except Exception as exc:
+        debug_log(f"[SCHEDULER] outlook_compute Fehler: {exc}")
+
+
 def run_api_health_job():
     """Täglicher API-Connectivity-Check (05:15 Europe/Vienna)."""
     debug_log("[SCHEDULER] Job api_health_check gestartet")
@@ -407,6 +419,15 @@ def create_scheduler() -> BlockingScheduler:
             minutes=runtime_config.get("OUTLOOK_SERIES_INTERVAL_MIN", 30)
         ),
         id="outlook_series", max_instances=1, coalesce=True,
+    )
+
+    # --- immer aktiv: Ausblick-Raster (liest nur lokale Dateien) ---
+    sched.add_job(
+        run_outlook_compute_job,
+        trigger=IntervalTrigger(
+            minutes=runtime_config.get("OUTLOOK_COMPUTE_INTERVAL_MIN", 30)
+        ),
+        id="outlook_compute", max_instances=1, coalesce=True,
     )
 
     # --- nur wenn LOCAL_TRAINING=True ---
