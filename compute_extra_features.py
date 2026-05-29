@@ -11,13 +11,12 @@ Fehlt eine Eingangsgroesse, wird das jeweilige Feature 0.0 gesetzt (Modell lernt
 als 'fehlend').
 """
 
-import importlib.util
 import math
 import time
 
-if importlib.util.find_spec("cv2") is not None:
+try:
     from debug_utils import debug_log
-else:
+except Exception:
     def debug_log(msg):
         print(msg)
 
