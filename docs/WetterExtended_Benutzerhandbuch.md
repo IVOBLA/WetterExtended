@@ -1779,3 +1779,16 @@ gespeicherten Objekt-/Wetterdateien).
 
 > Hagel hat keine Bodenwahrheit und wird **nicht** trainiert (physikalischer Index in der
 > Vorhersage). Mindestens 30 Samples sind nötig, sonst wird keine Datei geschrieben.
+
+---
+
+# 33 NEU: Schwere-Vorhersage — Modelltraining
+
+**Modul:** `severity_training.py`
+**Modelle:** `train_data/models/current/lgbm_severity_rain.txt`, `lgbm_severity_gust.txt`
+**Metriken:** `severity_metrics.json` (Holdout-MAE)
+
+Zwei LightGBM-Regressoren sagen die erwartete Niederschlagsmenge (mm/h) und Spitzenböe (km/h)
+für eine Zelle +20 min voraus. Training läuft im bestehenden Retrain-Job (nur bei
+`LOCAL_TRAINING=True`), mit zeitbasiertem Holdout (letzte 20 % als Test). Die mittlere
+Abweichung je Ziel ist nach Prompt 5 im Admin-Panel unter Genauigkeit sichtbar.
