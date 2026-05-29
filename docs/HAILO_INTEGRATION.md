@@ -1059,7 +1059,7 @@ _hailo_available: Optional[bool] = None
 - Daten-Rotation via `cleanup_old_data.py` täglich 04:30
 - Disk-Monitoring im Dashboard (`/api/disk`)
 - Open-Meteo Bulk-Query + API-Cache (`api_cache.py`)
-- Atmosphären-Snapshot 24-Punkt-Raster für Kärnten (`fetch_atmospheric_snapshot.py`, `ATM_SNAPSHOT_LOCATIONS` in `config.py`): 8×3-Gitter ~27 km Abstand, lückenlose Abdeckung bei ATM_RANGE 20 km, Batching à 8 Locations via `_bulk_get_batched()` ✅
+- Atmosphären-Snapshot 36-Punkt-Raster für Kärnten (`fetch_atmospheric_snapshot.py`, `ATM_SNAPSHOT_LOCATIONS` in `config.py`): 9×4-Gitter ~24×28 km, lückenlose Abdeckung des gesamten BBOX bei ATM_RANGE 20 km (Worst-Case 18,4 km), 5 Batches à 8 Locations via `_bulk_get_batched()`, 720 Req/Tag (7,2 % Limit) ✅
 - File-Locking (`fcntl.flock`) + Atomic-Write in `runtime_config.py`
 - `LOCAL_TRAINING`-Flag in config, scheduler, install.sh, app.py, Training.jsx
 - `/api/hailo/reload` Endpoint für rsync-Post-Hook

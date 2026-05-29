@@ -363,39 +363,52 @@ LOCATIONS_WATCHLIST = [
     {"name": "Feldkirchen", "lat": 46.7233, "lon": 14.0992, "radius_km": 5.0},
 ]
 
-# 8×3-Raster-Gitterpunkte für den atmosphärischen Snapshot.
+# 9×4-Raster-Gitterpunkte für den atmosphärischen Snapshot.
 # Verwendet ausschließlich von fetch_atmospheric_snapshot.py für das Risk-Grid
 # (LI/CAPE/CIN-Einfluss). NICHT für Alarm-Prüfungen (kein radius_km).
-# 24 Punkte mit ~27 km Abstand → lückenlose Abdeckung bei ATM_RANGE 20 km.
+# 36 Punkte mit ~24×28 km Abstand → lückenlose Abdeckung bei ATM_RANGE 20 km.
 # Zur Laufzeit überschreibbar via runtime_config "ATM_SNAPSHOT_LOCATIONS".
 ATM_SNAPSHOT_LOCATIONS: list = [
-    # ── Süd-Kärnten (lat ≈ 46.50) ────────────────────────────────────────────
-    {"name": "Nassfeld",           "lat": 46.50, "lon": 12.68},
-    {"name": "Hermagor",           "lat": 46.50, "lon": 13.05},
-    {"name": "Arnoldstein",        "lat": 46.50, "lon": 13.42},
-    {"name": "Finkenstein",        "lat": 46.50, "lon": 13.79},
-    {"name": "Ferlach",            "lat": 46.50, "lon": 14.16},
-    {"name": "Voelkermarkt",       "lat": 46.50, "lon": 14.53},
-    {"name": "Griffen",            "lat": 46.50, "lon": 14.90},
-    {"name": "Bleiburg",           "lat": 46.50, "lon": 15.15},
-    # ── Zentral-Kärnten (lat ≈ 46.82) ────────────────────────────────────────
-    {"name": "Lesachtal",          "lat": 46.82, "lon": 12.68},
-    {"name": "Koetschach",         "lat": 46.82, "lon": 13.05},
-    {"name": "Spittal-Drau",       "lat": 46.82, "lon": 13.42},
-    {"name": "Villach-Grid",       "lat": 46.82, "lon": 13.79},
-    {"name": "Feldkirchen-Grid",   "lat": 46.82, "lon": 14.16},
-    {"name": "St-Veit-Grid",       "lat": 46.82, "lon": 14.53},
-    {"name": "Wolfsberg-Grid",     "lat": 46.82, "lon": 14.90},
-    {"name": "Lavanttal-Ost",      "lat": 46.82, "lon": 15.15},
-    # ── Nord-Kärnten (lat ≈ 47.13) ────────────────────────────────────────────
-    {"name": "Karnische-West",     "lat": 47.13, "lon": 12.68},
-    {"name": "Kreuzeckgruppe",     "lat": 47.13, "lon": 13.05},
-    {"name": "Gmuend",             "lat": 47.13, "lon": 13.42},
-    {"name": "Millstatt",          "lat": 47.13, "lon": 13.79},
-    {"name": "Bad-Kleinkirchheim", "lat": 47.13, "lon": 14.16},
-    {"name": "Friesach",           "lat": 47.13, "lon": 14.53},
-    {"name": "Neumarkt",           "lat": 47.13, "lon": 14.90},
-    {"name": "Koralpe-Nord",       "lat": 47.13, "lon": 15.15},
+    # ── Süd-Kärnten / Karawanken (lat = 46.40) ────────────────────────────────
+    {"name": "Ploeckenpass",       "lat": 46.40, "lon": 12.65},
+    {"name": "Nassfeld",           "lat": 46.40, "lon": 12.96},
+    {"name": "Arnoldstein",        "lat": 46.40, "lon": 13.28},
+    {"name": "Faakersee",          "lat": 46.40, "lon": 13.59},
+    {"name": "Rosegg",             "lat": 46.40, "lon": 13.90},
+    {"name": "Ferlach",            "lat": 46.40, "lon": 14.21},
+    {"name": "Eisenkappel",        "lat": 46.40, "lon": 14.53},
+    {"name": "Lavamuend",          "lat": 46.40, "lon": 14.84},
+    {"name": "Bleiburg-Sued",      "lat": 46.40, "lon": 15.15},
+    # ── Zentral-Süd / Klagenfurter Becken (lat = 46.65) ───────────────────────
+    {"name": "Lesachtal",          "lat": 46.65, "lon": 12.65},
+    {"name": "Hermagor",           "lat": 46.65, "lon": 12.96},
+    {"name": "Finkenstein",        "lat": 46.65, "lon": 13.28},
+    {"name": "Villach",            "lat": 46.65, "lon": 13.59},
+    {"name": "Velden",             "lat": 46.65, "lon": 13.90},
+    {"name": "Klagenfurt",         "lat": 46.65, "lon": 14.21},
+    {"name": "Grafenstein",        "lat": 46.65, "lon": 14.53},
+    {"name": "Voelkermarkt",       "lat": 46.65, "lon": 14.84},
+    {"name": "Bleiburg",           "lat": 46.65, "lon": 15.15},
+    # ── Zentral-Nord / oberes Drautal + Krappfeld (lat = 46.91) ───────────────
+    {"name": "Oberdrauburg",       "lat": 46.91, "lon": 12.65},
+    {"name": "Greifenburg",        "lat": 46.91, "lon": 12.96},
+    {"name": "Spittal",            "lat": 46.91, "lon": 13.28},
+    {"name": "Paternion",          "lat": 46.91, "lon": 13.59},
+    {"name": "Ossiach",            "lat": 46.91, "lon": 13.90},
+    {"name": "Feldkirchen",        "lat": 46.91, "lon": 14.21},
+    {"name": "St-Veit",            "lat": 46.91, "lon": 14.53},
+    {"name": "Wolfsberg",          "lat": 46.91, "lon": 14.84},
+    {"name": "St-Andrae",          "lat": 46.91, "lon": 15.15},
+    # ── Nord-Kärnten / Nockberge + Gurktaler Alpen (lat = 47.16) ──────────────
+    {"name": "Karnische-Nord",     "lat": 47.16, "lon": 12.65},
+    {"name": "Obervellach",        "lat": 47.16, "lon": 12.96},
+    {"name": "Gmuend",             "lat": 47.16, "lon": 13.28},
+    {"name": "Radenthein",         "lat": 47.16, "lon": 13.59},
+    {"name": "Bad-Kleinkirchheim", "lat": 47.16, "lon": 13.90},
+    {"name": "Gurk",               "lat": 47.16, "lon": 14.21},
+    {"name": "Friesach",           "lat": 47.16, "lon": 14.53},
+    {"name": "Huettenberg",        "lat": 47.16, "lon": 14.84},
+    {"name": "Bad-St-Leonhard",    "lat": 47.16, "lon": 15.15},
 ]
 
 # TAWES-Stationen für Böen-Monitoring (GeoSphere Austria).
