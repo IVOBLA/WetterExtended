@@ -1,74 +1,69 @@
 // api.js — WetterExtended Frontend API-Client
-// P10: Holt beim Start den Admin-Token für Schreiboperationen
-// und sendet ihn als X-Admin-Token Header bei POST/PATCH/DELETE.
+// Sendet JWT Access Tokens als Bearer Header und meldet 401-Antworten
+// an den AuthContext zurück, damit die Session lokal beendet werden kann.
 
-let _adminToken = '';
+let _accessToken = ''
+let _unauthorizedCallback = null
 
-async function _initToken() {
-  try {
-    const r = await fetch('/api/admin_token');
-    if (r.ok) {
-      const d = await r.json();
-      _adminToken = d.token || '';
-    }
-  } catch (_) {
-    // Token-Auth deaktiviert oder Endpoint nicht erreichbar — kein Fehler
+export function setToken(token) {
+  _accessToken = token || ''
+}
+
+export function onUnauthorized(callback) {
+  _unauthorizedCallback = typeof callback === 'function' ? callback : null
+}
+
+function _headers(extra = {}) {
+  const h = { 'Content-Type': 'application/json', ...extra }
+  if (_accessToken) h.Authorization = `Bearer ${_accessToken}`
+  return h
+}
+
+async function _handleResponse(r, url) {
+  if (r.status === 401 && _unauthorizedCallback) {
+    _unauthorizedCallback()
   }
-}
-
-// Token nur im Admin-Bereich holen — nicht auf der öffentlichen /karte.
-// Verhindert 401-Noise in der Konsole wenn /karte ohne Login geöffnet wird.
-if (!window.location.pathname.startsWith('/karte')) {
-  _initToken();
-}
-
-function _writeHeaders(extra) {
-  const h = { 'Content-Type': 'application/json', ...extra };
-  if (_adminToken) h['X-Admin-Token'] = _adminToken;
-  return h;
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}))
+    throw new Error(err.error || `${url}: ${r.status}`)
+  }
+  return r.json()
 }
 
 const api = {
   async get(url) {
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`${url}: ${r.status}`);
-    return r.json();
+    const r = await fetch(url, {
+      headers: _accessToken ? { Authorization: `Bearer ${_accessToken}` } : {},
+      credentials: 'include',
+    })
+    return _handleResponse(r, url)
   },
   async post(url, body) {
     const r = await fetch(url, {
       method: 'POST',
-      headers: _writeHeaders(),
-      body: JSON.stringify(body)
-    });
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}));
-      throw new Error(err.error || `${url}: ${r.status}`);
-    }
-    return r.json();
+      headers: _headers(),
+      credentials: 'include',
+      body: JSON.stringify(body),
+    })
+    return _handleResponse(r, url)
   },
   async patch(url, body) {
     const r = await fetch(url, {
       method: 'PATCH',
-      headers: _writeHeaders(),
-      body: JSON.stringify(body)
-    });
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}));
-      throw new Error(err.error || `${url}: ${r.status}`);
-    }
-    return r.json();
+      headers: _headers(),
+      credentials: 'include',
+      body: JSON.stringify(body),
+    })
+    return _handleResponse(r, url)
   },
   async delete(url) {
     const r = await fetch(url, {
       method: 'DELETE',
-      headers: _adminToken ? { 'X-Admin-Token': _adminToken } : {}
-    });
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}));
-      throw new Error(err.error || `${url}: ${r.status}`);
-    }
-    return r.json();
-  }
-};
+      headers: _accessToken ? { Authorization: `Bearer ${_accessToken}` } : {},
+      credentials: 'include',
+    })
+    return _handleResponse(r, url)
+  },
+}
 
-export default api;
+export default api
