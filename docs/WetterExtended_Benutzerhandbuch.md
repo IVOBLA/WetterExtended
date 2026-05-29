@@ -166,7 +166,7 @@ Beim Upgrade werden aktualisiert: Python-Pakete, Frontend-Build, systemd-Unit-Da
 | Logs verfolgen (Scheduler) | `journalctl -fu wetterprojekt-scheduler.service` |
 | Services nach Update neu laden | `sudo systemctl daemon-reload && sudo systemctl restart wetterprojekt wetterprojekt-scheduler wetterprojekt-admin` |
 
-Das Admin-Panel ist erreichbar unter `http://<PI-IP>/` (Port 80, nginx, Basic-Auth). Die öffentliche Vollbild-Karte ist ohne Authentifizierung unter `http://<PI-IP>/karte` erreichbar.
+Das Admin-Panel ist erreichbar unter `http://<PI-IP>/` (Port 80, nginx). Die Authentifizierung erfolgt über einen JWT-Login (siehe Kapitel 22 — Rollenbasiertes Benutzermanagement); nicht eingeloggte Benutzer werden automatisch auf `/login` weitergeleitet. Die öffentliche Vollbild-Karte ist ohne Authentifizierung unter `http://<PI-IP>/karte` erreichbar.
 
 ---
 
