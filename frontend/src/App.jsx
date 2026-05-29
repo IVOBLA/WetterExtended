@@ -7,6 +7,7 @@ import Layout from './components/Layout.jsx';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import MapView from './pages/MapView.jsx';
+import Ausblick from './pages/Ausblick.jsx';
 import Locations from './pages/Locations.jsx';
 import Thresholds from './pages/Thresholds.jsx';
 import Training from './pages/Training.jsx';
@@ -69,6 +70,7 @@ export default function App() {
             <Route path="/live"          element={<LiveDaten />} />
             <Route path="/data"          element={<Datensatz />} />
             <Route path="/atmosphaere"   element={<Atmosphaere />} />
+            <Route path="/ausblick"      element={<Ausblick />} />
             <Route path="/locations"     element={<Locations />} />
             <Route path="/thresholds"    element={<Thresholds />} />
             <Route path="/cell-filters"  element={<CellFilters />} />

@@ -1894,3 +1894,15 @@ Schwere-Proxys je ~5×5-km-Zelle:
 > (Frequenzkarte je Grobraster × Monat). Damit lernt das System, an welchen Orten zu welcher
 > Jahreszeit Gewitter bevorzugt auftreten (Berge/Täler) — ohne externen API-Call.
 > Liegt keine Historie vor, wird die reine Heuristik verwendet (Fallback).
+
+---
+
+# 39 NEU: Ausblick-Seite (`/ausblick`)
+
+Neue Frontend-Seite mit interaktiver Leaflet-Karte und **Zeit-Slider (+1…+12 h)** für den
+Konvektions-Ausblick. Pro gewählter Stunde werden die Risiko-Rasterflächen (gelb/orange/rot)
+angezeigt; der Hover-Tooltip nennt Risikostufe, dominante Ursache, erwarteten Regen (mm/h),
+Böen (km/h), Hagel-Kategorie/Index sowie CAPE, LI und SHIP. Eine Farblegende erläutert die Stufen.
+
+Erreichbar über den Menüpunkt „🔭 12-h-Ausblick". Datenquelle: `GET /api/outlook` (siehe Abschnitt 38).
+
