@@ -106,7 +106,7 @@ Die Installation erfolgt ausschließlich über das Skript `install.sh`. Es erken
 
 ## 2.1 Vollinstallation (`--mode=full`)
 
-> **Achtung:** LÖSCHT alle Trainingsmodelle, Radar-Daten und Objekt-Historien! Das Copernicus DEM, `.env` und `runtime_overrides.json` bleiben erhalten.
+> **Achtung:** LÖSCHT alle Trainingsmodelle, Radar-Daten und Objekt-Historien! Das Copernicus DEM, `.env`, `runtime_overrides.json` **und `users.db`** (Benutzerkonten) bleiben erhalten.
 
 ```bash
 bash install.sh --mode=full --repo git@github.com:IVOBLA/WetterExtended.git
@@ -139,7 +139,7 @@ Beim Upgrade werden aktualisiert: Python-Pakete, Frontend-Build, systemd-Unit-Da
 
 | Option | Standard | Beschreibung |
 |---|---|---|
-| `--mode=full\|upgrade` | `upgrade` | Installations-Modus (`full` = Neuinstallation) |
+| `--mode=full\|upgrade` | `upgrade` | Installations-Modus (`full` = Neuinstallation; löscht Trainingsmodelle und Radardaten, **behält users.db, .env, DEM und runtime_overrides.json**) |
 | `--repo URL` | — | Git-Repository-URL (SSH oder HTTPS) |
 | `--version TAG` | — | Git-Tag auschecken, z.B. `v1.2.0`. Ohne Angabe wird `main` verwendet. |
 | `--list-versions` | — | Alle verfügbaren Tags ausgeben und beenden |
@@ -1725,7 +1725,10 @@ Die Seite **👥 Benutzer** im Admin-Panel (nur für `superadmin` sichtbar) erm�
 `users.db` (SQLite, WAL-Modus) liegt im Projektverzeichnis.
 
 - **`--mode=upgrade`:** `users.db` wird NICHT angefasst — alle Benutzer bleiben erhalten
-- **`--mode=full`:** `users.db` wird gelöscht und neu angelegt (Superadmin aus `.admin_password`)
+- **`--mode=full`:** `users.db` bleibt erhalten — alle Benutzer, Rollen und Passwörter bleiben bestehen.
+  `init_db()` läuft beim App-Start und legt fehlende Tabellen nach (idempotent).
+  Nur wenn `users.db` manuell gelöscht wird, legt `init_db()` einen neuen Superadmin an
+  (Passwort aus `.admin_password`).
 
 ## 22.6 `.env`-Variablen
 
