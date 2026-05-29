@@ -306,6 +306,10 @@ def main_loop():
             objects = assign_convective_indices(objects, timestamp)
             from compute_extra_features import assign_extra_features
             objects = assign_extra_features(objects)
+            from datetime import datetime as _severity_datetime
+            from severity_predict import assign_severity
+            _severity_ts = _severity_datetime.strptime(timestamp, "%Y-%m-%d_%H-%M-%S") if timestamp else None
+            objects = assign_severity(objects, weather_data, _severity_ts)
             _tawes_stations = fetch_tawes_stations()
             for _obj in objects:
                 if _obj.get("lat") is not None and _obj.get("lon") is not None:

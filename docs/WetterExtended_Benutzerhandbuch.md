@@ -1792,3 +1792,23 @@ Zwei LightGBM-Regressoren sagen die erwartete Niederschlagsmenge (mm/h) und Spit
 für eine Zelle +20 min voraus. Training läuft im bestehenden Retrain-Job (nur bei
 `LOCAL_TRAINING=True`), mit zeitbasiertem Holdout (letzte 20 % als Test). Die mittlere
 Abweichung je Ziel ist nach Prompt 5 im Admin-Panel unter Genauigkeit sichtbar.
+
+---
+
+# 34 NEU: Schwere-Vorhersage — Anzeige
+
+**Module:** `severity_predict.py` (Pipeline), Karten-Popup (`MapView.jsx`, `MapFullscreen.jsx`)
+
+Jede Sturmzelle erhält ein `severity`-Objekt, das im Karten-Popup angezeigt wird:
+
+| Anzeige | Bedeutung |
+|---|---|
+| Schwere 1–4 | Gesamtstufe aus Regen + Böen + Hagel (4 = sehr schwer) |
+| 🌧 mm/h | Erwartete Niederschlagsmenge (+20 min, LightGBM) |
+| 💨 km/h | Erwartete Spitzenböe (+20 min, LightGBM) |
+| 🧊 klein/groß | Hagel-Kategorie (physikalischer Index: SHIP, Gefriergrenze, Overshooting, VIL) |
+
+> Regen und Böen sind ML-Vorhersagen mit echten Beobachtungs-Targets (verifizierbar, siehe
+> Genauigkeits-Seite). Hagel ist ein physikalischer Index ohne ML, da keine Bodenwahrheit vorliegt.
+> `mode: fallback` bedeutet: noch kein trainiertes Modell — Nowcast-Persistenz wird verwendet.
+

@@ -1133,6 +1133,7 @@ _hailo_available: Optional[bool] = None
 | K10 | Hazard-spezifische Module (Wind/Rain/Tornado getrennt) | 🔄 in Arbeit (Prompt 2–5) |
 | K13 | Schwere-Trainingsdatensatz Regen/Böen (`severity_dataset.py`) | ✅ erledigt (Prompt 2) |
 | K14 | Schwere-Modelltraining LightGBM Regen/Böen (`severity_training.py`) | ✅ erledigt (Prompt 3) |
+| K15 | Schwere-Vorhersage in Pipeline + Karten-Popup (`severity_predict.py`) | ✅ erledigt (Prompt 4) |
 | K12 | Erweiterte Features: DCAPE, 0-1/0-3-km-Shear, SRH, CAPE-/LI-Trend, VIL-Proxy (`compute_extra_features.py`) | ✅ erledigt (Prompt 1) |
 | K11 | ALDIS-Blitze (statt Blitzortung.org) | ❌ verworfen — Blitzortung.org bleibt |
 - Hailo-Inferenz nicht produktionsreif (`hailo_inference.py` ist Stub — Phase B: Task B5)
