@@ -102,9 +102,10 @@ def _bulk_get_batched(url_base: str, label: str, locations: list) -> list | None
     label     : Logging-Label (Batch-Nummer wird angehängt).
     locations : Liste von Dicts mit Feldern 'lat' und 'lon'.
 
-    Rückgabe  : Konkatenierte Ergebnisliste oder None beim ersten Fehler.
+    Rückgabe  : Konkatenierte Ergebnisliste oder None, wenn alle Batches fehlschlagen.
     """
     results: list = []
+    any_ok = False
     n_batches = (len(locations) + _BATCH_SIZE - 1) // _BATCH_SIZE
     for b in range(n_batches):
         batch = locations[b * _BATCH_SIZE: (b + 1) * _BATCH_SIZE]
@@ -113,9 +114,18 @@ def _bulk_get_batched(url_base: str, label: str, locations: list) -> list | None
         url = f"{url_base}&latitude={lats}&longitude={lons}"
         data = _bulk_get(url, f"{label}-B{b + 1}")
         if data is None:
-            return None
-        results.extend(data)
-    return results
+            # Einzelner Batch fehlgeschlagen → mit leeren Dicts auffüllen,
+            # damit die übrigen Batches erhalten bleiben und die Index-Treue
+            # zu locations[i] gewahrt ist. Leere Dicts liefern downstream 0.0.
+            results.extend({} for _ in batch)
+            continue
+        # Weniger Antworten als Locations im Batch → mit leeren Dicts auffüllen.
+        if len(data) < len(batch):
+            data = list(data) + [{} for _ in range(len(batch) - len(data))]
+        results.extend(data[:len(batch)])
+        any_ok = True
+    # Nur bei Totalausfall (kein einziger Batch ok) None — wie bisheriges Verhalten.
+    return results if any_ok else None
 
 
 def _gewitterpotenzial(li: float) -> str:
