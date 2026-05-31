@@ -17,18 +17,26 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
     valid=[(i,o) for i,o in enumerate(objects) if o.get("lat") is not None and o.get("lon") is not None]
     from datetime import timedelta as _td
     _now   = datetime.now(timezone.utc)
-    # Nowcast-API: aktuellen 15-min-Slot abfragen.
-    # _floor + 15min → HTTP 422, da der nächste Slot noch nicht berechnet ist.
-    # Aktueller Slot (_floor) ist immer verfügbar.
     _floor  = _now.replace(minute=(_now.minute // 15) * 15,
                            second=0, microsecond=0)
-    # Vorherigen Slot abfragen — dieser ist immer vollständig berechnet.
-    # _floor selbst (= aktueller Slot) → HTTP 422 solange Nowcast noch berechnet wird.
-    _start  = _floor - _td(minutes=15)
-    _end    = _floor
-    _start_str  = _start.strftime("%Y-%m-%dT%H:%M:00Z")
-    _end_str    = _end.strftime("%Y-%m-%dT%H:%M:00Z")
-    _cache_hour = _start.strftime("%Y-%m-%dT%H:%M")   # inkl. Minuten → korrekter Cache-Key
+    _td15  = _td(minutes=15)
+    # 2-Slot-Strategie: aktuellen Slot bevorzugen — erfasst neue Stürme die gerade
+    # begonnen haben. Fallback auf vorherigen Slot wenn aktueller noch berechnet
+    # wird (HTTP 422, typisch in den ersten 2–3 min nach Slot-Beginn).
+    #   Slot 0 (bevorzugt): _floor     … _floor+15min  — Niederschlag JETZT
+    #   Slot 1 (Fallback):  _floor-15min … _floor       — Niederschlag VOR 15 min
+    _nowcast_slots = [
+        {
+            "start_str":  _floor.strftime("%Y-%m-%dT%H:%M:00Z"),
+            "end_str":    (_floor + _td15).strftime("%Y-%m-%dT%H:%M:00Z"),
+            "cache_sfx":  _floor.strftime("%Y-%m-%dT%H:%M"),
+        },
+        {
+            "start_str":  (_floor - _td15).strftime("%Y-%m-%dT%H:%M:00Z"),
+            "end_str":    _floor.strftime("%Y-%m-%dT%H:%M:00Z"),
+            "cache_sfx":  (_floor - _td15).strftime("%Y-%m-%dT%H:%M"),
+        },
+    ]
     # GeoSphere Nowcast-Domain: Österreich + 0.2° Puffer.
     # Koordinaten außerhalb dieses Bereichs liefern HTTP 422 (Unprocessable Content).
     # BBOX_KAERNTEN_EXTENDED reicht bis lat 45.5 (Norditalien/Slowenien) — diese überspringen.
@@ -46,42 +54,56 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
             )
             obj.update(_DEFAULT)
             continue
-        ck=cache_key("geosphere:nowcast", lat, lon, _cache_hour)
-        cached=cache_get(ck, ttl_seconds=_TTL)
-        if cached is not None: obj.update(cached); continue
-        # GeoSphere FastAPI erwartet WIEDERHOLTE Query-Parameter für "parameters"
-        # — NICHT kommasepariert! ?parameters=rr&parameters=ff&parameters=ffx
-        # Kommasepariert (?parameters=rr,ff,ffx) liefert HTTP 422 (Validation Error).
-        # requests.get(..., params=[(...), (...)]) baut automatisch die korrekte URL.
-        # Verifiziert: GeoSphere Nowcast v1 API-Spec (dataset.api.hub.geosphere.at).
-        _qparams = [
-            ("lat",        lat),
-            ("lon",        lon),
-            ("parameters", "rr"),
-            ("parameters", "ff"),
-            ("parameters", "ffx"),
-            ("start",      _start_str),
-            ("end",        _end_str),
-        ]
-        url = requests.Request("GET", _BASE_URL, params=_qparams).prepare().url
-        try:
-            import time as _t_nowcast
-            _t0_nowcast = _t_nowcast.monotonic()
-            from http_retry import retry_get
-            r = retry_get(
-                _BASE_URL,
-                service="geosphere_nowcast",
-                timeout=_TIMEOUT,
-                params=_qparams,
-                headers={"Accept": "application/json"},
-            )
-            _dur_nowcast = (_t_nowcast.monotonic() - _t0_nowcast) * 1000
-            data = r.json()
-            log_http_response("geosphere_nowcast", "GET", r, _dur_nowcast)
-        except Exception as exc:
-            log_api_failure("geosphere_nowcast", str(url), str(exc)[:80], fallback_used=True)
-            continue
-        result=_parse_nowcast(data, str(url)); cache_set(ck,result); obj.update(result)
+        # 2-Slot-Strategie: aktuellen Slot zuerst, Fallback auf vorherigen bei 422.
+        _slot_result = None
+        for _slot in _nowcast_slots:
+            _ck = cache_key("geosphere:nowcast", lat, lon, _slot["cache_sfx"])
+            _cached = cache_get(_ck, ttl_seconds=_TTL)
+            if _cached is not None:
+                _slot_result = _cached
+                break
+            _qparams = [
+                ("lat",        lat),
+                ("lon",        lon),
+                ("parameters", "rr"),
+                ("parameters", "ff"),
+                ("parameters", "ffx"),
+                ("start",      _slot["start_str"]),
+                ("end",        _slot["end_str"]),
+            ]
+            url = requests.Request("GET", _BASE_URL, params=_qparams).prepare().url
+            try:
+                import time as _t_nowcast
+                _t0_nowcast = _t_nowcast.monotonic()
+                from http_retry import retry_get
+                r = retry_get(
+                    _BASE_URL,
+                    service="geosphere_nowcast",
+                    timeout=_TIMEOUT,
+                    params=_qparams,
+                    abort_on_4xx=False,   # 422 abfangen statt Exception
+                    headers={"Accept": "application/json"},
+                )
+                _dur_nowcast = (_t_nowcast.monotonic() - _t0_nowcast) * 1000
+                if r.status_code == 422:
+                    # Aktueller Slot noch nicht berechnet → Fallback-Slot versuchen
+                    debug_log(
+                        f"[NOWCAST] Slot {_slot['start_str'][:16]} HTTP 422 "
+                        f"(noch nicht berechnet) — versuche Fallback-Slot"
+                    )
+                    continue
+                r.raise_for_status()
+                data = r.json()
+                log_http_response("geosphere_nowcast", "GET", r, _dur_nowcast)
+                _slot_result = _parse_nowcast(data, str(url))
+                cache_set(_ck, _slot_result)
+                break
+            except Exception as exc:
+                log_api_failure("geosphere_nowcast", str(url), str(exc)[:80],
+                                fallback_used=True)
+                break  # Netzwerk-/Parse-Fehler → kein weiterer Versuch
+        if _slot_result is not None:
+            obj.update(_slot_result)
     return objects
 
 def _parse_nowcast(data: dict, url: str = "") -> dict:
