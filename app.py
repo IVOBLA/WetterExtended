@@ -10,6 +10,7 @@ from flask import Flask, jsonify, request, send_from_directory, send_file
 import config as cfg
 from config import SAVE_PATHS
 import runtime_config
+from debug_utils import debug_log
 from accuracy_tracker import evaluate_all, load_history
 from auth import auth_bp, init_db, get_current_user, ROLE_LEVEL
 
