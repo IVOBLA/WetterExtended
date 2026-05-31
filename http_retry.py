@@ -27,7 +27,7 @@ try:
 except ImportError:
     from urllib3.util import Retry  # ältere urllib3
 
-from debug_utils import debug_log, log_api_failure
+from debug_utils import debug_log, log_api_failure, log_api_call
 
 _DEFAULT_BACKOFF = [2, 5, 10]
 _DEFAULT_CONNECT_TIMEOUT = 8  # TLS-Handshake darf bis 8 s dauern
@@ -136,6 +136,9 @@ def retry_get(
                     fallback_used=True,
                     http_status=status,
                 )
+                # Auch in api_call_counts loggen → Dashboard zeigt Fehler-Requests
+                log_api_call(service, url=url, status_code=status,
+                             method="GET", error=f"http-{status}")
                 raise
         except requests.exceptions.SSLError as exc:
             # Spezialfall: TLS-EOF / SSLZeroReturnError.
@@ -164,10 +167,9 @@ def retry_get(
             debug_log(f"[{service}] Warte {wait}s vor erneutem Versuch...")
             time.sleep(wait)
 
-    log_api_failure(
-        service,
-        url,
-        f"{type(last_exc).__name__}: {str(last_exc)[:120]}",
-        fallback_used=True,
-    )
+    _last_err_str = f"{type(last_exc).__name__}: {str(last_exc)[:120]}"
+    log_api_failure(service, url, _last_err_str, fallback_used=True)
+    # Auch in api_call_counts loggen → Dashboard zeigt fehlgeschlagene Requests
+    log_api_call(service, url=url, status_code=0,
+                 method="GET", error=_last_err_str)
     raise last_exc

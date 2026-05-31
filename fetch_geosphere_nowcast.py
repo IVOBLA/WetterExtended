@@ -1,7 +1,7 @@
 import requests
 from datetime import datetime, timezone
 
-from debug_utils import debug_log, log_api_failure, log_http_response
+from debug_utils import debug_log, log_api_failure, log_http_response, log_api_call
 from api_cache import cache_key, cache_get, cache_set
 
 _BASE_URL = "https://dataset.api.hub.geosphere.at/v1/timeseries/forecast/nowcast-v1-15min-1km"
@@ -107,6 +107,15 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
                         f"http-422 | {_detail[:120]}",
                         fallback_used=True,
                         http_status=422,
+                    )
+                    # In api_call_counts loggen → Service im Dashboard sichtbar
+                    log_api_call(
+                        "geosphere_nowcast",
+                        url=str(url),
+                        status_code=422,
+                        duration_ms=_dur_nowcast,
+                        method="GET",
+                        error=f"http-422 | {_detail[:80]}",
                     )
                     continue
                 r.raise_for_status()
