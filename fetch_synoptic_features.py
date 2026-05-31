@@ -24,7 +24,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from config import SAVE_PATHS
-from debug_utils import debug_log, log_api_failure
+from debug_utils import debug_log, log_api_failure, log_http_response
 from api_cache import cache_key, cache_get, cache_set, get_ttl
 
 _URL     = "https://api.open-meteo.com/v1/forecast"
@@ -117,13 +117,14 @@ def assign_synoptic_features(objects, timestamp):
         data = cached
     else:
         try:
-            r = requests.get(url, timeout=_TIMEOUT)
+            import time as _t_syn
+            _t0_syn = _t_syn.monotonic()
+            from http_retry import retry_get as _rg_syn
+            r = _rg_syn(url, timeout=_TIMEOUT, service="Open-Meteo-synoptic")
+            _dur_syn = (_t_syn.monotonic() - _t0_syn) * 1000
             r.raise_for_status()
             data = r.json()
-            from debug_utils import log_api_call
-            log_api_call("openmeteo_icon_global", url=url, status_code=r.status_code,
-                         method="GET", response_payload=data,
-                         content_type=r.headers.get("content-type"))
+            log_http_response("openmeteo_synoptic", "GET", r, _dur_syn)
             cache_set(ck, data)
         except requests.exceptions.Timeout:
             log_api_failure("Open-Meteo-synoptic", url, "timeout", fallback_used=True)

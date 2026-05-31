@@ -22,7 +22,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from config import SAVE_PATHS
-from debug_utils import debug_log, log_api_failure, log_api_call
+from debug_utils import debug_log, log_api_failure, log_http_response
 from api_cache import cache_key, cache_get, cache_set, get_ttl
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
@@ -167,15 +167,15 @@ def assign_arome_to_objects(objects: list, timestamp: str) -> list:
     try:
         from http_retry import retry_get
         r = retry_get(bulk_url, service="Open-Meteo-icon_d2", timeout=_TIMEOUT)
+        _dur_arome = (_t_arome.monotonic() - _t0_arome) * 1000
+        log_http_response("openmeteo_icon_d2", "GET", r, _dur_arome)
         data = r.json()
-        log_api_call("openmeteo_icon_d2", bulk_url, r.status_code,
-                     duration_ms=(_t_arome.monotonic() - _t0_arome) * 1000,
-                     method="GET", response_payload=data,
-                     content_type=r.headers.get("content-type"))
         cache_set(ck, data)
     except Exception as exc:
-        log_api_call("openmeteo_icon_d2", bulk_url, 0,
-                     duration_ms=(_t_arome.monotonic() - _t0_arome) * 1000)
+        log_api_failure(
+            "Open-Meteo-icon_d2", bulk_url,
+            f"{type(exc).__name__}: {exc}", fallback_used=True,
+        )
         debug_log(f"[AROME] Alle Versuche fehlgeschlagen: {exc} — Default-Werte.")
         for _, obj in valid:
             obj.update(_DEFAULT)
