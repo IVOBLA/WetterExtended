@@ -109,12 +109,14 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
                         http_status=422,
                     )
                     # In api_call_counts loggen → Service im Dashboard sichtbar
+                    # inkl. Response-Body → „Letzter Request/Response" zeigt Fehlerdetail
                     log_api_call(
                         "geosphere_nowcast",
                         url=str(url),
                         status_code=422,
                         duration_ms=_dur_nowcast,
                         method="GET",
+                        response_text=_detail[:500],
                         error=f"http-422 | {_detail[:80]}",
                     )
                     continue

@@ -136,9 +136,14 @@ def retry_get(
                     fallback_used=True,
                     http_status=status,
                 )
-                # Auch in api_call_counts loggen → Dashboard zeigt Fehler-Requests
-                log_api_call(service, url=url, status_code=status,
-                             method="GET", error=f"http-{status}")
+                # In api_call_counts loggen → Dashboard zeigt Fehler-Request + Response
+                _err_body = None
+                try:
+                    _err_body = (exc.response.text or "")[:500] if exc.response else None
+                except Exception:
+                    pass
+                log_api_call(service, url=url, status_code=status, method="GET",
+                             response_text=_err_body, error=f"http-{status}")
                 raise
         except requests.exceptions.SSLError as exc:
             # Spezialfall: TLS-EOF / SSLZeroReturnError.
@@ -169,7 +174,13 @@ def retry_get(
 
     _last_err_str = f"{type(last_exc).__name__}: {str(last_exc)[:120]}"
     log_api_failure(service, url, _last_err_str, fallback_used=True)
-    # Auch in api_call_counts loggen → Dashboard zeigt fehlgeschlagene Requests
-    log_api_call(service, url=url, status_code=0,
-                 method="GET", error=_last_err_str)
+    # In api_call_counts loggen → Dashboard zeigt fehlgeschlagene Requests
+    _last_resp_text = None
+    try:
+        if hasattr(last_exc, "response") and last_exc.response is not None:
+            _last_resp_text = (last_exc.response.text or "")[:500]
+    except Exception:
+        pass
+    log_api_call(service, url=url, status_code=0, method="GET",
+                 response_text=_last_resp_text, error=_last_err_str)
     raise last_exc
