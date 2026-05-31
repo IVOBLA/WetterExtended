@@ -162,6 +162,28 @@ Abarbeitungsreihenfolge war: A1 → A2 → A3 → A4 → A5 → A6 → A8 → A7
 | B39 | Täglicher API-Connectivity-Check (alle 5 externen APIs) | `api_health_check.py` (neu), `scheduler.py`, `app.py` | ✅ erledigt |
 
 
+### 5.7.1 Phase A.6.1 — Hotfixes aus Produktions-Log-Analyse 2026-05-31 ✅ ABGESCHLOSSEN
+
+**Analysiertes Log:** `wetterprojekt_logs_20260531_124939.txt` + `objects_20260531_124949.json`
+**Ergebnis:** 1 echter Bug (B51), 1 Falsch-Befund (B52 zurückgezogen)
+
+| # | Task | Datei(en) | Status |
+|---|------|-----------|--------|
+| B51 | Adaptiver Loop-Intervall: 3-Stufen-Modell eingeführt (aktive Zellen → 2 min; Nachbeobachtung 0–120 min → 5 min; Ruhe ≥ 120 min → 15 min). Der `if not radar_ok:` Skip-Pfad ignorierte `_last_cells_active_ts` und schlief immer 900 s — ebenfalls auf 3-Stufen-Logik umgestellt. `NO_CELLS_SLOW_INTERVAL_TIMEOUT_S` 3600 → 7200 s; `LOOP_INTERVAL_NACHBEOBACHTUNG_S = 300` neu in `config.py`. | `main.py`, `config.py` | ✅ erledigt |
+| B52 | ~~`fetch_outlook_series.py`: `windspeed_700hPa` → `wind_speed_700hPa`~~ **ZURÜCKGEZOGEN** — `windspeed_700hPa` wird von Open-Meteo akzeptiert. Nach Neustart 07:18 läuft `outlook_series` fehlerlos (07:48–14:48 alle OK). Die 400-Fehler vor 07:18 kamen ausschließlich von `convective_inhibition`/`precipitable_water` — bereits durch B47 behoben. | — | ❌ Falsch-Befund |
+
+**Bestätigter Normalbetrieb (kein Fix):**
+- `auth/refresh 401` (09:16, 12:10) → abgelaufenes Refresh-Token (~1–3 h), erwartet
+- `auth/refresh 401+200` (06:37, alter Code 107937) → B48 bereits behoben, in 130663 nicht mehr
+- Flask `WARNING: Development server` → nginx proxied extern, kein neues Problem
+- `retrain_interval lstm_trained=False` → kein Gewitterlag = keine Trainingsdaten, korrekt
+- `ai_analysis übersprungen (only_if_cells=True)` → korrekt
+
+**Hailo-Integrationsstatus (unverändert):**
+- Phase 1 (Installation) ✅ — Phase 2 (HEF-Export) 🔲 — Phase 3 (Runtime) 🔲
+
+---
+
 ### 5.8 Phase A.7 — Produktreife Welle 7: Zeitstempel-Korrektheit ✅
 
 Alle Zeit- und Datumsangaben im Projekt müssen den Zeitpunkt der **Aufnahme

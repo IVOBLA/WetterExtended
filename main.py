@@ -19,7 +19,8 @@ from fetch_700hpa_wind_per_object_slim import fetch_and_assign_700hpa_wind
 from assign_cape_from_forecast import assign_cape
 from geo_utils import get_roi_from_bbox, kml_bounds
 from config import (BBOX_KAERNTEN_EXTENDED, SAVE_PATHS, LIVE_LOOP_INTERVAL_S,
-                    LOOP_INTERVAL_CELLS_S, LOOP_INTERVAL_NO_CELLS_S)
+                    LOOP_INTERVAL_CELLS_S, LOOP_INTERVAL_NO_CELLS_S,
+                    LOOP_INTERVAL_NACHBEOBACHTUNG_S)
 from cloud_height_from_eumetview import assign_cloud_top_height
 from optical_flow_features import assign_optical_flow_to_objects
 from fetch_arome_openmeteo import assign_arome_to_objects
@@ -183,7 +184,42 @@ def main_loop():
 
         if not radar_ok:
             debug_log("[SKIP] Radarbild ungültig oder nicht neu → nächster Zyklus.")
-            time.sleep(runtime_config.get("LOOP_INTERVAL_NO_CELLS_S", LOOP_INTERVAL_NO_CELLS_S))
+            # 3-Stufen-Intervall auch im Skip-Pfad (ARSO liefert kein neues Bild):
+            #   < 5 min seit letzter Zelle  → 2 min  (Zellen kürzlich aktiv)
+            #   < 120 min seit letzter Zelle → 5 min  (Nachbeobachtung)
+            #   ≥ 120 min / nie             → 15 min (Ruhe)
+            from config import NO_CELLS_SLOW_INTERVAL_TIMEOUT_S as _NCST_SKIP
+            _timeout_skip = float(runtime_config.get(
+                "NO_CELLS_SLOW_INTERVAL_TIMEOUT_S", _NCST_SKIP
+            ))
+            _nb_s_skip = float(runtime_config.get(
+                "LOOP_INTERVAL_NACHBEOBACHTUNG_S", LOOP_INTERVAL_NACHBEOBACHTUNG_S
+            ))
+            _elapsed_skip = (
+                (time.time() - _last_cells_active_ts)
+                if _last_cells_active_ts is not None else float("inf")
+            )
+            if _elapsed_skip < _nb_s_skip:
+                _skip_sleep = runtime_config.get("LOOP_INTERVAL_CELLS_S", LOOP_INTERVAL_CELLS_S)
+                debug_log(
+                    f"[LOOP-SKIP] Zellen kürzlich aktiv (vor {int(_elapsed_skip)}s) "
+                    f"→ kurzer Intervall ({_skip_sleep}s)"
+                )
+            elif _elapsed_skip < _timeout_skip:
+                _skip_sleep = int(_nb_s_skip)
+                debug_log(
+                    f"[LOOP-SKIP] Nachbeobachtung ({int(_elapsed_skip // 60)} min) "
+                    f"→ mittlerer Intervall ({_skip_sleep}s)"
+                )
+            else:
+                _skip_sleep = runtime_config.get(
+                    "LOOP_INTERVAL_NO_CELLS_S", LOOP_INTERVAL_NO_CELLS_S
+                )
+                debug_log(
+                    f"[LOOP-SKIP] Ruhe > {int(_timeout_skip // 60)} min "
+                    f"→ langer Intervall ({_skip_sleep}s)"
+                )
+            time.sleep(_skip_sleep)
             continue
 
         image = cv2.imread(image_path) if os.path.exists(image_path) else None
@@ -576,26 +612,36 @@ def main_loop():
         except Exception:
             debug_log("Kein Object-File vorhanden — überspringe Upload von latest_objects.json")
 
-        # Adaptiver Intervall:
-        #   aktive Zellen (missing==0)      → 120s
-        #   innerhalb 60 Min danach         → 120s (Nachbeobachtung)
-        #   nach 60 Min ohne aktive Zellen  → 900s
+        # Adaptiver Intervall — 3 Stufen:
+        #   aktive Zellen (missing==0)          → 120s  (2 min)
+        #   0–120 min nach letzter Zelle        → 300s  (5 min, Nachbeobachtung)
+        #   ≥ 120 min ohne Zellen / nie         → 900s  (15 min, Ruhe)
         _cells_now = bool(objects and any(o.get("missing", 0) == 0 for o in objects))
         if _cells_now:
             _last_cells_active_ts = time.time()
         from config import NO_CELLS_SLOW_INTERVAL_TIMEOUT_S as _NCST_CFG
         _timeout_s = float(runtime_config.get("NO_CELLS_SLOW_INTERVAL_TIMEOUT_S", _NCST_CFG))
-        _within_timeout = (
-            _last_cells_active_ts is not None and
-            (time.time() - _last_cells_active_ts) < _timeout_s
+        _elapsed_since_cells = (
+            (time.time() - _last_cells_active_ts)
+            if _last_cells_active_ts is not None else float("inf")
         )
-        if _cells_now or _within_timeout:
+        _within_timeout = _elapsed_since_cells < _timeout_s
+        if _cells_now:
             _sleep = runtime_config.get("LOOP_INTERVAL_CELLS_S", LOOP_INTERVAL_CELLS_S)
-            _reason = "Zellen aktiv" if _cells_now else f"Nachbeobachtung < {int(_timeout_s // 60)} min"
-            debug_log(f"[LOOP] {_reason} → kurzer Intervall ({_sleep}s)")
+            debug_log(f"[LOOP] Zellen aktiv → kurzer Intervall ({_sleep}s)")
+        elif _within_timeout:
+            _sleep = runtime_config.get(
+                "LOOP_INTERVAL_NACHBEOBACHTUNG_S", LOOP_INTERVAL_NACHBEOBACHTUNG_S
+            )
+            debug_log(
+                f"[LOOP] Nachbeobachtung {int(_elapsed_since_cells // 60)} / "
+                f"{int(_timeout_s // 60)} min → mittlerer Intervall ({_sleep}s)"
+            )
         else:
             _sleep = runtime_config.get("LOOP_INTERVAL_NO_CELLS_S", LOOP_INTERVAL_NO_CELLS_S)
-            debug_log(f"[LOOP] Ruhe > {int(_timeout_s // 60)} min → langer Intervall ({_sleep}s)")
+            debug_log(
+                f"[LOOP] Ruhe > {int(_timeout_s // 60)} min → langer Intervall ({_sleep}s)"
+            )
         time.sleep(_sleep)
 
 if __name__ == "__main__":
