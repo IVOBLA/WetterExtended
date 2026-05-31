@@ -119,6 +119,7 @@ export default function MapFullscreen() {
   const [showRisk,      setShowRisk]      = useState(true)
   const [showIrCells,   setShowIrCells]   = useState(false)
   const [riskGrid,      setRiskGrid]      = useState([])
+  const [riskGridStep, setRiskGridStep] = useState(0.05)
   const [riskGridError, setRiskGridError] = useState(false)
   const [irCells,       setIrCells]       = useState([])
   const [lightningAge,   setLightningAge]   = useState(30)  // Minuten
@@ -271,6 +272,8 @@ export default function MapFullscreen() {
       api.get('/api/risk_grid')
         .then(d => {
           setRiskGrid(d.cells || [])
+          setRiskGridStep(typeof d.grid_step === 'number' && d.grid_step > 0
+            ? d.grid_step : 0.05)
           setRiskGridError(false)
         })
         .catch((err) => {
@@ -720,10 +723,10 @@ export default function MapFullscreen() {
             if (o.contour_geo && o.contour_geo.length >= 3) {
               const cLons = o.contour_geo.map(p => p[0])
               const cLats = o.contour_geo.map(p => p[1])
-              const bboxMinLat = Math.min(...cLats) - 0.025
-              const bboxMaxLat = Math.max(...cLats) + 0.025
-              const bboxMinLon = Math.min(...cLons) - 0.025
-              const bboxMaxLon = Math.max(...cLons) + 0.025
+              const bboxMinLat = Math.min(...cLats) - riskGridStep * 0.575
+              const bboxMaxLat = Math.max(...cLats) + riskGridStep * 0.575
+              const bboxMinLon = Math.min(...cLons) - riskGridStep * 0.575
+              const bboxMaxLon = Math.max(...cLons) + riskGridStep * 0.575
               return cell.lat >= bboxMinLat && cell.lat <= bboxMaxLat &&
                      cell.lon >= bboxMinLon && cell.lon <= bboxMaxLon
             }
@@ -756,8 +759,8 @@ export default function MapFullscreen() {
             <Rectangle
               key={'risk_' + i}
               bounds={[
-                [cell.lat - 0.025, cell.lon - 0.025],
-                [cell.lat + 0.025, cell.lon + 0.025],
+                [cell.lat - riskGridStep * 0.575, cell.lon - riskGridStep * 0.575],
+                [cell.lat + riskGridStep * 0.575, cell.lon + riskGridStep * 0.575],
               ]}
               pathOptions={{
                 weight:      0,
