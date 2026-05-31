@@ -136,7 +136,14 @@ def _diurnal_weight(valid_iso):
 
 def _cell_severity(s, attr_prior, valid_iso):
     cape = _f(s.get("cape")); cin = _f(s.get("convective_inhibition"))
-    li   = _f(s.get("lifted_index")); pw = _f(s.get("precipitable_water"))
+    li   = _f(s.get("lifted_index"))
+    # PW: primär aus Series (falls via GFS verfügbar), sonst klimatologischer
+    # Default 25 mm für Kärnten bei konvektiven Bedingungen (cape >= 200 J/kg).
+    # Hintergrund: fetch_outlook_series.py nutzt ICON — kein precipitable_water.
+    # fetch_openmeteo_extended.py liefert PW per Zelle als total_column_integrated_water_vapour.
+    pw = _f(s.get("precipitable_water")) or _f(s.get("total_column_integrated_water_vapour"))
+    if pw <= 0.0 and cape >= 200.0:
+        pw = 25.0   # Klimatologischer Mittelwert Kärnten bei konvektiver Aktivität [mm]
     t500 = _f(s.get("temperature_500hPa")); t700 = _f(s.get("temperature_700hPa"))
     fl   = _f(s.get("freezing_level_height"))
     gust = _f(s.get("wind_gusts_10m"))

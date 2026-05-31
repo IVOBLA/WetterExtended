@@ -1396,14 +1396,15 @@ Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sow
 
 ---
 
-### 5.7 Phase A.6 — Hotfixes aus Produktions-Log-Analyse 2026-05-29 🔄 IN BEARBEITUNG
+### 5.7 Phase A.6 — Hotfixes aus Produktions-Log-Analyse 2026-05-29 ✅ ABGESCHLOSSEN
 
 **Analysiertes Log:** `wetterprojekt_logs_20260529_202402.txt`
 **Ergebnis:** 1 kritischer Bug, 1 Medium-Bug, alle anderen Meldungen = Normalbetrieb
 
 | # | Task | Datei(en) | Status |
 |---|------|-----------|--------|
-| B47 | Open-Meteo 400 Bad Request: `wind_speed_700hPa` → `windspeed_700hPa`, `wind_direction_700hPa` → `winddirection_700hPa` in `_HOURLY_FULL` | `fetch_outlook_series.py` | ✅ erledigt (dieser Prompt) |
+| B47 | Open-Meteo 400 Bad Request (2 Stufen): 1. `wind_speed_700hPa` → `windspeed_700hPa`, `wind_direction_700hPa` → `winddirection_700hPa` (Prompt 01). 2. `precipitable_water` + `convective_inhibition` entfernt — nicht in ICON verfügbar (Prompt 01b). | `fetch_outlook_series.py` | ✅ erledigt |
+| B50 | `convective_outlook._cell_severity()`: PW-Fallback 25 mm bei CAPE≥200 wenn `precipitable_water` fehlt (ICON liefert es nicht) — verhindert dauerhaft-0 Regenrate im Risk-Grid | `convective_outlook.py` | ✅ erledigt |
 | B48 | JWT Token-Rotation Multi-Tab Race Condition: BroadcastChannel in AuthContext.jsx | `frontend/src/context/AuthContext.jsx` | ✅ erledigt |
 | B49 | `--mode=full` löscht `users.db` nicht mehr — Benutzerkonten bleiben bei Vollinstallation erhalten | `install.sh`, `docs/WetterExtended_Benutzerhandbuch.md` | ✅ erledigt |
 
