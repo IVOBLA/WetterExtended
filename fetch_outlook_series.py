@@ -34,11 +34,15 @@ _OUT_DIR = os.path.join(
 _OUT_FILE = os.path.join(_OUT_DIR, "atmosphere_timeseries.json")
 
 # Vollsatz und Minimalsatz (Fallback). Reihenfolge unwichtig.
+# convective_inhibition und precipitable_water sind für ICON (Default-Modell für AT)
+# nicht verfügbar → HTTP 400. Beide werden per Zelle über fetch_openmeteo_extended.py
+# (GFS-Endpoint) korrekt geliefert. Im Grid-Outlook fehlen sie — Fallback in
+# convective_outlook.py._cell_severity() kompensiert dies.
 _HOURLY_FULL = ",".join([
-    "cape", "convective_inhibition", "lifted_index", "precipitable_water",
+    "cape", "lifted_index", "freezing_level_height",
     "wind_speed_10m", "wind_direction_10m", "wind_gusts_10m",
     "windspeed_700hPa", "winddirection_700hPa",
-    "temperature_500hPa", "temperature_700hPa", "freezing_level_height",
+    "temperature_500hPa", "temperature_700hPa",
 ])
 _HOURLY_MIN = ",".join([
     "cape", "lifted_index", "wind_speed_10m", "wind_direction_10m", "freezing_level_height",
