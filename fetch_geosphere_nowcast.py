@@ -86,10 +86,27 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
                 )
                 _dur_nowcast = (_t_nowcast.monotonic() - _t0_nowcast) * 1000
                 if r.status_code == 422:
-                    # Aktueller Slot noch nicht berechnet → Fallback-Slot versuchen
+                    # Response-Body loggen — enthält exakten GeoSphere-Fehlergrund
+                    try:
+                        _body = r.json()
+                        _detail = (
+                            _body.get("detail")
+                            or _body.get("message")
+                            or str(_body)[:200]
+                        )
+                    except Exception:
+                        _detail = r.text[:200]
                     debug_log(
-                        f"[NOWCAST] Slot {_slot['start_str'][:16]} HTTP 422 "
-                        f"(noch nicht berechnet) — versuche Fallback-Slot"
+                        f"[NOWCAST-422] Slot {_slot['start_str'][:16]}–"
+                        f"{_slot['end_str'][:16]} "
+                        f"lat={lat} lon={lon} | GeoSphere: {_detail}"
+                    )
+                    log_api_failure(
+                        "geosphere_nowcast",
+                        str(url),
+                        f"http-422 | {_detail[:120]}",
+                        fallback_used=True,
+                        http_status=422,
                     )
                     continue
                 r.raise_for_status()
