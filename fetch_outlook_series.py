@@ -11,13 +11,14 @@ Robuste Parameter-Fallback-Logik gegen Open-Meteo-400 bei unbekanntem Param.
 import os
 import json
 import time
+import time as _time_outlook
 import importlib.util
 from datetime import datetime, timezone
 
 import requests
 
 from config import ATM_SNAPSHOT_LOCATIONS, SAVE_PATHS
-from debug_utils import debug_log, log_api_failure
+from debug_utils import debug_log, log_api_failure, log_http_response
 import runtime_config
 
 _URL          = "https://api.open-meteo.com/v1/forecast"
@@ -76,8 +77,13 @@ def _request(lats, lons, hourly):
         "forecast_days": 2,
         "timezone":  _TZ,
     }
-    r = requests.get(_URL, params=params, timeout=_TIMEOUT)
+    _t0 = _time_outlook.monotonic()
+    from http_retry import retry_get as _rg_outlook
+    r = _rg_outlook(_URL, params=params, timeout=_TIMEOUT,
+                    service="Open-Meteo-Outlook")
+    _dur = (_time_outlook.monotonic() - _t0) * 1000
     r.raise_for_status()
+    log_http_response("openmeteo_outlook", "GET", r, _dur)
     data = r.json()
     return data if isinstance(data, list) else [data]
 
@@ -123,10 +129,25 @@ def fetch_outlook_series(force=False):
             try:
                 data = _request(lats, lons, hourly)
                 break
+            except requests.exceptions.HTTPError as exc:
+                _status = getattr(exc.response, "status_code", None)
+                log_api_failure(
+                    "Open-Meteo-Outlook", _URL,
+                    f"http-{_status} (params: {hourly[:40]}...)",
+                    fallback_used=True, http_status=_status,
+                )
+            except requests.exceptions.Timeout:
+                log_api_failure("Open-Meteo-Outlook", _URL,
+                                "timeout", fallback_used=True)
             except Exception as exc:
-                debug_log(f"[OUTLOOK-SERIES] Request mit '{hourly[:30]}...' fehlgeschlagen: {exc}")
+                log_api_failure(
+                    "Open-Meteo-Outlook", _URL,
+                    f"{type(exc).__name__}: {str(exc)[:80]}",
+                    fallback_used=True,
+                )
         if data is None:
-            log_api_failure("Open-Meteo-Outlook", _URL, "all-param-sets-failed", fallback_used=True)
+            log_api_failure("Open-Meteo-Outlook", _URL,
+                            "all-param-sets-failed", fallback_used=True)
             continue
         target_hour = _now_hour_iso()
         for name, lat, lon, point in zip(names, lats, lons, data):
