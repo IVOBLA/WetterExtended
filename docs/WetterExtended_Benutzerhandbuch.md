@@ -987,6 +987,25 @@ Unter `/ai-analysis` gibt es zusätzlich einen Chat-Bereich für Fragen an die K
 >
 > Die KI-Analyse verursacht API-Kosten pro Request.
 
+## 23.6 Vereinfachte Warn-E-Mail und 2-Frame-Bestätigung
+
+**Warn-E-Mail (seit dieser Version):**
+Die Gewitterwarnung zeigt nur noch die wichtigste Information:
+_„Zelle ZJSJAGKD trifft in ~10 Minuten (ca. 13:40 Uhr)"_ — keine technische Tabelle mehr.
+
+**2-Frame-Bestätigung bei kinematischer Vorhersage:**
+Steht kein ML-Modell zur Verfügung (Forecast-Modus: kinematisch), muss der überwachte Ort
+in **2 aufeinanderfolgenden Radar-Frames** (≈ 2–4 Minuten) vom Forecast-Pfad getroffen
+werden, bevor eine Warnung ausgelöst wird. Dies verhindert Fehlalarme durch einzelne
+unsichere Vorhersage-Ausreißer.
+
+| Forecast-Modus | Auslösung |
+|----------------|-----------|
+| `ml` | Sofort beim ersten Treffer |
+| `kinematic` | Erst bei 2 aufeinanderfolgenden Treffern |
+
+> Wird der Treffer zwischen den beiden Frames unterbrochen, wird der Zähler zurückgesetzt.
+
 ## 23.5 E-Mail-Benachrichtigung für alle KI-Antworten
 
 Ab dieser Version wird **jede KI-Antwort** automatisch per E-Mail an die konfigurierte

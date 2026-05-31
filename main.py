@@ -173,6 +173,12 @@ def main_loop():
     _prev_radar_path = None
     _prev_location_hit_names: set = set()  # F47: Auto-Entwarnung
     _last_cells_active_ts: float | None = None  # Zeitpunkt der letzten aktiven Zelle
+    # 2-Frame-Bestätigung für unsichere Vorhersagen (kinematic forecast_mode):
+    # Orte die schon 1× getroffen wurden aber noch auf Frame 2 warten.
+    _location_warn_pending: dict = {}   # {loc_name: frame_count}
+    # Orte für die in diesem Session bereits eine Warnung gesendet wurde
+    # (Entwarnung nur senden wenn vorher eine Warnung gesandt wurde).
+    _location_warned: set = set()
 
     while True:
         runtime_config.reload_overrides()
@@ -551,43 +557,100 @@ def main_loop():
             _new_hit_names = _current_hit_names - _prev_location_hit_names
             _cleared       = _prev_location_hit_names - _current_hit_names
 
-            # ── E-Mail: Neue Orts-Treffer ─────────────────────────────────
-            if _new_hit_names:
-                _loc_email_map = {
-                    loc.get("name", ""): loc.get("email", "")
-                    for loc in locations
-                    if loc.get("email", "").strip()
+            # ── Hilfsfunktion: Ist die Vorhersage für diesen Orts-Treffer unsicher?
+            def _hit_is_kinematic(loc_hit: dict) -> bool:
+                """
+                Gibt True zurück wenn mindestens eine treffende Zelle
+                kinematische (unsichere) Vorhersage hat.
+                """
+                hit_cell_ids = {
+                    h.get("cell_id")
+                    for h in loc_hit.get("hits", {}).values()
+                    if h.get("cell_id")
                 }
+                for _obj in objects:
+                    if _obj.get("id") in hit_cell_ids:
+                        if _obj.get("forecast_mode") == "kinematic":
+                            return True
+                return False
+
+            # ── Pending zurücksetzen für Orte die nicht mehr getroffen werden
+            for _pname in list(_location_warn_pending.keys()):
+                if _pname not in _current_hit_names:
+                    debug_log(
+                        f"[EMAIL] {_pname}: Treffer weg in Frame "
+                        f"{_location_warn_pending[_pname]} — pending zurückgesetzt"
+                    )
+                    del _location_warn_pending[_pname]
+
+            # ── E-Mail: Neue Orts-Treffer (inkl. 2-Frame-Logik) ──────────
+            _loc_email_map = {
+                loc.get("name", ""): loc.get("email", "")
+                for loc in locations
+                if loc.get("email", "").strip()
+            }
+            _ready_to_warn = set()
+
+            for _loc_hit in location_hits:
+                _lname = _loc_hit["name"]
+                _emails = _loc_email_map.get(_lname, "")
+                if not _emails or _lname in _location_warned:
+                    continue
+
+                if _lname in _new_hit_names:
+                    # Neuer Treffer in diesem Frame
+                    if _hit_is_kinematic(_loc_hit):
+                        # Kinematisch → 2 Frames warten
+                        _location_warn_pending[_lname] = 1
+                        debug_log(
+                            f"[EMAIL] {_lname}: kinematische Vorhersage — "
+                            f"warte auf Frame 2 zur Bestätigung"
+                        )
+                    else:
+                        # ML-Vorhersage → sofort warnen
+                        _ready_to_warn.add(_lname)
+                elif _lname in _location_warn_pending:
+                    # Fortsetzung: Ort war schon im letzten Frame getroffen
+                    _location_warn_pending[_lname] += 1
+                    if _location_warn_pending[_lname] >= 2:
+                        debug_log(
+                            f"[EMAIL] {_lname}: 2 aufeinanderfolgende Frames bestätigt "
+                            f"— Warnung wird gesendet"
+                        )
+                        _ready_to_warn.add(_lname)
+                        del _location_warn_pending[_lname]
+
+            if _ready_to_warn:
                 try:
                     from email_notifier import send_warning_email
                     for _loc_hit in location_hits:
-                        if _loc_hit["name"] not in _new_hit_names:
+                        if _loc_hit["name"] not in _ready_to_warn:
                             continue
                         _emails = _loc_email_map.get(_loc_hit["name"], "")
                         if _emails:
-                            send_warning_email(
+                            if send_warning_email(
                                 _loc_hit["name"],
                                 _loc_hit["hits"],
                                 _emails,
                                 timestamp,
-                            )
-                            debug_log(f"[EMAIL] Warnung gesendet: {_loc_hit['name']}")
+                            ):
+                                _location_warned.add(_loc_hit["name"])
+                                debug_log(f"[EMAIL] Warnung gesendet: {_loc_hit['name']}")
                 except Exception as _e:
                     debug_log(f"[EMAIL] Warnung fehlgeschlagen: {_e}")
 
-            # ── E-Mail: Entwarnung ────────────────────────────────────────
+            # ── E-Mail: Entwarnung (nur wenn vorher gewarnt wurde) ────────
             if _cleared:
-                _loc_email_map = {
-                    loc.get("name", ""): loc.get("email", "")
-                    for loc in locations
-                    if loc.get("email", "").strip()
-                }
                 try:
                     from email_notifier import send_allclear_email
                     for _loc_name in sorted(_cleared):
+                        if _loc_name not in _location_warned:
+                            # Kein Alarm gesendet → keine Entwarnung nötig
+                            continue
                         _emails = _loc_email_map.get(_loc_name, "")
                         if _emails:
                             send_allclear_email(_loc_name, _emails)
+                            _location_warned.discard(_loc_name)
                             debug_log(f"[EMAIL] Entwarnung gesendet: {_loc_name}")
                 except Exception as _e:
                     debug_log(f"[EMAIL] Entwarnung fehlgeschlagen: {_e}")
