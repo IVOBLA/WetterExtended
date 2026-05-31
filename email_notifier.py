@@ -129,65 +129,81 @@ def send_warning_email(loc_name: str, hits: dict, email_str: str,
     if not recipients:
         return False
 
-    # Tabellenzeilen aus hits aufbauen
-    rows = ""
-    for horizon, hit in sorted(hits.items(), key=lambda x: int(x[0])):
-        h_label = "JETZT" if int(horizon) == 0 else f"+{horizon} min"
-        hit_type_labels = {
-            "current":      "Zelle IM ORT",
-            "slow_approach":"Langsam ziehend (Starkregen)",
-            "forecast":     "Forecast-Pfad trifft Ort",
-        }
-        type_label = hit_type_labels.get(hit.get("hit_type", ""), hit.get("hit_type", ""))
-        rows += f"""
-        <tr style="border-bottom:1px solid #eee">
-          <td style="padding:6px 10px;font-weight:bold">{h_label}</td>
-          <td style="padding:6px 10px">{hit.get('cell_id','—')}</td>
-          <td style="padding:6px 10px">{hit.get('distance_km','—')} km</td>
-          <td style="padding:6px 10px">{hit.get('speed_kmh','—')} km/h</td>
-          <td style="padding:6px 10px">{type_label}</td>
-        </tr>"""
+    # Frühesten Treffer ermitteln: Horizont 0 (jetzt) hat Vorrang,
+    # sonst den kleinsten positiven Horizont.
+    _sorted_hits = sorted(hits.items(), key=lambda x: int(x[0]))
+    _earliest_h  = int(_sorted_hits[0][0]) if _sorted_hits else None
+    _earliest    = _sorted_hits[0][1] if _sorted_hits else {}
+    _cell_id     = _earliest.get("cell_id", "—")
+    _dist        = _earliest.get("distance_km", "—")
+    _speed       = _earliest.get("speed_kmh", "—")
+
+    # ETA-Anzeige berechnen
+    from datetime import datetime as _dt_warn, timedelta as _td_warn
+    _now_dt = _dt_warn.now()
+    if _earliest_h == 0:
+        _eta_text  = "ist <b>JETZT</b> im Bereich"
+        _eta_sub   = ""
+    elif _earliest_h is not None:
+        _eta_dt    = _now_dt + _td_warn(minutes=_earliest_h)
+        _eta_uhr   = _eta_dt.strftime("%H:%M Uhr")
+        _eta_text  = f"trifft voraussichtlich in <b>~{_earliest_h} Minuten</b>"
+        _eta_sub   = f"(ca. {_eta_uhr})"
+    else:
+        _eta_text  = "trifft den Bereich voraussichtlich"
+        _eta_sub   = ""
 
     ts_display = timestamp or _now_str()
     html = f"""<!DOCTYPE html>
 <html lang="de"><head><meta charset="utf-8"></head>
-<body style="font-family:Arial,sans-serif;max-width:620px;margin:0 auto;padding:16px;background:#f5f5f5">
+<body style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;
+             padding:16px;background:#f5f5f5">
 
-  <div style="background:#dc2626;color:white;padding:16px 20px;border-radius:8px 8px 0 0">
+  <div style="background:#dc2626;color:white;padding:16px 20px;
+              border-radius:8px 8px 0 0">
     <h2 style="margin:0;font-size:20px">⚡ GEWITTERWARNUNG</h2>
-    <p style="margin:4px 0 0;font-size:15px;opacity:.9">{loc_name} — {ts_display}</p>
+    <p style="margin:4px 0 0;font-size:14px;opacity:.9">
+      {loc_name} &mdash; {ts_display}
+    </p>
   </div>
 
-  <div style="background:#fff;padding:20px;border:1px solid #ddd;border-radius:0 0 8px 8px">
+  <div style="background:#111;color:#fff;padding:20px;
+              border-radius:0 0 8px 8px;border:1px solid #333">
 
-    <p style="margin-top:0">Eine <strong>Gewitterzelle</strong> bedroht den Bereich
-    <strong>{loc_name}</strong>.</p>
+    <p style="margin:0 0 16px;font-size:16px">
+      Eine <strong>Gewitterzelle</strong> bedroht den Bereich
+      <strong>{loc_name}</strong>.
+    </p>
 
-    <table style="width:100%;border-collapse:collapse;font-size:13px">
-      <thead>
-        <tr style="background:#f0f0f0">
-          <th style="padding:6px 10px;text-align:left">Horizont</th>
-          <th style="padding:6px 10px;text-align:left">Zelle</th>
-          <th style="padding:6px 10px;text-align:left">Distanz</th>
-          <th style="padding:6px 10px;text-align:left">Geschw.</th>
-          <th style="padding:6px 10px;text-align:left">Typ</th>
-        </tr>
-      </thead>
-      <tbody>{rows}</tbody>
-    </table>
-
-    <div style="margin-top:20px;text-align:center">
-      <a href="{_MAP_URL}"
-         style="display:inline-block;background:#2563eb;color:white;padding:12px 28px;
-                border-radius:6px;text-decoration:none;font-weight:bold;font-size:15px">
-        🗺 Karte jetzt oeffnen
-      </a>
-      <p style="font-size:11px;color:#888;margin-top:8px">{_MAP_URL}</p>
+    <div style="background:#1c1c2e;border-left:4px solid #f97316;
+                padding:14px 16px;border-radius:4px;margin-bottom:16px">
+      <p style="margin:0 0 4px;font-size:15px">
+        Zelle <code style="background:#333;padding:2px 6px;border-radius:3px;
+        font-size:13px">{_cell_id}</code>
+        {_eta_text}
+      </p>
+      {f'<p style="margin:4px 0 0;font-size:13px;color:#9ca3af">{_eta_sub}</p>'
+       if _eta_sub else ''}
+      <p style="margin:8px 0 0;font-size:13px;color:#d1d5db">
+        Distanz: <b>{_dist} km</b> &nbsp;&middot;&nbsp;
+        Geschwindigkeit: <b>{_speed} km/h</b>
+      </p>
     </div>
 
-    <hr style="border:none;border-top:1px solid #eee;margin:20px 0">
-    <p style="font-size:11px;color:#aaa;margin:0">
-      WetterExtended &bull; Kaernten Radar-Tracking &bull; Automatische Benachrichtigung
+    <div style="text-align:center;margin-bottom:16px">
+      <a href="{_MAP_URL}"
+         style="display:inline-block;background:#2563eb;color:white;
+                padding:12px 28px;border-radius:6px;text-decoration:none;
+                font-weight:bold;font-size:14px">
+        🗺 Karte jetzt &ouml;ffnen
+      </a>
+      <p style="margin:6px 0 0;font-size:11px;color:#6b7280">{_MAP_URL}</p>
+    </div>
+
+    <hr style="border:none;border-top:1px solid #333;margin:16px 0">
+    <p style="font-size:11px;color:#6b7280;margin:0">
+      WetterExtended &bull; K&auml;rnten Radar-Tracking &bull;
+      Automatische Benachrichtigung
     </p>
   </div>
 </body></html>"""
@@ -197,7 +213,6 @@ def send_warning_email(loc_name: str, hits: dict, email_str: str,
     if ok:
         _cooldown_warning[loc_name] = now
     return ok
-
 
 def send_allclear_email(loc_name: str, email_str: str) -> bool:
     """
