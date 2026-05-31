@@ -122,7 +122,7 @@ export default function MapFullscreen() {
   const [riskGridStep, setRiskGridStep] = useState(0.05)
   const [riskGridError, setRiskGridError] = useState(false)
   const [irCells,       setIrCells]       = useState([])
-  const [lightningAge,   setLightningAge]   = useState(30)  // Minuten
+  const [lightningAge,   setLightningAge]   = useState(15)  // Minuten
   const [frames,       setFrames]       = useState([])
   const [currentIdx,   setCurrentIdx]   = useState(-1)
   const [playing,      setPlaying]      = useState(false)
@@ -406,7 +406,7 @@ export default function MapFullscreen() {
                 onChange={e => setLightningAge(Number(e.target.value))}
                 style={{ fontSize:11, padding:'0 2px', border:'1px solid #555',
                          background:'#1a1a2e', color:'#fff', borderRadius:3 }}>
-                {[10, 20, 30, 60].map(m => (
+                {[5, 10, 15, 30].map(m => (
                   <option key={m} value={m}>{m} min</option>
                 ))}
               </select>
@@ -723,10 +723,10 @@ export default function MapFullscreen() {
             if (o.contour_geo && o.contour_geo.length >= 3) {
               const cLons = o.contour_geo.map(p => p[0])
               const cLats = o.contour_geo.map(p => p[1])
-              const bboxMinLat = Math.min(...cLats) - riskGridStep * 0.575
-              const bboxMaxLat = Math.max(...cLats) + riskGridStep * 0.575
-              const bboxMinLon = Math.min(...cLons) - riskGridStep * 0.575
-              const bboxMaxLon = Math.max(...cLons) + riskGridStep * 0.575
+              const bboxMinLat = Math.min(...cLats) - riskGridStep * 0.65
+              const bboxMaxLat = Math.max(...cLats) + riskGridStep * 0.65
+              const bboxMinLon = Math.min(...cLons) - riskGridStep * 0.65
+              const bboxMaxLon = Math.max(...cLons) + riskGridStep * 0.65
               return cell.lat >= bboxMinLat && cell.lat <= bboxMaxLat &&
                      cell.lon >= bboxMinLon && cell.lon <= bboxMaxLon
             }
@@ -759,8 +759,8 @@ export default function MapFullscreen() {
             <Rectangle
               key={'risk_' + i}
               bounds={[
-                [cell.lat - riskGridStep * 0.575, cell.lon - riskGridStep * 0.575],
-                [cell.lat + riskGridStep * 0.575, cell.lon + riskGridStep * 0.575],
+                [cell.lat - riskGridStep * 0.65, cell.lon - riskGridStep * 0.65],
+                [cell.lat + riskGridStep * 0.65, cell.lon + riskGridStep * 0.65],
               ]}
               pathOptions={{
                 weight:      0,

@@ -768,10 +768,11 @@ def api_forecast():
 def api_lightning():
     """
     Liefert die zuletzt gespeicherten Blitzeinschläge aus dem Blitzortung-Cache.
-    Filtert auf die letzten max_age_min Minuten (Default: 30).
-    Rückgabe: { "strikes": [...], "count": N, "ts": "...", "max_age_min": 30 }
+    Filtert auf die letzten max_age_min Minuten (Default: 15).
+    Rückgabe: { "strikes": [...], "count": N, "ts": "...", "max_age_min": 15 }
     """
-    max_age_min = int(request.args.get("max_age_min", 30))
+    # Default: 15 Minuten (überschreibbar per ?max_age_min=N)
+    max_age_min = int(request.args.get("max_age_min", 15))
     files = sorted(glob.glob(os.path.join(SAVE_PATHS.get("lightning", "train_data/lightning"), "*.json")))
     if not files:
         return jsonify({"strikes": [], "count": 0, "ts": None, "max_age_min": max_age_min})
@@ -782,17 +783,40 @@ def api_lightning():
     except Exception:
         return jsonify({"strikes": [], "count": 0, "ts": None, "max_age_min": max_age_min})
 
-    # Zeitfilter: nur Einschläge der letzten max_age_min Minuten
+    ts_file = os.path.basename(files[-1]).replace(".json", "")
+
+    # Zeitfilter: Datei-Timestamp als Referenz (nicht datetime.now()).
+    # Verhindert dass Blitze eines aktiven Gewitters ausgeblendet werden wenn
+    # der Verarbeitungszyklus länger als max_age_min her ist.
+    # Sicherheits-Gate: Datei älter als max_age_min × 3 → keine Blitze anzeigen
+    # (Loop nicht aktiv / System inaktiv).
     from datetime import datetime, timezone, timedelta
-    cutoff_ns = (datetime.now(timezone.utc) - timedelta(minutes=max_age_min)).timestamp() * 1e9
+    _now_utc = datetime.now(timezone.utc)
+    try:
+        _file_dt = datetime.strptime(ts_file, "%Y-%m-%d_%H-%M-%S").replace(
+            tzinfo=timezone.utc
+        )
+        _file_age_min = (_now_utc - _file_dt).total_seconds() / 60.0
+        if _file_age_min > max_age_min * 3:
+            return jsonify({
+                "strikes":       [],
+                "count":         0,
+                "ts":            ts_file,
+                "max_age_min":   max_age_min,
+                "total_in_file": len(all_strikes),
+            })
+        ref_time = _file_dt
+    except Exception:
+        ref_time = _now_utc
+
+    cutoff_ns = int((ref_time - timedelta(minutes=max_age_min)).timestamp() * 1e9)
     recent = [s for s in all_strikes if s.get("timestamp_ns", 0) >= cutoff_ns]
 
-    ts_file = os.path.basename(files[-1]).replace(".json", "")
     return jsonify({
-        "strikes":     recent,
-        "count":       len(recent),
-        "ts":          ts_file,
-        "max_age_min": max_age_min,
+        "strikes":       recent,
+        "count":         len(recent),
+        "ts":            ts_file,
+        "max_age_min":   max_age_min,
         "total_in_file": len(all_strikes),
     })
 
