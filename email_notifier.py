@@ -21,6 +21,7 @@ import smtplib
 import ssl
 import time
 from datetime import datetime, timezone
+from html import escape as _html_escape
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -420,6 +421,155 @@ def send_ai_report_email(result: dict, email_str: str) -> bool:
     )
 
     subject = f"🤖 WetterExtended KI-Report {ts_date} — {status_label}"
+    return _send_smtp(recipients, subject, html)
+
+
+def send_chat_email(question: str, answer: str, model: str, email_str: str) -> bool:
+    """
+    Sendet eine KI-Chat-Antwort per E-Mail.
+    Wird von app.py /api/ai_analysis/chat aufgerufen.
+
+    Parameters:
+        question  : Frage des Benutzers
+        answer    : Antwort der KI
+        model     : Verwendetes Modell (z.B. "claude-sonnet-4-6")
+        email_str : ";"-getrennte Empfängeradressen
+    """
+    if not _is_configured():
+        debug_log("[EMAIL] SMTP nicht konfiguriert — Chat-Mail nicht gesendet.")
+        return False
+
+    recipients = _parse_recipients(email_str)
+    if not recipients:
+        return False
+
+    ts = _now_str()
+    # Antwort: Newlines → <br> für HTML-Darstellung
+    answer_html = _html_escape(str(answer)).replace("\n", "<br>")
+    question_html = _html_escape(str(question))
+
+    model_short = model.split("/")[-1] if "/" in model else model
+    model_short = _html_escape(str(model_short))
+
+    html = (
+        '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"></head>'
+        '<body style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;'
+        'padding:16px;background:#f5f5f5">'
+        '<div style="background:#7c3aed;color:white;padding:16px 20px;'
+        'border-radius:8px 8px 0 0">'
+        '<h2 style="margin:0;font-size:18px">🤖 KI-Chat-Antwort</h2>'
+        f'<p style="margin:4px 0 0;opacity:.85;font-size:13px">'
+        f'WetterExtended &bull; {ts} &bull; Modell: {model_short}</p>'
+        '</div>'
+        '<div style="background:#fff;padding:20px;border:1px solid #ddd;'
+        'border-radius:0 0 8px 8px">'
+        '<p style="font-size:12px;font-weight:bold;color:#6b7280;'
+        'text-transform:uppercase;margin:0 0 4px">Frage</p>'
+        '<div style="background:#f3f4f6;border-radius:6px;padding:12px 16px;'
+        'font-size:14px;margin-bottom:20px;white-space:pre-wrap">'
+        f'{question_html}</div>'
+        '<p style="font-size:12px;font-weight:bold;color:#6b7280;'
+        'text-transform:uppercase;margin:0 0 4px">Antwort</p>'
+        '<div style="background:#faf5ff;border-left:4px solid #7c3aed;'
+        'border-radius:0 6px 6px 0;padding:12px 16px;font-size:14px;'
+        'line-height:1.6">'
+        f'{answer_html}</div>'
+        '<hr style="border:none;border-top:1px solid #eee;margin:20px 0">'
+        '<p style="font-size:11px;color:#aaa;margin:0">'
+        'WetterExtended &bull; K&auml;rnten Radar-Tracking &bull; '
+        'Interaktiver KI-Chat</p>'
+        '</div></body></html>'
+    )
+
+    subject = f"🤖 KI-Chat — WetterExtended {ts[:10]}"
+    return _send_smtp(recipients, subject, html)
+
+
+def send_filter_suggestion_email(
+    suggestions: list, model: str, suggestion_id: str, email_str: str
+) -> bool:
+    """
+    Sendet KI-Filtervorschläge (HSV-Bereiche) per E-Mail.
+    Wird von app.py /api/cell_filters/ai_analyze aufgerufen.
+
+    Parameters:
+        suggestions   : Liste von {"label", "hsv_range", "rationale"}
+        model         : Verwendetes Modell
+        suggestion_id : ID des gespeicherten Vorschlags
+        email_str     : ";"-getrennte Empfängeradressen
+    """
+    if not _is_configured():
+        debug_log("[EMAIL] SMTP nicht konfiguriert — Filter-Mail nicht gesendet.")
+        return False
+
+    recipients = _parse_recipients(email_str)
+    if not recipients:
+        return False
+
+    ts = _now_str()
+    model_short = model.split("/")[-1] if "/" in model else model
+    model_short = _html_escape(str(model_short))
+    n = len(suggestions)
+
+    rows = ""
+    for s in suggestions:
+        rng = s.get("hsv_range", [[], []])
+        lo = rng[0] if len(rng) > 0 else []
+        hi = rng[1] if len(rng) > 1 else []
+        lo_str = f"H:{lo[0]} S:{lo[1]} V:{lo[2]}" if len(lo) == 3 else "–"
+        hi_str = f"H:{hi[0]} S:{hi[1]} V:{hi[2]}" if len(hi) == 3 else "–"
+        label = _html_escape(str(s.get("label", "–")))
+        rationale = _html_escape(str(s.get("rationale") or "")[:200])
+        rows += (
+            f'<tr style="border-bottom:1px solid #e5e7eb">'
+            f'<td style="padding:8px;font-weight:bold;font-size:13px">{label}</td>'
+            f'<td style="padding:8px;font-size:12px;font-family:monospace;'
+            f'white-space:nowrap">{lo_str}<br><small style="color:#6b7280">'
+            f'bis {hi_str}</small></td>'
+            f'<td style="padding:8px;font-size:12px;color:#4b5563">{rationale}</td>'
+            f'</tr>'
+        )
+
+    html = (
+        '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"></head>'
+        '<body style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;'
+        'padding:16px;background:#f5f5f5">'
+        '<div style="background:#059669;color:white;padding:16px 20px;'
+        'border-radius:8px 8px 0 0">'
+        f'<h2 style="margin:0;font-size:18px">🔬 KI-Filtervorschlag ({n} '
+        f'{"Vorschlag" if n == 1 else "Vorschläge"})</h2>'
+        f'<p style="margin:4px 0 0;opacity:.85;font-size:13px">'
+        f'WetterExtended &bull; {ts} &bull; Modell: {model_short}</p>'
+        '</div>'
+        '<div style="background:#fff;padding:20px;border:1px solid #ddd;'
+        'border-radius:0 0 8px 8px">'
+        f'<p style="font-size:13px;color:#374151;margin:0 0 16px">'
+        f'Die KI hat <b>{n}</b> neuen HSV-Filterbereich'
+        f'{"" if n == 1 else "e"} vorgeschlagen '
+        f'(Vorschlags-ID: <code style="font-size:11px">{_html_escape(str(suggestion_id))}</code>).'
+        f' Vorschl&auml;ge k&ouml;nnen im Admin-Panel unter '
+        f'<b>Filter-Galerie</b> &uuml;bernommen werden.</p>'
+        + (
+            '<table style="width:100%;border-collapse:collapse;font-size:13px">'
+            '<thead><tr style="background:#f3f4f6">'
+            '<th style="padding:8px;text-align:left">Label</th>'
+            '<th style="padding:8px;text-align:left">HSV-Bereich</th>'
+            '<th style="padding:8px;text-align:left">Begr&uuml;ndung</th>'
+            '</tr></thead>'
+            f'<tbody>{rows}</tbody>'
+            '</table>'
+            if rows else
+            '<p style="color:#6b7280;font-style:italic">'
+            'Keine konkreten HSV-Bereiche vorgeschlagen.</p>'
+        ) +
+        '<hr style="border:none;border-top:1px solid #eee;margin:20px 0">'
+        '<p style="font-size:11px;color:#aaa;margin:0">'
+        'WetterExtended &bull; K&auml;rnten Radar-Tracking &bull; '
+        'Human-in-the-Loop Filter-Analyse</p>'
+        '</div></body></html>'
+    )
+
+    subject = f"🔬 KI-Filtervorschlag ({n}) — WetterExtended {ts[:10]}"
     return _send_smtp(recipients, subject, html)
 
 

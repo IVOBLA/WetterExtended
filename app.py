@@ -1901,6 +1901,19 @@ def api_ai_analysis_chat():
             messages=[{"role": "user", "content": content}],
         )
         answer = message.content[0].text if message.content else "(keine Antwort)"
+        # E-Mail-Versand der Chat-Antwort (wenn report_email konfiguriert)
+        try:
+            from config import AI_ANALYSIS_CONFIG as _ai_cfg_dflt
+            _ai_cfg_chat = dict(_ai_cfg_dflt)
+            _ai_cfg_chat.update(runtime_config.get("AI_ANALYSIS_CONFIG", {}))
+            _chat_mail = _ai_cfg_chat.get("report_email", "").strip()
+            if _chat_mail:
+                from email_notifier import send_chat_email as _sce
+                _sce(question=question, answer=answer,
+                     model=model_id, email_str=_chat_mail)
+                debug_log(f"[CHAT-EMAIL] Gesendet an: {_chat_mail}")
+        except Exception as _em_chat:
+            debug_log(f"[CHAT-EMAIL] Versand fehlgeschlagen: {_em_chat}")
         return jsonify({
             "ok":         True,
             "answer":     answer,
@@ -2456,6 +2469,19 @@ def api_cell_filters_ai_analyze():
             based_on_filter_ids=[it["id"] for it in items],
             suggested_ranges=suggestions,
         )
+        # E-Mail-Versand der Filter-Vorschläge (wenn report_email konfiguriert)
+        try:
+            from config import AI_ANALYSIS_CONFIG as _ai_cfg_dflt
+            _ai_cfg_flt = dict(_ai_cfg_dflt)
+            _ai_cfg_flt.update(runtime_config.get("AI_ANALYSIS_CONFIG", {}))
+            _filter_mail = _ai_cfg_flt.get("report_email", "").strip()
+            if _filter_mail:
+                from email_notifier import send_filter_suggestion_email as _sfse
+                _sfse(suggestions=suggestions, model=model_id,
+                      suggestion_id=sug_id, email_str=_filter_mail)
+                debug_log(f"[FILTER-EMAIL] Gesendet an: {_filter_mail}")
+        except Exception as _em_flt:
+            debug_log(f"[FILTER-EMAIL] Versand fehlgeschlagen: {_em_flt}")
         return jsonify({
             "ok":              True,
             "suggestion_id":   sug_id,

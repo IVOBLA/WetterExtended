@@ -987,6 +987,24 @@ Unter `/ai-analysis` gibt es zusätzlich einen Chat-Bereich für Fragen an die K
 >
 > Die KI-Analyse verursacht API-Kosten pro Request.
 
+## 23.5 E-Mail-Benachrichtigung für alle KI-Antworten
+
+Ab dieser Version wird **jede KI-Antwort** automatisch per E-Mail an die konfigurierte
+`report_email`-Adresse gesendet — unabhängig davon, ob die Antwort aus dem interaktiven
+Chat, einer Filter-Analyse oder dem täglichen Automatik-Report stammt.
+
+| KI-Typ | Auslöser | E-Mail-Inhalt |
+|--------|---------|--------------|
+| Interaktiver Chat | Senden im Chat-Fenster | Frage + vollständige Antwort |
+| Filter-Analyse (KI) | „KI analysieren" in Filter-Galerie | Anzahl Vorschläge + HSV-Bereiche + Begründung |
+| Tägliche Analyse | Automatisch 06:00 / manueller Trigger | Systemstatus + Handlungsempfehlungen |
+
+> **Voraussetzung:** SMTP muss konfiguriert sein (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` in `.env`)
+> und `AI_ANALYSIS_CONFIG.report_email` muss gesetzt sein.
+>
+> Fehler beim E-Mail-Versand werden nur geloggt — der KI-Endpunkt gibt trotzdem immer
+> die Antwort zurück (kein Fehler für den Benutzer).
+
 ## 23.4 Vollständige Konfiguration im KI-Report
 
 Seit dieser Version sendet `build_system_report()` die komplette lokale Konfiguration
