@@ -62,31 +62,27 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
             if _cached is not None:
                 _slot_result = _cached
                 break
-            # GeoSphere Nowcast erwartet lat_lon als kombinierten Parameter:
-            # lat_lon=46.526,14.548 — NICHT lat=...&lon=... (liefert HTTP 422)
-            # Verifiziert 2026-05-31 durch Response-Body:
-            # {"detail":[{"loc":["query","lat_lon"],"msg":"Field required"}]}
-            _qparams = [
-                ("lat_lon",    f"{lat},{lon}"),
-                ("parameters", "rr"),
-                ("parameters", "ff"),
-                ("parameters", "ffx"),
-                ("start",      _slot["start_str"]),
-                ("end",        _slot["end_str"]),
-            ]
-            url = requests.Request("GET", _BASE_URL, params=_qparams).prepare().url
+            # GeoSphere Nowcast erwartet lat_lon als kombinierten Parameter MIT
+            # LITERAL-Komma: lat_lon=46.526,14.548
+            # requests.get(..., params=[("lat_lon","46.526,14.548")]) kodiert das
+            # Komma zu %2C → HTTP 400 "Bad Request".
+            # Lösung: URL vollständig manuell bauen — kein params=-Argument.
+            _lat_lon_raw = f"{lat},{lon}"
+            import time as _t_nowcast
+            from http_retry import retry_get
+            _url_params  = (
+                f"lat_lon={_lat_lon_raw}"
+                f"&parameters=rr&parameters=ff&parameters=ffx"
+                f"&start={_slot['start_str']}&end={_slot['end_str']}"
+            )
+            url = f"{_BASE_URL}?{_url_params}"
             try:
-                import time as _t_nowcast
                 _t0_nowcast = _t_nowcast.monotonic()
-                from http_retry import retry_get
-                # max_retries=1: 422 nicht wiederholen — würde nie helfen.
-                # abort_on_4xx=True: HTTPError bei 4xx sofort abfangen (kein Retry).
                 r = retry_get(
-                    _BASE_URL,
+                    url,          # URL enthält bereits alle Parameter — kein params=
                     service="geosphere_nowcast",
                     timeout=_TIMEOUT,
                     max_retries=1,
-                    params=_qparams,
                     headers={"Accept": "application/json"},
                 )
                 _dur_nowcast = (_t_nowcast.monotonic() - _t0_nowcast) * 1000

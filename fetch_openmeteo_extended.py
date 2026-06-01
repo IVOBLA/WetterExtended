@@ -15,10 +15,6 @@ from api_cache import cache_key, cache_get, cache_set, get_ttl
 _MODEL_15MIN = "icon_d2"
 # icon_global: Globales Modell, hat 500/850-hPa-Druckflächen
 _MODEL_PRESSURE = "icon_global"
-# icon_eu: Einzige Open-Meteo-Quelle für lightning_potential_index.
-# icon_d2 liefert LPI NICHT → HTTP 400 bei Verwendung von icon_d2.
-# Verifiziert: Open-Meteo API-Dokumentation, Stand 2026-05.
-_MODEL_LPI = "icon_eu"
 _TIMEZONE = "UTC"
 _TIMEOUT = 15
 _MINUTELY_PARAMS = "wind_gusts_10m"
@@ -31,7 +27,7 @@ _PRESSURE_PARAMS = (
 )
 _DEFAULT = {
     "wind_gust_10m_kmh": 0.0,
-    "lpi": 0.0,
+    'lpi': 0.0,
     "wind_speed_500hPa": 0.0,
     "wind_dir_500_cos": 0.0,
     "wind_dir_500_sin": 0.0,
@@ -169,14 +165,12 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
             else:
                 data_b = None
 
-    # ── Request C: minutely_15 LPI (icon_d2 via DWD-Endpoint) ─────────────
-    # lightning_potential_index ist NUR am DWD-Endpoint /v1/dwd-icon verfügbar.
-    # Der generische /v1/forecast-Endpoint liefert HTTP 400 für LPI (verifiziert 2026-05).
-    # Zusätzlich: LPI ist als minutely_15 in icon_d2 verfügbar — höhere zeitliche Auflösung.
+    # ── Request C: Lightning Potential Index (nur über DWD-Endpoint verfügbar) ──
+    # /v1/forecast mit lpi → HTTP 400; korrekt: /v1/dwd-icon + lightning_potential_index
     url_c = (
         f"{_DWD_URL}?latitude={lats}&longitude={lons}"
         f"&hourly={_HOURLY_LPI_PARAMS}"
-        f"&models={_MODEL_LPI}&timezone={_TIMEZONE}&forecast_days=1"
+        f"&forecast_days=1&timezone={_TIMEZONE}"
     )
     ck_c = cache_key("openmeteo:extended_lpi", lats[:60], _nearest_hour_str(timestamp))
     data_c = cache_get(ck_c, ttl_seconds=get_ttl("openmeteo_extended", 900))
@@ -338,6 +332,6 @@ def _apply(data_a, data_b, data_c, data_d, valid: list, objects: list) -> None:
             lpi_idx = 0
             if now_hour in lpi_times:
                 lpi_idx = lpi_times.index(now_hour)
-            result["lpi"] = round(float(lpi_vals[lpi_idx]) if lpi_idx < len(lpi_vals) and lpi_vals[lpi_idx] is not None else 0.0, 2)
+            result['lpi'] = round(float(lpi_vals[lpi_idx]) if lpi_idx < len(lpi_vals) and lpi_vals[lpi_idx] is not None else 0.0, 2)
 
         obj.update(result)
