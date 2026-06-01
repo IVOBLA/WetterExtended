@@ -62,9 +62,12 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
             if _cached is not None:
                 _slot_result = _cached
                 break
+            # GeoSphere Nowcast erwartet lat_lon als kombinierten Parameter:
+            # lat_lon=46.526,14.548 — NICHT lat=...&lon=... (liefert HTTP 422)
+            # Verifiziert 2026-05-31 durch Response-Body:
+            # {"detail":[{"loc":["query","lat_lon"],"msg":"Field required"}]}
             _qparams = [
-                ("lat",        lat),
-                ("lon",        lon),
+                ("lat_lon",    f"{lat},{lon}"),
                 ("parameters", "rr"),
                 ("parameters", "ff"),
                 ("parameters", "ffx"),
@@ -76,60 +79,59 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
                 import time as _t_nowcast
                 _t0_nowcast = _t_nowcast.monotonic()
                 from http_retry import retry_get
+                # max_retries=1: 422 nicht wiederholen — würde nie helfen.
+                # abort_on_4xx=True: HTTPError bei 4xx sofort abfangen (kein Retry).
                 r = retry_get(
                     _BASE_URL,
                     service="geosphere_nowcast",
                     timeout=_TIMEOUT,
+                    max_retries=1,
                     params=_qparams,
-                    abort_on_4xx=False,   # 422 abfangen statt Exception
                     headers={"Accept": "application/json"},
                 )
                 _dur_nowcast = (_t_nowcast.monotonic() - _t0_nowcast) * 1000
-                if r.status_code == 422:
-                    # Response-Body loggen — enthält exakten GeoSphere-Fehlergrund
-                    try:
-                        _body = r.json()
-                        _detail = (
-                            _body.get("detail")
-                            or _body.get("message")
-                            or str(_body)[:200]
-                        )
-                    except Exception:
-                        _detail = r.text[:200]
-                    debug_log(
-                        f"[NOWCAST-422] Slot {_slot['start_str'][:16]}–"
-                        f"{_slot['end_str'][:16]} "
-                        f"lat={lat} lon={lon} | GeoSphere: {_detail}"
-                    )
-                    log_api_failure(
-                        "geosphere_nowcast",
-                        str(url),
-                        f"http-422 | {_detail[:120]}",
-                        fallback_used=True,
-                        http_status=422,
-                    )
-                    # In api_call_counts loggen → Service im Dashboard sichtbar
-                    # inkl. Response-Body → „Letzter Request/Response" zeigt Fehlerdetail
-                    log_api_call(
-                        "geosphere_nowcast",
-                        url=str(url),
-                        status_code=422,
-                        duration_ms=_dur_nowcast,
-                        method="GET",
-                        response_text=_detail[:500],
-                        error=f"http-422 | {_detail[:80]}",
-                    )
-                    continue
                 r.raise_for_status()
                 data = r.json()
                 log_http_response("geosphere_nowcast", "GET", r, _dur_nowcast)
                 _slot_result = _parse_nowcast(data, str(url))
                 cache_set(_ck, _slot_result)
                 break
+            except requests.exceptions.HTTPError as _nc_exc:
+                _nc_status = getattr(_nc_exc.response, "status_code", None)
+                _nc_body   = ""
+                try:
+                    _nc_body = (_nc_exc.response.json().get("detail") or "")
+                    if isinstance(_nc_body, list):
+                        _nc_body = str(_nc_body[0].get("msg", ""))
+                except Exception:
+                    pass
+                if _nc_status == 422:
+                    debug_log(
+                        f"[NOWCAST] Slot {_slot['start_str'][:16]} HTTP 422 "
+                        f"({_nc_body}) — versuche Fallback-Slot"
+                    )
+                    log_api_failure(
+                        "geosphere_nowcast", str(url),
+                        f"http-422 | {_nc_body[:80]}",
+                        fallback_used=True, http_status=422,
+                    )
+                    log_api_call(
+                        "geosphere_nowcast", url=str(url), status_code=422,
+                        duration_ms=(_t_nowcast.monotonic() - _t0_nowcast) * 1000,
+                        method="GET",
+                        response_text=_nc_body[:200],
+                        error=f"http-422 | {_nc_body[:80]}",
+                    )
+                    continue  # Fallback-Slot versuchen
+                # Anderer HTTP-Fehler → abbrechen
+                log_api_failure("geosphere_nowcast", str(url),
+                                str(_nc_exc)[:80], fallback_used=True,
+                                http_status=_nc_status)
+                break
             except Exception as exc:
                 log_api_failure("geosphere_nowcast", str(url), str(exc)[:80],
                                 fallback_used=True)
-                break  # Netzwerk-/Parse-Fehler → kein weiterer Versuch
+                break
         if _slot_result is not None:
             obj.update(_slot_result)
     return objects

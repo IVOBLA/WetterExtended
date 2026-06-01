@@ -110,8 +110,7 @@ def _check_geosphere() -> dict:
             max_retries=1,
             # Wiederholte Parameter — identisch zu fetch_geosphere_nowcast.py
             params=[
-                ("lat", "46.62"),
-                ("lon", "14.31"),
+                ("lat_lon",    "46.62,14.31"),
                 ("parameters", "rr"),
                 ("parameters", "ff"),
                 ("parameters", "ffx"),
