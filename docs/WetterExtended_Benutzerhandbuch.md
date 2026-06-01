@@ -987,6 +987,19 @@ Unter `/ai-analysis` gibt es zusätzlich einen Chat-Bereich für Fragen an die K
 >
 > Die KI-Analyse verursacht API-Kosten pro Request.
 
+## 23.7 Mobile-Optimierung der Karte (/karte)
+
+Die Vollbild-Karte (`/karte`) wurde für Mobilgeräte optimiert:
+
+- **Touch-Targets:** Alle Checkboxen, Buttons und Labels haben mindestens 44×44px
+  (Apple HIG / Material Design Mindestgröße für Touch-Bedienung)
+- **Blitz-Dropdown:** Größere Darstellung (16px Schrift), verhindert automatisches
+  Zoomen auf iOS beim Antippen
+- **Risikozonen-Tooltip:** Schriftgröße von 11px auf 14px erhöht
+- **Zell-Popups:** Schriftgröße von 11px auf 14px erhöht
+- **Animations-Slider:** Höhe von 18px auf 28px erhöht — leichter bedienbar
+- **Navigations-Buttons** (◀ ▶ ⏸): von 36px auf 44px erhöht
+
 ## 23.6 Vereinfachte Warn-E-Mail und 2-Frame-Bestätigung
 
 **Warn-E-Mail (seit dieser Version):**
