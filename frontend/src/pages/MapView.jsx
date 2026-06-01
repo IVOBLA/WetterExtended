@@ -1129,8 +1129,10 @@ export default function MapView() {
               }}
             >
               {!hasCellHere && (
-                <Tooltip direction="top" sticky opacity={0.95} className="risk-tooltip">
-                  <div style={{ fontSize: 11, lineHeight: 1.35, minWidth: 140 }}>
+                <Tooltip direction="top" sticky opacity={0.95}
+                  className="risk-tooltip" pane="tooltipPane"
+                  permanent={false} interactive={false}>
+                  <div style={{ fontSize: 14, lineHeight: 1.6, minWidth: 180 }}>
                     <div style={{ fontWeight: 700, marginBottom: 2 }}>
                       <span style={{
                         display: 'inline-block', width: 10, height: 10,

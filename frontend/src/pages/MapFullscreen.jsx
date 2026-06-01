@@ -21,9 +21,9 @@ const lineageColor = {
 function TBtn({ onClick, active, children, style = {} }) {
   return (
     <button onClick={onClick} style={{
-      minWidth: 34, minHeight: 36, padding: '0 8px',
-      border: '1px solid #d1d5db', borderRadius: 6,
-      cursor: 'pointer', fontSize: 13, fontWeight: active ? 700 : 400,
+      minWidth: 44, minHeight: 44, padding: '0 12px',
+      border: '1px solid #d1d5db', borderRadius: 8,
+      cursor: 'pointer', fontSize: 16, fontWeight: active ? 700 : 400,
       background: active ? '#2563eb' : '#f9fafb',
       color: active ? '#fff' : '#222',
       userSelect: 'none', WebkitTapHighlightColor: 'transparent',
@@ -63,11 +63,12 @@ function BottomBar({ frames, currentIdx, playing, speed, onSetIdx, onPlay, onPau
       <input
         type="range" min="0" max={frames.length - 1} value={currentIdx < 0 ? 0 : currentIdx}
         onChange={e => { onPause(); onSetIdx(Number(e.target.value)) }}
-        style={{ flex: 1, minWidth: 40, accentColor: '#2563eb', height: 18 }}
+        style={{ flex: 1, minWidth: 40, accentColor: '#2563eb', height: 28,
+                 cursor: 'pointer' }}
       />
       {/* Zeitstempel */}
       <span style={{
-        fontFamily: 'monospace', fontSize: 11, fontWeight: 700,
+        fontFamily: 'monospace', fontSize: 13, fontWeight: 700,
         whiteSpace: 'nowrap', flexShrink: 0,
       }}>
         {cur?.label ?? '—'}
@@ -324,6 +325,8 @@ export default function MapFullscreen() {
             boxShadow: '0 3px 12px rgba(0,0,0,0.22)',
             display: 'flex', flexDirection: 'column', gap: 8,
             minWidth: 220, maxWidth: 320,
+            overflowY: 'auto',
+            maxHeight: 'calc(100dvh - 180px)',
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <strong style={{ fontSize: 12, color: '#555' }}>WetterExtended</strong>
@@ -374,62 +377,70 @@ export default function MapFullscreen() {
               </>
             )}
 
-            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 12,
+                            cursor: 'pointer', minHeight: 44 }}>
               <input
                 type="checkbox" checked={showRadar}
                 onChange={e => setShowRadar(e.target.checked)}
-                style={{ width: 18, height: 18 }}
+                style={{ width: 22, height: 22, flexShrink: 0 }}
               />
-              <span style={{ fontWeight: 500 }}>Radar-Overlay</span>
+              <span style={{ fontWeight: 500, fontSize: 15 }}>Radar-Overlay</span>
             </label>
 
             {showRadar && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ color: '#555', minWidth: 62, fontSize: 12 }}>Deckkraft:</span>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 44 }}>
+                <span style={{ color: '#555', minWidth: 70, fontSize: 14 }}>Deckkraft:</span>
                 <input
                   type="range" min="0" max="100"
                   value={Math.round(radarOpacity * 100)}
                   onChange={e => setRadarOpacity(Number(e.target.value) / 100)}
-                  style={{ flex: 1, height: 20, accentColor: '#2563eb' }}
+                  style={{ flex: 1, height: 26, accentColor: '#2563eb', cursor: 'pointer' }}
                 />
-                <span style={{ fontFamily: 'monospace', minWidth: 32, textAlign: 'right', fontSize: 12 }}>
+                <span style={{ fontFamily: 'monospace', minWidth: 36, textAlign: 'right', fontSize: 14 }}>
                   {Math.round(radarOpacity * 100)}%
                 </span>
               </label>
             )}
-            <label style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer' }}>
+            <label style={{ display:'flex', alignItems:'center', gap:10,
+                            cursor:'pointer', minHeight: 44 }}>
               <input type="checkbox" checked={showLightning}
                 onChange={e => setShowLightning(e.target.checked)}
-                style={{ accentColor: '#fbbf24' }} />
-              <span>⚡ Blitze</span>
+                style={{ accentColor: '#fbbf24', width: 22, height: 22, flexShrink: 0 }} />
+              <span style={{ fontSize: 15 }}>⚡ Blitze</span>
               <select value={lightningAge}
                 onChange={e => setLightningAge(Number(e.target.value))}
-                style={{ fontSize:11, padding:'0 2px', border:'1px solid #555',
-                         background:'#1a1a2e', color:'#fff', borderRadius:3 }}>
+                style={{ fontSize: 16, padding: '6px 10px',
+                         border: '1px solid #555',
+                         background: '#1a1a2e', color: '#fff',
+                         borderRadius: 6, minWidth: 80, height: 38,
+                         touchAction: 'manipulation' }}>
                 {[5, 10, 15, 30].map(m => (
                   <option key={m} value={m}>{m} min</option>
                 ))}
               </select>
             </label>
-            <label style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer' }}>
+            <label style={{ display:'flex', alignItems:'center', gap:10,
+                            cursor:'pointer', minHeight: 44 }}>
               <input type="checkbox" checked={showRisk}
                 onChange={e => setShowRisk(e.target.checked)}
-                style={{ accentColor: '#ef4444' }} />
-              <span>🌩 Risikozonen</span>
+                style={{ accentColor: '#ef4444', width: 22, height: 22, flexShrink: 0 }} />
+              <span style={{ fontSize: 15 }}>🌩 Risikozonen</span>
             </label>
-            <label className="flex items-center gap-1 cursor-pointer select-none text-xs">
+            <label style={{ display:'flex', alignItems:'center', gap:10,
+                            cursor:'pointer', minHeight: 44, userSelect: 'none' }}>
               <input
                 type="checkbox"
                 checked={showIrCells}
                 onChange={e => setShowIrCells(e.target.checked)}
                 className="accent-purple-600"
+                style={{ width: 22, height: 22, flexShrink: 0 }}
                 title="CB > 10.000 m: Cumulonimbus-Wolkentops über 10.000 m MSL (BT < 230 K, MSG IR108). Rot = Overshooting Top (BT < 215 K, > 12.300 m)."
               />
-              <span>🛰 CB &gt; 10.000</span>
+              <span style={{ fontSize: 15 }}>🛰 CB &gt; 10.000</span>
             </label>
 
             {lastTs && (
-              <div style={{ color: '#aaa', fontSize: 11 }}>Stand: {lastTs}</div>
+              <div style={{ color: '#aaa', fontSize: 13 }}>Stand: {lastTs}</div>
             )}
           </div>
         )}
@@ -679,7 +690,7 @@ export default function MapFullscreen() {
                 {currentHit && (
                   <div style={{ color: '#dc2626', fontWeight: 'bold', marginTop: 4 }}>
                     ⚠ Zelle JETZT im Ort
-                    <div style={{ fontWeight: 'normal', fontSize: 11 }}>
+                    <div style={{ fontWeight: 'normal', fontSize: 14 }}>
                       ID: {currentHit.cell_id} · {currentHit.distance_km} km ·{' '}
                       {currentHit.speed_kmh} km/h
                     </div>
@@ -689,14 +700,14 @@ export default function MapFullscreen() {
                 {!currentHit && slowApproachHit && (
                   <div style={{ color: '#ea580c', fontWeight: 'bold', marginTop: 4 }}>
                     🌧 Langsam ziehende Zelle ({slowApproachHit.speed_kmh} km/h)
-                    <div style={{ fontWeight: 'normal', fontSize: 11 }}>
+                    <div style={{ fontWeight: 'normal', fontSize: 14 }}>
                       Erhöhtes Starkregenpotential · erweiterter Warnradius aktiv
                     </div>
                   </div>
                 )}
 
                 {forecastHits.length > 0 && (
-                  <div style={{ marginTop: 4, fontSize: 11 }}>
+                  <div style={{ marginTop: 6, fontSize: 14 }}>
                     {forecastHits.map(([hz, entry]) => (
                       <div key={hz}>
                         +{hz} min · ID {entry.cell_id} ·{' '}
@@ -773,8 +784,10 @@ export default function MapFullscreen() {
               }}
             >
               {!hasCellHere && (
-                <Tooltip direction="top" sticky opacity={0.95} className="risk-tooltip">
-                  <div style={{ fontSize: 11, lineHeight: 1.35, minWidth: 140 }}>
+                <Tooltip direction="top" sticky opacity={0.95}
+                  className="risk-tooltip" pane="tooltipPane"
+                  permanent={false} interactive={false}>
+                  <div style={{ fontSize: 14, lineHeight: 1.6, minWidth: 180 }}>
                     <div style={{ fontWeight: 700, marginBottom: 2 }}>
                       <span style={{
                         display: 'inline-block', width: 10, height: 10,
