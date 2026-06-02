@@ -623,16 +623,40 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             # F2-FIX: History aus previous_snapshot lesen (vor Überschreiben),
             # nicht aus tracking_memory (= new_memory, hat noch kein "history"-Key).
             previous_history = previous_snapshot.get(obj_id, {}).get("history", [])
+            # Richtungsabhängige Ausdehnung aus Pixel-Kontur berechnen.
+            # Wird in locations_check für N-S/E-W Wachstumsraten benötigt.
+            try:
+                from config import UPSCALE_FACTOR as _uf_hist
+            except ImportError:
+                _uf_hist = 3
+            _km_per_px = 1.0 / _uf_hist                     # ~0.333 km/px
+            _raw_cnt = obj.get("contour")
+            if _raw_cnt is not None and len(_raw_cnt) >= 3:
+                import numpy as _np_cnt
+                _cnt_arr = _np_cnt.array(_raw_cnt, dtype=float)
+                _xs = _cnt_arr[:, 0] if _cnt_arr.ndim == 2 else _cnt_arr[:, 0, 0]
+                _ys = _cnt_arr[:, 1] if _cnt_arr.ndim == 2 else _cnt_arr[:, 0, 1]
+                _lat_span_km = round(float(_ys.max() - _ys.min()) * _km_per_px, 4)
+                _lon_span_km = round(float(_xs.max() - _xs.min()) * _km_per_px, 4)
+            else:
+                _lat_span_km = _lon_span_km = 0.0
+            # area_km2: Gesamtfläche für isotrope Fallback-Berechnung
+            _area_km2_hist = round(
+                float(obj.get("area") or 0) * (_km_per_px ** 2), 5
+            )
             new_entry = {
-                "timestamp":  timestamp,
-                "vx":         float(obj["vx"]),
-                "vy":         float(obj["vy"]),
-                "x":          float(obj.get("x", 0.0)),   # P26: Originalpixel für echte px/min
-                "y":          float(obj.get("y", 0.0)),
-                "core_ratio": float(obj["core_ratio"]),
+                "timestamp":   timestamp,
+                "vx":          float(obj["vx"]),
+                "vy":          float(obj["vy"]),
+                "x":           float(obj.get("x", 0.0)),
+                "y":           float(obj.get("y", 0.0)),
+                "core_ratio":  float(obj["core_ratio"]),
+                "area_km2":    _area_km2_hist,   # Gesamtfläche
+                "lat_span_km": _lat_span_km,      # N-S-Ausdehnung
+                "lon_span_km": _lon_span_km,      # E-W-Ausdehnung
                 "weather_vals": {},
-                "lat":        obj["lat"],
-                "lon":        obj["lon"],
+                "lat":         obj["lat"],
+                "lon":         obj["lon"],
             }
             updated_history = (previous_history + [new_entry])[-history_len:]
             obj_clean = obj.copy(); obj_clean.pop("kf", None); obj_clean["history"] = updated_history

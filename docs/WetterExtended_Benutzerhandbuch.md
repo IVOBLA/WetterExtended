@@ -987,6 +987,28 @@ Unter `/ai-analysis` gibt es zusätzlich einen Chat-Bereich für Fragen an die K
 >
 > Die KI-Analyse verursacht API-Kosten pro Request.
 
+## 23.8 Polygon-basierte Orts-Treffer mit richtungsabhängigem Wachstum
+
+**`current`:** Abstand Ort → Zell-Polygon-Rand ≤ Ortsradius.
+
+**`forecast`/`slow_approach`:** Das aktuelle Polygon wird zur
+vorhergesagten Position verschoben und **richtungsabhängig skaliert:**
+
+```
+Vorhergesagtes Polygon bei +h min:
+  scale_NS = (half_NS + rate_NS × h) / half_NS
+  scale_EW = (half_EW + rate_EW × h) / half_EW  ← unabhängig!
+
+  neuer_Punkt = forecast_Zentrum + scale × (Punkt − aktuelles_Zentrum)
+```
+
+`rate_NS` und `rate_EW` (km/min) werden per **linearer Regression** über
+die gemessenen N-S- und E-W-Ausdehnungen der letzten Radar-Frames bestimmt.
+
+Beispiel: Zelle dehnt sich nach E aus (+0.12 km/min) und zieht sich N-S
+zusammen (−0.08 km/min). Bei +30 min: E-W +3.6 km breiter, N-S −2.4 km
+schmaler. Diese asymmetrische Form wird für die Treffererkennung genutzt.
+
 ## 23.7 Mobile-Optimierung der Karte (/karte)
 
 Die Vollbild-Karte (`/karte`) wurde für Mobilgeräte optimiert:
