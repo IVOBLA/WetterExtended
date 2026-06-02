@@ -49,7 +49,7 @@ def test_parse_cape_ts_accepts_geojson_iso_variants():
         assert _parse_cape_ts(raw) == expected
 
 
-def test_find_nearest_cape_ts_respects_three_hour_tolerance():
+def test_find_nearest_cape_ts_respects_two_hour_tolerance():
     target = datetime(2026, 6, 2, 4, 0, tzinfo=timezone.utc)
     available = [
         datetime(2026, 6, 2, 0, 0, tzinfo=timezone.utc),
@@ -57,9 +57,25 @@ def test_find_nearest_cape_ts_respects_three_hour_tolerance():
         datetime(2026, 6, 2, 12, 0, tzinfo=timezone.utc),
     ]
     assert _find_nearest_cape_ts(target, available) == available[1]
+    # T08:00 ist 4h entfernt → None (über Toleranz)
     assert _find_nearest_cape_ts(
         target,
         [datetime(2026, 6, 2, 8, 0, tzinfo=timezone.utc)],
+    ) is None
+
+    # T06:00 ist genau 2h entfernt → akzeptiert (an der Grenze)
+    result_edge = _find_nearest_cape_ts(
+        target,
+        [datetime(2026, 6, 2, 6, 0, tzinfo=timezone.utc)],
+        max_tolerance_h=2.0,
+    )
+    assert result_edge == datetime(2026, 6, 2, 6, 0, tzinfo=timezone.utc)
+
+    # T07:00 ist 3h entfernt → abgelehnt
+    assert _find_nearest_cape_ts(
+        target,
+        [datetime(2026, 6, 2, 7, 0, tzinfo=timezone.utc)],
+        max_tolerance_h=2.0,
     ) is None
 
 

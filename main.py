@@ -35,7 +35,6 @@ from ir_cell_detection import detect_ir_cells
 from ir_cell_tracking import update_ir_tracking
 import math as _math_main
 import runtime_config
-import config as _size_config
 from locations_check import annotate_locations
 from config import (HAIL_WARN_THRESHOLD, STATIONARY_RISK_MARKER_THRESHOLD,
                     GUST_WARN_KMH, HEAVY_RAIN_WARN_MM_PER_H)
@@ -236,25 +235,41 @@ def main_loop():
         weather_data = get_weather_data(include_all_stations=True)
 
         if image is not None:
-            # Size-Regresser: Pixel-Scale einmalig pro Zyklus
-            try:
-                _img_height, _img_width = image.shape[:2]
-                _radar_bounds = {
-                    "N": getattr(_size_config, "RADAR_N", 47.42),
-                    "S": getattr(_size_config, "RADAR_S", 44.67),
-                    "W": getattr(_size_config, "RADAR_W", 12.1),
-                    "E": getattr(_size_config, "RADAR_E", 17.44),
-                }
-                if hasattr(_size_config, "RADAR_BOUNDS") and isinstance(_size_config.RADAR_BOUNDS, dict):
-                    _radar_bounds = _size_config.RADAR_BOUNDS
-                _km_px_x, _km_px_y = _size_reg_mod.pixel_scale(
-                    _img_width, _img_height, _radar_bounds
-                )
-            except Exception as _e:
-                debug_log(f"[SIZE-REG] pixel_scale Fehler: {_e} — Fallback 0.51")
-                _km_px_x, _km_px_y = 0.51, 0.51
+            # Size-Regresser: Pixel-Scale — wird nach detect_and_track_objects gesetzt
+            # (verarbeitetes Bild hat andere Dims/Bounds als rohe Datei)
+            _km_px_x, _km_px_y = 0.51, 0.51  # Fallback überschrieben nach detect
 
             objects,  timestamp = detect_and_track_objects(image_path, weather_data)
+
+            # Size-Regresser: Pixel-Scale aus VERARBEITETEM Bild (crop+upscale).
+            # geo_utils.kml_bounds wird von crop_and_upscale_to_bbox() befüllt
+            # und enthält img_width/img_height des aufskalierten Bildes.
+            # Bounds = BBOX_KAERNTEN_EXTENDED (tatsächlicher Crop-Bereich).
+            try:
+                import geo_utils as _gu
+                from config import BBOX_KAERNTEN_EXTENDED as _DEFAULT_BBOX_SZ
+                _proc_w = _gu.kml_bounds.get("img_width")
+                _proc_h = _gu.kml_bounds.get("img_height")
+                _actual_bbox = runtime_config.get("BBOX_KAERNTEN_EXTENDED", _DEFAULT_BBOX_SZ)
+                if _proc_w and _proc_h and _proc_w > 1 and _proc_h > 1:
+                    _radar_bounds_proc = {
+                        "N": float(_actual_bbox["north"]),
+                        "S": float(_actual_bbox["south"]),
+                        "W": float(_actual_bbox["west"]),
+                        "E": float(_actual_bbox["east"]),
+                    }
+                    _km_px_x, _km_px_y = _size_reg_mod.pixel_scale(
+                        _proc_w, _proc_h, _radar_bounds_proc
+                    )
+                    debug_log(
+                        f"[SIZE-REG] pixel_scale: {_proc_w}×{_proc_h}px "
+                        f"→ km/px_x={_km_px_x:.4f} km/px_y={_km_px_y:.4f}"
+                    )
+                else:
+                    debug_log("[SIZE-REG] kml_bounds nicht verfügbar — Fallback 0.51")
+            except Exception as _pe:
+                debug_log(f"[SIZE-REG] pixel_scale Fehler: {_pe} — Fallback 0.51")
+                _km_px_x, _km_px_y = 0.51, 0.51
             objects = fetch_and_assign_700hpa_wind(objects, timestamp)
             objects = assign_cape(objects, timestamp)
             # Orographische Scores nach CAPE berechnen (brauchen cape-Wert)
