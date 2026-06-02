@@ -36,7 +36,7 @@ def _parse_cape_ts(ts_str: str) -> datetime | None:
 def _find_nearest_cape_ts(
     target_dt: datetime,
     available_dts: list[datetime],
-    max_tolerance_h: float = 3.0,
+    max_tolerance_h: float = 2.0,
 ) -> datetime | None:
     """
     Gibt den nächstgelegenen verfügbaren Timestamp zurück, wenn er innerhalb
@@ -108,13 +108,13 @@ def assign_cape(objects: list, timestamp: str) -> list:
         best_dt = rounded_dt if rounded_dt in timestamp_index_by_dt else _find_nearest_cape_ts(
             rounded_dt,
             parsed_timestamps,
-            max_tolerance_h=3.0,
+            max_tolerance_h=2.0,
         )
         if best_dt is None:
             diff_info = f"{len(parsed_timestamps)} verfügbare Schritte" if parsed_timestamps else "keine Daten"
             debug_log(
                 f"[CAPE] Kein Match für {rounded_dt.isoformat()} "
-                f"({diff_info}, Toleranz ±3h)"
+                f"({diff_info}, Toleranz ±2h)"
             )
             if not parsed_timestamps:
                 from debug_utils import log_api_failure

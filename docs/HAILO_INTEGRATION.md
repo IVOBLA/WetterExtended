@@ -166,8 +166,8 @@ Abarbeitungsreihenfolge war: A1 → A2 → A3 → A4 → A5 → A6 → A8 → A7
 
 ## B53 – 12h-Outlook Risikozonen (Frontend + Backend)
 
-**Status:** ✅ Implementiert  
-**Datum:** 2026-06-02  
+**Status:** ✅ Implementiert
+**Datum:** 2026-06-02
 **Dateien:** `app.py` (neue Route `/api/outlook_risk_grid`), Frontend (Leaflet-Layer + Legende)
 
 ### Problem
@@ -203,10 +203,25 @@ Kapitel „12h-Prognose-Karte und Outlook-Risikozonen" ergänzt.
 
 ---
 
+## B55 – Drei Korrekturen: CAPE-Toleranz, Size-Pixel-Scale, Ausblick-Stunden-Filter
+
+**Status:** ✅ Implementiert
+**Datum:** 2026-06-02
+**Dateien:** `assign_cape_from_forecast.py`, `main.py`, `frontend/src/pages/Ausblick.jsx`, `tests/test_cape_timestamp_lookup.py`
+
+### Fix 1 – CAPE Nearest-Match-Toleranz ±3h → ±2h
+AROME-Modellläufe alle 3h → ±2h deckt alle Verfügbarkeitslücken ab. ±3h war meteorologisch grenzwertig (CAPE kann sich in 3h stark ändern). Nach B54-Formatfix trifft Exact-Match fast immer; ±2h ist ausreichender Fallback.
+
+### Fix 2 – Size-Pixel-Scale: verarbeitetes Bild (P1 Codex-Finding)
+`_img_height, _img_width = image.shape[:2]` verwendete das rohe heruntergeladene Radarbild (800×600). `detect_and_track_objects()` schneidet intern auf `BBOX_KAERNTEN_EXTENDED` zu und skaliert mit `UPSCALE_FACTOR=3` hoch. `area_px`/`radius_px` der Objekte stammen aus dem hochskalierten Bild. Pixel-Scale-Berechnung jetzt: `geo_utils.kml_bounds["img_width/height"]` (befüllt von `crop_and_upscale_to_bbox()`) + `BBOX_KAERNTEN_EXTENDED` als tatsächliche Bounds. Berechnung erfolgt NACH `detect_and_track_objects()`. Log: `[SIZE-REG] pixel_scale: NxMpx → km/px_x=0.17xx`.
+
+### Fix 3 – Ausblick.jsx: Risiko-Marker nach Stunden-Slider filtern (P2 Codex-Finding)
+`pt.max_score` zeigte Maximum über alle 12 Stunden. Bei Slider auf +1h wurden Risiken aus +12h als aktuell dargestellt. Fix: `pt.hourly.find(h => h.hour === hour)` mit Nearest-Fallback. Tooltip zeigt jetzt `+Nh` der tatsächlich ausgewählten Stunde.
+
 ## B54 – CAPE Timestamp Nearest-Match Fix
 
 **Status:** ✅ Fix implementiert  
-**Datum:** 2026-06-02  
+**Datum:** 2026-06-02
 **Fehler-Log:** `[API-FAIL] GeoSphere-CAPE: no-forecast-for-2026-06-02T04:00+00:00 (fallback=True, http=None)`
 
 ### Root Cause

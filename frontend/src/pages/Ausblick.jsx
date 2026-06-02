@@ -119,9 +119,21 @@ export default function Ausblick() {
           )
         })}
 
-        {/* Outlook Risk Grid – 12h atmosphärisches Risiko */}
+        {/* Outlook Risk Grid – 12h atmosphärisches Risiko (gefiltert auf aktuell gewählte Stunde) */}
         {outlookRiskGrid?.grid?.map((pt, idx) => {
-          if (!pt.lat || !pt.lon || pt.max_score < 0.1) return null
+          if (!pt.lat || !pt.lon) return null
+
+          // Eintrag für die aktuell gewählte Stunde suchen.
+          // Fallback: nächstgelegene verfügbare Stunde (±1h) wenn exakter Match fehlt.
+          const exactHourEntry = pt.hourly?.find(h => h.hour === hour) ?? null
+          const nearestHourEntry = pt.hourly?.reduce((best, h) =>
+              Math.abs(h.hour - hour) < Math.abs((best?.hour ?? 999) - hour) ? h : best,
+              null)
+            ?? null
+          const hourEntry = exactHourEntry
+            ?? (nearestHourEntry && Math.abs(nearestHourEntry.hour - hour) <= 1 ? nearestHourEntry : null)
+
+          if (!hourEntry || hourEntry.score < 0.1) return null
 
           const colorMap = {
             low: '#ffff00',
@@ -129,14 +141,10 @@ export default function Ausblick() {
             high: '#ff4500',
             extreme: '#cc0000',
           }
-          const color = colorMap[pt.max_level] || '#888888'
-          const radius = 8 + pt.max_score * 12
-          const worstHour = pt.hourly
-            ? [...pt.hourly].sort((a, b) => b.score - a.score)[0]
-            : null
-          const tooltipText = worstHour
-            ? `CAPE: ${worstHour.cape_jkg} J/kg | Wind: ${worstHour.wind_kmh} km/h | +${worstHour.hour}h`
-            : `Score: ${pt.max_score}`
+          const color = colorMap[hourEntry.level] || '#888888'
+          const radius = 8 + hourEntry.score * 12
+          const tooltipText =
+            `CAPE: ${hourEntry.cape_jkg} J/kg | Wind: ${hourEntry.wind_kmh} km/h | +${hourEntry.hour}h`
 
           return (
             <CircleMarker
@@ -153,9 +161,9 @@ export default function Ausblick() {
             >
               <Tooltip>
                 <div>
-                  <strong>12h-Outlook Risiko: {pt.max_level.toUpperCase()}</strong><br />
+                  <strong>12h-Outlook Risiko +{hourEntry.hour}h: {hourEntry.level.toUpperCase()}</strong><br />
                   {tooltipText}<br />
-                  Score: {(pt.max_score * 100).toFixed(0)}%
+                  Score: {(hourEntry.score * 100).toFixed(0)}%
                 </div>
               </Tooltip>
             </CircleMarker>
