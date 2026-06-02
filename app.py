@@ -3326,6 +3326,30 @@ def api_outlook():
         return jsonify({"hours": [], "error": str(exc)}), 200
 
 
+@app.route("/api/size_regressor_status")
+def api_size_regressor_status():
+    """Gibt Status und Metriken des Size-Regressers zurück."""
+    import size_regressor as sr
+
+    r = sr.get_size_regressor()
+    meta_path = sr.SIZE_META_PATH
+    meta = {}
+    if os.path.isfile(meta_path):
+        try:
+            with open(meta_path, encoding="utf-8") as f:
+                meta = json.load(f)
+        except Exception:
+            pass
+    return jsonify({
+        "trained": r.is_trained(),
+        "n_labels": sr.count_size_labels(),
+        "min_samples": sr.SIZE_MIN_SAMPLES,
+        "model_meta": meta,
+        "labels_path": sr.SIZE_LABELS_PATH,
+        "model_path": sr.SIZE_MODEL_PATH,
+    })
+
+
 if __name__ == "__main__":
     # Fix P04: Standardmäßig nur auf 127.0.0.1 lauschen.
     # nginx reverse-proxyt von außen auf diesen Port — direkter LAN-Zugriff
