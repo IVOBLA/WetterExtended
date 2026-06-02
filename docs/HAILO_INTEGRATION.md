@@ -162,6 +162,28 @@ Abarbeitungsreihenfolge war: A1 → A2 → A3 → A4 → A5 → A6 → A8 → A7
 | B39 | Täglicher API-Connectivity-Check (alle 5 externen APIs) | `api_health_check.py` (neu), `scheduler.py`, `app.py` | ✅ erledigt |
 
 
+---
+
+## B53 – 12h-Outlook Risikozonen (Frontend + Backend)
+
+**Status:** ✅ Implementiert  
+**Datum:** 2026-06-02  
+**Dateien:** `app.py` (neue Route `/api/outlook_risk_grid`), Frontend (Leaflet-Layer + Legende)
+
+### Problem
+`outlook_12h.json` wurde korrekt berechnet (36 Punkte × 13 h, CAPE/Wind/Temp), aber in der 12h-Prognose-Ansicht der Karte wurden keine Risikozonen angezeigt.
+
+### Lösung
+- `/api/outlook_risk_grid`: Neues Flask-Endpoint, liest `outlook_12h.json`, berechnet Risikoscore pro Punkt und Stunde aus CAPE + Wind, cached Ergebnis (bis Datei-Änderung), gibt GeoJSON-ähnliches Dict zurück.
+- Frontend: Neuer `CircleMarker`-Layer in der 12h-Prognose-Ansicht, Tooltip mit CAPE/Wind/Stunden-Offset, Legende ergänzt.
+- Cache: File-mtime-basiert (kein unnötiger Re-Parse).
+
+### Score-Formel
+CAPE < 200 → 0.0 | 200–500 → 0.1–0.3 | 500–1000 → 0.3–0.6 | 1000–1500 → 0.6–0.8 | >1500 → 0.8–1.0 | Wind > 40 km/h → +0.1
+
+### Benutzerhandbuch
+Kapitel „12h-Prognose-Karte und Outlook-Risikozonen" ergänzt.
+
 ### 5.7.1 Phase A.6.1 — Hotfixes aus Produktions-Log-Analyse 2026-05-31 ✅ ABGESCHLOSSEN
 
 **Analysiertes Log:** `wetterprojekt_logs_20260531_124939.txt` + `objects_20260531_124949.json`
