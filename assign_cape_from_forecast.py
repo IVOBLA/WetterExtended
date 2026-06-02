@@ -1,6 +1,7 @@
 import os
 import json
 import hashlib
+import re
 import requests
 from shapely.geometry import Point
 from datetime import datetime, timezone
@@ -9,6 +10,47 @@ from debug_utils import debug_log, log_http_response
 from config import BBOX_KAERNTEN_EXTENDED, SAVE_PATHS
 from api_cache import cache_key, cache_get, cache_set, get_ttl
 import runtime_config
+
+
+# ─── CAPE Timestamp Normalisierung (Fix B54) ──────────────────────────────────
+def _parse_cape_ts(ts_str: str) -> datetime | None:
+    """
+    Parst einen ISO-8601-Timestamp aus dem CAPE-GeoJSON in ein UTC-datetime.
+    Unterstützt Formate mit oder ohne Sekunden, Z-Suffix, Offset und Leerzeichen.
+    """
+    if not ts_str:
+        return None
+    normalized = str(ts_str).strip().replace(" ", "T")
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    normalized = re.sub(r"T(\d{2}):(\d{2})([+-])", r"T\1:\2:00\3", normalized)
+    try:
+        dt = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _find_nearest_cape_ts(
+    target_dt: datetime,
+    available_dts: list[datetime],
+    max_tolerance_h: float = 3.0,
+) -> datetime | None:
+    """
+    Gibt den nächstgelegenen verfügbaren Timestamp zurück, wenn er innerhalb
+    max_tolerance_h Stunden liegt. Sonst None.
+    """
+    if not available_dts:
+        return None
+    target_dt = target_dt.astimezone(timezone.utc)
+    best = min(available_dts, key=lambda dt: abs((dt - target_dt).total_seconds()))
+    diff_h = abs((best - target_dt).total_seconds()) / 3600.0
+    if diff_h <= max_tolerance_h:
+        return best
+    return None
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _build_cape_url(bbox: dict) -> str:
     # GeoSphere API v1 grid/forecast — verifizierte Parameter:
@@ -49,19 +91,45 @@ def assign_cape(objects: list, timestamp: str) -> list:
         dt_local = parse_timestamp(timestamp)
         dt_utc = dt_local.astimezone(timezone.utc)
         rounded_dt = dt_utc.replace(minute=0, second=0, microsecond=0)
-        target_time = rounded_dt.strftime("%Y-%m-%dT%H:%M+00:00")
 
         debug_log(f"[CAPE] Verwende Datei: {geojson_path}")
-        debug_log(f"[CAPE] Suche CAPE für Zeitstempel: {target_time}")
+        debug_log(f"[CAPE] Suche CAPE für Zeitstempel: {rounded_dt.isoformat()}")
 
         timestamps = forecast_data.get("timestamps", [])
-        try:
-            index = timestamps.index(target_time)
-        except ValueError:
-            from debug_utils import log_api_failure
-            log_api_failure("GeoSphere-CAPE", cape_url,
-                            f"no-forecast-for-{target_time}", fallback_used=True)
+        parsed_timestamps = []
+        timestamp_index_by_dt = {}
+        for i, ts_raw in enumerate(timestamps):
+            ts_dt = _parse_cape_ts(ts_raw)
+            if ts_dt is None:
+                continue
+            parsed_timestamps.append(ts_dt)
+            timestamp_index_by_dt.setdefault(ts_dt, i)
+
+        best_dt = rounded_dt if rounded_dt in timestamp_index_by_dt else _find_nearest_cape_ts(
+            rounded_dt,
+            parsed_timestamps,
+            max_tolerance_h=3.0,
+        )
+        if best_dt is None:
+            diff_info = f"{len(parsed_timestamps)} verfügbare Schritte" if parsed_timestamps else "keine Daten"
+            debug_log(
+                f"[CAPE] Kein Match für {rounded_dt.isoformat()} "
+                f"({diff_info}, Toleranz ±3h)"
+            )
+            if not parsed_timestamps:
+                from debug_utils import log_api_failure
+                log_api_failure("GeoSphere-CAPE", cape_url,
+                                "no-data", fallback_used=True)
             return objects
+
+        index = timestamp_index_by_dt[best_dt]
+        diff_min = int(abs((best_dt - rounded_dt).total_seconds()) / 60)
+        target_time = best_dt.isoformat()
+        if diff_min > 0:
+            debug_log(
+                f"[CAPE] Nearest-Match: {best_dt.isoformat()} "
+                f"(Δ={diff_min} min von Ziel {rounded_dt.isoformat()})"
+            )
 
         # Vorbereitung: alle Forecast-Punkte mit Position und CAPE-Wert
         features = forecast_data.get("features", [])

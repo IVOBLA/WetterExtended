@@ -179,6 +179,31 @@ Abarbeitungsreihenfolge war: A1 → A2 → A3 → A4 → A5 → A6 → A8 → A7
 | B59 | Polygon-basierte Orts-Treffer + richtungsabhängiges Wachstum: `current` → `_min_dist_to_polygon_km`. `forecast`/`slow_approach` → `_forecast_polygon_at_h(obj, f_lat, f_lon, h)`: verschiebt + skaliert aktuelles Polygon richtungsabhängig (scale_NS ≠ scale_EW). Wachstumsraten aus lineare Regression über `lat_span_km`/`lon_span_km` in History. `object_tracking.py` schreibt `lat_span_km`, `lon_span_km`, `area_km2` pro Frame. Fallback auf Pfad-Distanz wenn kein Polygon. | `object_tracking.py`, `locations_check.py` | ✅ erledigt |
 | B58 | **Root Cause GeoSphere Nowcast 422:** API erwartet `lat_lon=46.526,14.548` (kombiniert), Code sendete `lat=46.526&lon=14.548` (getrennt) → HTTP 422 seit Inbetriebnahme. Bestätigt durch Response-Body `{"detail":[{"loc":["query","lat_lon"],"msg":"Field required"}]}`. Fix: `_qparams` auf `("lat_lon", f"{lat},{lon}")` umgestellt. Zusätzlich B55-Retry-Logik repariert: `abort_on_4xx=False` + 3 Retries durch `max_retries=1` + HTTPError-Abfang ersetzt (verhindert 63 s Wartezeitverschwendung/Zyklus). `api_health_check.py` ebenfalls korrigiert. | `fetch_geosphere_nowcast.py`, `api_health_check.py` | ✅ erledigt |
 
+---
+
+## B54 – CAPE Timestamp Nearest-Match Fix
+
+**Status:** ✅ Fix implementiert  
+**Datum:** 2026-06-02  
+**Fehler-Log:** `[API-FAIL] GeoSphere-CAPE: no-forecast-for-2026-06-02T04:00+00:00 (fallback=True, http=None)`
+
+### Root Cause
+Zwei kombinierte Probleme:
+1. **ISO-8601-Format-Mismatch:** Code suchte `T04:00+00:00` (ohne Sekunden), GeoJSON enthielt `T04:00:00+00:00` (mit Sekunden) → String-Vergleich findet keinen Match.
+2. **Radar-Timestamp ohne UTC-Offset:** Radar-Frame-Zeit ist MESZ (UTC+2), Code hat nicht korrekt auf UTC umgerechnet, bevor er im Forecast (UTC) gesucht hat.
+
+### Fix
+- Neue Hilfsfunktionen `_parse_cape_ts()` und `_find_nearest_cape_ts()` in der CAPE-Lookup-Datei.
+- Alle Timestamps werden zu `datetime`-Objekten (UTC, timezone-aware) normalisiert.
+- Nearest-Neighbor-Suche mit ±3h Toleranz ersetzt exakten String-Vergleich.
+- `API-FAIL` wird nur noch geloggt wenn **überhaupt keine** CAPE-Daten verfügbar sind (nicht bei Nearest-Match-Nutzung).
+- `zoneinfo`-basierte Europe/Vienna-Konvertierung für korrekte MESZ↔UTC-Umrechnung.
+
+### Neues Log-Verhalten
+- Bei exaktem Match: `[CAPE] Suche CAPE für Zeitstempel: 2026-06-02T04:00:00+00:00` (wie bisher)
+- Bei Nearest-Match: `[CAPE] Nearest-Match: 2026-06-02T06:00:00+00:00 (Δ=120 min von Ziel T04:00)`
+- Kein `API-FAIL` mehr bei Nearest-Match innerhalb ±3h
+
 **Bestätigter Normalbetrieb (kein Fix):**
 - `auth/refresh 401` (09:16, 12:10) → abgelaufenes Refresh-Token (~1–3 h), erwartet
 - `auth/refresh 401+200` (06:37, alter Code 107937) → B48 bereits behoben, in 130663 nicht mehr
