@@ -34,6 +34,183 @@ def _point_to_segment_km(
     return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
 
 
+def _point_in_polygon_geo(plat: float, plon: float, contour_geo: list) -> bool:
+    """Ray-Casting: liegt Punkt (plat, plon) innerhalb des Geo-Polygons?
+    contour_geo: [[lon, lat], ...] — GeoJSON-Format (lon zuerst).
+    """
+    n = len(contour_geo)
+    if n < 3:
+        return False
+    inside = False
+    j = n - 1
+    for i in range(n):
+        xi, yi = contour_geo[i][0], contour_geo[i][1]
+        xj, yj = contour_geo[j][0], contour_geo[j][1]
+        if ((yi > plat) != (yj > plat)) and (
+            plon < (xj - xi) * (plat - yi) / max(abs(yj - yi), 1e-12) + xi
+        ):
+            inside = not inside
+        j = i
+    return inside
+
+
+def _min_dist_to_polygon_km(plat: float, plon: float, contour_geo: list) -> float:
+    """Kleinster Abstand Punkt → Polygon-Rand in km.
+    Gibt 0.0 zurück wenn der Punkt innerhalb des Polygons liegt.
+    contour_geo: [[lon, lat], ...] — GeoJSON-Format (lon zuerst).
+    """
+    if not contour_geo or len(contour_geo) < 3:
+        return float("inf")
+    if _point_in_polygon_geo(plat, plon, contour_geo):
+        return 0.0
+    n = len(contour_geo)
+    min_d = float("inf")
+    for i in range(n):
+        a_lon, a_lat = contour_geo[i][0], contour_geo[i][1]
+        b_lon, b_lat = contour_geo[(i + 1) % n][0], contour_geo[(i + 1) % n][1]
+        d = _point_to_segment_km(plat, plon, a_lat, a_lon, b_lat, b_lon)
+        if d < min_d:
+            min_d = d
+    return min_d
+
+
+def _linreg_slope(xs: list, ys: list) -> float:
+    """Lineare Regression: gibt Steigung (slope) zurück. 0 bei zu wenig Daten."""
+    n = len(xs)
+    if n < 2:
+        return 0.0
+    x_m = sum(xs) / n
+    y_m = sum(ys) / n
+    cov = sum((xs[i] - x_m) * (ys[i] - y_m) for i in range(n))
+    var = sum((xs[i] - x_m) ** 2 for i in range(n))
+    return cov / var if var > 1e-9 else 0.0
+
+
+def _directional_growth_rates(obj: dict) -> tuple:
+    """Misst richtungsabhängige Wachstumsraten aus der History.
+
+    Liest lat_span_km (N-S-Ausdehnung) und lon_span_km (E-W-Ausdehnung)
+    aus den History-Einträgen und berechnet die Steigung per lineare Regression.
+
+    Gibt (rate_ns_km_per_min, rate_ew_km_per_min) zurück:
+      positiv = wächst in dieser Richtung
+      negativ = schrumpft
+      0.0     = keine Daten oder stabil
+
+    Die Raten beschreiben die Änderung der HALBEN Ausdehnung, damit sie direkt
+    als Skalierungsgrundlage verwendet werden können.
+    """
+    from datetime import datetime as _dt
+    history = obj.get("history") or []
+
+    ts_min: list = []
+    ns_vals: list = []
+    ew_vals: list = []
+    t0 = None
+
+    for entry in history:
+        ts_str = entry.get("timestamp")
+        lat_span = entry.get("lat_span_km")
+        lon_span = entry.get("lon_span_km")
+        if not ts_str or lat_span is None or lon_span is None:
+            continue
+        if lat_span <= 0 or lon_span <= 0:
+            continue
+        try:
+            t = _dt.strptime(ts_str, "%Y-%m-%d_%H-%M-%S")
+        except Exception:
+            continue
+        if t0 is None:
+            t0 = t
+        t_min = (t - t0).total_seconds() / 60.0
+        ts_min.append(t_min)
+        ns_vals.append(lat_span / 2.0)   # Halbausdehnung N-S
+        ew_vals.append(lon_span / 2.0)   # Halbausdehnung E-W
+
+    rate_ns = _linreg_slope(ts_min, ns_vals)
+    rate_ew = _linreg_slope(ts_min, ew_vals)
+
+    # Cap: ±0.3 km/min (physikalisches Maximum für konvektive Zellen)
+    cap = 0.3
+    return (max(-cap, min(cap, rate_ns)), max(-cap, min(cap, rate_ew)))
+
+
+def _predict_polygon(
+    contour_geo: list,
+    cell_lat: float, cell_lon: float,
+    forecast_lat: float, forecast_lon: float,
+    scale_ns: float, scale_ew: float,
+) -> list:
+    """Verschiebt und skaliert das aktuelle Polygon zur vorhergesagten Position.
+
+    Jeder Polygon-Punkt wird:
+      1. Relativ zum aktuellen Zellzentrum berechnet
+      2. Richtungsabhängig skaliert (N-S ≠ E-W)
+      3. Zum vorhergesagten Zentrum verschoben
+
+    neues_pt = forecast_zentrum + scale × (pt - aktuelles_zentrum)
+
+    Gibt [[lon, lat], ...] zurück (GeoJSON-Format).
+    """
+    source = contour_geo
+    if (
+        len(source) > 1
+        and source[0][0] == source[-1][0]
+        and source[0][1] == source[-1][1]
+    ):
+        source = source[:-1]
+
+    result = []
+    for pt in source:
+        pt_lon, pt_lat = pt[0], pt[1]
+        rel_lat = (pt_lat - cell_lat) * scale_ns
+        rel_lon = (pt_lon - cell_lon) * scale_ew
+        result.append([forecast_lon + rel_lon, forecast_lat + rel_lat])
+    return result
+
+
+def _forecast_polygon_at_h(
+    obj: dict,
+    forecast_lat: float,
+    forecast_lon: float,
+    horizon_min: float,
+) -> list:
+    """Berechnet das vorhergesagte Polygon einer Zelle bei +horizon_min Minuten.
+
+    Kombiniert:
+    - Aktuelle Form (contour_geo)
+    - Gemessene richtungsabhängige Wachstumsraten (rate_ns, rate_ew)
+    - Vorhergesagte Zentrumsposition (forecast_lat/lon)
+
+    Gibt das vorhergesagte Polygon zurück, oder [] wenn nicht berechenbar.
+    """
+    contour = obj.get("contour_geo") or []
+    if len(contour) < 3:
+        return []
+
+    cell_lat = float(obj.get("lat") or 0)
+    cell_lon = float(obj.get("lon") or 0)
+
+    # Aktuelle Halbausdehnungen
+    history = obj.get("history") or []
+    last_h = history[-1] if history else {}
+    half_ns = max(float(last_h.get("lat_span_km") or 0) / 2.0, 0.01)
+    half_ew = max(float(last_h.get("lon_span_km") or 0) / 2.0, 0.01)
+
+    # Gemessene Wachstumsraten
+    rate_ns, rate_ew = _directional_growth_rates(obj)
+
+    # Skalierungsfaktoren bei +horizon_min
+    scale_ns = max(0.1, (half_ns + rate_ns * horizon_min) / half_ns)
+    scale_ew = max(0.1, (half_ew + rate_ew * horizon_min) / half_ew)
+
+    return _predict_polygon(
+        contour, cell_lat, cell_lon,
+        forecast_lat, forecast_lon,
+        scale_ns, scale_ew,
+    )
+
+
 def annotate_locations(
     objects: Iterable[dict],
     locations: List[dict],
@@ -105,10 +282,14 @@ def annotate_locations(
             cell_id   = obj.get("id")
 
             # ── Typ 1: CURRENT ────────────────────────────────────────────
-            # Zelle jetzt im Ort — immer prüfen, egal wie schnell.
-            d_now = _haversine_km(loc_lat, loc_lon, o_lat, o_lon)
+            # Abstand Ort → nächster Polygon-Punkt (0 wenn Ort im Polygon).
+            # Fallback auf Zentrum-Distanz wenn kein Polygon verfügbar.
+            _contour = obj.get("contour_geo") or []
+            if len(_contour) >= 3:
+                d_now = _min_dist_to_polygon_km(loc_lat, loc_lon, _contour)
+            else:
+                d_now = _haversine_km(loc_lat, loc_lon, o_lat, o_lon)
             if d_now <= radius:
-                # Horizon 0 = "jetzt". Nicht durch spätere Typen überschreiben.
                 if 0 not in hits:
                     hits[0] = {
                         "hit_type":    "current",
@@ -159,7 +340,16 @@ def annotate_locations(
                             )
                             d = min(d, d_seg)
 
-                    if d <= extended_r:
+                    # Vorhergesagtes Polygon bei +h min (richtungsabhängig skaliert).
+                    _fpoly_s = _forecast_polygon_at_h(obj, fy_f, fx_f, float(h))
+                    if _fpoly_s:
+                        # Polygon-basierter Check: Distanz Ort → vorhergesagtes Polygon
+                        _d_poly_s = _min_dist_to_polygon_km(loc_lat, loc_lon, _fpoly_s)
+                        _hit_s = _d_poly_s <= extended_r
+                    else:
+                        # Fallback: kein Polygon verfügbar
+                        _hit_s = d <= extended_r
+                    if _hit_s:
                         hits[h] = {
                             "hit_type":    "slow_approach",
                             "color":       "#f97316",  # Orange: Starkregenpotential
@@ -209,7 +399,14 @@ def annotate_locations(
                             )
                             d = min(d, d_seg)
 
-                    if d <= radius:
+                    # Vorhergesagtes Polygon bei +h min (richtungsabhängig skaliert).
+                    _fpoly_f = _forecast_polygon_at_h(obj, fy_f, fx_f, float(h))
+                    if _fpoly_f:
+                        _d_poly_f = _min_dist_to_polygon_km(loc_lat, loc_lon, _fpoly_f)
+                        _hit_f = _d_poly_f <= radius
+                    else:
+                        _hit_f = d <= radius
+                    if _hit_f:
                         hits[h] = {
                             "hit_type":    "forecast",
                             "color":       colors.get(h) or colors.get(str(h), "#888888"),
