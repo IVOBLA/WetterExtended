@@ -1981,3 +1981,28 @@ Böen (km/h), Hagel-Kategorie/Index sowie CAPE, LI und SHIP. Eine Farblegende er
 
 Erreichbar über den Menüpunkt „🔭 12-h-Ausblick". Datenquelle: `GET /api/outlook` (siehe Abschnitt 38).
 
+
+---
+
+## 12h-Prognose-Karte und Outlook-Risikozonen
+
+Die Karte zeigt in der 12h-Prognose-Ansicht atmosphärische Risikozonen basierend auf
+CAPE (Konvektiv Verfügbare Potentielle Energie) und Windgeschwindigkeit.
+
+### 12h-Outlook Risikozonen
+
+In der 12h-Prognose-Ansicht werden zusätzlich zu den atmosphärischen Daten (CAPE, Wind, Temperatur) **Risikozonen** als farbige Kreise auf der Karte angezeigt.
+
+**Farbskala:**
+| Farbe | Level | CAPE-Bereich |
+|-------|-------|-------------|
+| Gelb | Niedrig | 200–500 J/kg |
+| Orange | Mittel | 500–1000 J/kg |
+| Rot-Orange | Hoch | 1000–1500 J/kg |
+| Dunkelrot | Sehr hoch | > 1500 J/kg |
+
+Ein Windbonus (+10% Score) wird bei Windgeschwindigkeiten > 40 km/h angewendet.  
+Punkte mit Score < 10% (kein Risiko) werden nicht angezeigt.  
+Tooltip: CAPE-Wert, Windgeschwindigkeit und Stunden-Offset bis zur gefährlichsten Prognose-Stunde.
+
+**Datenquelle:** `train_data/forecast/outlook_12h.json` (alle 30 Minuten aktualisiert, 36 Gridpunkte, 13 Stunden).

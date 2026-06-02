@@ -2852,6 +2852,199 @@ def api_export_forecast_kmz():
     )
 
 
+# ── Outlook Risk Grid (12h atmosphärische Risikoschätzung) ───────────────────
+_OUTLOOK_12H_PATH = Path("train_data/forecast/outlook_12h.json")
+_OUTLOOK_RISK_CACHE = {"data": None, "mtime": 0.0}
+
+
+def _outlook_float(pt: dict, *keys: str) -> float:
+    """Liest numerische Outlook-Werte aus direkten und verschachtelten Feldern."""
+    if not isinstance(pt, dict):
+        return 0.0
+    nested = []
+    for key in keys:
+        val = pt.get(key)
+        if val is not None:
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                pass
+        nested.append(key)
+    for container in (pt.get("info"), pt.get("severity"), pt.get("weather"), pt.get("data")):
+        if not isinstance(container, dict):
+            continue
+        for key in nested:
+            val = container.get(key)
+            if val is not None:
+                try:
+                    return float(val)
+                except (TypeError, ValueError):
+                    pass
+    return 0.0
+
+
+def _outlook_hour_value(pt: dict, default=0):
+    """Ermittelt den Stunden-Offset aus den bekannten Outlook-Schemata."""
+    for key in ("hour", "offset_h", "step_h"):
+        val = pt.get(key) if isinstance(pt, dict) else None
+        if val is not None:
+            return val
+    return default
+
+
+def _risk_score_from_point(pt: dict) -> float:
+    """
+    Berechnet einen Risikoscore [0.0 – 1.0] aus atmosphärischen Werten.
+
+    Unterstützte Felder in outlook_12h.json:
+      - direkt: cape_jkg/cape, wind_speed_kmh/wind_speed/wind_kmh
+      - aktuell erzeugtes Outlook-Schema: info.cape und severity.gust_kmh
+    """
+    cape = _outlook_float(pt, "cape_jkg", "cape")
+    wind = _outlook_float(pt, "wind_speed_kmh", "wind_speed", "wind_kmh", "gust_kmh")
+
+    if cape < 200:
+        score = 0.0
+    elif cape < 500:
+        score = 0.1 + (cape - 200) / 300 * 0.2
+    elif cape < 1000:
+        score = 0.3 + (cape - 500) / 500 * 0.3
+    elif cape < 1500:
+        score = 0.6 + (cape - 1000) / 500 * 0.2
+    else:
+        score = 0.8 + min((cape - 1500) / 1000 * 0.2, 0.2)
+
+    if wind > 40:
+        score = min(score + 0.1, 1.0)
+
+    return round(score, 3)
+
+
+def _risk_level(score: float) -> str:
+    """Konvertiert Score zu Label (identisch mit bestehendem Risk-Grid)."""
+    if score < 0.1:
+        return "none"
+    if score < 0.3:
+        return "low"
+    if score < 0.6:
+        return "medium"
+    if score < 0.8:
+        return "high"
+    return "extreme"
+
+
+def _outlook_hour_entry(hour_val, item: dict) -> dict:
+    score = _risk_score_from_point(item)
+    return {
+        "hour": hour_val,
+        "score": score,
+        "level": _risk_level(score),
+        "cape_jkg": round(_outlook_float(item, "cape_jkg", "cape"), 1),
+        "wind_kmh": round(_outlook_float(item, "wind_speed_kmh", "wind_speed", "wind_kmh", "gust_kmh"), 1),
+    }
+
+
+def _append_outlook_point(grid_map: dict, hours_set: set, lat, lon, hour_val, item: dict) -> None:
+    if lat is None or lon is None:
+        return
+    try:
+        lat_f = float(lat)
+        lon_f = float(lon)
+    except (TypeError, ValueError):
+        return
+    key = (round(lat_f, 5), round(lon_f, 5))
+    hours_set.add(hour_val)
+    grid_map.setdefault(key, {"lat": lat_f, "lon": lon_f, "hourly": []})["hourly"].append(
+        _outlook_hour_entry(hour_val, item)
+    )
+
+
+def _normalise_outlook_risk_grid(raw) -> tuple[list[dict], list]:
+    """Normalisiert bekannte outlook_12h.json-Formate auf Punkt→Stunden-Struktur."""
+    grid_map = {}
+    hours_set = set()
+
+    if isinstance(raw, dict) and isinstance(raw.get("hours"), list):
+        # Aktuelles convective_outlook-Format:
+        # {generated_at, grid_step, hours:[{offset_h, valid, cells:[{lat, lon, info, severity}]}]}
+        for hour_block in raw.get("hours", []):
+            if not isinstance(hour_block, dict):
+                continue
+            hour_val = _outlook_hour_value(hour_block, len(hours_set))
+            for cell in hour_block.get("cells", []) or []:
+                if isinstance(cell, dict):
+                    enriched = dict(cell)
+                    enriched.setdefault("hour", hour_val)
+                    enriched.setdefault("valid_time", hour_block.get("valid"))
+                    _append_outlook_point(grid_map, hours_set, cell.get("lat"), cell.get("lon"), hour_val, enriched)
+    elif isinstance(raw, list):
+        if raw and isinstance(raw[0], dict) and ("hours" in raw[0] or "hourly" in raw[0]):
+            for pt in raw:
+                hourly_raw = pt.get("hours") or pt.get("hourly") or []
+                for h in hourly_raw:
+                    if not isinstance(h, dict):
+                        continue
+                    hour_val = _outlook_hour_value(h, 0)
+                    _append_outlook_point(grid_map, hours_set, pt.get("lat"), pt.get("lon"), hour_val, h)
+        else:
+            for item in raw:
+                if not isinstance(item, dict):
+                    continue
+                hour_val = _outlook_hour_value(item, 0)
+                _append_outlook_point(grid_map, hours_set, item.get("lat"), item.get("lon"), hour_val, item)
+    elif isinstance(raw, dict):
+        for items in raw.values():
+            if not isinstance(items, list) or not items:
+                continue
+            for h in items:
+                if not isinstance(h, dict):
+                    continue
+                hour_val = _outlook_hour_value(h, 0)
+                _append_outlook_point(grid_map, hours_set, h.get("lat"), h.get("lon"), hour_val, h)
+
+    grid_out = []
+    for point in grid_map.values():
+        point["hourly"].sort(key=lambda h: h.get("hour", 0))
+        max_score = max((h["score"] for h in point["hourly"]), default=0.0)
+        point["max_score"] = round(max_score, 3)
+        point["max_level"] = _risk_level(max_score)
+        grid_out.append(point)
+
+    grid_out.sort(key=lambda p: (p.get("lat") or 0, p.get("lon") or 0))
+    return grid_out, sorted(hours_set)
+
+
+@app.route("/api/outlook_risk_grid")
+def api_outlook_risk_grid():
+    """
+    Gibt das atmosphärische Risk-Grid für die nächsten 12 Stunden zurück.
+    Basiert auf outlook_12h.json (CAPE + Wind pro Gridpunkt × Stunde).
+    """
+    if not _OUTLOOK_12H_PATH.is_file():
+        return jsonify({"error": "outlook_12h.json nicht vorhanden", "grid": []}), 404
+
+    mtime = _OUTLOOK_12H_PATH.stat().st_mtime
+    if _OUTLOOK_RISK_CACHE["data"] is not None and _OUTLOOK_RISK_CACHE["mtime"] == mtime:
+        return jsonify(_OUTLOOK_RISK_CACHE["data"])
+
+    try:
+        with _OUTLOOK_12H_PATH.open(encoding="utf-8") as f:
+            raw = json.load(f)
+    except Exception as exc:
+        return jsonify({"error": str(exc), "grid": []}), 500
+
+    grid_out, hours = _normalise_outlook_risk_grid(raw)
+    response = {
+        "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "hours": hours,
+        "grid": grid_out,
+        "n_points": len(grid_out),
+    }
+    _OUTLOOK_RISK_CACHE["data"] = response
+    _OUTLOOK_RISK_CACHE["mtime"] = mtime
+    return jsonify(response)
+# ─────────────────────────────────────────────────────────────────────────────
+
 # ── Gewitterrisiko-Grid ───────────────────────────────────────────────────────
 
 @app.route("/api/risk_grid")
