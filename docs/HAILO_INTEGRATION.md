@@ -674,6 +674,45 @@ ssh "${PI_USER}@${PI_HOST}" \
 
 ---
 
+## B52 – Size-Regresser (Phase A: vollständig implementiert, Phase B: U-Net-Extension)
+
+**Status:** ✅ Implementiert (Phase A – LightGBM + geometrischer Fallback)
+**Datum:** 2026-06-02
+**Datei:** `size_regressor.py` (neu), `main.py` (ergänzt), `scheduler.py` (ergänzt), `app.py` (ergänzt)
+
+### Übersicht
+
+| Komponente | Phase A | Phase B |
+|---|---|---|
+| `geometric_size()` | Pixel→km, immer verfügbar | bleibt als Plausibilitätsprüfung |
+| `SizeRegressor.predict()` | LightGBM (wenn trainiert), sonst geometric | **U-Net Output-Kanal** |
+| `record_size_label()` | JSONL-Sink für Training | weiter Trainingsdaten für U-Net-Finetuning |
+| `maybe_trigger_training()` | AUTO bei ≥50 Samples | Hailo-DFC Recompile statt Training |
+| `/api/size_regressor_status` | Status + MAE | Status + Hailo-Inference-Latenz |
+
+### Trainings-Parameter (LightGBM, Phase A)
+- Min-Samples: 50, Retrain alle 200 neuen Samples
+- Features: area_px, radius_px, aspect_ratio, CAPE, Wind, Temp, Wolkenhöhe, lat/lon, Tageszeit-Zyklus, DOY-Zyklus
+- Targets: area_km2 (MAE in km²), radius_km (MAE in km)
+- Plausibilitätsprüfung: Modell darf max. 10× vom geometrischen Fallback abweichen
+
+### Felder in jedem Objekt-Dict (ab B52)
+`area_km2`, `radius_km`, `aspect_ratio`, `size_source` (`"geometric"` oder `"lgbm"` oder Phase B: `"unet"`)
+
+### Phase B – Umstellungsplan
+1. U-Net Output-Kanal für Zellgröße beim DFC-Kompilieren definieren
+2. `SizeRegressor.predict()` durch Hailo-Inference ersetzen (gleiche Signatur)
+3. `source = "unet"` im Rückgabe-Dict setzen
+4. `maybe_trigger_training()` → triggert Hailo-DFC-Recompile statt LightGBM-Training
+
+### Training-Dateien
+- Labels: `train_data/size_labels/size_labels.jsonl`
+- Modell: `models/size_regressor.pkl`
+- Meta: `models/size_regressor_meta.json`
+
+### Log-Tags
+- `[SIZE-REG]` — alle Size-Regresser Meldungen
+
 ## 7. U-Net-Architektur (Phase B)
 
 ### 7.1 Zweck

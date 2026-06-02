@@ -38,6 +38,7 @@ from dataset_builder import build_dataset
 from debug_utils import debug_log
 from model_training import retrain_all
 import runtime_config
+import size_regressor as _size_reg_mod
 from accuracy_tracker import evaluate_all, append_history_point
 from radar_convlstm import train_convlstm
 from cpu_monitor import append_cpu_sample
@@ -57,6 +58,14 @@ def run_rebuild_dataset_job():
         debug_log(f"[SCHEDULER] Job rebuild_dataset abgeschlossen (samples={sample_count})")
     except Exception as exc:
         debug_log(f"[SCHEDULER] Job rebuild_dataset Fehler: {exc}")
+
+    # Size-Regresser: Retraining wenn fällig und LOCAL_TRAINING aktiv
+    try:
+        from config import LOCAL_TRAINING as _LOCAL_TRAINING
+        if runtime_config.get("LOCAL_TRAINING", _LOCAL_TRAINING):
+            _size_reg_mod.get_size_regressor().maybe_trigger_training()
+    except Exception as _e:
+        debug_log(f"[SIZE-REG] maybe_trigger_training Fehler: {_e}")
 
 
 def run_retrain_job(job_name: str):

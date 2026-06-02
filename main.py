@@ -10,6 +10,7 @@ from radar_download import download_kmz
 from object_tracking import detect_and_track_objects
 from weather_api import get_weather_data
 from prediction import predict_positions
+import size_regressor as _size_reg_mod
 from kmz_export import save_forecast_as_kmz
 from visualize_radar import create_visualized_radar
 from movement_gif import create_movement_gif
@@ -34,6 +35,7 @@ from ir_cell_detection import detect_ir_cells
 from ir_cell_tracking import update_ir_tracking
 import math as _math_main
 import runtime_config
+import config as _size_config
 from locations_check import annotate_locations
 from config import (HAIL_WARN_THRESHOLD, STATIONARY_RISK_MARKER_THRESHOLD,
                     GUST_WARN_KMH, HEAVY_RAIN_WARN_MM_PER_H)
@@ -234,6 +236,24 @@ def main_loop():
         weather_data = get_weather_data(include_all_stations=True)
 
         if image is not None:
+            # Size-Regresser: Pixel-Scale einmalig pro Zyklus
+            try:
+                _img_height, _img_width = image.shape[:2]
+                _radar_bounds = {
+                    "N": getattr(_size_config, "RADAR_N", 47.42),
+                    "S": getattr(_size_config, "RADAR_S", 44.67),
+                    "W": getattr(_size_config, "RADAR_W", 12.1),
+                    "E": getattr(_size_config, "RADAR_E", 17.44),
+                }
+                if hasattr(_size_config, "RADAR_BOUNDS") and isinstance(_size_config.RADAR_BOUNDS, dict):
+                    _radar_bounds = _size_config.RADAR_BOUNDS
+                _km_px_x, _km_px_y = _size_reg_mod.pixel_scale(
+                    _img_width, _img_height, _radar_bounds
+                )
+            except Exception as _e:
+                debug_log(f"[SIZE-REG] pixel_scale Fehler: {_e} — Fallback 0.51")
+                _km_px_x, _km_px_y = 0.51, 0.51
+
             objects,  timestamp = detect_and_track_objects(image_path, weather_data)
             objects = fetch_and_assign_700hpa_wind(objects, timestamp)
             objects = assign_cape(objects, timestamp)
@@ -337,6 +357,33 @@ def main_loop():
                     except Exception:
                         pass
             for obj in objects:
+                # ── Size-Regresser: Größen-Features berechnen ─────────────────────
+                try:
+                    obj.setdefault("area_px", obj.get("area"))
+                    obj.setdefault("radius_px", obj.get("size"))
+                    if "bbox_px" not in obj and obj.get("contour"):
+                        _xs = [float(_pt[0]) for _pt in obj["contour"] if len(_pt) >= 2]
+                        _ys = [float(_pt[1]) for _pt in obj["contour"] if len(_pt) >= 2]
+                        if _xs and _ys:
+                            obj["bbox_px"] = [
+                                min(_xs),
+                                min(_ys),
+                                max(_xs) - min(_xs),
+                                max(_ys) - min(_ys),
+                            ]
+                    _sr = _size_reg_mod.get_size_regressor()
+                    _size = _sr.predict(obj, timestamp, _km_px_x, _km_px_y)
+                    obj.update(_size)
+                    _size_reg_mod.record_size_label(obj, timestamp)
+                    debug_log(
+                        f"[SIZE-REG] id={obj.get('id')} "
+                        f"area={obj.get('area_km2')} km² "
+                        f"radius={obj.get('radius_km')} km "
+                        f"src={obj.get('size_source')}"
+                    )
+                except Exception as _se:
+                    debug_log(f"[SIZE-REG] Fehler bei Objekt {obj.get('id')}: {_se}")
+                # ──────────────────────────────────────────────────────────────────
                 if obj.get("lat") is not None and obj.get("lon") is not None:
                     obj["lightning_count_10km"] = _count_lightning_near(
                         float(obj["lat"]), float(obj["lon"]), lightning_data
