@@ -84,6 +84,7 @@ def _check_openmeteo() -> dict:
 def _check_geosphere() -> dict:
     """
     GeoSphere Nowcast v1: JSON mit features-Array.
+    URL nutzt lat_lon=46.62,14.31 mit literalem Komma.
     WICHTIG: Parameter müssen EINZELN wiederholt werden, NICHT kommasepariert.
     ?parameters=rr&parameters=ff&parameters=ffx → OK
     ?parameters=rr,ff,ffx                       → HTTP 422
@@ -98,25 +99,24 @@ def _check_geosphere() -> dict:
     _floor = _now.replace(minute=(_now.minute // 15) * 15, second=0, microsecond=0)
     _start = (_floor - timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:00Z")
     _end   = _floor.strftime("%Y-%m-%dT%H:%M:00Z")
-    url = "https://dataset.api.hub.geosphere.at/v1/timeseries/forecast/nowcast-v1-15min-1km"
+    # URL manuell bauen — kein params=-Argument, sonst kodiert requests das
+    # Komma in lat_lon=46.62,14.31 zu %2C → HTTP 400 "Bad Request".
+    # Identische Lösung wie fetch_geosphere_nowcast.py (B58).
+    _base = "https://dataset.api.hub.geosphere.at/v1/timeseries/forecast/nowcast-v1-15min-1km"
+    url = (
+        f"{_base}?lat_lon=46.62,14.31"
+        f"&parameters=rr&parameters=ff&parameters=ffx"
+        f"&start={_start}&end={_end}"
+    )
     t0 = time.monotonic()
     try:
         from http_retry import retry_get
 
         r = retry_get(
-            url,
+            url,                    # URL enthält alle Parameter — kein params=
             service="GeoSphere-Health",
             timeout=_TIMEOUT,
             max_retries=1,
-            # Wiederholte Parameter — identisch zu fetch_geosphere_nowcast.py
-            params=[
-                ("lat_lon",    "46.62,14.31"),
-                ("parameters", "rr"),
-                ("parameters", "ff"),
-                ("parameters", "ffx"),
-                ("start", _start),
-                ("end", _end),
-            ],
             headers={"Accept": "application/json"},
         )
         elapsed = time.monotonic() - t0
