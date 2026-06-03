@@ -753,6 +753,62 @@ ssh "${PI_USER}@${PI_HOST}" \
 ### Log-Tags
 - `[SIZE-REG]` — alle Size-Regresser Meldungen
 
+---
+
+## B60 – Anti-Self-Distillation im Size-Regresser
+
+**Status:** ✅ Implementiert  
+**Datum:** 2026-06-03  
+**Datei:** `main.py`  
+**Quelle:** Codex P2-Finding (commit `bfccb0004f`)
+
+### Root Cause
+`record_size_label(obj, timestamp)` wurde NACH `obj.update(_size)` aufgerufen.
+Sobald ein LGBM-Modell geladen ist, enthält `obj["area_km2"]`/`obj["radius_km"]` zu diesem
+Zeitpunkt LGBM-Vorhersagewerte. Diese wurden als Trainingsziele in `size_labels.jsonl`
+geschrieben → zirkuläres Feedback → Self-Distillation → systematische Verzerrung bei
+jedem weiteren Retraining-Zyklus.
+
+### Fix
+Geometrisches Label (Pixel → km via `geometric_size()`) wird berechnet und gespeichert
+**bevor** `predict()` die Objekt-Felder überschreibt. Training-Dataset enthält ausschließlich
+unabhängige geometrische Messungen — auch nach erstem LGBM-Training wächst das Dataset korrekt.
+
+```python
+# B60-Reihenfolge in main.py:
+_geo_label = dict(obj)
+_geo_label.update(geometric_size(..., _km_px_x, _km_px_y))
+record_size_label(_geo_label, timestamp)   # ← geometrisch, vor LGBM
+_size = _sr.predict(...)
+obj.update(_size)                          # ← LGBM erst danach
+```
+
+---
+
+## B61 – Ausblick-Seite: CircleMarker-Layer durch Rectangle-Raster ersetzt
+
+**Status:** ✅ Implementiert  
+**Datum:** 2026-06-03  
+**Datei:** `frontend/src/pages/Ausblick.jsx`  
+**Quelle:** Nutzer-Feedback (Kreise statt Raster sichtbar)
+
+### Root Cause
+`Ausblick.jsx` renderte zwei überlagerte Layer mit identischen Daten (beide lesen
+`outlook_12h.json`):
+
+1. `current?.cells → Rectangle` (0.05°×0.05°, korrekt wie auf `/map`)
+2. `outlookRiskGrid?.grid → CircleMarker` (variabler Radius — sichtbare Kreise)
+
+Der `CircleMarker`-Layer lag optisch über den Rechtecken. Zusätzlich wurden Daten
+redundant von zwei Endpunkten geladen (`/api/outlook` + `/api/outlook_risk_grid`).
+
+### Fix
+`outlookRiskGrid`-State, `/api/outlook_risk_grid`-Fetch und CircleMarker-Renderblock
+vollständig entfernt. Legende-Unterabschnitt „12h-Outlook Risiko" mit Kreissymbolen
+entfernt. `CircleMarker` aus React-Leaflet-Import entfernt.  
+Ergebnis: identisches Rectangle-Raster wie auf der Hauptkarte (`/map`).  
+Benutzerhandbuch: „farbige Kreise" → „Rasterflächen (~5×5 km)" aktualisiert.
+
 ## 7. U-Net-Architektur (Phase B)
 
 ### 7.1 Zweck
