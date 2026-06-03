@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { MapContainer, TileLayer, Rectangle, CircleMarker, Tooltip } from 'react-leaflet'
+import { MapContainer, TileLayer, Rectangle, Tooltip } from 'react-leaflet'
 import api from '../api.js'
 import {
   MAP_CENTER_KAERNTEN, MAP_ZOOM_DEFAULT, MAP_ZOOM_MIN, MAP_ZOOM_MAX,
@@ -15,18 +15,12 @@ export default function Ausblick() {
   const [data, setData] = useState({ hours: [] })
   const [hour, setHour] = useState(1)
   const [loading, setLoading] = useState(true)
-  const [outlookRiskGrid, setOutlookRiskGrid] = useState(null)
 
   useEffect(() => {
     let alive = true
     api.get('/api/outlook')
       .then(d => { if (alive) { setData(d || { hours: [] }); setLoading(false) } })
       .catch(() => { if (alive) setLoading(false) })
-
-    api.get('/api/outlook_risk_grid')
-      .then(d => { if (alive) setOutlookRiskGrid(d || null) })
-      .catch(e => console.warn('[OutlookRiskGrid] Fetch-Fehler:', e))
-
     return () => { alive = false }
   }, [])
 
@@ -80,20 +74,6 @@ export default function Ausblick() {
         <span className="flex items-center gap-1"><span style={{ width: 14, height: 14, background: '#f97316', display: 'inline-block', borderRadius: 2 }} /> Mäßig</span>
         <span className="flex items-center gap-1"><span style={{ width: 14, height: 14, background: '#dc2626', display: 'inline-block', borderRadius: 2 }} /> Hoch</span>
         <span className="border-l pl-3 text-xs text-gray-500">Hover zeigt Regen/Böe/Hagel & CAPE/LI</span>
-        <div style={{ marginTop: 8, borderTop: '1px solid #444', paddingTop: 6, flexBasis: '100%' }}>
-          <strong style={{ fontSize: 11 }}>12h-Outlook Risiko</strong>
-          {[
-            { color: '#ffff00', label: 'Niedrig (CAPE 200–500)' },
-            { color: '#ffa500', label: 'Mittel (CAPE 500–1000)' },
-            { color: '#ff4500', label: 'Hoch (CAPE 1000–1500)' },
-            { color: '#cc0000', label: 'Sehr hoch (CAPE >1500)' },
-          ].map(({ color, label }) => (
-            <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '2px 0' }}>
-              <div style={{ width: 12, height: 12, borderRadius: '50%', backgroundColor: color, border: '1px solid #888' }} />
-              <span style={{ fontSize: 10 }}>{label}</span>
-            </div>
-          ))}
-        </div>
       </div>
 
       <MapContainer center={MAP_CENTER_KAERNTEN} zoom={MAP_ZOOM_DEFAULT}
@@ -116,57 +96,6 @@ export default function Ausblick() {
                 </div>
               </Tooltip>
             </Rectangle>
-          )
-        })}
-
-        {/* Outlook Risk Grid – 12h atmosphärisches Risiko (gefiltert auf aktuell gewählte Stunde) */}
-        {outlookRiskGrid?.grid?.map((pt, idx) => {
-          if (!pt.lat || !pt.lon) return null
-
-          // Eintrag für die aktuell gewählte Stunde suchen.
-          // Fallback: nächstgelegene verfügbare Stunde (±1h) wenn exakter Match fehlt.
-          const exactHourEntry = pt.hourly?.find(h => h.hour === hour) ?? null
-          const nearestHourEntry = pt.hourly?.reduce((best, h) =>
-              Math.abs(h.hour - hour) < Math.abs((best?.hour ?? 999) - hour) ? h : best,
-              null)
-            ?? null
-          const hourEntry = exactHourEntry
-            ?? (nearestHourEntry && Math.abs(nearestHourEntry.hour - hour) <= 1 ? nearestHourEntry : null)
-
-          if (!hourEntry || hourEntry.score < 0.1) return null
-
-          const colorMap = {
-            low: '#ffff00',
-            medium: '#ffa500',
-            high: '#ff4500',
-            extreme: '#cc0000',
-          }
-          const color = colorMap[hourEntry.level] || '#888888'
-          const radius = 8 + hourEntry.score * 12
-          const tooltipText =
-            `CAPE: ${hourEntry.cape_jkg} J/kg | Wind: ${hourEntry.wind_kmh} km/h | +${hourEntry.hour}h`
-
-          return (
-            <CircleMarker
-              key={`outlook-risk-${idx}`}
-              center={[pt.lat, pt.lon]}
-              radius={radius}
-              pathOptions={{
-                color,
-                fillColor: color,
-                fillOpacity: 0.35,
-                weight: 1,
-                opacity: 0.7,
-              }}
-            >
-              <Tooltip>
-                <div>
-                  <strong>12h-Outlook Risiko +{hourEntry.hour}h: {hourEntry.level.toUpperCase()}</strong><br />
-                  {tooltipText}<br />
-                  Score: {(hourEntry.score * 100).toFixed(0)}%
-                </div>
-              </Tooltip>
-            </CircleMarker>
           )
         })}
       </MapContainer>

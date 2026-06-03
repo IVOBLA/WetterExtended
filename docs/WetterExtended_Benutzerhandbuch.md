@@ -1991,18 +1991,20 @@ CAPE (Konvektiv Verfügbare Potentielle Energie) und Windgeschwindigkeit.
 
 ### 12h-Outlook Risikozonen
 
-In der 12h-Prognose-Ansicht werden zusätzlich zu den atmosphärischen Daten (CAPE, Wind, Temperatur) **Risikozonen** als farbige Kreise auf der Karte angezeigt.
+In der 12h-Prognose-Ansicht werden **Risikozonen** als farbige **Rasterflächen (~5×5 km)**
+dargestellt — identisch mit dem Risiko-Raster auf der Hauptkarte. Nur Flächen mit messbarer
+Konvektionswahrscheinlichkeit (Risiko ≥ 1) werden angezeigt. Gebiete ohne Konvektionspotenzial
+bleiben transparent.
 
 **Farbskala:**
-| Farbe | Level | CAPE-Bereich |
-|-------|-------|-------------|
-| Gelb | Niedrig | 200–500 J/kg |
-| Orange | Mittel | 500–1000 J/kg |
-| Rot-Orange | Hoch | 1000–1500 J/kg |
-| Dunkelrot | Sehr hoch | > 1500 J/kg |
+| Farbe | Risiko | Bedeutung |
+|-------|--------|-----------|
+| Gelb | Niedrig | Schwaches Konvektionspotenzial (CAPE/LI-Kombi niedrig) |
+| Orange | Mäßig | Mäßiges Konvektionspotenzial |
+| Rot | Hoch | Erhöhtes Konvektionspotenzial (Hagel, Sturmböen möglich) |
 
-Ein Windbonus (+10% Score) wird bei Windgeschwindigkeiten > 40 km/h angewendet.  
-Punkte mit Score < 10% (kein Risiko) werden nicht angezeigt.  
-Tooltip: CAPE-Wert, Windgeschwindigkeit und Stunden-Offset bis zur gefährlichsten Prognose-Stunde.
+Hover-Tooltip je Rasterfläche: Risikostufe, dominante Ursache (Hagel/Regen/Böen/Instabilität),
+erwartete Niederschlagsrate (mm/h), Böen (km/h), Hagel-Kategorie/Index sowie CAPE, LI und SHIP.
 
-**Datenquelle:** `train_data/forecast/outlook_12h.json` (alle 30 Minuten aktualisiert, 36 Gridpunkte, 13 Stunden).
+**Datenquelle:** `train_data/forecast/outlook_12h.json` (alle 30 Minuten aktualisiert,
+kombinierter CAPE+LI+Scherung+Gefriergrenze-Score je ~5×5-km-Zelle, +1 bis +12 Stunden).
