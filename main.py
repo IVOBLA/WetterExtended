@@ -387,9 +387,29 @@ def main_loop():
                                 max(_ys) - min(_ys),
                             ]
                     _sr = _size_reg_mod.get_size_regressor()
+                    # B60: Geometrisches Label VOR LGBM-Prediction sichern.
+                    # Verhindert Self-Distillation: record_size_label bekommt
+                    # immer geometrisch gemessene Werte, nie LGBM-Vorhersagen.
+                    _bbox_b60 = obj.get("bbox_px")
+                    _bbox_wh_b60 = (
+                        (_bbox_b60[2], _bbox_b60[3])
+                        if _bbox_b60 and len(_bbox_b60) >= 4
+                        else None
+                    )
+                    _geo_label = dict(obj)
+                    _geo_label.update(
+                        _size_reg_mod.geometric_size(
+                            obj.get("area_px") or obj.get("area") or 0,
+                            obj.get("radius_px") or obj.get("size") or 0,
+                            _bbox_wh_b60,
+                            _km_px_x,
+                            _km_px_y,
+                        )
+                    )
+                    _size_reg_mod.record_size_label(_geo_label, timestamp)
+                    # Jetzt LGBM-Prediction auf obj anwenden
                     _size = _sr.predict(obj, timestamp, _km_px_x, _km_px_y)
                     obj.update(_size)
-                    _size_reg_mod.record_size_label(obj, timestamp)
                     debug_log(
                         f"[SIZE-REG] id={obj.get('id')} "
                         f"area={obj.get('area_km2')} km² "
