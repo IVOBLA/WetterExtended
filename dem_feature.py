@@ -182,8 +182,11 @@ def _height(lat, lon):
         return None
     try:
         row, col = rowcol(_mosaic_transform, lon, lat)
-        r = max(0, min(_mosaic_data.shape[0]-1, int(row)))
-        c = max(0, min(_mosaic_data.shape[1]-1, int(col)))
+        r = int(row)
+        c = int(col)
+        # Out-of-bounds → None statt Randwert (kein Clamp auf Rasterrand)
+        if r < 0 or r >= _mosaic_data.shape[0] or c < 0 or c >= _mosaic_data.shape[1]:
+            return None
         v = float(_mosaic_data[r, c])
         return None if v != v else v
     except Exception:

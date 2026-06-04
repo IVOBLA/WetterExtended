@@ -835,6 +835,24 @@ elif base >= 0.35 or hail_index >= 0.8 or rain >= 18 or (gust_pred >= 70 and ins
 ```
 Konvektive Szenarien (CAPE > 0, negative LI) werden nicht beeinträchtigt.
 
+## B65 – DEM: Out-of-Bounds-Koordinaten zurückweisen statt klemmen
+
+**Status:** ✅ Implementiert
+**Datum:** 2026-06-04
+**Datei:** `dem_feature.py`
+**Quelle:** Codex-Inline-Review PR #22 (P1)
+
+### Root Cause
+`_height()` klemmte Raster-Indizes mit `max()`/`min()` auf den gültigen Bereich.
+Koordinaten außerhalb des DEM-Mosaiks lieferten dadurch den nächstgelegenen
+Rasterrandwert statt `None`. Randnahe Samples konnten so `dem_elevation_m`,
+`dem_slope_toward_cell` und `dem_barrier_ahead` verfälschen.
+
+### Fix
+`_height()` prüft berechnete Raster-Indizes jetzt explizit auf Out-of-bounds
+und gibt in diesem Fall `None` zurück. Gültige Indizes werden unverändert aus
+dem Mosaic gelesen; NaN-Werte bleiben weiterhin `None`.
+
 ## 7. U-Net-Architektur (Phase B)
 
 ### 7.1 Zweck
@@ -1390,6 +1408,7 @@ _hailo_available: Optional[bool] = None
 | B10 | `dem_feature.py` | DEM-Kachel hardcoded | ⏳ Phase C |
 | B11 | `cloud_height_from_eumetview.py` | `print` statt `debug_log`, keine log_api_failure | ⏳ Phase C |
 | B12 | Lightning-Config | `lightningmaps.org` ist inoffiziell | ⏳ Phase C |
+| B65 | `dem_feature.py` | `_height()` klemmte Out-of-bounds-Raster-Indizes auf Randwert → falsche DEM-Werte nahe BBOX-Rand. Fix: Return None statt clamp. (Codex PR #22, Phase C, mit B10 bündeln.) | ✅ erledigt |
 | B13 | `weather_api.py` | TAWES-Request ohne Cache → überschreitet 10-min-Intervall | ✅ **behoben (P04)** |
 | B14 | `debug_utils.py` | `api_call_summary()` ohne last_ts/last_url → kein Detail im Dashboard | ✅ **behoben (P01/P02/P03)** |
 | B15 | `daily_analyzer.py` | KI-Report enthält keine lokale Konfiguration → keine Konfig-Empfehlungen möglich | ✅ **behoben (P05)** |
