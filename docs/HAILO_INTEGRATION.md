@@ -835,6 +835,20 @@ elif base >= 0.35 or hail_index >= 0.8 or rain >= 18 or (gust_pred >= 70 and ins
 ```
 Konvektive Szenarien (CAPE > 0, negative LI) werden nicht beeinträchtigt.
 
+### B63–B71 – Codex-Review-Nachträge
+
+| # | Datei | Bug | Status |
+|---|-------|-----|--------|
+| B63 | `main.py` | `_count_lightning_near()` zählte Blitze in einer lat/lon-Box (~20×20 km) statt im 10-km-Kreis → `lightning_count_10km` überhöht, verfälscht `hail_prob`/`lightning_jump`. Fix: Box als Vorfilter + exakte Haversine-Distanzprüfung ≤ radius_km. (Codex PR #22, vom ersten Review-File übersehen.) | ✅ erledigt |
+| B64 | `frontend/src/pages/AiSuggestions.jsx` | Bild-Upload akzeptierte `image/*` (inkl. SVG/HEIC/BMP/TIFF) → Claude-API lehnt diese ab. Fix: Whitelist JPEG/PNG/GIF/WebP in `addImages()` + `accept`-Attribut; abgelehnte Dateien werden gemeldet. (Codex PR #134.) | ✅ erledigt |
+| B65 | `dem_feature.py` | `_height()` klemmte Out-of-bounds-Raster-Indizes auf Randwert → falsche DEM-Werte nahe BBOX-Rand. Fix: Return None statt clamp. (Codex PR #22, Phase C, mit B10 bündeln.) | ✅ erledigt |
+| B66 | `object_tracking.py` | Runtime-BBOX ohne Typ/Wertebereichsprüfung an `crop_and_upscale_to_bbox()` → fehlerhafter Admin-Eintrag = Absturz. Fix: `_validate_bbox()` Hilfsfunktion, Fallback auf config.py-Default. (Codex PR #256.) | ✅ erledigt |
+| B67 | `email_notifier.py` | `send_ai_report_email()` rief `result.get()` ohne isinstance-Guard auf — `run_analysis()` kann None liefern → AttributeError. Fix: Guard vor erstem `.get()`-Zugriff. (Codex PR #182.) | ✅ erledigt |
+| B68 | `app.py` | Cache-Status-Panel zeigte EUMETView-Capabilities-Cache als UNKNOWN — `_DEFAULT_TTLS` fehlte der korrekte Namespace-Key `eumetview:capabilities`. Fix: Key ergänzt. (Codex PR #278.) | ✅ erledigt |
+| B69 | `watchdog_heartbeat.py` | Ping-Intervall hartkodiert 25 s — bei WatchdogSec < 50 s würde systemd Service neu starten. Fix: `_derive_interval()` aus `WATCHDOG_USEC` ableiten (max. 25 s). (Codex PR #294.) | ✅ erledigt |
+| B70 | `frontend/src/pages/Logs.jsx` | Nach Log-Clear wurde `loadHealth()` nur bei aktivem `api_fehler`-Tab aufgerufen. Fix: Bedingungslos aufrufen. (Codex PR #209.) | ✅ erledigt |
+| B71 | `frontend/src/pages/MapView.jsx` | IR-Layer-Legende „CB > 10.000" implizierte Anzeigefilter statt Detektionsschwelle. Fix: Label → „CB / IR-Vorläufer", Tooltip präzisiert. (Codex PR #375.) | ✅ erledigt |
+
 ## B65 – DEM: Out-of-Bounds-Koordinaten zurückweisen statt klemmen
 
 **Status:** ✅ Implementiert
@@ -1408,12 +1422,6 @@ _hailo_available: Optional[bool] = None
 | B10 | `dem_feature.py` | DEM-Kachel hardcoded | ⏳ Phase C |
 | B11 | `cloud_height_from_eumetview.py` | `print` statt `debug_log`, keine log_api_failure | ⏳ Phase C |
 | B12 | Lightning-Config | `lightningmaps.org` ist inoffiziell | ⏳ Phase C |
-| B65 | `dem_feature.py` | `_height()` klemmte Out-of-bounds-Raster-Indizes auf Randwert → falsche DEM-Werte nahe BBOX-Rand. Fix: Return None statt clamp. (Codex PR #22, Phase C, mit B10 bündeln.) | ✅ erledigt |
-| B66 | `object_tracking.py` | Runtime-BBOX wurde ohne Typ/Wertebereichsprüfung an `crop_and_upscale_to_bbox()` übergeben → fehlerhafter Admin-Eintrag löste unverständlichen Absturz im Tracking-Loop aus. Fix: `_validate_bbox()` Hilfsfunktion; bei ungültigem Wert Fallback auf `config.py`-Default. (Codex PR #256.) | ✅ erledigt |
-| B67 | `email_notifier.py` | `send_ai_report_email()` rief `result.get()` auf ohne `isinstance(result, dict)` zu prüfen — `run_analysis()` kann None liefern → AttributeError. Fix: Guard `if not isinstance(result, dict) or not result: return False` vor erstem `.get()`-Zugriff. (Codex PR #182.) | ✅ erledigt |
-| B69 | `watchdog_heartbeat.py` | Ping-Intervall war hartkodiert 25 s — bei WatchdogSec < 50 s würde systemd den Service neu starten. Fix: `_derive_interval()` leitet Intervall aus `WATCHDOG_USEC` ab (max. 25 s, min. 1 s). (Codex PR #294.) | ✅ erledigt |
-| B70 | `frontend/src/pages/Logs.jsx` | Nach Log-Clear wurde `loadHealth()` nur bei aktivem `api_fehler`-Tab aufgerufen — nach Tab-Wechsel stale API-Fehler-Stats. Fix: `await loadHealth()` bedingungslos nach jedem Clear. (Codex PR #209.) | ✅ erledigt |
-| B71 | `frontend/src/pages/MapView.jsx` | IR-Layer-Legende „CB > 10.000" und Tooltip implizierten einen Anzeigefilter, obwohl es eine Detektionsschwelle ist. Angezeigte Höhen können abweichen. Fix: Label auf „CB / IR-Vorläufer", Tooltip mit Klarstellung „Erkennungsschwelle". (Codex PR #375.) | ✅ erledigt |
 | B13 | `weather_api.py` | TAWES-Request ohne Cache → überschreitet 10-min-Intervall | ✅ **behoben (P04)** |
 | B14 | `debug_utils.py` | `api_call_summary()` ohne last_ts/last_url → kein Detail im Dashboard | ✅ **behoben (P01/P02/P03)** |
 | B15 | `daily_analyzer.py` | KI-Report enthält keine lokale Konfiguration → keine Konfig-Empfehlungen möglich | ✅ **behoben (P05)** |
@@ -1653,4 +1661,3 @@ Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sow
 
 **Hailo-Integrationsstatus (unverändert):**
 - Phase 1 (Installation) ✅ — Phase 2 (HEF-Export) 🔲 — Phase 3 (Runtime) 🔲
-| B68 | `app.py` | Cache-Status-Panel: `_DEFAULT_TTLS` fehlte der Namespace-Key `eumetview:capabilities` — EUMETView-Capabilities-Cache erschien als UNKNOWN. Fix: Key ergänzt (Codex PR #278). Pflicht-Verifikation des tatsächlichen Cache-Dateinamens vor Einspielen. | ✅ erledigt |
