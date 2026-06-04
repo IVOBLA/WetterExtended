@@ -58,7 +58,7 @@ function Logs() {
         setClearMsg({ ok: true, text: 'API-Logs gelöscht, Systemlog-Anzeige zurückgesetzt, alte Logs für KI gesperrt.' })
         // Logs sofort neu laden
         await loadLogs()
-        if (active === 'api_fehler') await loadHealth()
+        await loadHealth()  // immer neu laden — Clear betrifft alle Logs
       } else {
         setClearMsg({ ok: false, text: `Fehler: ${(res.errors || []).join(', ')}` })
       }
