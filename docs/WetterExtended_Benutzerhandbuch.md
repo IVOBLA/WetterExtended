@@ -210,7 +210,11 @@ Interaktive Leaflet-Karte mit Sturmzellen (Kontur + ID-Label), Vorhersage-Pfeile
 Zeigt konvektive Wolken-Cluster aus dem MSG IR108-Satellitenbild, die noch
 **kein Radar-Echo** erzeugen — also 15–30 Minuten bevor das Gewitter im Radar erscheint.
 
-**Aktivierung:** Checkbox „🛰 CB > 10.000" in der Overlay-Leiste (standardmäßig aus).
+**Aktivierung:** Checkbox „🛰 CB / IR-Vorläufer" in der Overlay-Leiste (standardmäßig aus).
+
+Die Checkbox heißt jetzt **„CB / IR-Vorläufer"** (vorher „CB > 10.000"). Die
+Erkennungsschwelle ist unverändert BT < 230 K (typisch > 10.000 m MSL);
+angezeigte Wolkentop-Höhen einzelner Zellen können davon leicht abweichen.
 
 **Darstellung:** Gestrichelter violetter Kreis. Größe proportional zur Clusterfläche.
 Overshooting Tops (BT < 215 K) werden rot ausgefüllt dargestellt.
@@ -1524,6 +1528,7 @@ erst bei Erweiterung. Rückwärtskompatibel.
 
 | Version | Datum | Änderungen |
 |---|---|---|
+| v2.3 | Juni 2026 | **IR-Layer-Label präzisiert:** Legende und Checkbox verwenden jetzt „CB / IR-Vorläufer" statt „CB > 10.000". Der Tooltip stellt klar, dass BT < 230 K eine Erkennungsschwelle (typisch > 10.000 m MSL) ist und angezeigte Wolkentop-Höhen einzelner Zellen abweichen können. |
 | v2.2 | Mai 2026 | **Atmosphärisches Raster verdichtet (24 → 36 Punkte):** `ATM_SNAPSHOT_LOCATIONS` auf 9×4-Gitter erweitert (~24 km O-W / ~28 km N-S). Deckt jetzt den vollständigen `BBOX_KAERNTEN_EXTENDED` inkl. Karawanken-Südrand und Nockberge-Nordrand lückenlos ab — Worst-Case-Distanz 18,4 km ≤ ATM_RANGE 20 km. 5 Batches, 720 Req/Tag (7,2 % Limit). |
 | v2.1 | Mai 2026 | **Atmosphärisches 24-Punkt-Raster:** `ATM_SNAPSHOT_LOCATIONS` in `config.py` — 8×3-Gitter (~27 km Abstand) für lückenlose Kärnten-Abdeckung. `_bulk_get_batched()` in `fetch_atmospheric_snapshot.py` splittet Requests automatisch in Batches à 8 Locations. Getrennt von `LOCATIONS_WATCHLIST` (Alarmierung unverändert). |
 | v2.0 | Mai 2026 | **Trainings-Schedule Hilftexte:** Jedes Einstellungsfeld im Trainings-Schedule erhält einen erläuternden Hilfetext direkt unter dem Eingabefeld (Datensatz-Rebuild, Retrain-Interval, Nightly Retrain, ConvLSTM Zeitplan). **Live-Karte UX:** KMZ-Download-Button aus der Live-Karte entfernt (KMZ wird weiterhin automatisch per FTP hochgeladen). Risikozonen-Statusmeldungen („Keine Risikozonen im aktuellen Zeitraum" / „Risikozonen nicht verfügbar") werden jetzt kompakt in der Timing-Bar neben „✓ Keine aktiven Schwergewitter-Zellen" angezeigt statt als separate Banner. |

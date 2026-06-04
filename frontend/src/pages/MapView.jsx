@@ -197,7 +197,7 @@ function Legend({ horizons, colors }) {
       </span>
       <span style={{display:'flex',alignItems:'center',gap:3}}>
         <span style={{width:12,height:12,borderRadius:'50%',border:'2px dashed #a855f7',display:'inline-block'}}/>
-        <span style={{fontSize:10}}>CB > 10.000</span>
+        <span style={{fontSize:10}}>CB / IR-Vorläufer</span>
       </span>
     </div>
   )
@@ -753,9 +753,9 @@ export default function MapView() {
             checked={showIrCells}
             onChange={e => setShowIrCells(e.target.checked)}
             className="accent-purple-600"
-            title="CB > 10.000 m: Cumulonimbus-Wolkentops über 10.000 m MSL (BT < 230 K, MSG IR108). Rot = Overshooting Top (BT < 215 K, > 12.300 m)."
+            title="IR-Vorläufer / CB: Hohe Konvektionswolken aus MSG IR108 (Erkennungsschwelle BT < 230 K ≈ > 10.000 m MSL). Angezeigte Wolkentop-Höhe kann abweichen. Rot = Overshooting Top (BT < 215 K, typ. > 12.300 m)."
           />
-          <span>🛰 CB &gt; 10.000</span>
+          <span>🛰 CB / IR-Vorläufer</span>
         </label>
         <button onClick={load}
           className="text-xs text-blue-600 hover:text-blue-800 underline ml-auto">↺ Neu laden</button>
