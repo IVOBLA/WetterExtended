@@ -18,6 +18,27 @@ from config import MIN_CONTOUR_OVERLAP
 from config import MIN_CONTOUR_TOUCH
 
 
+def _validate_bbox(bbox: object, fallback: dict) -> dict:
+    """
+    Prüft ob bbox ein gültiges BBOX-Dict ist.
+    Gibt bbox zurück wenn gültig, sonst fallback.
+    Verhindert KeyError/TypeError in crop_and_upscale_to_bbox bei fehlerhaftem
+    Admin-Eintrag oder beschädigtem runtime_overrides.json.
+    """
+    if not isinstance(bbox, dict):
+        return fallback
+    try:
+        s = float(bbox["south"])
+        w = float(bbox["west"])
+        n = float(bbox["north"])
+        e = float(bbox["east"])
+        if not (-90 <= s < n <= 90) or not (-180 <= w < e <= 180):
+            return fallback
+    except (KeyError, TypeError, ValueError):
+        return fallback
+    return bbox
+
+
 try:
     from dem_feature import get_dem_features
 except Exception:
@@ -199,7 +220,10 @@ def preprocess_image(image_path):
     # Bild mit geo-zuschnitt & hochskalierung laden
     # Fix #4: Runtime-BBOX aus Admin-Panel (Fallback: config.py)
     from config import BBOX_KAERNTEN_EXTENDED as _DEFAULT_BBOX_PP
-    _bbox_pp = _rc.get("BBOX_KAERNTEN_EXTENDED", _DEFAULT_BBOX_PP)
+    _bbox_pp = _validate_bbox(
+        _rc.get("BBOX_KAERNTEN_EXTENDED", _DEFAULT_BBOX_PP),
+        _DEFAULT_BBOX_PP,
+    )
     processed_img = crop_and_upscale_to_bbox(image_path, _bbox_pp, UPSCALE_FACTOR)
     hsv = cv2.cvtColor(processed_img, cv2.COLOR_BGR2HSV)
 
@@ -778,7 +802,10 @@ def detect_and_track_objects(image_path=None, weather_data=None):
     from datetime import datetime
     # Fix #4: BBOX aus runtime_config damit Admin-Änderungen sofort wirken
     from config import BBOX_KAERNTEN_EXTENDED as _DEFAULT_BBOX_TRACK, UPSCALE_FACTOR, SAVE_PATHS
-    BBOX = _rc.get("BBOX_KAERNTEN_EXTENDED", _DEFAULT_BBOX_TRACK)
+    BBOX = _validate_bbox(
+        _rc.get("BBOX_KAERNTEN_EXTENDED", _DEFAULT_BBOX_TRACK),
+        _DEFAULT_BBOX_TRACK,
+    )
 
     if image_path is None:
         image_path = "data/latest.png"
