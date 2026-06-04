@@ -643,8 +643,16 @@ def main_loop():
             def _hit_is_kinematic(loc_hit: dict) -> bool:
                 """
                 Gibt True zurück wenn mindestens eine treffende Zelle
-                kinematische (unsichere) Vorhersage hat.
+                kinematische (unsichere) Vorhersage hat UND kein Current-Treffer vorliegt.
+
+                Current-Treffer (Horizont-Key 0) bedeuten: Zelle ist JETZT im Ortsradius.
+                Diese werden immer sofort gewarnt — unabhängig vom forecast_mode der Zelle.
+                Die 2-Frame-Bestätigung gilt ausschließlich für reine Forecast-Treffer
+                (Horizont > 0) mit unsicherem kinematischem Forecast.
                 """
+                # Current-Hit vorhanden (Horizont-Key 0) → nie verzögern
+                if 0 in loc_hit.get("hits", {}):
+                    return False
                 hit_cell_ids = {
                     h.get("cell_id")
                     for h in loc_hit.get("hits", {}).values()
