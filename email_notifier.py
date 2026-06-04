@@ -346,6 +346,10 @@ def send_ai_report_email(result: dict, email_str: str) -> bool:
     if not recipients:
         return False
 
+    if not isinstance(result, dict) or not result:
+        debug_log("[EMAIL] send_ai_report_email: result ist kein Dict oder leer — Mail übersprungen.")
+        return False
+
     status      = result.get("overall_status", "ok")
     suggestions = result.get("suggestions", [])
     snapshot    = result.get("report_snapshot", {})
