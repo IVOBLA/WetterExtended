@@ -1188,6 +1188,12 @@ if command -v nginx &>/dev/null; then
 # Generiert von install.sh am $(date '+%Y-%m-%d %H:%M:%S')
 # Authentifizierung: JWT via Flask (auth.py) — kein nginx Basic-Auth mehr.
 
+# ── Rate-Limiting: Schutz gegen Reconnaissance-Scans und Brute-Force ──────
+# 60r/m = 1 req/s Durchschnitt; burst=30 erlaubt Page-Load-Bursts.
+# Überschreitung → HTTP 429 (Too Many Requests).
+limit_req_zone \$binary_remote_addr zone=wetter_api:10m rate=60r/m;
+limit_req_zone \$binary_remote_addr zone=wetter_auth:10m rate=10r/m;
+
 server {
     listen 80;
     listen [::]:80;
@@ -1229,6 +1235,13 @@ server {
     # Flask (auth.py / _jwt_auth_check) entscheidet welche Endpunkte Auth benoetigen.
     # GET-Requests sind oeffentlich; POST/PATCH/DELETE benoetigen JWT Bearer Token.
     location /api/ {
+        # Rate-Limiting: 60 req/min Avg, Burst 30 — ausreichend für normalen
+        # Admin-Betrieb (Page-Load ~12 req, Polling ~4 req/min).
+        # Reconnaissance-Scanner (30+ req/5s) werden nach Burst-Aufbrauchen
+        # mit HTTP 429 abgewiesen und durch fail2ban dauerhaft blockiert.
+        limit_req zone=wetter_api burst=30 nodelay;
+        limit_req_status 429;
+
         proxy_pass         http://127.0.0.1:5000/api/;
         proxy_http_version 1.1;
         proxy_set_header   Host              \$host;
@@ -1236,6 +1249,21 @@ server {
         proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto \$scheme;
         proxy_read_timeout 120s;
+        proxy_connect_timeout 10s;
+    }
+
+    # Auth-Endpunkte: strengeres Rate-Limit gegen Credential-Stuffing
+    location /api/auth/login {
+        limit_req zone=wetter_auth burst=5 nodelay;
+        limit_req_status 429;
+
+        proxy_pass         http://127.0.0.1:5000/api/auth/login;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              \$host;
+        proxy_set_header   X-Real-IP         \$remote_addr;
+        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 30s;
         proxy_connect_timeout 10s;
     }
 
@@ -1306,6 +1334,90 @@ NGINXCONF
 else
     check_warn "nginx nicht installiert — Phase übersprungen."
     note_manual "sudo apt install nginx && sudo systemctl enable --now nginx"
+fi
+
+# ==============================================================================
+# PHASE 7e — fail2ban: Schutz gegen Reconnaissance und Brute-Force
+# ==============================================================================
+CURRENT_PHASE="Phase 7e — fail2ban"
+log_step "Phase 7e — fail2ban"
+
+if command -v apt-get &>/dev/null; then
+
+    if ! command -v fail2ban-client &>/dev/null; then
+        log_info "Installiere fail2ban..."
+        sudo apt-get install -y fail2ban > /dev/null 2>&1 \
+            && check_ok "fail2ban installiert" \
+            || check_warn "fail2ban Installation fehlgeschlagen — manuell nachinstallieren"
+    else
+        log_info "fail2ban bereits installiert."
+    fi
+
+    # ── Filter: Erkennt Reconnaissance-Bursts (viele 404s von einer IP) ──────
+    sudo tee /etc/fail2ban/filter.d/nginx-recon.conf > /dev/null <<'FAIL2BAN_FILTER'
+[Definition]
+# Erkennt automatisierte Reconnaissance-Scans: viele 404-Antworten von einer IP.
+# Passt auf nginx combined/main log-Format.
+failregex = ^<HOST> .* "(?:GET|POST|HEAD|PUT|DELETE|OPTIONS|PATCH) [^ ]* HTTP/\d+\.\d+" 404
+
+# Keine False-Positives für bekannte Pfade ausschließen — 404 ist 404.
+ignoreregex =
+FAIL2BAN_FILTER
+    check_ok "fail2ban Filter nginx-recon.conf erstellt"
+
+    # ── Jail-Konfiguration ─────────────────────────────────────────────────
+    sudo tee /etc/fail2ban/jail.d/wetterprojekt.conf > /dev/null <<'FAIL2BAN_JAIL'
+[DEFAULT]
+# Lokale IPs niemals bannen
+ignoreip = 127.0.0.1/8 ::1
+
+[nginx-recon]
+enabled   = true
+filter    = nginx-recon
+port      = http,https,81
+logpath   = /var/log/nginx/access.log
+# Ban nach 20 404s innerhalb von 60 Sekunden
+maxretry  = 20
+findtime  = 60
+# Ban-Dauer: 1 Stunde; bei Wiederholung empfiehlt sich manuelles permanentes Ban
+bantime   = 3600
+action    = iptables-multiport[name=nginx-recon, port="80,81,443", protocol=tcp]
+
+[nginx-ratelimit]
+# Banniert IPs die nginx Rate-Limit (429) auslösen — diese sind aktive Scanner
+enabled   = true
+filter    = nginx-limit-req
+port      = http,https,81
+logpath   = /var/log/nginx/error.log
+maxretry  = 10
+findtime  = 60
+bantime   = 7200
+FAIL2BAN_JAIL
+    check_ok "fail2ban Jail wetterprojekt.conf erstellt"
+
+    # ── fail2ban aktivieren und starten ──────────────────────────────────
+    sudo systemctl enable fail2ban > /dev/null 2>&1
+    if sudo systemctl is-active --quiet fail2ban 2>/dev/null; then
+        sudo fail2ban-client reload > /dev/null 2>&1 \
+            && check_ok "fail2ban: Konfiguration neu geladen" \
+            || check_warn "fail2ban reload fehlgeschlagen — bitte manuell prüfen"
+    else
+        sudo systemctl start fail2ban > /dev/null 2>&1 \
+            && check_ok "fail2ban gestartet" \
+            || check_warn "fail2ban konnte nicht gestartet werden"
+    fi
+
+    # ── Nginx-Logging für fail2ban sicherstellen ──────────────────────────
+    # Raspberry Pi OS: nginx access_log ist per Default aktiv in /etc/nginx/nginx.conf
+    if [[ -f /var/log/nginx/access.log ]]; then
+        check_ok "nginx access.log vorhanden: $(wc -l < /var/log/nginx/access.log 2>/dev/null || echo '?') Zeilen"
+    else
+        check_warn "nginx access.log fehlt — fail2ban kann nginx-recon nicht überwachen"
+        note_manual "sudo nginx -t && sudo systemctl reload nginx"
+    fi
+
+else
+    check_warn "apt-get nicht verfügbar — fail2ban übersprungen."
 fi
 
 # ==============================================================================

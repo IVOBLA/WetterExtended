@@ -1492,7 +1492,23 @@ Jeder Code-Prompt enthält:
 
 ---
 
-## 17. Risiken
+## 17. Infrastruktur & Security
+
+### SEC-01 — nginx Rate-Limiting + fail2ban
+**Status:** ✅ Implementiert
+**Datum:** 2026-06-04
+**Auslöser:** 3 Reconnaissance-Scan-Wellen in 3h (73 Requests, alle 404 — Spring Boot Actuator, .env, AWS-Credentials, Docker-Configs)
+
+**Maßnahmen:**
+- nginx `limit_req_zone wetter_api` 60r/m, Burst 30: verhindert Scan-Bursts nach Burst-Erschöpfung (HTTP 429)
+- nginx `limit_req_zone wetter_auth` 10r/m, Burst 5: Login-Endpunkt gegen Credential-Stuffing
+- fail2ban Jail `nginx-recon`: Ban nach 20×404 in 60s für 1h
+- fail2ban Jail `nginx-ratelimit`: Ban nach 10×429 in 60s für 2h
+- `ignoreip = 127.0.0.1/8` verhindert Self-Ban bei internen Health-Checks
+
+---
+
+## 18. Risiken
 
 | Risiko | WSK | Auswirkung | Mitigation |
 |--------|-----|------------|------------|
@@ -1506,7 +1522,7 @@ Jeder Code-Prompt enthält:
 
 ---
 
-## 18. Quick-Start für neue Chat-Session
+## 19. Quick-Start für neue Chat-Session
 
 ```
 Nutzer in neuer Session:
@@ -1523,7 +1539,7 @@ Claude:
 
 ---
 
-## 19. Glossar
+## 20. Glossar
 
 | Begriff | Bedeutung |
 |---------|-----------|
