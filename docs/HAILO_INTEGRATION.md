@@ -1437,6 +1437,7 @@ _hailo_available: Optional[bool] = None
 | B58 | `requirements.txt` | `psutil` fehlt als Runtime-Dependency — CPU-Monitor-Job schreibt kein `cpu_history.jsonl` auf sauberer Installation. Fix: `psutil>=5.9` in `requirements.txt` ergänzt. | ✅ erledigt |
 | B59 | `main.py` | `_hit_is_kinematic()`: Current-Hits (Horizont-Key 0 = Zelle JETZT im Radius) wurden durch 2-Frame-Bestätigung verzögert. Fix: Prüfung ob `0 in loc_hit["hits"]` — wenn ja, sofort False zurückgeben (kein Defer). Akutwarnungen erfolgen jetzt in jedem Fall sofort. | ✅ erledigt |
 | B60 | `main.py` | Rückgabewert von `send_allclear_email()` ignoriert — `_location_warned` wurde auch bei SMTP-Fehler/Cooldown bedingungslos geleert. Folge: nach gescheiterter Entwarnung keine neue Warnung für denselben Ort. Fix: `ok = send_allclear_email(...)` — `discard()` nur wenn `ok == True`. | ✅ erledigt |
+| B61 | `debug_utils.py` | `api_call_summary()` zählte nur `status >= 400` als Fehler. Terminale Retry-Fehler aus `http_retry.py` (status=0) und Records mit `error`-Feld wurden nicht gezählt → Dashboard zeigte 0 Fehler trotz Netzwerkausfällen. Fix: `_status == 0` und `bool(rec.get("error"))` als weitere Fehlerbedingungen; `int(... or 0)` schützt gegen `None`-Status. | ✅ erledigt |
 
 ### Neue Fach-Features in Phase C (geplant und umgesetzt)
 
