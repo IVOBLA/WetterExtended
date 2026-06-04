@@ -264,8 +264,8 @@ def detect_ir_cells(timestamp: str | None = None) -> list:
                     "area_px":          area_px,
                     "overshooting_top": overshooting,
                     "cloud_height_m":   cloud_h,
-                    "cape":             round(cape_val, 1),
-                    "arome_li":         round(li_val, 2),
+                    "cape":             round(cape_val, 1) if cape_val is not None else 0.0,
+                    "arome_li":         round(li_val,  2) if li_val  is not None else 0.0,
                     "timestamp":        timestamp,
                     "tiff_file":        tiff_name,
                 })
