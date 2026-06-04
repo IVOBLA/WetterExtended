@@ -848,6 +848,7 @@ Konvektive Szenarien (CAPE > 0, negative LI) werden nicht beeinträchtigt.
 | B69 | `watchdog_heartbeat.py` | Ping-Intervall hartkodiert 25 s — bei WatchdogSec < 50 s würde systemd Service neu starten. Fix: `_derive_interval()` aus `WATCHDOG_USEC` ableiten (max. 25 s). (Codex PR #294.) | ✅ erledigt |
 | B70 | `frontend/src/pages/Logs.jsx` | Nach Log-Clear wurde `loadHealth()` nur bei aktivem `api_fehler`-Tab aufgerufen. Fix: Bedingungslos aufrufen. (Codex PR #209.) | ✅ erledigt |
 | B71 | `frontend/src/pages/MapView.jsx` | IR-Layer-Legende „CB > 10.000" implizierte Anzeigefilter statt Detektionsschwelle. Fix: Label → „CB / IR-Vorläufer", Tooltip präzisiert. (Codex PR #375.) | ✅ erledigt |
+| B72 | `fetch_openmeteo_extended.py` | LPI-Request an `/v1/dwd-icon` verwendete `lightning_potential_index` statt korrektem `lightning_potential` — Kommentar nannte außerdem fälschlich `icon_eu`. Folge: HTTP 400 / `lpi` immer 0.0. Fix nach Verifikation mit curl: Parameter, Kommentare und Parser auf `lightning_potential`. (Codex PR #462.) | ✅ erledigt |
 
 ## B65 – DEM: Out-of-Bounds-Koordinaten zurückweisen statt klemmen
 
