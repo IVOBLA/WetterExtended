@@ -166,9 +166,12 @@ def _cell_severity(s, attr_prior, valid_iso):
     hail_cat = "gross" if hail_index >= 1.5 else ("klein" if hail_index >= 0.8 else "kein")
 
     # Risiko 1..3
+    # B62: gust_pred >= 70 nur als Trigger wenn minimale Konvektionsinstabilität
+    # vorhanden (inst >= 0.05 ≈ CAPE > ~100 J/kg oder LI < -0.3).
+    # Verhindert Falschalarme durch nicht-konvektive Böen (Föhn, Kaltfront ohne Gewitter).
     if base >= 0.6 or hail_index >= 1.5 or rain >= 35:
         risk = 3
-    elif base >= 0.35 or hail_index >= 0.8 or rain >= 18 or gust_pred >= 70:
+    elif base >= 0.35 or hail_index >= 0.8 or rain >= 18 or (gust_pred >= 70 and inst >= 0.05):
         risk = 2
     elif base >= 0.15:
         risk = 1

@@ -809,6 +809,32 @@ entfernt. `CircleMarker` aus React-Leaflet-Import entfernt.
 Ergebnis: identisches Rectangle-Raster wie auf der Hauptkarte (`/map`).  
 Benutzerhandbuch: „farbige Kreise" → „Rasterflächen (~5×5 km)" aktualisiert.
 
+---
+
+## B62 – Ausblick: Wind-Only Falschalarm unterbunden
+
+**Status:** ✅ Implementiert
+**Datum:** 2026-06-04
+**Datei:** `convective_outlook.py`
+**Quelle:** Screenshot-Analyse (CAPE 0 · LI +4.5 → Risiko Mäßig durch Böen 77 km/h)
+
+### Root Cause
+In `_cell_severity()` konnte `gust_pred >= 70` den risk=2-Zweig auslösen ohne jede
+Konvektionsinstabilität. `rain` und `hail_index` sind implizit durch CAPE > 0 abgesichert,
+`gust_pred` hatte keine solche Voraussetzung. Nicht-konvektive Böen (Föhn, Kaltfront ohne
+Gewitter) erzeugten daher Mäßig-Risikofelder im konvektiven 12h-Ausblick.
+
+### Fix
+`gust_pred >= 70` als risk=2-Trigger nur noch aktiv wenn `inst >= 0.05`
+(≈ CAPE > 100 J/kg oder LI < -0.3). Einzige geänderte Zeile:
+```python
+# vorher:
+elif base >= 0.35 or hail_index >= 0.8 or rain >= 18 or gust_pred >= 70:
+# nachher (B62):
+elif base >= 0.35 or hail_index >= 0.8 or rain >= 18 or (gust_pred >= 70 and inst >= 0.05):
+```
+Konvektive Szenarien (CAPE > 0, negative LI) werden nicht beeinträchtigt.
+
 ## 7. U-Net-Architektur (Phase B)
 
 ### 7.1 Zweck
