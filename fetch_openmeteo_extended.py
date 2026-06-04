@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from config import OPEN_METEO_URL
 
 _GFS_URL = "https://api.open-meteo.com/v1/gfs"
-# LPI (lightning_potential_index) ist NUR am DWD-spezifischen Endpoint verfügbar.
+# LPI (lightning_potential) ist NUR am DWD-spezifischen Endpoint verfügbar.
 # /v1/forecast mit models=icon_eu liefert HTTP 400 für LPI (verifiziert 2026-05).
 _DWD_URL = "https://api.open-meteo.com/v1/dwd-icon"
 from debug_utils import debug_log, log_api_failure, log_http_response
@@ -18,7 +18,7 @@ _MODEL_PRESSURE = "icon_global"
 _TIMEZONE = "UTC"
 _TIMEOUT = 15
 _MINUTELY_PARAMS = "wind_gusts_10m"
-_HOURLY_LPI_PARAMS = "lightning_potential_index"   # icon_eu hourly
+_HOURLY_LPI_PARAMS = "lightning_potential"  # DWD-ICON-Endpoint: /v1/dwd-icon
 _GFS_CONV_PARAMS = "convective_inhibition,total_column_integrated_water_vapour"
 _PRESSURE_PARAMS = (
     "wind_speed_500hPa,wind_direction_500hPa,"
@@ -166,7 +166,7 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
                 data_b = None
 
     # ── Request C: Lightning Potential Index (nur über DWD-Endpoint verfügbar) ──
-    # /v1/forecast mit lpi → HTTP 400; korrekt: /v1/dwd-icon + lightning_potential_index
+    # /v1/forecast mit lpi → HTTP 400; korrekt: /v1/dwd-icon + lightning_potential
     url_c = (
         f"{_DWD_URL}?latitude={lats}&longitude={lons}"
         f"&hourly={_HOURLY_LPI_PARAMS}"
@@ -323,11 +323,11 @@ def _apply(data_a, data_b, data_c, data_d, valid: list, objects: list) -> None:
             result["cin"] = round(float(cin_vals[g_idx]) if g_idx < len(cin_vals) and cin_vals[g_idx] is not None else 0.0, 2)
             result["pw"] = round(float(pw_vals[g_idx]) if g_idx < len(pw_vals) and pw_vals[g_idx] is not None else 0.0, 2)
 
-        # ── LPI aus hourly icon_eu (Request C) ───────────────────────────
+        # ── LPI aus hourly DWD-ICON (Request C) ──────────────────────────
         if idx < len(entries_c):
             h_lpi = entries_c[idx].get("hourly", {})
             lpi_times = h_lpi.get("time", [])
-            lpi_vals = h_lpi.get("lightning_potential_index", [])
+            lpi_vals = h_lpi.get("lightning_potential", [])
             now_hour = now_utc.strftime("%Y-%m-%dT%H:00")
             lpi_idx = 0
             if now_hour in lpi_times:
