@@ -389,7 +389,9 @@ def api_call_summary(since_hours: int = 24) -> dict:
                             "last_ts": None, "last_url": None, "last_status": None,
                         }
                     by_service[svc]["calls"] += 1
-                    if int(rec.get("status", 200)) >= 400:
+                    _status = int(rec.get("status", 200) or 0)
+                    _has_error = bool(rec.get("error"))
+                    if _status >= 400 or _status == 0 or _has_error:
                         by_service[svc]["errors"] += 1
                     # Letzten Request merken (JSONL ist chronologisch → letzter = aktuellster)
                     by_service[svc]["last_ts"]     = rec.get("ts")
