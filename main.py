@@ -739,9 +739,15 @@ def main_loop():
                             continue
                         _emails = _loc_email_map.get(_loc_name, "")
                         if _emails:
-                            send_allclear_email(_loc_name, _emails)
-                            _location_warned.discard(_loc_name)
-                            debug_log(f"[EMAIL] Entwarnung gesendet: {_loc_name}")
+                            ok = send_allclear_email(_loc_name, _emails)
+                            if ok:
+                                _location_warned.discard(_loc_name)
+                                debug_log(f"[EMAIL] Entwarnung gesendet: {_loc_name}")
+                            else:
+                                debug_log(
+                                    f"[EMAIL] Entwarnung fehlgeschlagen — "
+                                    f"Warnstatus bleibt aktiv: {_loc_name}"
+                                )
                 except Exception as _e:
                     debug_log(f"[EMAIL] Entwarnung fehlgeschlagen: {_e}")
 
