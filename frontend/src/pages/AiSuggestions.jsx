@@ -161,8 +161,20 @@ export default function AiSuggestions() {
     })
   }
 
+  // Claude-API unterstützt nur diese Bild-Formate:
+  const CLAUDE_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+
   async function addImages(files) {
-    const allowed = Array.from(files).filter(f => f.type.startsWith('image/'))
+    const arr = Array.from(files)
+    const allowed = arr.filter(f => CLAUDE_IMAGE_TYPES.includes(f.type))
+    const rejected = arr.filter(f => !CLAUDE_IMAGE_TYPES.includes(f.type))
+    if (rejected.length) {
+      alert(
+        'Nicht unterstützte Formate übersprungen: '
+        + rejected.map(f => f.name).join(', ')
+        + '\nErlaubt: JPEG, PNG, GIF, WebP.'
+      )
+    }
     if (!allowed.length) return
     const remaining = 5 - chatImages.length
     const toAdd = allowed.slice(0, remaining)
@@ -446,7 +458,7 @@ export default function AiSuggestions() {
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/png,image/gif,image/webp"
             multiple
             className="hidden"
             onChange={e => addImages(e.target.files)}
