@@ -1407,7 +1407,9 @@ def api_cache_status():
         "geosphere_cape": 1800,
         "geosphere_tawes": 600,
         "eumetview_wms": 900,
-        "eumetview_wms_caps": 600,
+        "eumetview_wms_caps": 600,           # Legacy-Key (bleibt für Rückwärtskompatibilität)
+        "eumetview:capabilities": 600,        # Tatsächlicher Namespace aus cache_key()
+        "eumetview_capabilities": 600,        # get_ttl()-Key in cloud_height_from_eumetview
         "blitzortung": 60,
         "geosphere_nowcast": 600,
     }

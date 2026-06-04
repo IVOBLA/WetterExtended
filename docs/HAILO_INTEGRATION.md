@@ -1650,3 +1650,4 @@ Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sow
 
 **Hailo-Integrationsstatus (unverändert):**
 - Phase 1 (Installation) ✅ — Phase 2 (HEF-Export) 🔲 — Phase 3 (Runtime) 🔲
+| B68 | `app.py` | Cache-Status-Panel: `_DEFAULT_TTLS` fehlte der Namespace-Key `eumetview:capabilities` — EUMETView-Capabilities-Cache erschien als UNKNOWN. Fix: Key ergänzt (Codex PR #278). Pflicht-Verifikation des tatsächlichen Cache-Dateinamens vor Einspielen. | ✅ erledigt |
