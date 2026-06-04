@@ -243,14 +243,14 @@ def detect_ir_cells(timestamp: str | None = None) -> list:
                 if cape_val is not None:
                     if IR_MIN_CAPE_J_KG > 0 and cape_val < IR_MIN_CAPE_J_KG:
                         debug_log(
-                            f"[IR-DET] Cluster {cell_idx} verworfen: "
+                            f"[IR-DET] Cluster {label_num}/{n_labels} verworfen: "
                             f"CAPE={cape_val:.0f} < {IR_MIN_CAPE_J_KG} J/kg"
                         )
                         continue
                 if li_val is not None:
                     if IR_MAX_LI_C < 0 and li_val > IR_MAX_LI_C:
                         debug_log(
-                            f"[IR-DET] Cluster {cell_idx} verworfen: "
+                            f"[IR-DET] Cluster {label_num}/{n_labels} verworfen: "
                             f"LI={li_val:.2f} > {IR_MAX_LI_C} °C (zu stabil)"
                         )
                         continue
