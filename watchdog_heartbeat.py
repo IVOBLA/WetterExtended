@@ -18,7 +18,24 @@ import socket
 import threading
 import time
 
-_INTERVAL: int = 25
+def _derive_interval() -> int:
+    """
+    Leitet das Ping-Intervall aus WATCHDOG_USEC ab (systemd-Umgebungsvariable).
+    Formel: max(1, floor(WatchdogSec / 2) - 1), begrenzt auf max. 25 s.
+    Wenn WATCHDOG_USEC nicht gesetzt: Fallback 25 s.
+    """
+    usec = os.getenv("WATCHDOG_USEC")
+    if usec:
+        try:
+            watchdog_sec = int(usec) / 1_000_000
+            if watchdog_sec > 0:
+                return max(1, min(25, int(watchdog_sec / 2) - 1))
+        except (ValueError, ZeroDivisionError):
+            pass
+    return 25
+
+
+_INTERVAL: int = _derive_interval()
 _started: bool = False
 _lock = threading.Lock()
 

@@ -1411,6 +1411,7 @@ _hailo_available: Optional[bool] = None
 | B65 | `dem_feature.py` | `_height()` klemmte Out-of-bounds-Raster-Indizes auf Randwert → falsche DEM-Werte nahe BBOX-Rand. Fix: Return None statt clamp. (Codex PR #22, Phase C, mit B10 bündeln.) | ✅ erledigt |
 | B66 | `object_tracking.py` | Runtime-BBOX wurde ohne Typ/Wertebereichsprüfung an `crop_and_upscale_to_bbox()` übergeben → fehlerhafter Admin-Eintrag löste unverständlichen Absturz im Tracking-Loop aus. Fix: `_validate_bbox()` Hilfsfunktion; bei ungültigem Wert Fallback auf `config.py`-Default. (Codex PR #256.) | ✅ erledigt |
 | B67 | `email_notifier.py` | `send_ai_report_email()` rief `result.get()` auf ohne `isinstance(result, dict)` zu prüfen — `run_analysis()` kann None liefern → AttributeError. Fix: Guard `if not isinstance(result, dict) or not result: return False` vor erstem `.get()`-Zugriff. (Codex PR #182.) | ✅ erledigt |
+| B69 | `watchdog_heartbeat.py` | Ping-Intervall war hartkodiert 25 s — bei WatchdogSec < 50 s würde systemd den Service neu starten. Fix: `_derive_interval()` leitet Intervall aus `WATCHDOG_USEC` ab (max. 25 s, min. 1 s). (Codex PR #294.) | ✅ erledigt |
 | B13 | `weather_api.py` | TAWES-Request ohne Cache → überschreitet 10-min-Intervall | ✅ **behoben (P04)** |
 | B14 | `debug_utils.py` | `api_call_summary()` ohne last_ts/last_url → kein Detail im Dashboard | ✅ **behoben (P01/P02/P03)** |
 | B15 | `daily_analyzer.py` | KI-Report enthält keine lokale Konfiguration → keine Konfig-Empfehlungen möglich | ✅ **behoben (P05)** |
