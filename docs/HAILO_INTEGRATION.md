@@ -1434,6 +1434,7 @@ _hailo_available: Optional[bool] = None
 | B21 | `tests/test_locations_e2e.py` | `sys.exit()` auf Modulebene bricht pytest-Collection ab | 🚧 **in Behebung (Prompt P06)** |
 | B22 | `model_training.py` | Zufälliger Train/Val-Split bei Zeitreihen + Promotion bei <20 Samples / 2 % Toleranz | 🚧 **in Behebung (Prompt P07)** |
 | B23 | `kmz_export.py` | Keine aktuellen Zellen, keine Konturen, keine Location-Hits; Farb-Lookup bricht bei String-Keys | 🚧 **in Behebung (Prompt P08)** |
+| B58 | `requirements.txt` | `psutil` fehlt als Runtime-Dependency — CPU-Monitor-Job schreibt kein `cpu_history.jsonl` auf sauberer Installation. Fix: `psutil>=5.9` in `requirements.txt` ergänzt. | ✅ erledigt |
 
 ### Neue Fach-Features in Phase C (geplant und umgesetzt)
 
