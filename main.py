@@ -103,18 +103,36 @@ def _risk_alert_check(timestamp: str) -> None:
 
 def _count_lightning_near(lat: float, lon: float,
                           lightning_data: list, radius_km: float = 10.0) -> int:
-    """Zählt Blitze im radius_km-Umkreis. Nutzt einfache Grad-Näherung."""
+    """
+    Zählt Blitze im radius_km-Umkreis (echter Kreis via Haversine-Distanz).
+    Vorfilter über lat/lon-Box spart Rechenzeit; die finale Prüfung nutzt die
+    Großkreis-Distanz, sodass nur Blitze INNERHALB des Kreises gezählt werden.
+    """
     if not lightning_data:
         return 0
+    # Grober Box-Vorfilter (schließt offensichtlich entfernte Blitze schnell aus)
+    lat_box = radius_km / 111.0
+    lon_box = radius_km / (111.0 * abs(_math_main.cos(_math_main.radians(lat))) + 1e-9)
+    _r_lat = _math_main.radians(lat)
     count = 0
-    lat_deg = radius_km / 111.0
-    lon_deg = radius_km / (111.0 * abs(_math_main.cos(_math_main.radians(lat))) + 1e-9)
     for bolt in lightning_data:
         blat = bolt.get("lat") or bolt.get("y")
         blon = bolt.get("lon") or bolt.get("x")
         if blat is None or blon is None:
             continue
-        if abs(float(blat) - lat) <= lat_deg and abs(float(blon) - lon) <= lon_deg:
+        blat = float(blat)
+        blon = float(blon)
+        # 1. Box-Vorfilter
+        if abs(blat - lat) > lat_box or abs(blon - lon) > lon_box:
+            continue
+        # 2. Exakte Haversine-Distanz (km)
+        dlat = _math_main.radians(blat - lat)
+        dlon = _math_main.radians(blon - lon)
+        a = (_math_main.sin(dlat / 2) ** 2
+             + _math_main.cos(_r_lat) * _math_main.cos(_math_main.radians(blat))
+             * _math_main.sin(dlon / 2) ** 2)
+        dist_km = 2 * 6371.0 * _math_main.asin(min(1.0, _math_main.sqrt(a)))
+        if dist_km <= radius_km:
             count += 1
     return count
 
