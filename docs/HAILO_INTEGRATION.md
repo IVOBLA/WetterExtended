@@ -839,8 +839,8 @@ Konvektive Szenarien (CAPE > 0, negative LI) werden nicht beeinträchtigt.
 
 | # | Datei | Bug | Status |
 |---|-------|-----|--------|
-| B63 | `main.py` | `_count_lightning_near()` zählte Blitze in einer lat/lon-Box (~20×20 km) statt im 10-km-Kreis → `lightning_count_10km` überhöht, verfälscht `hail_prob`/`lightning_jump`. Fix: Box als Vorfilter + exakte Haversine-Distanzprüfung ≤ radius_km. (Codex PR #22, vom ersten Review-File übersehen.) | ✅ erledigt |
-| B64 | `frontend/src/pages/AiSuggestions.jsx` | Bild-Upload akzeptierte `image/*` (inkl. SVG/HEIC/BMP/TIFF) → Claude-API lehnt diese ab. Fix: Whitelist JPEG/PNG/GIF/WebP in `addImages()` + `accept`-Attribut; abgelehnte Dateien werden gemeldet. (Codex PR #134.) | ✅ erledigt |
+| B63 | `main.py` | `_count_lightning_near()` zählte Blitze in einer lat/lon-Box (~20×20 km) statt im 10-km-Kreis → `lightning_count_10km` überhöht, verfälscht `hail_prob`/`lightning_jump`. Fix: Box als Vorfilter + exakte Haversine-Distanzprüfung ≤ radius_km. (Codex PR #22, vom ersten Review-File übersehen.) | ⏳ Code-Fix ausstehend |
+| B64 | `frontend/src/pages/AiSuggestions.jsx` | Bild-Upload akzeptierte `image/*` (inkl. SVG/HEIC/BMP/TIFF) → Claude-API lehnt diese ab. Fix: Whitelist JPEG/PNG/GIF/WebP in `addImages()` + `accept`-Attribut; abgelehnte Dateien werden gemeldet. (Codex PR #134.) | ⏳ Code-Fix ausstehend |
 | B65 | `dem_feature.py` | `_height()` klemmte Out-of-bounds-Raster-Indizes auf Randwert → falsche DEM-Werte nahe BBOX-Rand. Fix: Return None statt clamp. (Codex PR #22, Phase C, mit B10 bündeln.) | ✅ erledigt |
 | B66 | `object_tracking.py` | Runtime-BBOX ohne Typ/Wertebereichsprüfung an `crop_and_upscale_to_bbox()` → fehlerhafter Admin-Eintrag = Absturz. Fix: `_validate_bbox()` Hilfsfunktion, Fallback auf config.py-Default. (Codex PR #256.) | ✅ erledigt |
 | B67 | `email_notifier.py` | `send_ai_report_email()` rief `result.get()` ohne isinstance-Guard auf — `run_analysis()` kann None liefern → AttributeError. Fix: Guard vor erstem `.get()`-Zugriff. (Codex PR #182.) | ✅ erledigt |
