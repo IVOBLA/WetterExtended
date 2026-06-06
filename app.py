@@ -1400,18 +1400,22 @@ def api_cache_status():
 
     # Standard-TTL-Fallbacks je bekanntem Service
     _DEFAULT_TTLS = {
-        "openmeteo_icon_d2": 1800,
-        "openmeteo_icon_global": 3600,
-        "openmeteo_extended": 900,
-        "openmeteo_synoptic": 3600,
-        "geosphere_cape": 1800,
-        "geosphere_tawes": 600,
-        "eumetview_wms": 900,
-        "eumetview_wms_caps": 600,           # Legacy-Key (bleibt für Rückwärtskompatibilität)
-        "eumetview:capabilities": 600,        # Tatsächlicher Namespace aus cache_key()
-        "eumetview_capabilities": 600,        # get_ttl()-Key in cloud_height_from_eumetview
-        "blitzortung": 60,
-        "geosphere_nowcast": 600,
+        # ── Laufend aktive Services (jeder Zyklus) ─────────────────────────
+        # cache_key("geosphere:tawes_all") → Namespace geosphere_tawes_all
+        "geosphere_tawes_all":          600,
+        # cache_key("eumetview:capabilities") → Namespace eumetview_capabilities
+        "eumetview_capabilities":        600,
+        # cache_key("blitzortung:last_strikes") → Namespace blitzortung_last_strikes
+        "blitzortung_last_strikes":       60,
+        # ── Per-Objekt-Services (nur gecacht wenn Zellen aktiv) ─────────────
+        "geosphere_cape":              1800,   # assign_cape_from_forecast.py
+        "geosphere_nowcast":            600,   # fetch_geosphere_nowcast.py
+        "openmeteo_icon_d2":           1800,   # fetch_arome_openmeteo.py
+        "openmeteo_icon_eu_li":        1800,   # fetch_arome_openmeteo.py (LI-Fallback)
+        "openmeteo_extended_15min":     900,   # fetch_openmeteo_extended.py
+        "openmeteo_extended_pressure":  900,   # fetch_openmeteo_extended.py
+        "openmeteo_extended_lpi":       900,   # fetch_openmeteo_extended.py
+        "openmeteo_extended_gfs_conv":  900,   # fetch_openmeteo_extended.py
     }
 
     try:
