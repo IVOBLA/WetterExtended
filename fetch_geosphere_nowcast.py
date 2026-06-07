@@ -27,13 +27,13 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
     #   Slot 1 (Fallback):  _floor-15min … _floor       — Niederschlag VOR 15 min
     _nowcast_slots = [
         {
-            "start_str":  _floor.strftime("%Y-%m-%dT%H:%M:00Z"),
-            "end_str":    (_floor + _td15).strftime("%Y-%m-%dT%H:%M:00Z"),
+            "start_str":  _floor.strftime("%Y-%m-%dT%H:%M"),
+            "end_str":    (_floor + _td15).strftime("%Y-%m-%dT%H:%M"),
             "cache_sfx":  _floor.strftime("%Y-%m-%dT%H:%M"),
         },
         {
-            "start_str":  (_floor - _td15).strftime("%Y-%m-%dT%H:%M:00Z"),
-            "end_str":    _floor.strftime("%Y-%m-%dT%H:%M:00Z"),
+            "start_str":  (_floor - _td15).strftime("%Y-%m-%dT%H:%M"),
+            "end_str":    _floor.strftime("%Y-%m-%dT%H:%M"),
             "cache_sfx":  (_floor - _td15).strftime("%Y-%m-%dT%H:%M"),
         },
     ]
