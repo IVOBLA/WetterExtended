@@ -853,6 +853,46 @@ Konvektive Szenarien (CAPE > 0, negative LI) werden nicht beeinträchtigt.
 | B74 | `ir_cell_detection.py` | Verworfene Cluster im Log immer als „Cluster 0" angezeigt — `cell_idx` wird nur bei akzeptierten Clustern inkrementiert. Fix: `label_num/n_labels` statt `cell_idx` in CAPE/LI-Filter-Log. (Kosmetisch, P3.) | ✅ erledigt |
 | B75 | `app.py` | `_DEFAULT_TTLS` im Cache-Status-Panel hatte falsche/veraltete Namespace-Keys — `geosphere_tawes`→`geosphere_tawes_all`, `blitzortung`→`blitzortung_last_strikes`; `openmeteo_extended` durch 4 Sub-Namespaces ersetzt; 7 tote Keys entfernt (kein cache_key()-Aufruf im Code); Ghost-Entry `eumetview:capabilities` aus B68-Rückstand entfernt. Panel zeigt jetzt TAWES/Blitz mit korrekter TTL. (Vollständig-Audit aller cache_key()-Aufrufe.) | ✅ erledigt |
 
+### 5.10 Phase A.10 — Bug-Fix-Welle 10
+
+| # | Task | Datei(en) | Status |
+|---|------|-----------|--------|
+| B76 | GeoSphere Nowcast HTTP 400: `start`/`end`-Parameter im Format `YYYY-MM-DDThh:mm:ss+00:00` wurden von der API abgelehnt. GeoSphere Forecast-API erwartet `YYYY-MM-DDThh:mm` (keine Sekunden, kein Z-Suffix). Fix: Format-Strings von `%Y-%m-%dT%H:%M:00Z` auf `%Y-%m-%dT%H:%M` geändert. | `fetch_geosphere_nowcast.py`, `api_health_check.py` | ✅ erledigt |
+| B77 | `_DEFAULT_TTLS` im Cache-Status-Panel fehlten Einträge für `openmeteo_icon_global` (3600 s) und `openmeteo_synoptic_500` (3600 s). Panel zeigte `—` statt korrekter TTL. Folge aus unvollständigem B75-Audit. | `app.py` | ✅ erledigt |
+
+## B76 — GeoSphere Nowcast HTTP 400: Timestamp-Format-Fehler
+
+**Status:** ✅ Implementiert  
+**Datum:** 2026-06-07  
+**Dateien:** `fetch_geosphere_nowcast.py`, `api_health_check.py`  
+**Schwere:** P1 (stille Falschdaten — Nowcast-Werte fehlen wenn Gewitterzellen aktiv)
+
+### Root Cause
+Die GeoSphere Dataset API (Forecast-Modus) erwartet `start`/`end`-Parameter im
+Format `YYYY-MM-DDThh:mm` (keine Sekunden, kein Z-Suffix).
+Der Code sendete `%Y-%m-%dT%H:%M:00Z` = z.B. `2026-06-06T19:00:00Z`.
+Folge: HTTP 400 "Bad Request" für jeden Nowcast-Call wenn Gewitterzellen aktiv.
+
+### Symptome
+- API-Fehler-Panel: `geosphere_nowcast` HTTP 400 bei 17:50–19:14 UTC am 2026-06-06
+  (Zellen aktiv), `GeoSphere-Health` HTTP 400 um 03:15 UTC am 2026-06-07
+- Cache-Status: `geosphere_nowcast` Status = MISSING (nie ein erfolgreicher Call)
+- Nowcast-Felder (rr, ff, ffx, gust_warning, heavy_rain_warning) immer Defaultwert
+
+### Fix
+Format-Strings in `_nowcast_slots` (2 Stellen) und `api_health_check._check_geosphere()`
+(2 Stellen):
+
+```
+# Vorher (falsch):
+_floor.strftime("%Y-%m-%dT%H:%M:00Z")  # → "2026-06-06T19:00:00Z"
+
+# Nachher (korrekt):
+_floor.strftime("%Y-%m-%dT%H:%M")       # → "2026-06-06T19:00"
+```
+
+Quelle: https://dataset.api.hub.geosphere.at/v1/docs/user-guide/mode.html
+
 ## B65 – DEM: Out-of-Bounds-Koordinaten zurückweisen statt klemmen
 
 **Status:** ✅ Implementiert

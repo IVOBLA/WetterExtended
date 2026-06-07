@@ -88,7 +88,7 @@ def _check_geosphere() -> dict:
     WICHTIG: Parameter müssen EINZELN wiederholt werden, NICHT kommasepariert.
     ?parameters=rr&parameters=ff&parameters=ffx → OK
     ?parameters=rr,ff,ffx                       → HTTP 422
-    Zeitformat: %Y-%m-%dT%H:%M:00Z (mit Sekunden und Z-Suffix).
+    Zeitformat: %Y-%m-%dT%H:%M (Minutenauflösung, ohne Sekunden/Z-Suffix).
     """
     from datetime import timedelta, timezone as _tz
 
@@ -97,8 +97,8 @@ def _check_geosphere() -> dict:
     # Identisch zu fetch_geosphere_nowcast.py (Prompt-15-Fix):
     # _floor selbst (= aktueller Slot) → HTTP 422 bis Nowcast berechnet ist.
     _floor = _now.replace(minute=(_now.minute // 15) * 15, second=0, microsecond=0)
-    _start = (_floor - timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:00Z")
-    _end   = _floor.strftime("%Y-%m-%dT%H:%M:00Z")
+    _start = (_floor - timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M")
+    _end   = _floor.strftime("%Y-%m-%dT%H:%M")
     # URL manuell bauen — kein params=-Argument, sonst kodiert requests das
     # Komma in lat_lon=46.62,14.31 zu %2C → HTTP 400 "Bad Request".
     # Identische Lösung wie fetch_geosphere_nowcast.py (B58).
