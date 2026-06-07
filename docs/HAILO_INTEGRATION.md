@@ -860,6 +860,13 @@ Konvektive Szenarien (CAPE > 0, negative LI) werden nicht beeinträchtigt.
 | B76 | GeoSphere Nowcast HTTP 400: `start`/`end`-Parameter im Format `YYYY-MM-DDThh:mm:ss+00:00` wurden von der API abgelehnt. GeoSphere Forecast-API erwartet `YYYY-MM-DDThh:mm` (keine Sekunden, kein Z-Suffix). Fix: Format-Strings von `%Y-%m-%dT%H:%M:00Z` auf `%Y-%m-%dT%H:%M` geändert. | `fetch_geosphere_nowcast.py`, `api_health_check.py` | ✅ erledigt |
 | B77 | `_DEFAULT_TTLS` im Cache-Status-Panel fehlten Einträge für `openmeteo_icon_global` (3600 s) und `openmeteo_synoptic_500` (3600 s). Panel zeigte `—` statt korrekter TTL. Folge aus unvollständigem B75-Audit. | `app.py` | ✅ erledigt |
 
+### 5.11 Phase A.11 — Bug-Fix-Welle 11
+
+| # | Task | Datei(en) | Status |
+|---|------|-----------|--------|
+| B78 | `locations_check.py` + `app.py`: Zellgeschwindigkeit 3× zu hoch — `UPSCALE_FACTOR` fehlte bei `speed_kmh`-Berechnung aus `vx`/`vy`. Beweis: Screenshot zeigt 64.4 km/h im Orts-Treffer vs. 21.5 km/h im Zellen-Popup (Faktor 3.0 = UPSCALE_FACTOR exakt). Fix: `obj.get("speed_kmh")` verwenden (bereits korrekt berechnet von `object_tracking.py`). Betroffen: Orts-Treffer-Anzeige, `is_slow_arrow`, Risk-Grid-Stationär-Boost. | `locations_check.py`, `app.py` | ✅ erledigt |
+| B79 | `MapView.jsx` + `MapFullscreen.jsx`: Grammatikfehler „1 Frames" im Zellen-Popup bei `active_frames === 1`. Fix: Ternary für Singular/Plural. | `frontend/src/pages/MapView.jsx`, `frontend/src/pages/MapFullscreen.jsx` | ✅ erledigt |
+
 ## B76 — GeoSphere Nowcast HTTP 400: Timestamp-Format-Fehler
 
 **Status:** ✅ Implementiert  

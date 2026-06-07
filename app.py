@@ -719,9 +719,18 @@ def api_forecast():
     for o in _objects_for_ts(ts):
         if o.get("lat") is None or o.get("lon") is None:
             continue
-        vx = float(o.get("vx") or 0.0)
-        vy = float(o.get("vy") or 0.0)
-        speed_kmh = _math.hypot(vx, vy) * PX_TO_KMH
+        # B78-FIX: speed_kmh direkt aus Objekt — bereits korrekt mit UPSCALE_FACTOR
+        _spd_pre = o.get("speed_kmh")
+        if _spd_pre is not None:
+            speed_kmh = float(_spd_pre)
+        else:
+            vx = float(o.get("vx") or 0.0)
+            vy = float(o.get("vy") or 0.0)
+            try:
+                from config import UPSCALE_FACTOR as _uf_fc
+            except ImportError:
+                _uf_fc = 3.0
+            speed_kmh = _math.hypot(vx, vy) * (PX_TO_KMH / max(float(_uf_fc), 1.0))
         # is_slow_arrow: Zelle bewegt sich < MIN_MOVEMENT_FOR_ARROW_KMH.
         # has_arrow: True wenn Forecast-Position vom Zell-Zentrum abweicht (min 0.001°).
         # Trennung: langsame Zellen werden sichtbar (aber transparent), nicht ausgeblendet.
@@ -3302,8 +3311,16 @@ def api_risk_grid():
                     _cell_vx = float(cell.get("vx", 0.0))
                     _cell_vy = float(cell.get("vy", 0.0))
                     try:
-                        from config import PX_TO_KMH as _ptk_rg
-                        _cell_speed_kmh = (_cell_vx ** 2 + _cell_vy ** 2) ** 0.5 * float(_ptk_rg)
+                        # B78-FIX: speed_kmh aus Objekt verwenden (bereits korrekt skaliert)
+                        _precomp = cell.get("speed_kmh")
+                        if _precomp is not None:
+                            _cell_speed_kmh = float(_precomp)
+                        else:
+                            from config import PX_TO_KMH as _ptk_rg, UPSCALE_FACTOR as _uf_rg
+                            _cell_speed_kmh = (
+                                (_cell_vx ** 2 + _cell_vy ** 2) ** 0.5
+                                * float(_ptk_rg) / max(float(_uf_rg), 1.0)
+                            )
                     except Exception:
                         _cell_speed_kmh = 0.0
                     _speed_factor = 1.0 + max(
