@@ -75,7 +75,8 @@ def _risk_alert_check(timestamp: str) -> None:
         loc_name = loc.get("name", "?")
         loc_lat = float(loc.get("lat", 0))
         loc_lon = float(loc.get("lon", 0))
-        email = loc.get("email", "").strip()
+        email  = loc.get("email",    "").strip()
+        wa_str = loc.get("whatsapp", "").strip()
         if _sent.get(loc_name) == _today:
             continue
         best_cell = min(_grid, key=lambda c: abs(c["lat"] - loc_lat) + abs(c["lon"] - loc_lon), default=None)
@@ -93,6 +94,18 @@ def _risk_alert_check(timestamp: str) -> None:
                 debug_log(f"[RISK-ALERT] ❌ E-Mail fehlgeschlagen: {loc_name}")
         except Exception as _exc:
             debug_log(f"[RISK-ALERT] Fehler: {_exc}")
+        # ── WhatsApp: Risiko-Stufe-3-Alarm (Tages-Cooldown via _RISK_ALERT_LOG)
+        if wa_str:
+            try:
+                from whatsapp_notifier import send_risk_alert_wa
+                send_risk_alert_wa(
+                    location_name=loc_name,
+                    dominant=info.get("dominant", "atm"),
+                    details=info,
+                    wa_str=wa_str,
+                )
+            except Exception as _wa_exc:
+                debug_log(f"[WA] Risiko-Alarm Fehler: {_wa_exc}")
     if _changed:
         try:
             os.makedirs(os.path.dirname(_RISK_ALERT_LOG), exist_ok=True)
@@ -697,6 +710,12 @@ def main_loop():
                 for loc in locations
                 if loc.get("email", "").strip()
             }
+            # WhatsApp-Empfaenger-Map — gleiches Konzept wie _loc_email_map
+            _loc_wa_map = {
+                loc.get("name", ""): loc.get("whatsapp", "")
+                for loc in locations
+                if loc.get("whatsapp", "").strip()
+            }
             _ready_to_warn = set()
 
             for _loc_hit in location_hits:
@@ -747,6 +766,24 @@ def main_loop():
                 except Exception as _e:
                     debug_log(f"[EMAIL] Warnung fehlgeschlagen: {_e}")
 
+            # ── WhatsApp: Neue Orts-Treffer (best-effort, kein State) ────
+            if _ready_to_warn:
+                try:
+                    from whatsapp_notifier import send_warning_wa
+                    for _loc_hit in location_hits:
+                        if _loc_hit["name"] not in _ready_to_warn:
+                            continue
+                        _wa = _loc_wa_map.get(_loc_hit["name"], "")
+                        if _wa:
+                            send_warning_wa(
+                                _loc_hit["name"],
+                                _loc_hit["hits"],
+                                _wa,
+                                timestamp,
+                            )
+                except Exception as _e:
+                    debug_log(f"[WA] Warnung fehlgeschlagen: {_e}")
+
             # ── E-Mail: Entwarnung (nur wenn vorher gewarnt wurde) ────────
             if _cleared:
                 try:
@@ -768,6 +805,20 @@ def main_loop():
                                 )
                 except Exception as _e:
                     debug_log(f"[EMAIL] Entwarnung fehlgeschlagen: {_e}")
+
+            # ── WhatsApp: Entwarnung (nur wenn zuvor E-Mail-Warnung gesendet)
+            if _cleared:
+                try:
+                    from whatsapp_notifier import send_allclear_wa
+                    for _loc_name in sorted(_cleared):
+                        if _loc_name not in _location_warned:
+                            # Kein E-Mail-Alarm gesendet → keine WA-Entwarnung
+                            continue
+                        _wa = _loc_wa_map.get(_loc_name, "")
+                        if _wa:
+                            send_allclear_wa(_loc_name, _wa)
+                except Exception as _e:
+                    debug_log(f"[WA] Entwarnung fehlgeschlagen: {_e}")
 
             _prev_location_hit_names = _current_hit_names
 
