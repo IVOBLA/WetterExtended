@@ -270,6 +270,7 @@ ergab 7 Bugs (T1–T4, A3–A5) sowie 10 als korrekt bestätigte Stellen.
 | B44 | `fetch_700hpa_wind_per_object_slim.py`: `_nearest_hour_str(ref_ts_str)` für 700-hPa-Slot und Cache-Key | `fetch_700hpa_wind_per_object_slim.py` | ✅ erledigt |
 | B45 | `fetch_openmeteo_extended.py`: `_nearest_quarter_str(ref_ts_str)` + `_nearest_hour_str(ref_ts_str)` für alle 4 Requests (Böen, Druckflächen, LPI, GFS) | `fetch_openmeteo_extended.py` | ✅ erledigt |
 | B46 | `fetch_synoptic_features.py`: `_nearest_hour(ref_ts_str)` für 500-hPa-Slot und Cache-Key | `fetch_synoptic_features.py` | ✅ erledigt |
+| B80 | `debug_utils.py`: `debug_log()` verwendete `datetime.now()` (Lokalzeit CEST) statt `datetime.utcnow()`. Folge: DEBUG-Zeilen lagen 2 Stunden vor API-FAIL-Zeilen (die bereits UTC verwendeten). Fix: `datetime.now()` → `datetime.utcnow()` in `debug_log()`. | `debug_utils.py` | ✅ erledigt |
 
 **Als korrekt bestätigt (kein Fix nötig):**
 
