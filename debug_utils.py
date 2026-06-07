@@ -17,7 +17,7 @@ def save_debug_image(path, image, message=None):
 def debug_log(message):
     if DEBUG_MODE:
         from datetime import datetime
-        print(f"[{datetime.now().isoformat(timespec='seconds')}] DEBUG: {message}")
+        print(f"[{datetime.utcnow().isoformat(timespec='seconds')}] DEBUG: {message}")
 
 # --- API-Failure-Logging (einheitliches Schema) ---
 import json as _json
