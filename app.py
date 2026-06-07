@@ -1416,6 +1416,8 @@ def api_cache_status():
         "geosphere_nowcast":            600,   # fetch_geosphere_nowcast.py
         "openmeteo_icon_d2":           1800,   # fetch_arome_openmeteo.py
         "openmeteo_icon_eu_li":        1800,   # fetch_arome_openmeteo.py (LI-Fallback)
+        "openmeteo_icon_global":       3600,   # fetch_700hpa_wind_per_object_slim.py
+        "openmeteo_synoptic_500":      3600,   # fetch_synoptic_features.py (500hPa)
         "openmeteo_extended_15min":     900,   # fetch_openmeteo_extended.py
         "openmeteo_extended_pressure":  900,   # fetch_openmeteo_extended.py
         "openmeteo_extended_lpi":       900,   # fetch_openmeteo_extended.py
