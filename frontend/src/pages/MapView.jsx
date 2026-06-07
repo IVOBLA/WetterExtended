@@ -851,7 +851,7 @@ export default function MapView() {
                   )}
                   {o.active_frames != null && (
                     <div style={{fontSize:'0.8em',color:'#666'}}>
-                      Aktiv: {o.active_frames} Frames (~{Math.round(o.active_frames * 2)} min)
+                      Aktiv: {o.active_frames} {o.active_frames === 1 ? 'Frame' : 'Frames'} (~{Math.round(o.active_frames * 2)} min)
                     </div>
                   )}
                   {o.speed_kmh != null && (
