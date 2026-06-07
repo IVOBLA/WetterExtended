@@ -741,6 +741,69 @@ Mehrere Adressen durch Semikolon trennen: `user1@x.at;user2@y.at`
 
 ---
 
+# 17 NEU: WhatsApp-Benachrichtigungen via CallMeBot
+
+**Modul:** `whatsapp_notifier.py`
+**Dienst:** CallMeBot (kostenlos, kein Account / keine WhatsApp Business API nötig)
+
+Parallel zu den E-Mail-Benachrichtigungen können für jeden überwachten Ort
+WhatsApp-Nachrichten an beliebig viele Empfänger gesendet werden.
+
+## 17.1 Einrichtung pro Empfänger (einmalig)
+
+Jeder Empfänger muss sich einmalig bei CallMeBot registrieren:
+
+1. WhatsApp öffnen
+2. Nachricht an **+34 644 82 17 47** senden: `I allow callmebot to send me messages`
+3. CallMeBot antwortet mit dem persönlichen **API-Key**
+
+## 17.2 Konfiguration im Admin-Panel
+
+Auf der Seite **Beobachtete Orte** (`/locations`) gibt es das neue Feld
+**„WhatsApp (+Nr:APIKey)"**:
+
+| Feld | Format | Beispiel |
+|---|---|---|
+| Einzelner Empfänger | `+43NR:APIKEY` | `+4369912345678:abc123` |
+| Mehrere Empfänger | Semikolon-getrennt | `+4369912345678:abc123;+431234567:xyz` |
+
+Das Feld ist optional — leer lassen deaktiviert WhatsApp für diesen Ort.
+E-Mail und WhatsApp sind unabhängig voneinander konfigurierbar.
+
+## 17.3 Nachrichtentypen
+
+| Ereignis | Nachrichteninhalt |
+|---|---|
+| Gewitterwarnung | Ortsname, Zeitstempel, Zell-ID, ETA, Distanz, Geschwindigkeit |
+| Entwarnung | Ortsname, Zeitstempel, Kurzmeldung |
+| Hohes Gewitterrisiko (Stufe 3) | Ortsname, Ursache, Lifted Index, CAPE (falls vorhanden) |
+
+> Nachrichten sind **Klartext** (kein HTML). Emojis werden vermieden, da nicht alle
+> Android-Versionen Emojis in automatischen Nachrichten korrekt darstellen.
+
+## 17.4 Cooldown und Rate-Limiting
+
+| Parameter | Wert |
+|---|---|
+| Cooldown Warnung | 15 Minuten pro Ort |
+| Cooldown Entwarnung | 5 Minuten pro Ort |
+| Pause zwischen Empfängern | 5 Sekunden (CallMeBot Rate-Limit) |
+| Tages-Cooldown Risiko-Stufe-3 | 1× täglich pro Ort (gemeinsam mit E-Mail) |
+
+## 17.5 Verhalten bei Fehlern
+
+Fehler beim WA-Versand (Timeout, CallMeBot nicht erreichbar) werden geloggt
+und beeinflussen den Live-Loop **nicht**. WA-Benachrichtigungen sind immer
+best-effort — das System läuft auch ohne CallMeBot-Erreichbarkeit stabil weiter.
+
+## 17.6 Keine .env-Variable nötig
+
+Im Gegensatz zu SMTP (E-Mail) oder Twilio (SMS) benötigt CallMeBot keine globale
+Konfiguration in `.env`. Alle Verbindungsdaten (Rufnummer + API-Key) sind
+**per Ort** in der `LOCATIONS_WATCHLIST` gespeichert.
+
+---
+
 # 17 NEU: Daten-Rotation (`cleanup_old_data.py`)
 
 **Modul:** `cleanup_old_data.py`  
