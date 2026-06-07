@@ -276,10 +276,22 @@ def annotate_locations(
             o_lat = float(o_lat)
             o_lon = float(o_lon)
 
-            vx        = float(obj.get("vx") or 0.0)
-            vy        = float(obj.get("vy") or 0.0)
-            speed_kmh = math.hypot(vx, vy) * _PX_TO_KMH
             cell_id   = obj.get("id")
+            # B78-FIX: speed_kmh aus obj übernehmen — bereits korrekt mit
+            # UPSCALE_FACTOR skaliert von object_tracking.py.
+            # Fallback: vx/vy-Betrag mit Skalierungsfaktor umrechnen.
+            _precomp_spd = obj.get("speed_kmh")
+            if _precomp_spd is not None:
+                speed_kmh = float(_precomp_spd)
+            else:
+                vx = float(obj.get("vx") or 0.0)
+                vy = float(obj.get("vy") or 0.0)
+                try:
+                    from config import UPSCALE_FACTOR as _uf_lc
+                except ImportError:
+                    _uf_lc = 3.0
+                _kmh_per_scaled_px = _PX_TO_KMH / max(float(_uf_lc), 1.0)
+                speed_kmh = math.hypot(vx, vy) * _kmh_per_scaled_px
 
             # ── Typ 1: CURRENT ────────────────────────────────────────────
             # Abstand Ort → nächster Polygon-Punkt (0 wenn Ort im Polygon).
