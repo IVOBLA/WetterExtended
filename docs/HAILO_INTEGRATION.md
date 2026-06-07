@@ -1491,6 +1491,7 @@ _hailo_available: Optional[bool] = None
 | **Dashboard API-Request Detail** | Klick auf Service-Zeile im Dashboard öffnet Panel mit letzten Requests (Timestamp, HTTP-Status, URL). Schnittstellen mit öffentlichem Browser-Zugang zeigen direkten Link (z.B. https://tawes.at/#knt) | ✅ **eingespielt** (Mai 2026) |
 | **TAWES Cache-Konsolidierung** | `weather_api.py` nutzt jetzt `api_cache` mit TTL=600s — entspricht 10-min TAWES-Aktualisierungsintervall. Kein unnötiger Doppel-Request mehr neben `fetch_tawes_gust.py` | ✅ **eingespielt** (Mai 2026) |
 | **KI-Analyse sendet vollst. Konfig** | `build_system_report()` überträgt alle effektiven Config-Werte + `runtime_overrides.json` an die KI. Secrets (TOKEN, KEY, PASS, ...) werden automatisch durch `***REDACTED***` ersetzt. KI kann nun Konfigurations-Empfehlungen machen | ✅ **eingespielt** (Mai 2026) |
+| **WhatsApp-Benachrichtigungen via CallMeBot** | Neues Modul `whatsapp_notifier.py`: Gewitterwarnung, Entwarnung und Risiko-Stufe-3-Alarm per WhatsApp. Konfiguration pro Ort als `+Nr:APIKey`-Paar im `whatsapp`-Feld der `LOCATIONS_WATCHLIST`. Kein globaler API-Key nötig. Cooldown identisch zu `email_notifier.py`. `Locations.jsx` um WhatsApp-Spalte erweitert. | ✅ **eingespielt** (Juni 2026) |
 
 ---
 
