@@ -853,6 +853,34 @@ Konvektive Szenarien (CAPE > 0, negative LI) werden nicht beeinträchtigt.
 | B74 | `ir_cell_detection.py` | Verworfene Cluster im Log immer als „Cluster 0" angezeigt — `cell_idx` wird nur bei akzeptierten Clustern inkrementiert. Fix: `label_num/n_labels` statt `cell_idx` in CAPE/LI-Filter-Log. (Kosmetisch, P3.) | ✅ erledigt |
 | B75 | `app.py` | `_DEFAULT_TTLS` im Cache-Status-Panel hatte falsche/veraltete Namespace-Keys — `geosphere_tawes`→`geosphere_tawes_all`, `blitzortung`→`blitzortung_last_strikes`; `openmeteo_extended` durch 4 Sub-Namespaces ersetzt; 7 tote Keys entfernt (kein cache_key()-Aufruf im Code); Ghost-Entry `eumetview:capabilities` aus B68-Rückstand entfernt. Panel zeigt jetzt TAWES/Blitz mit korrekter TTL. (Vollständig-Audit aller cache_key()-Aufrufe.) | ✅ erledigt |
 
+## B77 — Cache-Status-Panel: Fehlende _DEFAULT_TTLS-Einträge (B75-Folgebug)
+
+**Status:** ✅ Implementiert
+**Datum:** 2026-06-07
+**Datei:** `app.py`
+**Schwere:** P2 (kosmetisch — Panel zeigt `—` statt korrekter TTL)
+
+### Root Cause
+Der B75-Namespace-Audit der `_DEFAULT_TTLS`-Map in `app.py` war unvollständig.
+Zwei Namespaces fehlten:
+- `openmeteo_icon_global`: Erstellt von `fetch_700hpa_wind_per_object_slim.py` bei
+  700-hPa-Wind-Abfragen. Cache-Namespace-Key ≠ config.py-Key (`openmeteo_icon_global`
+  vs. historisch `icon_global`).
+- `openmeteo_synoptic_500`: Erstellt von `fetch_700hpa_wind_per_object_slim.py` für
+  500-hPa-Synoptik. Cache-Namespace-Key ≠ config.py-Key (`openmeteo_synoptic`).
+
+### Symptome
+Cache-Status-Panel zeigte nach aktivem Gewitterereignis:
+- `openmeteo_icon_global` — STALE — TTL: `—`
+- `openmeteo_synoptic_500` — STALE — TTL: `—`
+
+### Fix
+Ergänzung in `_DEFAULT_TTLS` in `app.py`:
+```python
+"openmeteo_icon_global":  3600,   # fetch_700hpa_wind_per_object_slim.py
+"openmeteo_synoptic_500": 3600,   # fetch_700hpa_wind_per_object_slim.py (500hPa)
+```
+
 ## B65 – DEM: Out-of-Bounds-Koordinaten zurückweisen statt klemmen
 
 **Status:** ✅ Implementiert
