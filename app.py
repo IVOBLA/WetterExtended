@@ -2070,14 +2070,16 @@ def api_whatsapp_test():
         # Logging fuer Dashboard (analog zu anderen API-Calls)
         try:
             from debug_utils import log_api_call
+            _err = result.get("error")
+            _body = f"sent={result['sent_to']}, failed={result['failed']}"
+            if _err:
+                _body += f", error={_err[:300]}"
             log_api_call(
                 "callmebot_whatsapp",
                 url="https://api.callmebot.com/whatsapp.php",
                 status_code=200 if result["ok"] else 400,
                 method="POST",
-                response_text=(
-                    f"test: sent={result['sent_to']}, failed={result['failed']}"
-                ),
+                response_text=_body,
             )
         except Exception:
             pass

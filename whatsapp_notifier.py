@@ -17,6 +17,7 @@ Mehrere Empfaenger werden sequentiell mit _SEND_DELAY_S Pause gesendet.
 """
 
 import time
+import urllib.error
 import urllib.request
 import urllib.parse
 from datetime import datetime, timedelta
@@ -270,16 +271,21 @@ def send_test_wa(wa_str: str) -> dict:
     Bypasst den Cooldown — ausschliesslich fuer manuelle Konfigurationspruefung
     aus dem Admin-Panel gedacht. Darf nicht im automatischen Warn-Pfad verwendet werden.
 
+    Im Gegensatz zu _send_whatsapp() liest diese Funktion den HTTP-Response-Body
+    auch bei Fehlern aus und gibt ihn als "error"-Feld zurueck — damit ist der
+    exakte CallMeBot-Fehlertext (z.B. "Not Registered", "API Key not Valid")
+    fuer den Benutzer sichtbar.
+
     Parameter:
         wa_str : ";"-getrennte "phone:apikey"-Paare
                  z.B. "+4369912345678:KEY1;+43664...:KEY2"
 
     Rueckgabe:
         {
-          "ok":       bool,          # True wenn mindestens 1 Empfaenger erreicht
-          "sent_to":  [str, ...],    # Erfolgreich erreichte Telefonnummern
-          "failed":   [str, ...],    # Nicht erreichte Telefonnummern
-          "error":    str | None,    # Fehlermeldung bei Parse-Fehler oder leerem String
+          "ok":       bool,        # True wenn mindestens 1 Empfaenger erreicht
+          "sent_to":  [str, ...],  # Erfolgreich erreichte Telefonnummern
+          "failed":   [str, ...],  # Nicht erreichte Telefonnummern
+          "error":    str | None,  # Letzter Fehlertext (CallMeBot-Antwort oder Netzwerk)
         }
     """
     recipients = _parse_wa_recipients(wa_str)
@@ -288,13 +294,15 @@ def send_test_wa(wa_str: str) -> dict:
         return {"ok": False, "sent_to": [], "failed": [],
                 "error": "Kein gueltiger Empfaenger (Format: +43Nr:APIKey)"}
 
-    ts = datetime.now().strftime("%d.%m.%Y %H:%M")
-    sent_to: list = []
-    failed:  list = []
+    ts         = datetime.now().strftime("%d.%m.%Y %H:%M")
+    sent_to:   list = []
+    failed:    list = []
+    last_error: str | None = None
 
     for idx, (phone, apikey) in enumerate(recipients):
         if idx > 0:
             time.sleep(_SEND_DELAY_S)
+
         message = (
             f"WetterExtended Test\n"
             f"{ts}\n\n"
@@ -302,17 +310,55 @@ def send_test_wa(wa_str: str) -> dict:
             f"fuer WetterExtended korrekt konfiguriert sind.\n"
             f"Empfaenger: {phone}"
         )
-        ok = _send_whatsapp(phone, apikey, message)
-        if ok:
-            sent_to.append(phone)
-            debug_log(f"[WA-TEST] Gesendet: {phone}")
-        else:
-            failed.append(phone)
-            debug_log(f"[WA-TEST] Fehlgeschlagen: {phone}")
 
+        # HTTP-Call inline (nicht via _send_whatsapp) — damit der Response-Body
+        # auch bei Fehlern ausgelesen und zurueckgegeben werden kann.
+        params = urllib.parse.urlencode({
+            "phone":  phone,
+            "text":   message,
+            "apikey": apikey,
+        })
+        url = f"{_CALLMEBOT_URL}?{params}"
+        try:
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "WetterExtended/1.0"}
+            )
+            with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
+                body = resp.read().decode("utf-8", errors="replace").strip()
+                if resp.status == 200:
+                    sent_to.append(phone)
+                    debug_log(f"[WA-TEST] Gesendet: {phone} — {body[:80]}")
+                else:
+                    failed.append(phone)
+                    last_error = f"HTTP {resp.status}: {body[:300]}"
+                    debug_log(f"[WA-TEST] HTTP {resp.status} fuer {phone}: {body[:200]}")
+
+        except urllib.error.HTTPError as exc:
+            # CallMeBot sendet Fehlertexte im Body auch bei 4xx/5xx
+            error_body = ""
+            try:
+                error_body = exc.read().decode("utf-8", errors="replace").strip()
+            except Exception:
+                pass
+            last_error = f"HTTP {exc.code}: {error_body[:300] or exc.reason}"
+            failed.append(phone)
+            debug_log(
+                f"[WA-TEST] HTTP-Fehler {exc.code} fuer {phone}: "
+                f"{error_body[:200] or exc.reason}"
+            )
+
+        except Exception as exc:
+            last_error = f"{type(exc).__name__}: {str(exc)[:200]}"
+            failed.append(phone)
+            debug_log(f"[WA-TEST] Netzwerk-Fehler fuer {phone}: {exc}")
+
+    debug_log(
+        f"[WA-TEST] Ergebnis: sent={sent_to}, failed={failed}, "
+        f"error={last_error!r:.120}"
+    )
     return {
         "ok":      len(sent_to) > 0,
         "sent_to": sent_to,
         "failed":  failed,
-        "error":   None,
+        "error":   last_error,
     }
