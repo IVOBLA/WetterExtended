@@ -1101,6 +1101,29 @@ automatisch übersprungen; eine Hinweismeldung nennt die abgelehnten Dateien.
 >
 > Die KI-Analyse verursacht API-Kosten pro Request.
 
+## 23.9 Tendenz-Anzeige im Zell-Popup (Intensität & Größe)
+
+Jede erkannte Gewitterzelle wird hinsichtlich ihrer erwarteten Entwicklung
+klassifiziert und im Popup der Karte (`/karte`) angezeigt:
+
+| Feld | Bedeutung | Werte |
+|---|---|---|
+| Intensität | Entwicklung des Zellkerns (≥54 dBZ) | verstärkt sich / schwächt ab / stabil |
+| Größe | Flächenentwicklung der Zelle | wächst / schrumpft / stabil |
+
+**Datengrundlage:**
+- **Mit ML-Modell:** Die Intensitäts-Regressoren (`delta_core_ratio`,
+  `delta_area_pct`, 20-min-Horizont) liefern die Vorhersage.
+- **Ohne Modell (kinematisch):** Es wird der gemessene Verlauf der letzten
+  Radar-Frames verwendet (Kern-Anteil und Fläche gegenüber dem Vorframe).
+
+Die Quelle wird im Popup gekennzeichnet (ML = sichere Prognose,
+kinematisch = aus jüngstem Trend abgeleitet, grau dargestellt).
+
+**Schwellwerte (stabil-Korridor):** |Δ Kern-Anteil| ≤ 0,05 bzw.
+|Δ Fläche| ≤ 10 %. Außerhalb dieses Korridors gilt die Zelle als
+verstärkend/abschwächend bzw. wachsend/schrumpfend.
+
 ## 23.8 Polygon-basierte Orts-Treffer mit richtungsabhängigem Wachstum
 
 **`current`:** Abstand Ort → Zell-Polygon-Rand ≤ Ortsradius.

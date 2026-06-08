@@ -24,6 +24,8 @@ from config import (
     ML_SEQUENCE_LENGTH,
     ML_STATION_FEATURES as STATION_KEYS,
     PX_TO_KMH,
+    TENDENCY_AREA_PCT_STABLE as _TENDENCY_AREA_TH,
+    TENDENCY_CORE_DELTA_STABLE as _TENDENCY_CORE_TH,
     SAVE_PATHS,
     UPSCALE_FACTOR as _UF,
 )
@@ -228,6 +230,37 @@ def _predict_lgbm_vector(models, frame, suffix=""):
     return np.asarray(preds, dtype=float)
 
 
+def _classify_tendency(obj: dict, has_ml: bool) -> None:
+    """B92: Setzt intensity_tendency, size_tendency, tendency_source am Objekt.
+
+    has_ml=True  → nutzt delta_core_ratio_pred / delta_area_pred (Regressoren).
+    has_ml=False → nutzt trend (-1/0/+1) und size_trend (-1/0/+1) aus dem Tracker.
+
+    Werte: "staerker" | "schwaecher" | "stabil"  bzw.
+           "waechst"  | "schrumpft"  | "stabil".
+    """
+    if has_ml:
+        dc = _safe_float(obj.get("delta_core_ratio_pred", 0.0))
+        da = _safe_float(obj.get("delta_area_pred", 0.0))
+        obj["intensity_tendency"] = (
+            "staerker" if dc > _TENDENCY_CORE_TH else "schwaecher" if dc < -_TENDENCY_CORE_TH else "stabil"
+        )
+        obj["size_tendency"] = (
+            "waechst" if da > _TENDENCY_AREA_TH else "schrumpft" if da < -_TENDENCY_AREA_TH else "stabil"
+        )
+        obj["tendency_source"] = "ml"
+    else:
+        t = int(obj.get("trend", 0) or 0)
+        st = int(obj.get("size_trend", 0) or 0)
+        obj["intensity_tendency"] = (
+            "staerker" if t > 0 else "schwaecher" if t < 0 else "stabil"
+        )
+        obj["size_tendency"] = (
+            "waechst" if st > 0 else "schrumpft" if st < 0 else "stabil"
+        )
+        obj["tendency_source"] = "kinematic"
+
+
 def _kinematic_fallback(objects: list) -> tuple:
     """Kinematischer Fallback für alle Objekte (keine Modelle geladen)."""
     _horizons = _get_horizons()
@@ -236,6 +269,7 @@ def _kinematic_fallback(objects: list) -> tuple:
         obj["intensification_prob"]  = 0.0
         obj["delta_core_ratio_pred"] = 0.0
         obj["delta_area_pred"]       = 0.0
+        _classify_tendency(obj, has_ml=False)  # B92
         _append_kinematic(obj, forecasts)
     return tuple(forecasts[h] for h in _horizons)
 
@@ -370,6 +404,7 @@ def predict_positions(objects: list, timestamp: str, stations: list):
     for obj in objects:
         seq = _build_sequence(obj.get("id"), obj, stations, ts_dt)
         if seq is None:
+            _classify_tendency(obj, has_ml=False)
             _append_kinematic(obj, forecasts)
             continue
 
@@ -401,6 +436,10 @@ def predict_positions(objects: list, timestamp: str, stations: list):
         else:
             obj["delta_area_pred"] = 0.0
 
+        # B92: Tendenz aus ML-Deltas wenn beide Regressoren vorhanden,
+        # sonst kinematischer Fallback (trend/size_trend).
+        _classify_tendency(obj, has_ml=(reg_core is not None and reg_area is not None))
+
         prediction_scaled = None
         prediction_q10_scaled = None
         prediction_q90_scaled = None
@@ -415,6 +454,7 @@ def predict_positions(objects: list, timestamp: str, stations: list):
             prediction_scaled = np.asarray(lstm_model.predict(seq_scaled, verbose=0)[0], dtype=float)
 
         if prediction_scaled is None or prediction_scaled.shape[0] != len(_get_horizons()) * 2:
+            _classify_tendency(obj, has_ml=False)
             _append_kinematic(obj, forecasts)
             continue
 
