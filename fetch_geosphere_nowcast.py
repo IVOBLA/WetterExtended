@@ -110,7 +110,7 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
                     )
                     log_api_failure(
                         "geosphere_nowcast", str(url),
-                        f"http-422 | {_nc_body[:80]}",
+                        f"http-422 | {_nc_body}",
                         fallback_used=True, http_status=422,
                     )
                     log_api_call(
@@ -118,16 +118,16 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
                         duration_ms=(_t_nowcast.monotonic() - _t0_nowcast) * 1000,
                         method="GET",
                         response_text=_nc_body[:200],
-                        error=f"http-422 | {_nc_body[:80]}",
+                        error=f"http-422 | {_nc_body}",
                     )
                     continue  # weitere Slots nur falls künftig wieder konfiguriert
                 # Anderer HTTP-Fehler → abbrechen
                 log_api_failure("geosphere_nowcast", str(url),
-                                str(_nc_exc)[:80], fallback_used=True,
+                                str(_nc_exc), fallback_used=True,
                                 http_status=_nc_status)
                 break
             except Exception as exc:
-                log_api_failure("geosphere_nowcast", str(url), str(exc)[:80],
+                log_api_failure("geosphere_nowcast", str(url), str(exc),
                                 fallback_used=True)
                 break
         if _slot_result is not None:
