@@ -16,6 +16,7 @@ from debug_utils import save_debug_image, debug_log
 from geo_utils import crop_and_upscale_to_bbox
 from config import MIN_CONTOUR_OVERLAP
 from config import MIN_CONTOUR_TOUCH
+from config import TENDENCY_AREA_PCT_STABLE
 
 
 def _validate_bbox(bbox: object, fallback: dict) -> dict:
@@ -556,6 +557,18 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             elif core_ratio < prev_core - 0.05:
                 trend = -1
 
+        # ── B92: Größen-Tendenz aus core_ratio-/Flächen-Verlauf (Fallback) ──
+        # area-Vergleich gegen vorigen Frame → relative Flächenänderung.
+        size_trend = 0
+        if best_id and best_id in previous_snapshot and "area" in previous_snapshot[best_id]:
+            prev_area = float(previous_snapshot[best_id].get("area") or 0.0)
+            if prev_area > 0.0:
+                _area_pct = (float(area) - prev_area) / prev_area
+                if _area_pct > TENDENCY_AREA_PCT_STABLE:
+                    size_trend = 1
+                elif _area_pct < -TENDENCY_AREA_PCT_STABLE:
+                    size_trend = -1
+
         dem    = get_dem_features(lat, lon, vx=float(vx), vy=float(vy))
         valley = get_valley_features(lat, lon, vx=float(vx), vy=float(vy))
         strat  = compute_stratiform_environment(
@@ -564,7 +577,9 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
         new_memory[obj_id] = {
             "x": original_cx, "y": original_cy, "vx": float(vx), "vy": float(vy),
             "size": int(np.sqrt(area)), "area": float(area), "eccentricity": float(eccentricity),
-            "core_ratio": float(core_ratio), "trend": trend, "lat": lat, "lon": lon,
+            "core_ratio": float(core_ratio), "trend": trend,
+            "size_trend": size_trend,
+            "lat": lat, "lon": lon,
             "dem_elevation_m":        dem["dem_elevation_m"],
             "dem_slope_toward_cell":  dem["dem_slope_toward_cell"],
             "dem_barrier_ahead":      dem.get("dem_barrier_ahead", 0.0),

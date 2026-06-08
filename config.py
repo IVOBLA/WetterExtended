@@ -108,6 +108,23 @@ WIND_RASTER_RESOLUTION_KM = 10  # Rasterweite für Höhenwind
 MIN_CONTOUR_OVERLAP = 10
 MIN_CONTOUR_TOUCH = 5
 
+# --------------------------------------
+# Tendenz-Klassifikation (Popup-Anzeige, B92)
+# --------------------------------------
+# Schwellwerte zur Einteilung der Zell-Entwicklung in stärker/schwächer/stabil.
+# Werden im Popup (/karte) als Pfeile/Symbole angezeigt.
+#
+# Intensität: Basis ist die Änderung von core_ratio (Anteil ≥54 dBZ Kern).
+#   ML-Pfad      → delta_core_ratio_pred (absolute Änderung über 20-min-Horizont)
+#   Fallback     → trend-Feld (-1/0/+1) aus core_ratio-Verlauf
+# Größe: relative Flächenänderung.
+#   ML-Pfad      → delta_area_pred (relativer Anteil, z. B. 0.10 = +10 %)
+#   Fallback     → richtungsabhängige Wachstumsraten (Halbachsen-Summe)
+#
+# "stabil"-Korridor (außerhalb → stärker/schwächer bzw. wächst/schrumpft):
+TENDENCY_CORE_DELTA_STABLE = 0.05   # |Δcore_ratio| ≤ 0.05 → Intensität stabil
+TENDENCY_AREA_PCT_STABLE   = 0.10   # |Δarea_pct|   ≤ 0.10 → Größe stabil
+
 # Minimale Zell-Geschwindigkeit für Pfeil-Darstellung in der Karte (km/h).
 # Zellen langsamer als dieser Wert erhalten KEINEN Bewegungspfeil.
 # 0 = alle Zellen bekommen Pfeil (altes Verhalten).
