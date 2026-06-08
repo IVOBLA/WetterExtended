@@ -775,11 +775,23 @@ def main_loop():
                             continue
                         _wa = _loc_wa_map.get(_loc_hit["name"], "")
                         if _wa:
-                            send_warning_wa(
+                            _wa_ok = send_warning_wa(
                                 _loc_hit["name"],
                                 _loc_hit["hits"],
                                 _wa,
                                 timestamp,
+                            )
+                            if _wa_ok:
+                                debug_log(f"[WA] Warnung gesendet: {_loc_hit['name']}")
+                            else:
+                                debug_log(
+                                    f"[WA] Warnung NICHT gesendet: {_loc_hit['name']} "
+                                    f"(Cooldown oder Empfaenger-Fehler — Details oben)"
+                                )
+                        else:
+                            debug_log(
+                                f"[WA] Kein WhatsApp-Eintrag fuer {_loc_hit['name']} "
+                                f"— Feld leer oder nicht konfiguriert."
                             )
                 except Exception as _e:
                     debug_log(f"[WA] Warnung fehlgeschlagen: {_e}")

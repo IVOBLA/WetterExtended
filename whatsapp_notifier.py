@@ -50,6 +50,7 @@ def _parse_wa_recipients(wa_str: str) -> list:
     Eintraege ohne ':' oder mit leerem phone/apikey werden mit Debug-Log uebersprungen.
     """
     if not wa_str or not wa_str.strip():
+        debug_log("[WA] Empfaenger-String leer — kein WhatsApp-Versand.")
         return []
     result = []
     for entry in wa_str.split(";"):
@@ -119,6 +120,10 @@ def send_warning_wa(loc_name: str, hits: dict, wa_str: str,
     """
     recipients = _parse_wa_recipients(wa_str)
     if not recipients:
+        debug_log(
+            f"[WA] Warnung {loc_name}: keine gueltigen Empfaenger "
+            f"(wa_str={wa_str!r:.60}) — Versand abgebrochen."
+        )
         return False
 
     now = time.time()
