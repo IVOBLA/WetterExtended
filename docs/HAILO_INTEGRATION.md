@@ -880,6 +880,7 @@ Konvektive Szenarien (CAPE > 0, negative LI) werden nicht beeinträchtigt.
 |---|------|-----------|--------|
 | B81 | `whatsapp_notifier.py` + `main.py`: Stille WhatsApp-Fehlschläge — kein Log wenn Empfänger-String leer, keine Empfänger geparsed, oder WhatsApp-Feld im Ort fehlt. Fix: `debug_log` an allen 3 Stellen ergänzt. Diagnose: `[WA] Kein WhatsApp-Eintrag für {Ort}` / `[WA] keine gültigen Empfänger` / `[WA] Warnung NICHT gesendet`. | `whatsapp_notifier.py`, `main.py` | ✅ erledigt |
 | B82 | `main.py` + `whatsapp_notifier.py`: Risk-Alert Cooldown von 1× täglich auf 1× 2 Stunden geändert. `_RISK_ALERT_LOG` speichert jetzt Epoch-Timestamp statt Datumsstring. Rückwärtskompatibel (alte Datumsstrings → Cooldown abgelaufen → Alarm erlaubt). | `main.py`, `whatsapp_notifier.py` | ✅ erledigt |
+| B83 | `MapView.jsx` + `MapFullscreen.jsx`: Risikozonen-Popup zeigte LI doppelt (in `atm`-dominantLabel UND als Detail-Zeile). Zusätzlich fehlten Regen/Böe/Hagel im Popup. Fix: LI aus `dominantLabel` entfernt; Severity-Proxy (Regen/Böe/Hagel) aus bereits vorhandenen `info`-Feldern (cape, pw, ship, lapse_700_500) direkt im Frontend berechnet und angezeigt — identisch zur Formel in `convective_outlook.py`. | `frontend/src/pages/MapView.jsx`, `frontend/src/pages/MapFullscreen.jsx` | ✅ erledigt |
 
 ## B76 — GeoSphere Nowcast HTTP 400: Timestamp-Format-Fehler
 

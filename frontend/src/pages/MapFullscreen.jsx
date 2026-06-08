@@ -759,13 +759,28 @@ export default function MapFullscreen() {
               case 'lightning':
                 return `⚡ Blitzaktivität${info.lightning_count > 0 ? ` — ${info.lightning_count} Blitze < 10 km` : ''}`
               case 'atm':
-                return `☁ Atmosphärische Instabilität${info.li != null ? ` · LI ${info.li} °C` : ''}`
+                return `☁ Atmosphärische Instabilität`
               case 'ir_cell':
                 return `Cumulonimbus${info.ir_cell_dist_km != null ? ` — ${info.ir_cell_dist_km} km entfernt` : ''}`
               default:
                 return ''
             }
           })()
+          // B83 — Severity-Proxy aus verfügbaren atmosphärischen Feldern (kein ML)
+          const _sevCap = info.cape ?? 0
+          const _sevPW  = info.pw  ?? 0
+          const _sevShp = info.ship ?? 0
+          const _sevLps = info.lapse_700_500 ?? 0
+          const sevRain = _sevCap > 0 && _sevPW > 0
+            ? Math.round(Math.min(_sevPW, 50) * Math.min(_sevCap / 1500, 2) * 1.2 * 10) / 10
+            : null
+          const sevGust = _sevCap > 0
+            ? Math.round((10 + Math.min(_sevCap / 100, 40) * (_sevLps > 0 ? _sevLps / 7 : 0)) * 10) / 10
+            : null
+          const sevHI   = _sevShp > 0 ? Math.round(Math.min(_sevShp, 3) * 100) / 100 : null
+          const sevHCat = sevHI != null
+            ? (sevHI >= 1.5 ? 'gross' : sevHI >= 0.8 ? 'klein' : 'kein')
+            : null
           return (
             <Rectangle
               key={'risk_' + i}
@@ -805,6 +820,20 @@ export default function MapFullscreen() {
                     )}
                     {info.cell_id != null && (
                       <div>Zelle: <b>{info.cell_id}</b></div>
+                    )}
+                    {/* B83 Regen / Böe / Hagel */}
+                    {sevRain != null && (
+                      <div>🌧 Regen: <b>{sevRain}</b> mm/h</div>
+                    )}
+                    {sevGust != null && (
+                      <div>💨 Böe: ~<b>{sevGust}</b> km/h</div>
+                    )}
+                    {sevHCat != null && (
+                      <div>🧊 Hagel: <b>{sevHCat}</b>
+                        {sevHI != null && (
+                          <span style={{ color: '#888', marginLeft: 3 }}>(Index {sevHI})</span>
+                        )}
+                      </div>
                     )}
                     {info.ship != null && (
                       <div>SHIP: <b>{info.ship}</b>
