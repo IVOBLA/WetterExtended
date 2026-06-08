@@ -124,6 +124,9 @@ Die Vollinstallation führt folgende Phasen durch:
 - nginx Reverse-Proxy konfigurieren + Basic-Auth-Passwort generieren
 - systemd-Services anlegen und aktivieren
 - `.env`-Datei anlegen (FTP, Blitzortung, Twilio-Zugangsdaten)
+- **Phase 9 (letzter Schritt): Automatischer Testlauf** — die komplette
+  pytest-Suite aus `tests/` wird ausgeführt; das Ergebnis erscheint im
+  Abschluss und wird unter `train_data/evaluation/install_pytest.log` gespeichert.
 
 ## 2.2 Upgrade (`--mode=upgrade`)
 
@@ -134,6 +137,10 @@ bash install.sh --mode=upgrade
 ```
 
 Beim Upgrade werden aktualisiert: Python-Pakete, Frontend-Build, systemd-Unit-Dateien.
+
+Auch beim Upgrade wird als letzter Schritt die Test-Suite ausgeführt
+(Phase 9). Rote Tests führen ausschließlich zu einer Warnung und brechen die
+Installation niemals ab — das bereits aktualisierte System bleibt in Betrieb.
 
 ## 2.3 `install.sh` — Optionen
 

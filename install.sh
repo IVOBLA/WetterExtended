@@ -1678,6 +1678,62 @@ else
     echo "       python3 init_runtime_overrides.py"
 fi
 
+# ==============================================================================
+# PHASE 9 — Tests (letzter Schritt, beide Modi)
+# ==============================================================================
+CURRENT_PHASE="Phase 9 — Tests"
+log_step "Phase 9 — Tests ausführen"
+
+# Vorgabe Zieldefinition: Fehlgeschlagene Tests erzeugen AUSSCHLIESSLICH
+# Warnungen und brechen die Installation NIEMALS ab. Es gibt bewusst keine
+# Option für Hart-Abbruch — der Exit-Code dieser Phase ist immer 0.
+
+_TESTS_DIR="$TARGET/tests"
+
+if [[ ! -d "$_TESTS_DIR" ]] || ! ls "$_TESTS_DIR"/test_*.py >/dev/null 2>&1; then
+    check_warn "Keine Tests gefunden in $_TESTS_DIR — Phase 9 übersprungen."
+else
+    # pytest sicherstellen (steht in requirements.txt auskommentiert → ggf. fehlend)
+    if ! "$VENV/bin/python3" -c "import pytest" 2>/dev/null; then
+        log_info "pytest nicht im venv — installiere nach..."
+        if pip_install_safe pytest >/dev/null 2>&1; then
+            check_ok "pytest nachinstalliert"
+        else
+            check_warn "pytest konnte nicht installiert werden — Tests übersprungen."
+            note_manual "source $VENV/bin/activate && pip install pytest && cd $TARGET && python3 -m pytest"
+        fi
+    fi
+
+    if "$VENV/bin/python3" -c "import pytest" 2>/dev/null; then
+        log_info "Führe Test-Suite aus: $_TESTS_DIR"
+        _TEST_LOG="$TARGET/train_data/evaluation/install_pytest.log"
+        mkdir -p "$(dirname "$_TEST_LOG")"
+
+        # Im Projektverzeichnis ausführen, damit pytest.ini + Imports greifen.
+        # rootdir = $TARGET; -p no:cacheprovider vermeidet .pytest_cache-Schreibrechte-Probleme.
+        set +e
+        ( cd "$TARGET" && "$VENV/bin/python3" -m pytest tests \
+              -p no:cacheprovider 2>&1 ) | tee "$_TEST_LOG"
+        _PYTEST_RC=${PIPESTATUS[0]}
+        set -e
+
+        # Kurz-Zusammenfassung aus der letzten pytest-Zeile (passed/failed/...)
+        _SUMMARY="$(grep -E '=+ .*(passed|failed|error|skipped).* =+' "$_TEST_LOG" | tail -1 | sed -E 's/=+//g; s/^ +//; s/ +$//' || true)"
+
+        if [[ "$_PYTEST_RC" -eq 0 ]]; then
+            check_ok "Tests bestanden: ${_SUMMARY:-alle Tests grün}"
+        elif [[ "$_PYTEST_RC" -eq 5 ]]; then
+            # pytest exit 5 = keine Tests gesammelt
+            check_warn "pytest hat keine Tests gesammelt (Exit 5)."
+        else
+            # Nur Warnung — NIE Abbruch (Vorgabe Zieldefinition).
+            check_warn "Tests fehlgeschlagen (Exit $_PYTEST_RC): ${_SUMMARY:-siehe $_TEST_LOG}"
+            note_manual "Details: cat $_TEST_LOG   |   erneut: cd $TARGET && source venv/bin/activate && python3 -m pytest tests -v"
+        fi
+        log_info "Test-Protokoll gespeichert: $_TEST_LOG"
+    fi
+fi
+
 # Nächste Schritte
 cat <<NEXTSTEPS
 
