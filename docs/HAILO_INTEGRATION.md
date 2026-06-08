@@ -882,12 +882,23 @@ Konvektive Szenarien (CAPE > 0, negative LI) werden nicht beeinträchtigt.
 | B82 | `main.py` + `whatsapp_notifier.py`: Risk-Alert Cooldown von 1× täglich auf 1× 2 Stunden geändert. `_RISK_ALERT_LOG` speichert jetzt Epoch-Timestamp statt Datumsstring. Rückwärtskompatibel (alte Datumsstrings → Cooldown abgelaufen → Alarm erlaubt). | `main.py`, `whatsapp_notifier.py` | ✅ erledigt |
 | B83 | `MapView.jsx` + `MapFullscreen.jsx`: Risikozonen-Popup zeigte LI doppelt (in `atm`-dominantLabel UND als Detail-Zeile). Zusätzlich fehlten Regen/Böe/Hagel im Popup. Fix: LI aus `dominantLabel` entfernt; Severity-Proxy (Regen/Böe/Hagel) aus bereits vorhandenen `info`-Feldern (cape, pw, ship, lapse_700_500) direkt im Frontend berechnet und angezeigt — identisch zur Formel in `convective_outlook.py`. | `frontend/src/pages/MapView.jsx`, `frontend/src/pages/MapFullscreen.jsx` | ✅ erledigt |
 
-### 5.13 Phase A.13 — Bug-Fix-Welle 13
+### 5.13 Phase A.13 — Bug-Fix-Welle 13 (Log-Analyse 2026-06-08)
+
+**Analysiertes Log:** `wetterprojekt_logs_20260608_093303.txt`  
+**objects-JSON:** `objects_20260608_093259.json` → leer `[]` (kein Gewitter, Normalbetrieb)
+
+**Bestätigter Normalbetrieb (kein Fix):**
+- `rebuild_dataset samples=0` → erwartet (keine Gewitterzellen = keine Trainingssequenzen)
+- `openmeteo_*/AROME/SYNOPTIC` STALE/kein API-Call → erwartet (objektabhängig, keine Zellen)
+- `geosphere_nowcast MISSING` → erwartet (objektabhängig, keine Zellen aktiv)
+- `[LOOP] langer Intervall (900s)` → korrektes Verhalten (>120 min Ruhe)
+- `[RISK-ALERT] Connection refused` → bekanntes Race-Condition-Fenster beim Service-Neustart, P2, deferred
 
 | # | Task | Datei(en) | Status |
 |---|------|-----------|--------|
-| B84 | `Progress.jsx`: Leere Charts ohne Empty-State-Erklärung — wenn keine Modell-Versionen vorhanden (`versions = []`), wurden drei leere Recharts-Diagramme und eine leere Tabelle angezeigt ohne jede Erklärung. Fix: `loaded`-State ergänzt; Amber-Banner wenn `loaded && versions.length === 0`; Charts und Tabelle nur bei `versions.length > 0`. | `frontend/src/pages/Progress.jsx` | ✅ erledigt |
-| B85 | `email_notifier.py` + `drift_detector.py`: Drift-Alert-Email ohne Cooldown — `send_drift_alert()` hatte keinen Cooldown und sendete bei jeder `accuracy_eval`-Ausführung (stündlich) eine E-Mail wenn Drift erkannt. Zusätzlich: Im kinematischen Fallback-Modus (keine ML-Modelle) ist Drift nicht relevant. Fix (1): 6h dateibasierter Cooldown in `send_drift_alert()` (`_DRIFT_COOLDOWN_FILE`). Fix (2): `_has_ml_model()`-Guard in `check_and_alert()` — kein Alert wenn `train_data/models/current/` und `v_*` fehlen. | `email_notifier.py`, `drift_detector.py` | ✅ erledigt |
+| B84 | `Progress.jsx`: Leere Charts ohne Empty-State-Erklärung — wenn keine Modell-Versionen vorhanden (`versions = []`), wurden drei leere Recharts-Diagramme und eine leere Tabelle angezeigt ohne jede Erklärung. Nutzer konnte nicht unterscheiden ob Fehler oder normaler Datenmangel. Fix: `loaded`-State ergänzt; Amber-Banner wenn `loaded && versions.length === 0`; Charts und Tabelle nur bei `versions.length > 0`. | `frontend/src/pages/Progress.jsx` | ✅ erledigt |
+| B85 | `email_notifier.py` + `drift_detector.py`: Drift-Alert-Email ohne Cooldown — `send_drift_alert()` hatte keinen Cooldown (anders als `send_warning_email` mit 15 min). Im Fallback-Modus (keine ML-Modelle, MAE systemisch erhöht) wurde stündlich ein Drift-Alarm versendet. Fix (1): 6h dateibasierter Cooldown in `send_drift_alert()` via `_DRIFT_COOLDOWN_FILE` (`train_data/evaluation/drift_mail_cooldown.json`). Fix (2): `_has_ml_model()`-Guard in `check_and_alert()` — kein E-Mail-Alarm wenn `train_data/models/current/` und `v_*`-Verzeichnisse fehlen (kinematischer Fallback-Modus). | `email_notifier.py`, `drift_detector.py` | ✅ erledigt |
+
 
 ## B76 — GeoSphere Nowcast HTTP 400: Timestamp-Format-Fehler
 
