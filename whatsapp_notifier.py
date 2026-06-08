@@ -261,3 +261,58 @@ def send_risk_alert_wa(location_name: str, dominant: str,
         if _send_whatsapp(phone, apikey, message):
             any_ok = True
     return any_ok
+
+
+def send_test_wa(wa_str: str) -> dict:
+    """
+    Sendet eine Testnachricht an alle Empfaenger im wa_str.
+
+    Bypasst den Cooldown — ausschliesslich fuer manuelle Konfigurationspruefung
+    aus dem Admin-Panel gedacht. Darf nicht im automatischen Warn-Pfad verwendet werden.
+
+    Parameter:
+        wa_str : ";"-getrennte "phone:apikey"-Paare
+                 z.B. "+4369912345678:KEY1;+43664...:KEY2"
+
+    Rueckgabe:
+        {
+          "ok":       bool,          # True wenn mindestens 1 Empfaenger erreicht
+          "sent_to":  [str, ...],    # Erfolgreich erreichte Telefonnummern
+          "failed":   [str, ...],    # Nicht erreichte Telefonnummern
+          "error":    str | None,    # Fehlermeldung bei Parse-Fehler oder leerem String
+        }
+    """
+    recipients = _parse_wa_recipients(wa_str)
+    if not recipients:
+        debug_log("[WA-TEST] Keine gueltigen Empfaenger im wa_str.")
+        return {"ok": False, "sent_to": [], "failed": [],
+                "error": "Kein gueltiger Empfaenger (Format: +43Nr:APIKey)"}
+
+    ts = datetime.now().strftime("%d.%m.%Y %H:%M")
+    sent_to: list = []
+    failed:  list = []
+
+    for idx, (phone, apikey) in enumerate(recipients):
+        if idx > 0:
+            time.sleep(_SEND_DELAY_S)
+        message = (
+            f"WetterExtended Test\n"
+            f"{ts}\n\n"
+            f"Diese Nachricht bestaetigt dass WhatsApp-Benachrichtigungen "
+            f"fuer WetterExtended korrekt konfiguriert sind.\n"
+            f"Empfaenger: {phone}"
+        )
+        ok = _send_whatsapp(phone, apikey, message)
+        if ok:
+            sent_to.append(phone)
+            debug_log(f"[WA-TEST] Gesendet: {phone}")
+        else:
+            failed.append(phone)
+            debug_log(f"[WA-TEST] Fehlgeschlagen: {phone}")
+
+    return {
+        "ok":      len(sent_to) > 0,
+        "sent_to": sent_to,
+        "failed":  failed,
+        "error":   None,
+    }

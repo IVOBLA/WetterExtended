@@ -6,6 +6,8 @@ export default function Locations() {
   const [msg, setMsg] = useState('')
   const [loading, setLoading] = useState(true)
   const [apiError, setApiError] = useState(false)
+  const [waTestState, setWaTestState] = useState({})
+  // waTestState: { [rowIndex]: { loading: bool, ok: bool|null, msg: string } }
 
   useEffect(() => {
     api.get('/api/locations')
@@ -35,6 +37,27 @@ export default function Locations() {
       await api.post('/api/locations', list)
       setMsg('Gespeichert. Wirkt sofort im nächsten Live-Loop-Zyklus.')
     } catch (e) { setMsg('Fehler: ' + e.message) }
+  }
+
+  async function testWa(i) {
+    const wa_str = (list[i]?.whatsapp ?? '').trim()
+    if (!wa_str) {
+      setWaTestState(s => ({ ...s, [i]: { loading: false, ok: false, msg: 'Kein Empfänger konfiguriert' } }))
+      return
+    }
+    setWaTestState(s => ({ ...s, [i]: { loading: true, ok: null, msg: '' } }))
+    try {
+      const r = await api.post('/api/whatsapp/test', { wa_str })
+      if (r.ok) {
+        const nums = r.sent_to.join(', ') || '—'
+        setWaTestState(s => ({ ...s, [i]: { loading: false, ok: true, msg: `Gesendet: ${nums}` } }))
+      } else {
+        const failMsg = r.error || (r.failed?.join(', ') ? `Fehlgeschlagen: ${r.failed.join(', ')}` : 'Fehler')
+        setWaTestState(s => ({ ...s, [i]: { loading: false, ok: false, msg: failMsg } }))
+      }
+    } catch (e) {
+      setWaTestState(s => ({ ...s, [i]: { loading: false, ok: false, msg: e.message } }))
+    }
   }
 
   return (
@@ -129,6 +152,21 @@ export default function Locations() {
                     onChange={e => update(i, 'whatsapp', e.target.value)}
                     placeholder="+43699...:APIKey1;+43664...:APIKey2"
                   />
+                  <div className="flex items-center gap-2 mt-1">
+                    <button
+                      className="text-xs px-2 py-0.5 rounded border border-gray-300 bg-gray-50
+                                 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={!l.whatsapp || waTestState[i]?.loading}
+                      onClick={() => testWa(i)}
+                    >
+                      {waTestState[i]?.loading ? '...' : 'Test'}
+                    </button>
+                    {waTestState[i] && !waTestState[i].loading && waTestState[i].ok !== null && (
+                      <span className={`text-xs ${waTestState[i].ok ? 'text-green-700' : 'text-red-600'}`}>
+                        {waTestState[i].ok ? '✓ ' : '✗ '}{waTestState[i].msg}
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className="p-2">
                   <button className="btn-danger" onClick={() => remove(i)}>x</button>

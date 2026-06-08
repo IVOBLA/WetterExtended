@@ -781,7 +781,23 @@ E-Mail und WhatsApp sind unabhängig voneinander konfigurierbar.
 > Nachrichten sind **Klartext** (kein HTML). Emojis werden vermieden, da nicht alle
 > Android-Versionen Emojis in automatischen Nachrichten korrekt darstellen.
 
-## 17.4 Cooldown und Rate-Limiting
+## 17.4 Konfiguration testen
+
+Auf der Seite **Beobachtete Orte** (`/locations`) erscheint unter jedem
+WhatsApp-Eingabefeld ein kleiner **„Test"**-Button:
+
+1. WhatsApp-Feld des gewünschten Orts mit gültigem `+43Nr:APIKey` befüllen
+2. **„Test"** klicken — der Button zeigt `...` während gesendet wird
+3. Ergebnis direkt in der Zeile:
+   - `✓ Gesendet: +43699...` → Konfiguration korrekt
+   - `✗ Fehlermeldung` → Nummer oder API-Key prüfen
+
+> **Hinweis:** Der Test umgeht den Cooldown. Es wird eine neutrale
+> Bestätigungsnachricht gesendet (kein Gewitterbezug).
+> Bei mehreren Empfängern werden alle getestet; zwischen den Sendungen
+> wird die CallMeBot-Pause von 5 Sekunden eingehalten.
+
+## 17.5 Cooldown und Rate-Limiting
 
 | Parameter | Wert |
 |---|---|
@@ -790,13 +806,13 @@ E-Mail und WhatsApp sind unabhängig voneinander konfigurierbar.
 | Pause zwischen Empfängern | 5 Sekunden (CallMeBot Rate-Limit) |
 | Tages-Cooldown Risiko-Stufe-3 | 1× täglich pro Ort (gemeinsam mit E-Mail) |
 
-## 17.5 Verhalten bei Fehlern
+## 17.6 Verhalten bei Fehlern
 
 Fehler beim WA-Versand (Timeout, CallMeBot nicht erreichbar) werden geloggt
 und beeinflussen den Live-Loop **nicht**. WA-Benachrichtigungen sind immer
 best-effort — das System läuft auch ohne CallMeBot-Erreichbarkeit stabil weiter.
 
-## 17.6 Keine .env-Variable nötig
+## 17.7 Keine .env-Variable nötig
 
 Im Gegensatz zu SMTP (E-Mail) oder Twilio (SMS) benötigt CallMeBot keine globale
 Konfiguration in `.env`. Alle Verbindungsdaten (Rufnummer + API-Key) sind

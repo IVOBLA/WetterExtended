@@ -2048,6 +2048,46 @@ def api_ai_analysis_test_email():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+@app.route("/api/whatsapp/test", methods=["POST"])
+def api_whatsapp_test():
+    """
+    Sendet eine WhatsApp-Testnachricht an alle Empfaenger im uebergebenen wa_str.
+    Bypasst den Cooldown — nur fuer manuelle Konfigurationspruefung.
+
+    Request-Body: {"wa_str": "+43699...:KEY1;+43664...:KEY2"}
+    Response:     {"ok": bool, "sent_to": [...], "failed": [...], "error": str|None}
+    """
+    try:
+        body    = request.get_json(force=True, silent=True) or {}
+        wa_str  = str(body.get("wa_str", "")).strip()
+        if not wa_str:
+            return jsonify({"ok": False, "sent_to": [], "failed": [],
+                            "error": "wa_str fehlt oder leer"}), 400
+
+        from whatsapp_notifier import send_test_wa
+        result = send_test_wa(wa_str)
+
+        # Logging fuer Dashboard (analog zu anderen API-Calls)
+        try:
+            from debug_utils import log_api_call
+            log_api_call(
+                "callmebot_whatsapp",
+                url="https://api.callmebot.com/whatsapp.php",
+                status_code=200 if result["ok"] else 400,
+                method="POST",
+                response_text=(
+                    f"test: sent={result['sent_to']}, failed={result['failed']}"
+                ),
+            )
+        except Exception:
+            pass
+
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"ok": False, "sent_to": [], "failed": [],
+                        "error": str(exc)}), 500
+
+
 @app.route("/api/dataset_stats")
 def api_dataset_stats():
     """Statistik über gesammelte Trainingsdaten und Dataset-Größe."""
