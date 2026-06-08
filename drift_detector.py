@@ -130,23 +130,51 @@ def check_drift() -> dict:
     return result
 
 
+def _has_ml_model() -> bool:
+    """
+    Gibt True zurueck wenn mindestens eine trainierte Modell-Version vorhanden ist.
+    Ohne ML-Modell ist Drift-Detection nicht relevant (kinematischer Fallback-Modus).
+    Prueft train_data/models/current/ (Symlink/Dir) und train_data/models/v_*-Verzeichnisse.
+    """
+    import glob as _glob
+
+    models_base = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "train_data", "models"
+    )
+    if not os.path.isdir(models_base):
+        return False
+    if os.path.isdir(os.path.join(models_base, "current")):
+        return True
+    return len(_glob.glob(os.path.join(models_base, "v_*"))) > 0
+
+
 def check_and_alert(eval_result: Optional[dict] = None) -> dict:
     """
-    Führt Drift-Check durch und sendet E-Mail-Alarm wenn Drift erkannt.
-    eval_result: aktuelles Ergebnis von evaluate_all() (optional, nur für Logging).
+    Fuehrt Drift-Check durch und sendet E-Mail-Alarm wenn Drift erkannt.
+    eval_result: aktuelles Ergebnis von evaluate_all() (optional, nur fuer Logging).
+    Kein Alarm im reinen Fallback-Modus (keine ML-Modelle vorhanden).
     """
     _ = eval_result
     status = check_drift()
 
     if status.get("drift_detected"):
-        try:
-            from email_notifier import send_drift_alert
+        if not _has_ml_model():
+            debug_log(
+                "[DRIFT] Drift erkannt, aber kein ML-Modell vorhanden — "
+                "kein E-Mail-Alarm (kinematischer Fallback-Modus aktiv)."
+            )
+        else:
+            try:
+                from email_notifier import send_drift_alert
 
-            send_drift_alert(status)
-        except ImportError:
-            debug_log("[DRIFT] email_notifier.send_drift_alert nicht verfügbar — kein Mail-Alarm")
-        except Exception as exc:
-            debug_log(f"[DRIFT] Mail-Alarm Fehler: {exc}")
+                send_drift_alert(status)
+            except ImportError:
+                debug_log(
+                    "[DRIFT] email_notifier.send_drift_alert nicht verfuegbar — "
+                    "kein Mail-Alarm"
+                )
+            except Exception as exc:
+                debug_log(f"[DRIFT] Mail-Alarm Fehler: {exc}")
 
     return status
 
