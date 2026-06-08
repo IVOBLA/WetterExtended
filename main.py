@@ -682,6 +682,33 @@ def main_loop():
             _new_hit_names = _current_hit_names - _prev_location_hit_names
             _cleared       = _prev_location_hit_names - _current_hit_names
 
+            # ── Hilfsfunktion: Frühester Forecast-Horizont eines Orts-Treffers ──
+            def _earliest_forecast_horizon(loc_hit: dict) -> int:
+                """
+                Gibt den kleinsten Horizont-Key > 0 zurück der einen Treffer hat.
+                Key 0 (current) wird ignoriert — der wird immer gewarnt.
+                Gibt 9999 zurück wenn keine Forecast-Horizonte getroffen wurden.
+                """
+                forecast_keys = []
+                for k in loc_hit.get("hits", {}).keys():
+                    try:
+                        horizon = int(k)
+                    except (TypeError, ValueError):
+                        continue
+                    if horizon > 0:
+                        forecast_keys.append(horizon)
+                return min(forecast_keys) if forecast_keys else 9999
+
+            def _has_current_horizon(loc_hit: dict) -> bool:
+                """True wenn Horizon-Key 0 als int oder String vorhanden ist."""
+                for k in loc_hit.get("hits", {}).keys():
+                    try:
+                        if int(k) == 0:
+                            return True
+                    except (TypeError, ValueError):
+                        continue
+                return False
+
             # ── Hilfsfunktion: Ist die Vorhersage für diesen Orts-Treffer unsicher?
             def _hit_is_kinematic(loc_hit: dict) -> bool:
                 """
@@ -694,7 +721,7 @@ def main_loop():
                 (Horizont > 0) mit unsicherem kinematischem Forecast.
                 """
                 # Current-Hit vorhanden (Horizont-Key 0) → nie verzögern
-                if 0 in loc_hit.get("hits", {}):
+                if _has_current_horizon(loc_hit):
                     return False
                 hit_cell_ids = {
                     h.get("cell_id")
@@ -746,8 +773,19 @@ def main_loop():
                             f"warte auf Frame 2 zur Bestätigung"
                         )
                     else:
-                        # ML-Vorhersage → sofort warnen
-                        _ready_to_warn.add(_lname)
+                        # ML-Vorhersage → sofort warnen (wenn Vorwarnzeit-Schwelle erfüllt)
+                        from config import WARN_MAX_HORIZON_MIN as _WARN_DEF
+                        _warn_max_h = int(runtime_config.get("WARN_MAX_HORIZON_MIN", _WARN_DEF))
+                        _earliest_h = _earliest_forecast_horizon(_loc_hit)
+                        # Horizon 0 (current) oder frühester Forecast ≤ Schwelle → warnen
+                        _has_current = _has_current_horizon(_loc_hit)
+                        if _has_current or _earliest_h <= _warn_max_h:
+                            _ready_to_warn.add(_lname)
+                        else:
+                            debug_log(
+                                f"[EMAIL] {_lname}: frühester Horizont +{_earliest_h} min "
+                                f"> Vorwarnzeit {_warn_max_h} min — kein Alarm"
+                            )
                 elif _lname in _location_warn_pending:
                     # Fortsetzung: Ort war schon im letzten Frame getroffen
                     _location_warn_pending[_lname] += 1
@@ -756,7 +794,17 @@ def main_loop():
                             f"[EMAIL] {_lname}: 2 aufeinanderfolgende Frames bestätigt "
                             f"— Warnung wird gesendet"
                         )
-                        _ready_to_warn.add(_lname)
+                        from config import WARN_MAX_HORIZON_MIN as _WARN_DEF2
+                        _warn_max_h2 = int(runtime_config.get("WARN_MAX_HORIZON_MIN", _WARN_DEF2))
+                        _earliest_h2 = _earliest_forecast_horizon(_loc_hit)
+                        _has_current2 = _has_current_horizon(_loc_hit)
+                        if _has_current2 or _earliest_h2 <= _warn_max_h2:
+                            _ready_to_warn.add(_lname)
+                        else:
+                            debug_log(
+                                f"[EMAIL] {_lname}: frühester Horizont +{_earliest_h2} min "
+                                f"> Vorwarnzeit {_warn_max_h2} min — kein Alarm (nach 2-Frame-Prüfung)"
+                            )
                         del _location_warn_pending[_lname]
 
             if _ready_to_warn:

@@ -1087,18 +1087,25 @@ export default function MapView() {
                   </div>
                 )}
 
-                {forecastHits.length > 0 && (
-                  <div style={{ marginTop: 4, fontSize: 11 }}>
-                    {forecastHits.map(([hz, entry]) => (
-                      <div key={hz}>
+                {forecastHits.length > 0 && (() => {
+                  // B91: nur frühesten Horizont anzeigen
+                  const [hz, entry] = forecastHits[0]
+                  return (
+                    <div style={{ marginTop: 4, fontSize: 11 }}>
+                      <div>
                         +{hz} min · ID {entry.cell_id} ·{' '}
                         {entry.distance_km} km ·{' '}
                         {entry.speed_kmh} km/h
                         {entry.hit_type === 'slow_approach' && ' 🌧'}
                       </div>
-                    ))}
-                  </div>
-                )}
+                      {forecastHits.length > 1 && (
+                        <div style={{ color: '#9ca3af', fontSize: 10, marginTop: 2 }}>
+                          + {forecastHits.length - 1} weitere Horizon{forecastHits.length - 1 > 1 ? 'te' : 't'}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
               </Popup>
             </CircleMarker>
           )
