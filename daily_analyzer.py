@@ -102,45 +102,175 @@ def _collect_source_context() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Erkannte Sturmzellen — letzte N Frames für KI-Analyse
+# Tages-Sturmzellen und Fehlerkontext für KI-Analyse
 # ---------------------------------------------------------------------------
 
-def _load_recent_objects(n_frames: int = 5) -> list:
+def _load_storm_day_summary(since_hours: int, max_peak_frames: int = 3) -> dict:
     """
-    Lädt die letzten n_frames Objekt-JSON-Dateien aus SAVE_PATHS['objects'].
-    Gibt Liste von Frames zurück: [{"timestamp": str, "cell_count": int, "cells": [...]}]
-    Felder pro Zelle werden auf KI-relevante Keys reduziert (Token-Budget).
+    Baut einen vollständigen Tages-Sturmzellen-Report für den KI-Analyse-Aufruf.
+
+    Ersetzt _load_recent_objects() — statt der "letzten 5 Frames" werden die
+    aktivsten Frames des gesamten Analyse-Fensters (since_hours) herangezogen.
+
+    Datenquellen:
+      - cells_log.jsonl       : Sturm-Tagesübersicht (alle Frames, Zellcount)
+      - locations_*.json      : Orts-Treffer-Aggregat pro Frame
+      - SAVE_PATHS["objects"] : Vollständige Zelldaten der Peak-Frames
+
+    Rückgabe-Dict:
+      storm_day       : Aktivitäts-Aggregat (Frames, Peak, Zeitfenster, Lineages)
+      location_hits   : Orts-Treffer-Aggregat (Häufigkeit pro Ort)
+      peak_frames     : Top-N Frames mit vollständigen Zelldaten
     """
-    objects_dir = SAVE_PATHS.get("objects", "data/objects")
-    if not os.path.isdir(objects_dir):
-        return []
+    eval_dir    = SAVE_PATHS.get("evaluation", "train_data/evaluation")
+    objects_dir = SAVE_PATHS.get("objects",    "data/objects")
+    cutoff      = datetime.utcnow() - timedelta(hours=since_hours)
 
-    files = sorted(
-        [f for f in os.listdir(objects_dir) if f.endswith(".json")],
-        reverse=True,
-    )[:n_frames]
+    # Timestamp-Parser für Format "YYYY-MM-DD_HH-MM-SS"
+    def _ts(ts_str: str) -> "datetime | None":
+        try:
+            return datetime.strptime(ts_str, "%Y-%m-%d_%H-%M-%S")
+        except (ValueError, TypeError):
+            return None
 
+    # ── 1. cells_log.jsonl lesen ──────────────────────────────────────────────
+    cells_log_path = os.path.join(eval_dir, "cells_log.jsonl")
+    log_entries: list = []
+    if os.path.exists(cells_log_path):
+        try:
+            with open(cells_log_path, "r", encoding="utf-8") as _f:
+                for line in _f:
+                    try:
+                        rec = json.loads(line.strip())
+                        t = _ts(rec.get("ts", ""))
+                        if t is not None and t >= cutoff:
+                            log_entries.append(rec)
+                    except Exception:
+                        continue
+        except Exception as exc:
+            debug_log(f"[ANALYZER] cells_log Lesefehler: {exc}")
+
+    # ── 2. Tages-Aggregat ─────────────────────────────────────────────────────
+    active = [e for e in log_entries if e.get("count", 0) > 0]
+    peak_e = max(active, key=lambda e: e.get("count", 0), default=None)
+
+    # Distinct Lineages über alle aktiven Frames
+    all_lineages: set = set()
+    for e in active:
+        for c in e.get("cells", []):
+            if "lineage" in c:
+                all_lineages.add(c["lineage"])
+
+    # Sturm-Zeitfenster: zusammenhängende Segmente mit count > 0 (Lücke > 30 min = neues Fenster)
+    storm_windows: list = []
+    if active:
+        sorted_active = sorted(active, key=lambda e: e.get("ts", ""))
+        win_start = sorted_active[0]["ts"]
+        win_max   = sorted_active[0].get("count", 0)
+        prev_t    = _ts(sorted_active[0]["ts"])
+        for entry in sorted_active[1:]:
+            curr_t = _ts(entry.get("ts", ""))
+            gap    = (curr_t - prev_t).total_seconds() if (curr_t and prev_t) else 0
+            if gap > 1800:
+                storm_windows.append({
+                    "start":     win_start,
+                    "end":       prev_t.strftime("%Y-%m-%d_%H-%M-%S") if prev_t else win_start,
+                    "max_cells": win_max,
+                })
+                win_start = entry["ts"]
+                win_max   = entry.get("count", 0)
+            else:
+                win_max = max(win_max, entry.get("count", 0))
+            prev_t = curr_t
+        storm_windows.append({
+            "start":     win_start,
+            "end":       sorted_active[-1]["ts"],
+            "max_cells": win_max,
+        })
+
+    storm_day = {
+        "frames_in_window":  len(log_entries),
+        "frames_with_cells": len(active),
+        "quiet_frames":      len(log_entries) - len(active),
+        "peak_cell_count":   peak_e.get("count", 0) if peak_e else 0,
+        "peak_timestamp":    peak_e.get("ts")        if peak_e else None,
+        "distinct_lineages": len(all_lineages),
+        "storm_windows":     storm_windows[:5],       # max. 5 Fenster
+        "window_hours":      since_hours,
+    }
+
+    # ── 3. Orts-Treffer-Aggregat aus locations_*.json ─────────────────────────
+    hit_counts: dict = {}
+    total_hit_frames = 0
+    if os.path.isdir(eval_dir):
+        loc_files = sorted(
+            f for f in os.listdir(eval_dir)
+            if f.startswith("locations_") and f.endswith(".json")
+        )
+        for fname in loc_files:
+            bare = fname[len("locations_"):].replace(".json", "")
+            t = _ts(bare)
+            if t is None or t < cutoff:
+                continue
+            fpath = os.path.join(eval_dir, fname)
+            try:
+                with open(fpath, "r", encoding="utf-8") as _f:
+                    hits = json.load(_f)
+                if isinstance(hits, list) and hits:
+                    total_hit_frames += 1
+                    for loc in hits:
+                        name = loc.get("name", "?")
+                        hit_counts[name] = hit_counts.get(name, 0) + 1
+            except Exception:
+                continue
+
+    location_hits_agg = {
+        "locations_affected":   sorted(hit_counts.keys()),
+        "hit_frame_counts":     hit_counts,
+        "total_hit_frames":     total_hit_frames,
+        "note": (
+            "Anzahl Frames in denen der Ort getroffen wurde. "
+            "Kein direktes Äquivalent zu gesendeten Warnungen "
+            "(Cooldown und 2-Frame-Bestätigung nicht berücksichtigt)."
+        ),
+    }
+
+    # ── 4. Peak-Frames: vollständige Zelldaten ────────────────────────────────
     _CELL_KEYS = (
         "id", "lat", "lon", "size", "core_ratio",
         "vx", "vy", "missing", "lineage",
         "cape", "cloud_top_height_m", "lightning_count_10km",
         "of_magnitude", "of_angle",
         "arome_precip_mm", "arome_cape",
+        "hail_prob", "hail_warning",
+        "gust_warning", "heavy_rain_warning",
         "intensity", "intensity_label",
+        "severity_score", "severity_level",
+        "wind_shear_speed",
     )
 
-    frames = []
-    for fname in reversed(files):
-        fpath = os.path.join(objects_dir, fname)
-        try:
-            with open(fpath, "r", encoding="utf-8") as f:
-                raw_cells = json.load(f)
-        except Exception as exc:
-            debug_log(f"[ANALYZER] Objekt-Lesefehler {fname}: {exc}")
-            continue
+    # Top-N aktivste Frames + immer den neuesten Frame (zeigt aktuellen Zustand)
+    peak_ts = [
+        e["ts"] for e in sorted(active, key=lambda e: e.get("count", 0), reverse=True)[:max_peak_frames]
+    ]
+    if log_entries:
+        newest = sorted(log_entries, key=lambda e: e.get("ts", ""), reverse=True)[0]["ts"]
+        if newest not in peak_ts:
+            peak_ts.append(newest)
 
+    peak_frames: list = []
+    for ts_str in sorted(peak_ts):
+        fpath = os.path.join(objects_dir, f"{ts_str}.json")
+        if not os.path.exists(fpath):
+            continue
+        try:
+            with open(fpath, "r", encoding="utf-8") as _f:
+                raw_cells = json.load(_f)
+        except Exception as exc:
+            debug_log(f"[ANALYZER] Peak-Frame Lesefehler {fpath}: {exc}")
+            continue
         slim_cells = []
-        for cell in raw_cells:
+        for cell in (raw_cells or []):
             slim = {k: cell[k] for k in _CELL_KEYS if k in cell}
             for h in (10, 20, 30):
                 for ax in ("lat", "lon"):
@@ -148,14 +278,103 @@ def _load_recent_objects(n_frames: int = 5) -> list:
                     if key in cell:
                         slim[key] = cell[key]
             slim_cells.append(slim)
-
-        frames.append({
-            "timestamp":  fname.replace(".json", ""),
+        peak_frames.append({
+            "timestamp":  ts_str,
             "cell_count": len(slim_cells),
             "cells":      slim_cells,
         })
 
-    return frames
+    debug_log(
+        f"[ANALYZER] storm_day_summary: {storm_day['frames_with_cells']} aktive Frames, "
+        f"peak={storm_day['peak_cell_count']} Zellen @ {storm_day['peak_timestamp']}, "
+        f"{len(hit_counts)} Orte getroffen, {len(peak_frames)} Peak-Frames geladen"
+    )
+
+    return {
+        "description": (
+            f"Vollständiger Tages-Report letzter {since_hours}h. "
+            "storm_day=Aktivitäts-Aggregat aus cells_log.jsonl; "
+            "location_hits=Orts-Treffer-Aggregat aus locations_*.json; "
+            "peak_frames=Top-Frames nach Zellanzahl (vollständige Zelldaten)."
+        ),
+        "storm_day":        storm_day,
+        "location_hits":    location_hits_agg,
+        "peak_frames":      peak_frames,
+        "peak_frame_count": len(peak_frames),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Fehler-Digest aus systemd-Journal
+# ---------------------------------------------------------------------------
+
+def _load_journal_error_digest(since_hours: int) -> list:
+    """
+    Liest systemd-Journal der wetterprojekt-Services auf Fehler/Tracebacks.
+
+    Wertet beide Units aus: wetterprojekt und wetterprojekt-scheduler.
+    Gibt eine deduplizierte, nach Häufigkeit sortierte Liste zurück:
+      [{"signature": str, "count": int, "first_seen": str, "last_seen": str}]
+
+    Gibt [] zurück wenn journalctl nicht verfügbar oder nicht lesbar ist.
+    Fehler-Erkennung: Zeilen mit "Traceback", "Error:", "Exception:",
+    "ERROR", "CRITICAL", "WARNING".
+    """
+    import subprocess
+    import re as _re
+
+    since_dt  = datetime.utcnow() - timedelta(hours=since_hours)
+    since_str = since_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    raw_lines: list = []
+    for unit in ("wetterprojekt", "wetterprojekt-scheduler"):
+        try:
+            proc = subprocess.run(
+                ["journalctl", "-u", unit, "--since", since_str,
+                 "--no-pager", "-o", "short-iso"],
+                capture_output=True, text=True, timeout=15,
+            )
+            if proc.returncode in (0, 1):
+                raw_lines.extend(proc.stdout.splitlines())
+            else:
+                debug_log(f"[ANALYZER] journalctl {unit} rc={proc.returncode}")
+        except FileNotFoundError:
+            debug_log("[ANALYZER] journalctl nicht gefunden — Journal-Digest übersprungen.")
+            return []
+        except Exception as exc:
+            debug_log(f"[ANALYZER] journalctl Fehler ({unit}): {exc}")
+
+    _MARKERS = ("Traceback", "Error:", "Exception:", "ERROR", "CRITICAL", "WARNING")
+    _NUM_RE  = _re.compile(r"\b\d{4,}\b")
+
+    # Deduplizierung nach normalisierter Signatur
+    sig_map: dict = {}
+    for line in raw_lines:
+        # Format: 2025-06-15T14:30:00+0000 hostname unit[PID]: MESSAGE
+        parts = line.split(None, 3)
+        if len(parts) < 4:
+            continue
+        ts_raw = parts[0]
+        msg    = parts[3]
+        if not any(m in msg for m in _MARKERS):
+            continue
+        # Volatile Zahlen ersetzen, auf 120 Zeichen kürzen
+        sig = _NUM_RE.sub("N", msg[:120]).strip()
+        if sig not in sig_map:
+            sig_map[sig] = {"count": 0, "first_seen": "", "last_seen": ""}
+        sig_map[sig]["count"] += 1
+        if not sig_map[sig]["first_seen"]:
+            sig_map[sig]["first_seen"] = ts_raw
+        sig_map[sig]["last_seen"] = ts_raw
+
+    result = sorted(
+        [{"signature": sig, **data} for sig, data in sig_map.items()],
+        key=lambda x: x["count"],
+        reverse=True,
+    )[:10]
+
+    debug_log(f"[ANALYZER] Journal-Digest: {len(result)} Fehlermuster in {len(raw_lines)} Journal-Zeilen")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -220,15 +439,17 @@ def build_system_report(since_hours: int = 24) -> dict:
              vollständige bereinigte Konfiguration (ohne Secrets).
     """
     report = {
-        "generated_utc": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-        "since_hours": since_hours,
-        "accuracy": {},
-        "api_health": {},
-        "model_quality": {},
-        "data_quality": {},
-        "system": {},
-        "system_config": {},   # NEU: bereinigte Konfiguration
-        "source_context": {},
+        "generated_utc":    datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "since_hours":      since_hours,
+        "accuracy":         {},
+        "api_health":       {},
+        "model_quality":    {},
+        "data_quality":     {},
+        "system":           {},
+        "system_config":    {},   # bereinigte Konfiguration (Secrets entfernt)
+        "storm_day_summary": {},  # vollständige Tagesdaten (cells_log + locations + peak_frames)
+        "journal_errors":   [],   # Fehler-Digest aus systemd-Journal
+        "source_context":   {},
     }
 
     # --- Vorhersage-Genauigkeit ---
@@ -345,30 +566,28 @@ def build_system_report(since_hours: int = 24) -> dict:
     except Exception:
         pass
 
+    # --- Tages-Sturmzellen-Summary (cells_log + locations + Peak-Frames) ---
+    try:
+        report["storm_day_summary"] = _load_storm_day_summary(since_hours=since_hours)
+    except Exception as exc:
+        debug_log(f"[ANALYZER] storm_day_summary Fehler: {exc}")
+        report["storm_day_summary"] = {
+            "storm_day": {}, "location_hits": {}, "peak_frames": [], "peak_frame_count": 0,
+        }
+
+    # --- Journal-Fehler-Digest (systemd: wetterprojekt + wetterprojekt-scheduler) ---
+    try:
+        report["journal_errors"] = _load_journal_error_digest(since_hours=since_hours)
+    except Exception as exc:
+        debug_log(f"[ANALYZER] Journal-Digest Fehler: {exc}")
+        report["journal_errors"] = []
+
     # --- Quellcode von GitHub ---
     try:
         report["source_context"] = _collect_source_context()
     except Exception as exc:
         debug_log(f"[ANALYZER] Source-Kontext Fehler: {exc}")
         report["source_context"] = {"source": "error", "error": str(exc)}
-
-    # --- Erkannte Sturmzellen (letzte 5 Frames) ---
-    try:
-        recent = _load_recent_objects(n_frames=5)
-        report["recent_objects"] = {
-            "description": (
-                "Letzte 5 erkannte Radar-Frames. Felder je Zelle: "
-                "id, lat/lon, size(px), core_ratio, vx/vy(px/frame), "
-                "cape(J/kg), cloud_top_height_m, lightning_count_10km, "
-                "of_magnitude/angle, arome_precip_mm, intensity_label, "
-                "forecast_lat/lon_10/20/30."
-            ),
-            "frames":      recent,
-            "frame_count": len(recent),
-        }
-    except Exception as exc:
-        debug_log(f"[ANALYZER] recent_objects Fehler: {exc}")
-        report["recent_objects"] = {"frames": [], "frame_count": 0}
 
     # --- System-Konfiguration (alle effektiven Werte, Secrets entfernt) ---
     try:
@@ -440,13 +659,17 @@ Der Report enthält:
    Jede Datei: {"content": "<erste 120 Zeilen>", "status": "ok|not_found|..."}
    source_context.errors — Dateien die nicht von GitHub geladen werden konnten.
 
-2) recent_objects — letzte 5 erkannte Radar-Frames mit Sturmzellen.
-   Felder je Zelle: id, lat, lon, size(px), core_ratio, vx, vy,
-   cape(J/kg), cloud_top_height_m, lightning_count_10km,
-   of_magnitude, of_angle, arome_precip_mm, arome_cape,
-   intensity, intensity_label, forecast_lat/lon_10/20/30.
+2) storm_day_summary — vollständige Tagesdaten des Analysefensters:
+   storm_day (Frames, aktive Frames, Peak-Zellzahl/-Zeit, Sturm-Zeitfenster,
+   distinct Lineages), location_hits (aggregierte Orts-Treffer) und
+   peak_frames (Top-Frames mit vollständigen Zelldaten: id, lat/lon, size,
+   core_ratio, vx/vy, CAPE, Blitzcount, Hagel-/Böen-/Starkregenwarnung,
+   severity_score/-level, intensity_label, forecast_lat/lon_10/20/30).
 
-3) Metriken: accuracy (MAE/hit-rate je Horizont), api_health, model_quality,
+3) journal_errors — deduplizierte Fehler/Tracebacks aus dem systemd-Journal
+   der Units wetterprojekt und wetterprojekt-scheduler.
+
+4) Metriken: accuracy (MAE/hit-rate je Horizont), api_health, model_quality,
    data_quality, system (RAM, Disk).
 
 Analysiere ALLE Teile. Erkenne:
@@ -467,7 +690,7 @@ JSON-Schema (strikt einhalten):
   "overall_status": "ok|warning|critical",
   "summary": "Max. 2 Sätze Gesamtbewertung (Code, Metriken, Wetterlage).",
   "weather_situation": {
-    "active_cells": <int — Anzahl Zellen im letzten Frame>,
+    "active_cells": <int — Zellen im neuesten Peak-/Status-Frame>,
     "max_intensity": "<intensity_label der stärksten Zelle oder null>",
     "severe_risk": true|false,
     "note": "Max. 1 Satz zur aktuellen Wetterlage."

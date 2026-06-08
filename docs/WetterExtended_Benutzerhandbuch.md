@@ -1021,9 +1021,16 @@ Läuft täglich um 06:00 Uhr via Scheduler (`cron_hour=6`). Analysiert:
 
 - Modell-Genauigkeits-Trends der letzten 24 Stunden
 - System-Ressourcen (Disk, RAM)
-- API-Fehlerquoten
+- API-Fehlerquoten und Fehlerdetails
 - Qualität des Trainingsdatensatzes
-- Letzte erkannte Sturmzellen (letzten 5 Frames)
+- **Tages-Sturmaktivität** aus `cells_log.jsonl`: Gesamtframes, aktive Frames,
+  Peak-Zellzahl mit Zeitpunkt, zusammenhängende Sturm-Zeitfenster, distinct Lineages
+- **Orts-Treffer-Aggregat** aus `locations_*.json`: Welche überwachten Orte wurden
+  in wie vielen Frames getroffen (Kärnten-weite Gefahrenübersicht für den Tag)
+- **Peak-Frames** mit vollständigen Zelldaten (CAPE, Blitzcount, Hagel-Wahrscheinlichkeit,
+  Severity-Score, Windscherung) der aktivsten Momente des Tages
+- **Fehler-Digest** aus dem systemd-Journal beider `wetterprojekt`-Services:
+  deduplizierte Exceptions und Tracebacks der letzten 24 h (Top 10 nach Häufigkeit)
 - Quellcode der wichtigsten Dateien (von GitHub)
 
 ## 23.2 Interaktiver Chat im Admin-Panel
