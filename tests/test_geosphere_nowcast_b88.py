@@ -3,9 +3,10 @@ import types
 from datetime import datetime, timezone
 
 
-
 class _DummyHTTPError(Exception):
-    pass
+    def __init__(self, *args, response=None):
+        super().__init__(*args)
+        self.response = response
 
 
 sys.modules.setdefault(
@@ -43,15 +44,20 @@ if not hasattr(sys.modules["api_cache"], "get_ttl"):
 import fetch_geosphere_nowcast as nowcast
 
 
-def test_b88_nowcast_slots_only_include_current_slot():
+def test_b92_nowcast_slots_only_include_completed_slots():
     slots = nowcast._build_nowcast_slots(datetime(2026, 6, 8, 14, 21, tzinfo=timezone.utc))
 
     assert slots == [
         {
-            "start_str": "2026-06-08T14:15",
-            "end_str": "2026-06-08T14:30",
-            "cache_sfx": "2026-06-08T14:15",
-        }
+            "start_str": "2026-06-08T14:00",
+            "end_str": "2026-06-08T14:15",
+            "cache_sfx": "2026-06-08T14:00",
+        },
+        {
+            "start_str": "2026-06-08T13:45",
+            "end_str": "2026-06-08T14:00",
+            "cache_sfx": "2026-06-08T13:45",
+        },
     ]
 
 
@@ -68,11 +74,17 @@ def test_b88_nowcast_url_keeps_literal_lat_lon_comma():
     assert "start=2026-06-08T14:15&end=2026-06-08T14:30" in url
 
 
-def test_b88_assign_nowcast_does_not_query_past_fallback_slot(monkeypatch):
+def test_b92_b93_assign_nowcast_uses_completed_slot_and_single_bulk_request(monkeypatch):
     calls = []
+
+    class DummyDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 6, 8, 14, 21, 19, tzinfo=tz)
 
     class DummyResponse:
         status_code = 200
+        text = ""
 
         def raise_for_status(self):
             return None
@@ -88,35 +100,44 @@ def test_b88_assign_nowcast_does_not_query_past_fallback_slot(monkeypatch):
                                 "ffx": {"data": [20.0]},
                             }
                         }
-                    }
+                    },
+                    {
+                        "properties": {
+                            "parameters": {
+                                "rr": {"data": [2.0]},
+                                "ff": {"data": [5.0]},
+                                "ffx": {"data": [8.0]},
+                            }
+                        }
+                    },
                 ]
             }
 
-    def fake_retry_get(url, **kwargs):
+    def fake_get(url, **kwargs):
         calls.append((url, kwargs))
         return DummyResponse()
 
+    monkeypatch.setattr(nowcast, "datetime", DummyDatetime)
     monkeypatch.setattr(nowcast, "cache_get", lambda *args, **kwargs: None)
     monkeypatch.setattr(nowcast, "cache_set", lambda *args, **kwargs: None)
-    monkeypatch.setattr(nowcast, "log_http_response", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        nowcast,
-        "_build_nowcast_slots",
-        lambda now: [
-            {
-                "start_str": "2026-06-08T14:15",
-                "end_str": "2026-06-08T14:30",
-                "cache_sfx": "2026-06-08T14:15",
-            }
-        ],
-    )
-    monkeypatch.setitem(sys.modules, "http_retry", types.SimpleNamespace(retry_get=fake_retry_get))
+    monkeypatch.setattr(nowcast.requests, "get", fake_get, raising=False)
 
-    objects = nowcast.assign_nowcast_to_objects([{"lat": 47.0014, "lon": 13.9066}], "ignored")
+    objects = nowcast.assign_nowcast_to_objects(
+        [
+            {"lat": 47.0014, "lon": 13.9066},
+            {"lat": 47.1212, "lon": 14.3523},
+        ],
+        "ignored",
+    )
 
     assert len(calls) == 1
-    assert "start=2026-06-08T14:15&end=2026-06-08T14:30" in calls[0][0]
-    assert "lat_lon=47.001,13.907" in calls[0][0]
+    url = calls[0][0]
+    assert "start=2026-06-08T14:00&end=2026-06-08T14:15" in url
+    assert "lat_lon=47.001,13.907" in url
+    assert "lat_lon=47.121,14.352" in url
     assert objects[0]["nowcast_rr_mm15"] == 1.5
     assert objects[0]["nowcast_ff_kmh"] == 36.0
     assert objects[0]["nowcast_ffx_kmh"] == 72.0
+    assert objects[1]["nowcast_rr_mm15"] == 2.0
+    assert objects[1]["nowcast_ff_kmh"] == 18.0
+    assert objects[1]["nowcast_ffx_kmh"] == 28.8
