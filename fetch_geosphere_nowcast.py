@@ -17,15 +17,19 @@ def _build_nowcast_slots(now: datetime) -> list[dict[str, str]]:
 
     _floor = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
     _td15 = _td(minutes=15)
-    # B88: Nur aktuellen Slot abfragen — Fallback-Slot lag in der Vergangenheit
-    # und lieferte HTTP 400 (GeoSphere Forecast-API akzeptiert nur aktuelle/zukünftige Slots).
-    # Wenn der aktuelle Slot noch nicht berechnet ist → HTTP 422 → _slot_result bleibt None
-    # → Felder bleiben auf DEFAULT (0.0) → kein falscher Wert.
+    # B92: Letzten abgeschlossenen 15-min-Slot abfragen, nicht den laufenden.
+    # Der zweite Eintrag ist ein konservativer Fallback-Slot, falls GeoSphere den
+    # letzten abgeschlossenen Slot noch nicht vollständig bereitgestellt hat.
     return [
         {
-            "start_str":  _floor.strftime("%Y-%m-%dT%H:%M"),
-            "end_str":    (_floor + _td15).strftime("%Y-%m-%dT%H:%M"),
-            "cache_sfx":  _floor.strftime("%Y-%m-%dT%H:%M"),
+            "start_str": (_floor - _td15).strftime("%Y-%m-%dT%H:%M"),
+            "end_str": _floor.strftime("%Y-%m-%dT%H:%M"),
+            "cache_sfx": (_floor - _td15).strftime("%Y-%m-%dT%H:%M"),
+        },
+        {
+            "start_str": (_floor - 2 * _td15).strftime("%Y-%m-%dT%H:%M"),
+            "end_str": (_floor - _td15).strftime("%Y-%m-%dT%H:%M"),
+            "cache_sfx": (_floor - 2 * _td15).strftime("%Y-%m-%dT%H:%M"),
         },
     ]
 
@@ -45,113 +49,260 @@ def _build_nowcast_url(lat: float, lon: float, slot: dict[str, str]) -> str:
     return f"{_BASE_URL}?{_url_params}"
 
 
-def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
-    for obj in objects: obj.update(_DEFAULT)
-    valid=[(i,o) for i,o in enumerate(objects) if o.get("lat") is not None and o.get("lon") is not None]
-    _now = datetime.now(timezone.utc)
-    _nowcast_slots = _build_nowcast_slots(_now)
-    # GeoSphere Nowcast-Domain: Österreich + 0.2° Puffer.
-    # Koordinaten außerhalb dieses Bereichs liefern HTTP 422 (Unprocessable Content).
-    # BBOX_KAERNTEN_EXTENDED reicht bis lat 45.5 (Norditalien/Slowenien) — diese überspringen.
-    # Verifiziert: GeoSphere Dataset API nowcast-v1-15min-1km Domäne.
-    _NC_LAT_MIN, _NC_LAT_MAX = 46.2, 49.2
-    _NC_LON_MIN, _NC_LON_MAX =  9.3, 17.3
+def assign_nowcast_to_objects(objects: list, timestamp: str | None = None) -> list:
+    """
+    Weist jedem Objekt aktuelle Nowcast-Werte zu (Niederschlag, Wind, Böen).
 
-    for _, obj in valid:
-        lat, lon = round(float(obj['lat']),3), round(float(obj['lon']),3)
-        # Domain-Check: Koordinate außerhalb Österreich → Default-Werte, kein HTTP-Call.
-        if not (_NC_LAT_MIN <= lat <= _NC_LAT_MAX and _NC_LON_MIN <= lon <= _NC_LON_MAX):
+    B92: Letzten abgeschlossenen 15-min-Slot abfragen (nicht den laufenden).
+         GeoSphere berechnet Nowcast erst nach Slot-Abschluss — laufender
+         Slot liefert HTTP 400.
+
+    B93: Bulk-Request — alle Zellen in einem einzigen HTTP-Call statt N
+         Einzelrequests. GeoSphere gibt features-Array zurück, Reihenfolge
+         entspricht der Eingabe-Reihenfolge der lat_lon-Parameter.
+
+    ``timestamp`` bleibt als optionaler Parameter erhalten, weil bestehende
+    Aufrufer den Wert weiterhin übergeben; für den Nowcast-Slot ist immer die
+    aktuelle UTC-Zeit maßgeblich.
+    """
+    import time as _t_nowcast_mod
+    from datetime import timedelta
+
+    if not objects:
+        return objects
+
+    for obj in objects:
+        obj.update(_DEFAULT)
+
+    _now = datetime.now(timezone.utc)
+    _td15 = timedelta(minutes=15)
+    _floor = _now.replace(
+        minute=(_now.minute // 15) * 15, second=0, microsecond=0
+    )
+
+    # B92: abgeschlossene Slots (nicht laufenden _floor ... _floor+15)
+    _slots = [
+        {
+            "start_str": (_floor - _td15).strftime("%Y-%m-%dT%H:%M"),
+            "end_str": _floor.strftime("%Y-%m-%dT%H:%M"),
+            "cache_sfx": (_floor - _td15).strftime("%Y-%m-%dT%H:%M"),
+        },
+        {
+            "start_str": (_floor - 2 * _td15).strftime("%Y-%m-%dT%H:%M"),
+            "end_str": (_floor - _td15).strftime("%Y-%m-%dT%H:%M"),
+            "cache_sfx": (_floor - 2 * _td15).strftime("%Y-%m-%dT%H:%M"),
+        },
+    ]
+
+    # B93: Koordinaten aller Objekte sammeln (Reihenfolge merken)
+    _coords = []
+    for obj in objects:
+        try:
+            if obj.get("lat") is None or obj.get("lon") is None:
+                _coords.append(None)
+                continue
+            _lat = round(float(obj.get("lat", 0)), 3)
+            _lon = round(float(obj.get("lon", 0)), 3)
+            _coords.append((_lat, _lon))
+        except (TypeError, ValueError):
+            _coords.append(None)
+
+    _valid_indices = [i for i, c in enumerate(_coords) if c is not None]
+    if not _valid_indices:
+        return objects
+
+    for _slot in _slots:
+        # Cache-Key für diesen Bulk-Slot
+        _coord_cache_component = ";".join(
+            f"{_coords[i][0]},{_coords[i][1]}" for i in _valid_indices
+        )
+        _ck = cache_key(
+            "geosphere:nowcast_bulk",
+            _coord_cache_component,
+            _slot["cache_sfx"],
+        )
+        _cached = cache_get(_ck, ttl_seconds=_TTL)
+        if _cached is not None:
+            # Cache-Treffer: Ergebnisse direkt zuweisen
+            for list_pos, obj_idx in enumerate(_valid_indices):
+                if list_pos < len(_cached):
+                    objects[obj_idx].update(_cached[list_pos])
             debug_log(
-                f"[NOWCAST] lat={lat},lon={lon} außerhalb GeoSphere-Domain "
-                f"({_NC_LAT_MIN}–{_NC_LAT_MAX}N, {_NC_LON_MIN}–{_NC_LON_MAX}E) — übersprungen."
+                f"[NOWCAST] Bulk Cache-HIT — {len(_valid_indices)} Objekte, "
+                f"Slot {_slot['start_str']}"
             )
-            obj.update(_DEFAULT)
-            continue
-        # B88: aktuellen Slot abfragen, keinen vergangenen Fallback-Slot mehr versuchen.
-        _slot_result = None
-        for _slot in _nowcast_slots:
-            _ck = cache_key("geosphere:nowcast", lat, lon, _slot["cache_sfx"])
-            _cached = cache_get(_ck, ttl_seconds=_TTL)
-            if _cached is not None:
-                _slot_result = _cached
-                break
-            import time as _t_nowcast
-            from http_retry import retry_get
-            url = _build_nowcast_url(lat, lon, _slot)
-            try:
-                _t0_nowcast = _t_nowcast.monotonic()
-                r = retry_get(
-                    url,          # URL enthält bereits alle Parameter — kein params=
-                    service="geosphere_nowcast",
-                    timeout=_TIMEOUT,
-                    max_retries=1,
-                    headers={"Accept": "application/json"},
+            return objects
+
+        # Bulk-URL aufbauen: alle gültigen Koordinaten als repeated lat_lon
+        _lat_lon_parts = "&".join(
+            f"lat_lon={_coords[i][0]},{_coords[i][1]}"
+            for i in _valid_indices
+        )
+        _url = (
+            f"{_BASE_URL}"
+            f"?{_lat_lon_parts}"
+            f"&parameters=rr&parameters=ff&parameters=ffx"
+            f"&start={_slot['start_str']}&end={_slot['end_str']}"
+        )
+
+        try:
+            _t0 = _t_nowcast_mod.monotonic()
+            _resp = requests.get(
+                _url,
+                timeout=_TIMEOUT,
+                headers={"Accept": "application/json"},
+            )
+            _dur_ms = (_t_nowcast_mod.monotonic() - _t0) * 1000
+
+            if _resp.status_code == 422:
+                _body = (_resp.text or "")[:200]
+                debug_log(
+                    f"[NOWCAST] Bulk Slot {_slot['start_str']} HTTP 422 "
+                    f"({_body}) — Fallback-Slot"
                 )
-                _dur_nowcast = (_t_nowcast.monotonic() - _t0_nowcast) * 1000
-                r.raise_for_status()
-                data = r.json()
-                log_http_response("geosphere_nowcast", "GET", r, _dur_nowcast)
-                _slot_result = _parse_nowcast(data, str(url))
-                cache_set(_ck, _slot_result)
-                break
-            except requests.exceptions.HTTPError as _nc_exc:
-                _nc_status = getattr(_nc_exc.response, "status_code", None)
-                _nc_body   = ""
-                try:
-                    _nc_body = (_nc_exc.response.json().get("detail") or "")
-                    if isinstance(_nc_body, list):
-                        _nc_body = str(_nc_body[0].get("msg", ""))
-                except Exception:
-                    pass
-                if _nc_status == 422:
-                    debug_log(
-                        f"[NOWCAST] Slot {_slot['start_str'][:16]} HTTP 422 "
-                        f"({_nc_body}) — kein Fallback-Slot"
+                log_api_failure(
+                    "geosphere_nowcast", _url,
+                    f"http-422 | {_body}",
+                    fallback_used=True, http_status=422,
+                )
+                log_api_call(
+                    "geosphere_nowcast", url=_url, status_code=422,
+                    duration_ms=_dur_ms, method="GET",
+                    response_text=_body,
+                    error=f"http-422 | {_body}",
+                )
+                continue  # Fallback-Slot versuchen
+
+            _resp.raise_for_status()
+
+            log_api_call(
+                "geosphere_nowcast", url=_url, status_code=_resp.status_code,
+                duration_ms=_dur_ms, method="GET",
+            )
+
+            _data = _resp.json()
+            _features = _data.get("features", [])
+
+            if len(_features) != len(_valid_indices):
+                debug_log(
+                    f"[NOWCAST] Bulk: {len(_features)} Features für "
+                    f"{len(_valid_indices)} Objekte — Fallback auf Einzelabfragen"
+                )
+                # Fallback: Einzelabfragen für alle Objekte
+                _results = []
+                for i in _valid_indices:
+                    _r = _parse_nowcast_single(
+                        _coords[i], _slot, _BASE_URL
                     )
-                    log_api_failure(
-                        "geosphere_nowcast", str(url),
-                        f"http-422 | {_nc_body}",
-                        fallback_used=True, http_status=422,
-                    )
-                    log_api_call(
-                        "geosphere_nowcast", url=str(url), status_code=422,
-                        duration_ms=(_t_nowcast.monotonic() - _t0_nowcast) * 1000,
-                        method="GET",
-                        response_text=_nc_body[:200],
-                        error=f"http-422 | {_nc_body}",
-                    )
-                    continue  # weitere Slots nur falls künftig wieder konfiguriert
-                # Anderer HTTP-Fehler → abbrechen
-                log_api_failure("geosphere_nowcast", str(url),
-                                str(_nc_exc), fallback_used=True,
-                                http_status=_nc_status)
-                break
-            except Exception as exc:
-                log_api_failure("geosphere_nowcast", str(url), str(exc),
-                                fallback_used=True)
-                break
-        if _slot_result is not None:
-            obj.update(_slot_result)
+                    _results.append(_r)
+            else:
+                # Normalpfad: Feature i gehört zu _valid_indices[i]
+                _results = [
+                    _parse_nowcast(_feature_data, url=_url)
+                    for _feature_data in _features
+                ]
+
+            # Ergebnisse zuweisen und cachen
+            _cache_data = []
+            for list_pos, obj_idx in enumerate(_valid_indices):
+                if list_pos < len(_results):
+                    objects[obj_idx].update(_results[list_pos])
+                    _cache_data.append(_results[list_pos])
+            cache_set(_ck, _cache_data)
+
+            debug_log(
+                f"[NOWCAST] Bulk OK — {len(_valid_indices)} Objekte, "
+                f"Slot {_slot['start_str']}, {_dur_ms:.0f} ms"
+            )
+            return objects
+
+        except requests.exceptions.HTTPError as _exc:
+            _status = getattr(_exc.response, "status_code", None) or 0
+            log_api_failure(
+                "geosphere_nowcast", _url,
+                str(_exc), fallback_used=True, http_status=_status,
+            )
+            log_api_call(
+                "geosphere_nowcast", url=_url, status_code=_status,
+                method="GET", error=str(_exc),
+            )
+            break
+        except Exception as _exc:
+            log_api_failure(
+                "geosphere_nowcast", _url, str(_exc), fallback_used=True
+            )
+            break
+
     return objects
 
-def _parse_nowcast(data: dict, url: str = "") -> dict:
-    result=dict(_DEFAULT)
+
+def _parse_nowcast_single(
+    coord: tuple,
+    slot: dict,
+    base_url: str,
+) -> dict:
+    """
+    Fallback-Einzelabfrage wenn Bulk-Response unvollständig ist.
+    Wird nur aufgerufen wenn len(features) != len(objects).
+    """
+    import time as _t_single
+
+    _lat, _lon = coord
+    _url = (
+        f"{base_url}"
+        f"?lat_lon={_lat},{_lon}"
+        f"&parameters=rr&parameters=ff&parameters=ffx"
+        f"&start={slot['start_str']}&end={slot['end_str']}"
+    )
     try:
-        features=data.get('features',[])
-        if not features:
-            log_api_failure(
-                "geosphere_nowcast", url,
-                "features-list-empty: GeoSphere Nowcast liefert keine Gitterpunkte",
-                fallback_used=True,
-            )
-            return result
-        params=features[0].get('properties',{}).get('parameters',{})
+        _t0 = _t_single.monotonic()
+        _r = requests.get(
+            _url,
+            timeout=_TIMEOUT,
+            headers={"Accept": "application/json"},
+        )
+        _dur_ms = (_t_single.monotonic() - _t0) * 1000
+        _r.raise_for_status()
+        log_api_call(
+            "geosphere_nowcast", url=_url, status_code=_r.status_code,
+            duration_ms=_dur_ms, method="GET",
+        )
+        _feat = _r.json().get("features", [{}])
+        return _parse_nowcast(_feat[0] if _feat else {}, url=_url)
+    except Exception as _exc:
+        log_api_failure("geosphere_nowcast", _url, str(_exc), fallback_used=True)
+        return dict(_DEFAULT)
+
+
+def _parse_nowcast(feature: dict, url: str = "") -> dict:
+    """
+    Parst ein einzelnes GeoJSON-Feature aus der Nowcast-Response.
+    Ersetzt den bisherigen _parse_nowcast(data, url) der ein volles
+    FeatureCollection-Dict erwartet hatte.
+    """
+    result = dict(_DEFAULT)
+    try:
+        params = feature.get("properties", {}).get("parameters", {})
+
         def _first(key):
-            vals=params.get(key,{}).get('data',[None]); v=vals[0] if vals else None
+            vals = params.get(key, {}).get("data", [None])
+            v = vals[0] if vals else None
             return float(v) if v is not None else 0.0
-        rr,ff,ffx=_first('rr'),_first('ff'),_first('ffx')
-        ff_kmh,ffx_kmh,rate_1h=round(ff*3.6,1),round(ffx*3.6,1),round(rr*4,2)
-        result.update({"nowcast_rr_mm15":round(rr,3),"nowcast_ff_kmh":ff_kmh,"nowcast_ffx_kmh":ffx_kmh,"nowcast_rain_rate_1h":rate_1h,"gust_warning":ffx_kmh>=GUST_WARN_KMH,"heavy_rain_warning":rate_1h>=HEAVY_RAIN_MM_PER_H})
+
+        rr = _first("rr")
+        ff = _first("ff")
+        ffx = _first("ffx")
+        ff_kmh = round(ff * 3.6, 1)
+        ffx_kmh = round(ffx * 3.6, 1)
+        rate_1h = round(rr * 4, 2)
+        result.update({
+            "nowcast_rr_mm15": round(rr, 3),
+            "nowcast_ff_kmh": ff_kmh,
+            "nowcast_ffx_kmh": ffx_kmh,
+            "nowcast_rain_rate_1h": rate_1h,
+            "gust_warning": ffx_kmh >= GUST_WARN_KMH,
+            "heavy_rain_warning": rate_1h >= HEAVY_RAIN_MM_PER_H,
+        })
     except Exception as exc:
         debug_log(f"[NOWCAST] Parse-Fehler: {exc}")
     return result
