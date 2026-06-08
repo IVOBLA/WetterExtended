@@ -132,6 +132,10 @@ PX_TO_KMH: float = 10.0
 # Frame-Differenz wird in einer späteren Phase aus Timestamps abgeleitet.
 FRAME_INTERVAL_MIN: float = 2.0
 
+# ── Kinematisches Tracking / EWMA (P27) ──────────────────────────────────────
+TRACK_HISTORY_LEN: int = 6          # History-Buffer pro Zelle in Frames (min. 2, empfohlen 4–8)
+KINEMATIC_EWMA_ALPHA: float = 0.6  # EWMA-Faktor: 0.01=gleichgewichtet · 0.99=nur neuester Frame
+
 # Langsam ziehende Zellen: höheres Unwetterpotential durch längere
 # Verweilzeit → erweiterter Warnradius und eigenständiger Bedrohungstyp.
 # Meteorologische Grundlage: Zellen < 15 km/h verursachen den Großteil

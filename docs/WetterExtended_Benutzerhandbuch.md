@@ -1607,6 +1607,7 @@ erst bei Erweiterung. Rückwärtskompatibel.
 | v1.10 | Mai 2026 | **IR-Vorläufer Tooltip — Trendanzeige:** Der IR-Vorläufer-Tooltip (🛰 CB > 10.000) zeigt den Trend jetzt als qualitatives Label: `↑ Intensiviert ⚡` (BT-Trend < −1,5 K/min), `↓ Löst sich auf` (BT-Trend > +0,5 K/min) oder `→ Stabil`. Der numerische K/min-Wert und das technische Label „Kein Radar-Echo — Vorläufer" wurden entfernt. **Zell-Navigation aus Live-Daten:** In der `/live`-Ansicht öffnet ein Klick auf die Zell-ID ein neues Fenster mit `/map`, das sofort auf diese Zelle zoomt (URL-Parameter `lat`, `lon`, `zoom`, `cell`). **Zusammenführungs- und Teilungs-Badge:** Zellen mit `lineage == merged` erhalten in der Tabelle ein oranges ⊕-Badge, Zellen mit `lineage == split` ein violettes ⊗-Badge. Im Detail-Panel werden bei Merged-Zellen zusätzlich die Parent-IDs angezeigt. |
 | v1.9 | Mai 2026 | **Risk-Grid-Fix:** `/api/risk_grid` ist jetzt 200-stabil — `BBOX_KAERNTEN_EXTENDED` wird korrekt importiert und als Dict (`north/south/east/west`) und als List/Tuple verarbeitet. Die Kärnten-BBOX wird immer korrekt verwendet statt auf Fallback-Werte zu fallen. **IR-Vorläufer-Bewertung:** IR-Tracks werden einmalig vor der Grid-Schleife geladen (nicht mehr ~1000× pro API-Call). Der IR-Score-Beitrag wird jetzt korrekt VOR der Risk-Klassifikation addiert, sodass reine IR-Vorläuferzellen tatsächlich Risk-1-Zellen erzeugen können. **Vollbild-Karte Fehleranzeige:** `/karte` (MapFullscreen) zeigt jetzt wie die Admin-Karte eine sichtbare Fehlermeldung wenn das Risk-Grid nicht geladen werden kann. |
 | v1.8 | Mai 2026 | **3-Stage Kalman-Matching:** Zell-Tracking nutzt jetzt Kalman-vorhergesagte Polygonpositionen (Stage 1: IoU gegen verschobenes Polygon; Stage 2: Zentroid-Distanz; Stage 3: klassischer Overlap). Zellen behalten ihre ID auch bei schneller Bewegung oder Formänderung. **Richtungspfeile** werden für alle Zellen gezeigt (langsame mit 35% Opazität statt ausgeblendet). **Download-Buttons** (⬇ Logs .txt, ⬇ Objects .json) in der Logs-Seite. |
+| v1.9 | Juni 2026 | P27 — EWMA-Geschwindigkeitsgewichtung: Kinematischer Forecast nutzt jetzt alle verfügbaren History-Frames (bis `TRACK_HISTORY_LEN = 6`) mit exponentieller Gewichtung (`KINEMATIC_EWMA_ALPHA = 0.6`). Neuere Frames dominieren — schnelle Reaktion auf Kursänderungen, gleichzeitige Dämpfung von Einzelausreißern. Beide Parameter runtime-überschreibbar über Admin-Panel. |
 | v1.0 | 2025 | Erstveröffentlichung: HSV-Segmentierung, Kalman-Tracking, LSTM + LightGBM, React Admin-Panel (10 Seiten), KMZ-Export, `install.sh`, Scheduler, Closed-Loop-Verifikation |
 | v1.1 | Mai 2026 | Phase-A-Erweiterungen: Optical Flow (pysteps), AROME icon_d2 Gitterpunkt, Erweitertes DEM (3 Kacheln, Talkanalisierung), Windscherung, Hagelindikator, Stationärrisiko, GeoSphere TAWES + Nowcast, SMS (Twilio), Daten-Rotation (90 Tage), Disk-Monitoring, nginx Basic-Auth, Adaptiver Loop-Intervall, `LOCAL_TRAINING`-Flag, API-Request-Statistik, KI-Analyse Chat (Claude API), Atmosphären-Seite, Vollbild-Karte `/karte`, 15 Admin-Panel-Seiten, Bugfixes: `parse_timestamp`, `radar_download` Timeout/Retry, `blitz_api` HTTP-Auth, `SAVE_PATHS` Zentralisierung, `runtime_config` File-Lock |
 | v1.2 | Mai 2026 | Produktreife-Welle 1: Neuer Konfigurationsparameter `FRAME_INTERVAL_MIN` (nominales Radar-Frame-Intervall in Minuten, default 2.0) — wird in `prediction.py` für die korrekte Umrechnung von Horizon-Minuten in Frames verwendet. Accuracy-Tracker liefert vier neue Felder (`verified`, `missed`, `no_target_frame`, `id_lost`) pro Horizont für transparente Verifikations-Statistik. KMZ-Export enthält jetzt vier Layer: „Aktuelle Zellen" (Konturen + Mittelpunkte), „Forecast +Hmin" pro Horizont, „Unsicherheit +Hmin" (q10/q90) und „Betroffene Orte" (Locations in Forecast-Farbe). Modell-Promotion benötigt mindestens 50 Validierungs-Samples und strikte MAE-Verbesserung (Toleranz nur bei >500 Samples).
@@ -2084,3 +2085,63 @@ erwartete Niederschlagsrate (mm/h), Böen (km/h), Hagel-Kategorie/Index sowie CA
 
 **Datenquelle:** `train_data/forecast/outlook_12h.json` (alle 30 Minuten aktualisiert,
 kombinierter CAPE+LI+Scherung+Gefriergrenze-Score je ~5×5-km-Zelle, +1 bis +12 Stunden).
+
+---
+
+# 33 NEU: EWMA-Geschwindigkeitsgewichtung kinematischer Forecast (P27)
+
+**Module:** `prediction.py`, `object_tracking.py`
+**Konfiguration:** `TRACK_HISTORY_LEN`, `KINEMATIC_EWMA_ALPHA` in `config.py` / runtime
+
+## 33.1 Motivation
+
+Bisher verwendete `_append_kinematic()` ein **gleichgewichtiges Mittel der letzten
+3 Frames**. Bei Kursänderungen floss die alte Richtung gleichwertig ein — der
+kinematische Forecast hinkte der tatsächlichen Zugbahn hinterher.
+
+## 33.2 EWMA-Gewichtungsformel
+
+Alle History-Frames (bis `TRACK_HISTORY_LEN`) fließen ein, aber mit exponentiell
+abnehmendem Gewicht für ältere Einträge:
+
+```
+w[i] = α × (1−α)^(n−1−i)    normiert auf Summe 1
+(Index 0 = ältestes Intervall, Index n−1 = neuestes)
+```
+
+Beispiel **α = 0.6**, 3 Frames (2 Intervalle):
+
+| Intervall | Alter | Rohgewicht | Normiert |
+|---|---|---|---|
+| h[0]→h[1] | 4 min alt | 0.24 | 28,6 % |
+| h[1]→h[2] | 2 min alt | 0.60 | 71,4 % |
+
+Das neueste Intervall dominiert mit 71 % statt 50 % beim einfachen Mittel.
+
+## 33.3 History-Buffer
+
+`TRACK_HISTORY_LEN` wurde von **3 auf 6** erhöht. Mehr Datenpunkte stehen sowohl
+für den EWMA-Forecast als auch für ML-Sequenz-Features zur Verfügung. Der
+LSTM-Input (`ML_SEQUENCE_LENGTH`) bleibt unverändert.
+
+## 33.4 Konfiguration
+
+| Parameter | Default | Beschreibung |
+|---|---|---|
+| `TRACK_HISTORY_LEN` | `6` | Anzahl gespeicherter Frames pro Zelle (min. 2) |
+| `KINEMATIC_EWMA_ALPHA` | `0.6` | EWMA-Faktor: 0.01=gleichgewichtet, 0.99=nur neuester Frame |
+
+Beide Parameter sind im Admin-Panel (Konfigurationsseite → Erweitert / Sonstiges)
+oder direkt in `runtime_overrides.json` änderbar.
+
+## 33.5 kinematic_source-Label
+
+Das Feld `kinematic_source` im Objekt-JSON zeigt die Berechnungsbasis an:
+
+| Wert | Bedeutung |
+|---|---|
+| `ewma_6f_a0.6` | EWMA aus 6 Frames, alpha=0.6 (Normalfall nach Einlaufphase) |
+| `ewma_3f_a0.6` | EWMA aus 3 Frames (Zelle noch jung) |
+| `ewma_novts_4f` | EWMA aus 4 Frames ohne Timestamps (vx/vy-Fallback) |
+| `history_6_fallback` | Einfaches Mittel (Exception-Fallback) |
+| `kalman_only` | Weniger als 2 Frames verfügbar (neue Zelle) |

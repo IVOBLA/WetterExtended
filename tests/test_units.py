@@ -5,6 +5,7 @@ Prüft: Kalman-Velocity-Einheiten, Forecast-Pixel-Rechnung,
 """
 import sys
 import os
+import importlib
 
 import pytest
 
@@ -114,7 +115,7 @@ def test_real_time_velocity_from_history():
     muss _append_kinematic eine korrekte px/min Geschwindigkeit berechnen.
     """
     try:
-        from prediction import _append_kinematic
+        _append_kinematic = importlib.import_module("prediction")._append_kinematic
     except ImportError as exc:
         pytest.skip(f"prediction.py nicht importierbar: {exc}")
 
@@ -132,10 +133,10 @@ def test_real_time_velocity_from_history():
     forecasts = {10: [], 20: [], 30: [], 40: [], 60: []}
     _append_kinematic(obj, forecasts)
 
-    # Kinematische Quelle muss "real_ts" enthalten (P26-Fix)
+    # Kinematische Quelle muss "real_ts", "history" oder "ewma" enthalten (P26/P27)
     src = obj.get("kinematic_source", "")
-    assert "real_ts" in src or "history" in src, (
-        f"Erwartet real_ts oder history als Quelle, bekam: {src}"
+    assert "real_ts" in src or "history" in src or "ewma" in src, (
+        f"Erwartet real_ts, history oder ewma als Quelle, bekam: {src}"
     )
 
     # Forecast für 10 min: x0 + 5 px/min × 10 min = 70 + 50 = 120 px (original)
@@ -143,3 +144,63 @@ def test_real_time_velocity_from_history():
     if f10:
         # Toleranz 10% wegen Upscale und Lat/Lon-Rundung
         assert len(f10) == 1, f"Genau ein Forecast-Eintrag für h=10: {f10}"
+
+
+# ---------------------------------------------------------------------------
+# Test 7 — P27: EWMA-Gewichtung bevorzugt neuere Intervalle
+# ---------------------------------------------------------------------------
+
+def test_ewma_weights_newer_frames():
+    """
+    P27: Mit 3 Frames (2 Intervalle) muss das neuere Intervall mehr Gewicht
+    erhalten als das ältere. Bei Richtungswechsel Nordost → Ost muss:
+      - vx EWMA > vx Mittel (7.5)
+      - vy EWMA < vy Mittel (2.5)
+
+    Frames:
+      h[0] → h[1]: dx=+10px / 2min → vx=+5 px/min, vy=+5 px/min  (Nordost)
+      h[1] → h[2]: dx=+20px / 2min → vx=+10 px/min, vy=0 px/min  (Ost)
+
+    Einfaches Mittel:   vx=7.5   vy=2.5
+    EWMA alpha=0.6:     vx=8.57  vy=1.43   (neuestes dominiert mit 71,4 %)
+    """
+    try:
+        _append_kinematic = importlib.import_module("prediction")._append_kinematic
+    except ImportError as exc:
+        pytest.skip(f"prediction.py nicht importierbar: {exc}")
+
+    obj = {
+        "id": "ewma_test",
+        "x": 80.0, "y": 40.0,
+        "lat": 46.6, "lon": 14.3,
+        "vx": 0.0, "vy": 0.0,
+        "history": [
+            {"timestamp": "2026-01-01_00-00-00", "x": 50.0, "y": 30.0,
+             "vx": 5.0, "vy": 5.0, "lat": 46.5, "lon": 14.1},
+            {"timestamp": "2026-01-01_00-02-00", "x": 60.0, "y": 40.0,
+             "vx": 5.0, "vy": 5.0, "lat": 46.55, "lon": 14.2},
+            {"timestamp": "2026-01-01_00-04-00", "x": 80.0, "y": 40.0,
+             "vx": 10.0, "vy": 0.0, "lat": 46.6, "lon": 14.3},
+        ],
+    }
+    forecasts = {10: [], 20: [], 30: [], 40: [], 60: []}
+    _append_kinematic(obj, forecasts)
+
+    src = obj.get("kinematic_source", "")
+    assert src.startswith("ewma_"), (
+        f"P27: kinematic_source muss mit 'ewma_' beginnen, bekam: {src}"
+    )
+
+    vx = obj.get("kinematic_vx", 0.0)
+    vy = obj.get("kinematic_vy", 0.0)
+
+    # EWMA-Bedingungen: neueres Ost-Intervall dominiert gegenüber einfachem Mittel
+    assert vx > 7.5, (
+        f"P27: EWMA vx muss > 7.5 (einfaches Mittel), bekam: {vx:.4f}"
+    )
+    assert vy < 2.5, (
+        f"P27: EWMA vy muss < 2.5 (einfaches Mittel), bekam: {vy:.4f}"
+    )
+    assert len(forecasts.get(10, [])) == 1, (
+        "P27: Genau ein Forecast-Eintrag für h=10 erwartet"
+    )
