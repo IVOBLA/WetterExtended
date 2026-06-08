@@ -271,7 +271,102 @@ def _kinematic_fallback(objects: list) -> tuple:
         obj["delta_area_pred"]       = 0.0
         _classify_tendency(obj, has_ml=False)  # B92
         _append_kinematic(obj, forecasts)
+
+    # ── B95: Pfad-Wetter aus atmosphere_latest.json (kein API-Call, Z.28) ──
+    try:
+        from config import PATH_ATM_MAX_DIST_KM as _PATM
+        _atm_snap = _load_atmosphere_snapshot()
+        for _o in objects:
+            _compute_path_weather(_o, _horizons, _atm_snap, _PATM)
+    except Exception as _e_b95:
+        debug_log(f"[B95] Pfad-Wetter übersprungen: {_e_b95}")
+
     return tuple(forecasts[h] for h in _horizons)
+
+
+def _compute_path_weather(obj, horizons, snapshot, max_dist_km):
+    """B95: Atmosphäre an den vorhergesagten Forecast-Positionen.
+
+    snapshot: dict aus atmosphere_latest.json (Schlüssel "locations").
+    Liest pro Forecast-Punkt den nächsten Snapshot-Gitterpunkt (≤ max_dist_km).
+    Setzt path_*-Felder am obj. Bei fehlenden Daten → 0.0 (Modell lernt 'fehlend').
+    """
+    import math
+
+    fields = (
+        "path_cape_end", "path_li_end", "path_cape_mean", "path_li_min",
+        "path_cin_end", "path_lapse_end", "path_wind700_end", "path_cape_trend",
+    )
+    for f in fields:
+        obj[f] = 0.0
+
+    locs = (snapshot or {}).get("locations", [])
+    if not locs:
+        return
+
+    def _nearest(lat, lon):
+        best_d = float("inf")
+        best = None
+        for L in locs:
+            dlat = (float(L.get("lat", 0)) - lat) * 111.0
+            dlon = (float(L.get("lon", 0)) - lon) * 111.0 * (math.cos(math.radians(lat)) or 1e-6)
+            d = math.hypot(dlat, dlon)
+            if d < best_d:
+                best_d = d
+                best = L
+        return (best, best_d) if best_d <= max_dist_km else (None, best_d)
+
+    hs = sorted(int(h) for h in horizons)
+    if not hs:
+        return
+
+    # Start-CAPE am Origin
+    start_loc, _ = _nearest(float(obj.get("lat") or 0.0), float(obj.get("lon") or 0.0))
+    start_cape = float(start_loc.get("cape", 0.0) or 0.0) if start_loc else 0.0
+
+    cape_vals = []
+    li_vals = []
+    end_loc = None
+    for h in hs:
+        flat = obj.get(f"forecast_lat_{h}")
+        flon = obj.get(f"forecast_lon_{h}")
+        if flat is None or flon is None:
+            continue
+        loc, _d = _nearest(float(flat), float(flon))
+        if loc is None:
+            continue
+        cape_vals.append(float(loc.get("cape", 0.0) or 0.0))
+        li_vals.append(float(loc.get("li", 0.0) or 0.0))
+        end_loc = loc  # letzter gültiger = Pfad-Ende
+
+    if end_loc is not None:
+        obj["path_cape_end"] = float(end_loc.get("cape", 0.0) or 0.0)
+        obj["path_li_end"] = float(end_loc.get("li", 0.0) or 0.0)
+        obj["path_cin_end"] = float(end_loc.get("cin", 0.0) or 0.0)
+        obj["path_lapse_end"] = float(end_loc.get("lapse_700_500", 0.0) or 0.0)
+        obj["path_wind700_end"] = float(end_loc.get("wind_700hpa", 0.0) or 0.0)
+        obj["path_cape_trend"] = float(end_loc.get("cape", 0.0) or 0.0) - start_cape
+    if cape_vals:
+        obj["path_cape_mean"] = float(sum(cape_vals) / len(cape_vals))
+    if li_vals:
+        obj["path_li_min"] = float(min(li_vals))
+
+
+def _load_atmosphere_snapshot():
+    """Lädt atmosphere_latest.json (B95). Leeres dict wenn nicht vorhanden."""
+    try:
+        from config import SAVE_PATHS as _SP
+        _dir = _SP.get("evaluation", "train_data/evaluation")
+    except Exception:
+        _dir = "train_data/evaluation"
+    path = os.path.join(_dir.rstrip("/"), "atmosphere_latest.json")
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
 
 
 def load_intensification_model():
@@ -515,5 +610,14 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                     ),
                 }
             )
+
+    # ── B95: Pfad-Wetter aus atmosphere_latest.json (kein API-Call, Z.28) ──
+    try:
+        from config import PATH_ATM_MAX_DIST_KM as _PATM
+        _atm_snap = _load_atmosphere_snapshot()
+        for _o in objects:
+            _compute_path_weather(_o, _horizons, _atm_snap, _PATM)
+    except Exception as _e_b95:
+        debug_log(f"[B95] Pfad-Wetter übersprungen: {_e_b95}")
 
     return tuple(forecasts[h] for h in _horizons)

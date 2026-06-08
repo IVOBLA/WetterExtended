@@ -135,6 +135,20 @@ MIN_MOVEMENT_FOR_ARROW_KMH = 5.0
 # Risikozonen-Grid — IR-Vorläufer
 RISK_IR_RANGE_KM = 15
 
+# --------------------------------------
+# Weggefährten-Korridor (B94, ML-Feature)
+# --------------------------------------
+NEIGHBOR_AHEAD_RANGE_KM   = 40.0   # Reichweite des Korridors nach vorne (km)
+NEIGHBOR_AHEAD_HALF_ANGLE = 45.0   # halber Öffnungswinkel des Keils (Grad)
+NEIGHBOR_MIN_SPEED_KMH    = 5.0    # darunter keine Richtung → Feature neutral
+
+# --------------------------------------
+# Pfad-Wetter (B95, ML-Feature)
+# --------------------------------------
+# Max. Distanz Forecast-Punkt → nächster Atmosphären-Snapshot-Gitterpunkt (km).
+# Snapshot-Raster hat ~24-28 km Abstand → 30 km deckt jeden Pfadpunkt ab.
+PATH_ATM_MAX_DIST_KM = 30.0
+
 # px/Frame → km/h (UPSCALE=3, ~2 km/px orig., Zyklus 120 s).
 # Einzelne Quelle der Wahrheit — wird von app.py, locations_check.py,
 # object_tracking.py (_clamp_kalman_velocity) und LiveDaten.jsx verwendet.
@@ -286,6 +300,22 @@ ML_CELL_FEATURES = [
     "strat_area_px",
     "strat_intensity_mean",
     "strat_dbz_gradient",
+    # ── B94: Weggefährten-Einfluss im Bewegungs-Zielkorridor ──────────────
+    "neighbor_count_ahead",       # Anzahl anderer konvektiver Zellen voraus
+    "neighbor_max_core_ahead",    # max. core_ratio dieser Nachbarzellen
+    "neighbor_min_dist_km_ahead", # Distanz zur nächsten Zelle voraus (km; 999=keine)
+    "strat_area_ahead_px",        # stratiforme Fläche voraus (Nachschub-Proxy)
+    # ── B95: Atmosphäre entlang des berechneten Pfades (Forecast-Positionen) ─
+    # Werte am Pfad-Ende (spätester Horizont) + Mittel über alle Horizonte.
+    # Quelle: atmosphere_latest.json (kein neuer API-Call, Z.28).
+    "path_cape_end",          # CAPE am letzten Forecast-Punkt (J/kg)
+    "path_li_end",            # Lifted Index am letzten Forecast-Punkt (°C)
+    "path_cape_mean",         # mittleres CAPE über alle Forecast-Punkte
+    "path_li_min",            # min. (instabilster) LI über alle Forecast-Punkte
+    "path_cin_end",           # CIN am letzten Forecast-Punkt (J/kg)
+    "path_lapse_end",         # Lapse-Rate 700→500 am letzten Forecast-Punkt
+    "path_wind700_end",       # 700-hPa-Windgeschwindigkeit am letzten Punkt (km/h)
+    "path_cape_trend",        # CAPE(Ende) − CAPE(Start) — zieht Zelle in instabilere Luft?
     # ── DEM erweitert (Mosaic E013+E014+E015) ────────────────────────────
     "dem_barrier_ahead",       # Höhendiff. 10-20 km voraus (m, pos=Barriere)
     # ── Talkanalisierung ─────────────────────────────────────────────────

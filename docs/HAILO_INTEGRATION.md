@@ -634,6 +634,14 @@ Kein Hardcoding. Überschreibbar via `runtime_overrides.json`.
 | B14 | U-Net in `prediction.py` ergänzend integrieren | Pi | 1 Woche | ⏳ |
 | B15 | Closed-Loop-Verifikation U-Net vs. LSTM/LGBM | Pi | 2 Wochen | ⏳ |
 
+### 6.2.1 Phase-B-Ausbau (offen)
+
+- [ ] **B94-Ausbau (Phase B):** Pixelgenaue stratiforme Umgebung entlang des
+      Weggefährten-Korridors direkt aus der HSV-Maske.
+- [ ] **B95-Ausbau (Phase B):** Zeitlich passenden Atmosphären-Slot je Horizont
+      verwenden (statt aktuellem Snapshot), sobald stündliche Snapshot-Historie
+      vorgehalten wird.
+
 ### 6.3 Rollen des Linux-Rechners (beide gleichwertig)
 
 **Rolle 1 — Modell-Training:**
@@ -1539,6 +1547,8 @@ _hailo_available: Optional[bool] = None
 | B60 | `main.py` | Rückgabewert von `send_allclear_email()` ignoriert — `_location_warned` wurde auch bei SMTP-Fehler/Cooldown bedingungslos geleert. Folge: nach gescheiterter Entwarnung keine neue Warnung für denselben Ort. Fix: `ok = send_allclear_email(...)` — `discard()` nur wenn `ok == True`. | ✅ erledigt |
 | B61 | `debug_utils.py` | `api_call_summary()` zählte nur `status >= 400` als Fehler. Terminale Retry-Fehler aus `http_retry.py` (status=0) und Records mit `error`-Feld wurden nicht gezählt → Dashboard zeigte 0 Fehler trotz Netzwerkausfällen. Fix: `_status == 0` und `bool(rec.get("error"))` als weitere Fehlerbedingungen; `int(... or 0)` schützt gegen `None`-Status. | ✅ erledigt |
 | B92 | **Tendenz-Felder pro Zelle (Backend).** `object_tracking.py` schreibt zusätzlich `size_trend` (-1/0/+1, relative Flächenänderung ggü. Vorframe). `prediction.py` klassifiziert je Zelle `intensity_tendency`/`size_tendency`/`tendency_source`: ML-Regressoren (`delta_core_ratio_pred`/`delta_area_pred`) wenn vorhanden, sonst kinematischer Fallback (`trend`/`size_trend`). Neue Config-Schwellwerte `TENDENCY_CORE_DELTA_STABLE=0.05`, `TENDENCY_AREA_PCT_STABLE=0.10`. Grundlage für Popup-Anzeige (Frontend P-T02). | `config.py`, `object_tracking.py`, `prediction.py` | ✅ erledigt |
+| B94 | **Weggefährten-Einfluss als ML-Feature.** Neue `ML_CELL_FEATURES`: `neighbor_count_ahead`, `neighbor_max_core_ahead`, `neighbor_min_dist_km_ahead`, `strat_area_ahead_px`. `object_tracking.py` berechnet sie im zweiten Durchlauf über alle Frame-Zellen (Keil 40 km/±45° in Bewegungsrichtung). Config: `NEIGHBOR_AHEAD_*`. | `config.py`, `object_tracking.py` | ✅ erledigt |
+| B95 | **Pfad-Wetter als ML-Feature.** Atmosphärische Werte (CAPE/LI/CIN/Lapse/700-hPa-Wind) an den vorhergesagten Forecast-Positionen, plus `path_cape_trend` (CAPE Ende−Start). Quelle: `atmosphere_latest.json` (kein neuer API-Call, zieldef. Z.28). Berechnung in `prediction.py` NACH Forecast-Setzung, für ML- und Kinematik-Pfad. Config: `PATH_ATM_MAX_DIST_KM`. Feature-Dimension geändert → Neutraining nötig (MODELL-VERSIONEN=0 → kein Verlust). | `config.py`, `prediction.py` | ✅ erledigt |
 
 ### Neue Fach-Features in Phase C (geplant und umgesetzt)
 
