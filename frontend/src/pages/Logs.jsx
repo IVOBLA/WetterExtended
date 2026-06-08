@@ -213,7 +213,7 @@ function Logs() {
                     <tr className="border-b text-gray-500 uppercase">
                       <th className="p-1 text-left">Zeit UTC</th>
                       <th className="p-1 text-left">Service</th>
-                      <th className="p-1 text-left">Grund</th>
+                      <th className="p-1 text-left">Grund / URL</th>
                       <th className="p-1 text-center">HTTP</th>
                       <th className="p-1 text-center">Fallback</th>
                     </tr>
@@ -225,7 +225,15 @@ function Logs() {
                           {e.ts_utc?.slice(0,19).replace('T',' ')}
                         </td>
                         <td className="p-1 font-mono font-semibold">{e.service}</td>
-                        <td className={`p-1 ${severityColor(e.reason)}`}>{e.reason}</td>
+                        <td className={`p-1 ${severityColor(e.reason)}`}>
+                          <div>{e.reason}</div>
+                          {e.url && (
+                            <div className="text-gray-400 text-xs break-all mt-0.5"
+                                 style={{ wordBreak: 'break-all' }}>
+                              {e.url}
+                            </div>
+                          )}
+                        </td>
                         <td className="p-1 text-center text-gray-400">{e.http_status || '—'}</td>
                         <td className="p-1 text-center">
                           {e.fallback_used

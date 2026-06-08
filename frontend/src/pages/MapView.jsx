@@ -475,6 +475,8 @@ export default function MapView() {
   const frameLoadTimer  = useRef(null)
   const frameDataCache  = useRef({})
   const playingRef      = useRef(false)
+  const pollRef         = useRef(null)   // B90: schedulePoll-Timer
+  const lastImgRef      = useRef(null)   // B90: letzter Radar-Timestamp
 
   // ── Manuelles Zell-Markieren ──────────────────────────────────────────────
   const [cellMarkActive,   setCellMarkActive]   = useState(false)
@@ -508,6 +510,19 @@ export default function MapView() {
   const handlePlay  = useCallback(() => { setPlaying(true);  playingRef.current = true  }, [])
   const handlePause = useCallback(() => { setPlaying(false); playingRef.current = false }, [])
 
+  // B90: Intelligenter Poll — wartet bis kurz nach next_fetch_estimated_utc
+  const schedulePoll = useCallback((timing) => {
+    if (pollRef.current) clearTimeout(pollRef.current)
+    let delayMs = 60000
+    if (timing?.next_fetch_estimated_utc) {
+      const nextFetch = new Date(timing.next_fetch_estimated_utc).getTime()
+      const now       = Date.now()
+      const msUntil   = nextFetch - now
+      delayMs = msUntil <= 0 ? 22000 : Math.min(msUntil + 5000, 90000)
+    }
+    pollRef.current = setTimeout(() => load(), delayMs)
+  }, [showIrCells])
+
   async function load() {
     if (!playingRef.current) frameDataCache.current = {}
     try {
@@ -521,7 +536,18 @@ export default function MapView() {
         api.get(`/api/lightning?max_age_min=${lightningAge}`).catch(() => null),
       ])
       setLocations(c); setHorizons(d)
-      if (timing) setRadarTiming(timing)
+      if (timing) {
+        setRadarTiming(timing)
+        // B90: neues Radarbild erkannt → Timestamp-Vergleich
+        const newTs = timing.last_radar_image_utc
+        if (newTs && newTs !== lastImgRef.current) {
+          lastImgRef.current = newTs
+          setRadarTs(Date.now())
+        }
+        schedulePoll(timing)
+      } else {
+        schedulePoll(null)
+      }
       if (bounds?.bounds) setRadarBounds(bounds.bounds)
       if (lightningData?.strikes) setLightning(lightningData.strikes)
 
@@ -547,10 +573,12 @@ export default function MapView() {
     } catch (e) { console.error(e) }
   }
 
+  // B90: kein starres Intervall mehr — schedulePoll übernimmt das Timing
   useEffect(() => {
     load()
-    const t = setInterval(load, 60000)
-    return () => clearInterval(t)
+    return () => {
+      if (pollRef.current) clearTimeout(pollRef.current)
+    }
   }, [showIrCells])
 
   // Frame-Sync für Animation: bei Scrubbing objects/forecast für den

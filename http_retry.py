@@ -152,19 +152,19 @@ def retry_get(
             last_exc = exc
             debug_log(
                 f"[{service}] SSL-Fehler (Versuch {attempt + 1}/{max_retries}): "
-                f"{type(exc).__name__}: {str(exc)[:120]}"
+                f"{type(exc).__name__}: {str(exc)}"
             )
         except requests.exceptions.ConnectionError as exc:
             last_exc = exc
             debug_log(
                 f"[{service}] Connection-Fehler (Versuch {attempt + 1}/{max_retries}): "
-                f"{type(exc).__name__}: {str(exc)[:120]}"
+                f"{type(exc).__name__}: {str(exc)}"
             )
         except Exception as exc:
             last_exc = exc
             debug_log(
                 f"[{service}] Fehler (Versuch {attempt + 1}/{max_retries}): "
-                f"{type(exc).__name__}: {str(exc)[:120]}"
+                f"{type(exc).__name__}: {str(exc)}"
             )
 
         if attempt < max_retries - 1:
@@ -172,7 +172,7 @@ def retry_get(
             debug_log(f"[{service}] Warte {wait}s vor erneutem Versuch...")
             time.sleep(wait)
 
-    _last_err_str = f"{type(last_exc).__name__}: {str(last_exc)[:120]}"
+    _last_err_str = f"{type(last_exc).__name__}: {str(last_exc)}"
     log_api_failure(service, url, _last_err_str, fallback_used=True)
     # In api_call_counts loggen → Dashboard zeigt fehlgeschlagene Requests
     _last_resp_text = None
