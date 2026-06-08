@@ -28,6 +28,144 @@ import runtime_config
 
 
 # ---------------------------------------------------------------------------
+# Token-Vorfilterung: Symptom-Map + AST-Skelett
+# ---------------------------------------------------------------------------
+
+# Dateien die immer als Volltext geladen werden (Kern-Konfiguration + Hauptschleife)
+_ALWAYS_CORE_FILES: frozenset = frozenset({"config.py", "main.py"})
+
+# Mapping: Subsystem-Anomalie → zuständige Quelldateien (Volltext)
+_SYMPTOM_FILE_MAP: dict = {
+    "accuracy":   ["prediction.py", "accuracy_tracker.py", "object_tracking.py"],
+    "api":        [
+        "fetch_arome_openmeteo.py", "blitz_api.py",
+        "cloud_height_from_eumetview.py", "assign_cape_from_forecast.py",
+    ],
+    "model":      ["model_training.py", "dataset_builder.py", "radar_convlstm.py"],
+    "data":       ["dataset_builder.py", "object_tracking.py"],
+    "scheduler":  ["scheduler.py"],
+    "analyzer":   ["daily_analyzer.py"],
+    "storm":      ["object_tracking.py", "prediction.py"],
+}
+
+
+def _get_symptom_files(report: dict) -> set:
+    """
+    Leitet aus dem bereits gesammelten Report ab, welche Subsysteme auffällig
+    sind, und gibt die zugehörigen Quelldateien zurück (Volltext-Kandidaten).
+
+    Geprüfte Signale:
+      accuracy        : hit_rate < 0.4 oder samples == 0
+      api             : success_rate < 90 % oder api_health failures > 0
+      model           : model_quality.status nicht ok/good/success
+      data            : samples_total < 50
+      scheduler/storm : journal_errors + storm_day aktive Frames
+    """
+    flagged: set = set()
+
+    # Accuracy-Check
+    for h_data in report.get("accuracy", {}).values():
+        samples  = h_data.get("samples")  or 0
+        hit_rate = h_data.get("hit_rate") or 0.0
+        if samples == 0 or hit_rate < 0.4:
+            flagged |= set(_SYMPTOM_FILE_MAP["accuracy"])
+            break
+
+    # API-Erfolgsrate
+    for svc_data in report.get("api_success_evidence", {}).values():
+        if svc_data.get("success_rate", 100.0) < 90.0:
+            flagged |= set(_SYMPTOM_FILE_MAP["api"])
+            break
+    if report.get("api_health", {}).get("total_failures", 0) > 0:
+        flagged |= set(_SYMPTOM_FILE_MAP["api"])
+
+    # Modell-Status
+    model_status = report.get("model_quality", {}).get("status")
+    if not model_status or model_status.lower() not in ("ok", "good", "success"):
+        flagged |= set(_SYMPTOM_FILE_MAP["model"])
+
+    # Datensatz-Größe
+    samples_total = report.get("data_quality", {}).get("samples_total")
+    if samples_total is not None and samples_total < 50:
+        flagged |= set(_SYMPTOM_FILE_MAP["data"])
+
+    # Journal-Fehler: Scheduler oder Analyzer betroffen
+    for err in report.get("journal_errors", []):
+        sig = err.get("signature", "").upper()
+        if "SCHEDULER" in sig:
+            flagged |= set(_SYMPTOM_FILE_MAP["scheduler"])
+        if "ANALYZER" in sig:
+            flagged |= set(_SYMPTOM_FILE_MAP["analyzer"])
+
+    # Aktive Sturmzellen → Tracking + Forecast-Code relevant
+    sd = report.get("storm_day_summary", {}).get("storm_day", {})
+    if sd.get("frames_with_cells", 0) > 0:
+        flagged |= set(_SYMPTOM_FILE_MAP["storm"])
+
+    return flagged
+
+
+def _extract_ast_skeleton(source: str) -> str:
+    """
+    Extrahiert Modul-Docstring, Imports und Klassen-/Funktionssignaturen
+    mit Docstrings aus Python-Quellcode (ast-Modul).
+
+    Gibt ein kompaktes Skelett zurück — ca. 80–90 % weniger Token als Volltext,
+    aber vollständige Strukturübersicht für die KI.
+
+    Fallback: erste 40 Zeilen bei Syntaxfehlern oder leerem Ergebnis.
+    """
+    import ast as _ast
+
+    try:
+        tree = _ast.parse(source)
+    except SyntaxError:
+        return "\n".join(source.splitlines()[:40]) + "\n# [AST-PARSE-FEHLER — Skelett gekürzt]"
+
+    lines = source.splitlines()
+    out: list = [f"# AST-SKELETT ({len(lines)} Originalzeilen)"]
+
+    # Modul-Docstring
+    mod_doc = _ast.get_docstring(tree)
+    if mod_doc:
+        out.append(f'"""(Modul) {mod_doc[:200].replace(chr(10), " ")}"""')
+
+    # Imports (max. 20 Zeilen)
+    import_lines: list = []
+    for node in tree.body:
+        if isinstance(node, (_ast.Import, _ast.ImportFrom)):
+            import_lines.append(lines[node.lineno - 1].strip())
+    if import_lines:
+        out.append("")
+        out.extend(import_lines[:20])
+        if len(import_lines) > 20:
+            out.append(f"# ... ({len(import_lines) - 20} weitere Imports)")
+
+    # Top-Level Funktionen und Klassen
+    for node in tree.body:
+        if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+            doc = _ast.get_docstring(node)
+            out.append(f"\ndef {node.name}(...):  # Zeile {node.lineno}")
+            if doc:
+                out.append(f'    """{doc[:150].replace(chr(10), " ")}"""')
+        elif isinstance(node, _ast.ClassDef):
+            out.append(f"\nclass {node.name}:  # Zeile {node.lineno}")
+            doc = _ast.get_docstring(node)
+            if doc:
+                out.append(f'  """{doc[:150].replace(chr(10), " ")}"""')
+            for sub in node.body:
+                if isinstance(sub, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                    mdoc = _ast.get_docstring(sub)
+                    out.append(f"    def {sub.name}(...):  # Zeile {sub.lineno}")
+                    if mdoc:
+                        out.append(f'        """{mdoc[:100].replace(chr(10), " ")}"""')
+
+    if len(out) <= 2:
+        return source[:1500] + "\n# [SKELETT-LEER — Volltext gekürzt]"
+    return "\n".join(out)
+
+
+# ---------------------------------------------------------------------------
 # Quellcode-Kontext — ausschliesslich von GitHub (autoritäre Quelle)
 # ---------------------------------------------------------------------------
 
@@ -60,10 +198,19 @@ def _fetch_github_file(repo: str, branch: str, filepath: str,
         return f"[GitHub Fehler: {exc}]", "network_error"
 
 
-def _collect_source_context() -> dict:
+def _collect_source_context(report: "dict | None" = None) -> dict:
     """
     Holt Quellcode aller konfigurierten Dateien ausschliesslich von GitHub.
     Kein Zugriff auf lokale Dateien. GitHub-Stand ist die einzige Quelle.
+
+    Symptom-gesteuerter Modus (wenn `report` übergeben wird — automatische Analyse):
+      - Immer Volltext: _ALWAYS_CORE_FILES (config.py, main.py)
+      - Volltext: Dateien aus _get_symptom_files(report) (auffällige Subsysteme)
+      - Alle anderen: kompaktes AST-Skelett (~80-90 % Token-Einsparung)
+      Ergebnis: Relevante Dateien vollständig, Rest als Strukturübersicht.
+
+    Unkontrollierter Modus (report=None — interaktiver Chat in app.py):
+      Verhält sich identisch zum bisherigen Verhalten (max_lines / full_source_mode).
     """
     from config import GITHUB_VERIFY_CONFIG
     gh = runtime_config.get("GITHUB_VERIFY_CONFIG", GITHUB_VERIFY_CONFIG)
@@ -75,19 +222,46 @@ def _collect_source_context() -> dict:
     full_mode = gh.get("full_source_mode", False)
     max_lines = 0 if full_mode else gh.get("max_lines_per_file", 120)
 
+    # Symptom-Gate: nur bei automatischer Analyse (report übergeben)
+    full_files: set = set(_ALWAYS_CORE_FILES)
+    if report is not None and not full_mode:
+        full_files |= _get_symptom_files(report)
+
     ctx = {
-        "source":  "github",
-        "repo":    repo,
-        "branch":  branch,
-        "files":   {},
-        "errors":  [],
+        "source":         "github",
+        "repo":           repo,
+        "branch":         branch,
+        "files":          {},
+        "errors":         [],
+        "skeleton_files": [],   # Dateien die als AST-Skelett gesendet wurden
+        "full_files":     [],   # Dateien die als Volltext gesendet wurden
     }
 
     ok_count  = 0
     err_count = 0
     for fname in files:
-        content, status = _fetch_github_file(repo, branch, fname, token, max_lines)
-        ctx["files"][fname] = {"content": content, "status": status}
+        # Skelett-Modus: symptom-gesteuerte Analyse + Datei nicht im full_files-Set
+        use_skeleton = (
+            report is not None
+            and not full_mode
+            and fname not in full_files
+        )
+        # Volltext laden (0 = unbegrenzt), dann ggf. auf Skelett reduzieren
+        content, status = _fetch_github_file(repo, branch, fname, token,
+                                             max_lines=0 if use_skeleton else max_lines)
+        if status == "ok" and use_skeleton:
+            content = _extract_ast_skeleton(content)
+            ctx["skeleton_files"].append(fname)
+            ctx["files"][fname] = {"content": content, "status": "ok", "mode": "skeleton"}
+        else:
+            ctx["files"][fname] = {
+                "content": content,
+                "status":  status,
+                "mode":    "full" if status == "ok" else "error",
+            }
+            if status == "ok":
+                ctx["full_files"].append(fname)
+
         if status == "ok":
             ok_count += 1
         else:
@@ -95,8 +269,8 @@ def _collect_source_context() -> dict:
             ctx["errors"].append({"file": fname, "reason": status})
 
     debug_log(
-        f"[ANALYZER] GitHub-Source: {ok_count} Dateien geladen, "
-        f"{err_count} Fehler (repo={repo}, branch={branch})"
+        f"[ANALYZER] GitHub-Source: {ok_count} geladen, {err_count} Fehler "
+        f"(volltext={len(ctx['full_files'])}, skelett={len(ctx['skeleton_files'])})"
     )
     return ctx
 
@@ -575,6 +749,9 @@ def build_system_report(since_hours: int = 24) -> dict:
             "storm_day": {}, "location_hits": {}, "peak_frames": [], "peak_frame_count": 0,
         }
 
+    # --- Tages-Sturmzellen-Summary und Journal-Fehler VOR source_context sammeln
+    # (Symptom-Gate in _collect_source_context braucht diese Daten als Eingabe)
+
     # --- Journal-Fehler-Digest (systemd: wetterprojekt + wetterprojekt-scheduler) ---
     try:
         report["journal_errors"] = _load_journal_error_digest(since_hours=since_hours)
@@ -582,9 +759,9 @@ def build_system_report(since_hours: int = 24) -> dict:
         debug_log(f"[ANALYZER] Journal-Digest Fehler: {exc}")
         report["journal_errors"] = []
 
-    # --- Quellcode von GitHub ---
+    # --- Quellcode von GitHub (symptom-gesteuert — nach allen Metriken) ---
     try:
-        report["source_context"] = _collect_source_context()
+        report["source_context"] = _collect_source_context(report)
     except Exception as exc:
         debug_log(f"[ANALYZER] Source-Kontext Fehler: {exc}")
         report["source_context"] = {"source": "error", "error": str(exc)}
