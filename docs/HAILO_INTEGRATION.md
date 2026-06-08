@@ -871,6 +871,7 @@ Konvektive Szenarien (CAPE > 0, negative LI) werden nicht beeinträchtigt.
 
 | # | Task | Datei(en) | Status |
 |---|------|-----------|--------|
+| B84 | `whatsapp_notifier.py`: `send_test_wa()` delegierte an `_send_whatsapp()` welche nur `True`/`False` zurückgibt. CallMeBot-Fehlertexte (z.B. „Not Registered", „API Key not Valid") aus dem HTTP-Response-Body gingen verloren — Benutzer sah nur `failed=['+43...']` ohne Grund. Fix: HTTP-Call in `send_test_wa` inline mit gezieltem `urllib.error.HTTPError`-Catch; Response-Body im `error`-Feld zurückgegeben. `app.py`: `log_api_call` um `error`-Feld ergänzt → Dashboard zeigt jetzt tatsächlichen CallMeBot-Text. | `whatsapp_notifier.py`, `app.py` | ✅ erledigt |
 | B78 | `locations_check.py` + `app.py`: Zellgeschwindigkeit 3× zu hoch — `UPSCALE_FACTOR` fehlte bei `speed_kmh`-Berechnung aus `vx`/`vy`. Beweis: Screenshot zeigt 64.4 km/h im Orts-Treffer vs. 21.5 km/h im Zellen-Popup (Faktor 3.0 = UPSCALE_FACTOR exakt). Fix: `obj.get("speed_kmh")` verwenden (bereits korrekt berechnet von `object_tracking.py`). Betroffen: Orts-Treffer-Anzeige, `is_slow_arrow`, Risk-Grid-Stationär-Boost. | `locations_check.py`, `app.py` | ✅ erledigt |
 | B79 | `MapView.jsx` + `MapFullscreen.jsx`: Grammatikfehler „1 Frames" im Zellen-Popup bei `active_frames === 1`. Fix: Ternary für Singular/Plural. | `frontend/src/pages/MapView.jsx`, `frontend/src/pages/MapFullscreen.jsx` | ✅ erledigt |
 
