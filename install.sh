@@ -1553,6 +1553,23 @@ else
             note_manual "sudo systemctl restart $_svc && journalctl -u $_svc -n 30"
         fi
     done
+
+    # API-Fehler-Log nach Upgrade leeren — Admin-Panel zeigt sauberen Start.
+    # Alteinträge (z.B. HTTP-400 vor dem Fix) verschwinden sofort statt erst
+    # nach 24 Stunden. Reine Log-Datei, keine Trainingsdaten.
+    _api_log="$TARGET/train_data/evaluation/api_health.jsonl"
+    if [[ -f "$_api_log" ]]; then
+        : > "$_api_log"
+        check_ok "API-Fehler-Log geleert (frischer Start nach Upgrade)"
+    fi
+    # log_clear_state.json setzen → Admin-Panel zeigt "seit HH:MM" korrekt
+    python3 -c "
+import json, os, datetime
+p = '$TARGET/train_data/evaluation/log_clear_state.json'
+os.makedirs(os.path.dirname(p), exist_ok=True)
+with open(p, 'w') as f:
+    json.dump({'cleared_at_utc': datetime.datetime.utcnow().isoformat() + 'Z'}, f)
+" 2>/dev/null || true
 fi
 
 # ==============================================================================
