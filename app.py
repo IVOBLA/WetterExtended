@@ -3458,6 +3458,22 @@ def api_risk_grid():
                         score += 0.25 * w
                     elif cloud_h_atm > 7000.0:
                         score += 0.10 * w
+                    # B86 — CAPE/SHIP/PW/CIN/cloud_height aus ATM-Snapshot für Tooltip
+                    # best_cape / best_ship kamen bisher nur aus Zell-Objekten →
+                    # bei dominant='atm' (keine aktiven Zellen) blieben alle null.
+                    # Jetzt: ATM-Snapshot-Werte befüllen die Tooltip-Felder auch ohne Zellen.
+                    _atm_cape = _safe_float(aloc.get("cape", 0.0) or 0.0, 0.0)
+                    if _atm_cape > 0 and (best_cape is None or _atm_cape > best_cape):
+                        best_cape = _atm_cape
+                    # SHIP-Proxy aus ATM-Daten: cape * lapse / 14000 (dimensionslos, ~0..4)
+                    _atm_lapse = _safe_float(aloc.get("lapse_700_500", 0.0) or 0.0, 0.0)
+                    if _atm_cape > 0 and _atm_lapse > 0:
+                        _atm_ship = round(min(_atm_cape * _atm_lapse / 14000.0, 4.0), 2)
+                        if best_ship is None or _atm_ship > best_ship:
+                            best_ship = _atm_ship
+                    # cloud_height_m aus ATM-Snapshot
+                    if cloud_h_atm > 0 and (best_cloud_top_m is None or cloud_h_atm > best_cloud_top_m):
+                        best_cloud_top_m = cloud_h_atm
                     # Detail-Tracking
                     if li_val is None or li < li_val:
                         li_val = li
