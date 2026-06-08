@@ -307,6 +307,23 @@ HSV-Farbschwellwerte für die Zellerkennung (Gewitterzellen, moderate Zellen, Mi
 
 Konfiguration der 5 Vorhersage-Zeiträume (default: 10/20/30/40/60 min) und deren Pfeilfarben.
 
+### Vorwarnzeit (Alarm-Schwelle)
+
+| Parameter | Default | Beschreibung |
+|---|---|---|
+| `WARN_MAX_HORIZON_MIN` | 20 min | E-Mail/WhatsApp-Alarm wird nur gesendet wenn der nächste berechnete Eintreffzeitpunkt ≤ diesem Wert liegt |
+
+**Verhalten:**
+- Zelle ist **bereits im Ort** (Horizont 0) → Alarm **immer sofort**, unabhängig von dieser Einstellung
+- Frühester Forecast-Horizont ≤ Vorwarnzeit → Alarm wird gesendet
+- Frühester Forecast-Horizont > Vorwarnzeit → kein Alarm (Zelle noch zu weit entfernt)
+
+**Beispiel:** Vorwarnzeit = 20 min, Horizonte [30, 40] treffen Ort → kein Alarm.
+Sobald auch Horizont 20 (oder 10) trifft → Alarm.
+
+Das Orts-Popup auf der Karte zeigt immer nur den **frühesten** treffenden Horizont.
+Treffen mehrere Horizonte wird die Anzahl weiterer Horizonte in grau angezeigt.
+
 ## 4.9 Training (`/training`)
 
 Manueller Trainings-Trigger für alle Modelle, Anzeige des letzten Trainingszeitstempels und des `LOCAL_TRAINING`-Status.
