@@ -250,7 +250,7 @@ def send_risk_alert_wa(location_name: str, dominant: str,
         f"{ts}\n\n"
         f"Ursache: {dom_label}"
         f"{extra_str}\n\n"
-        f"Max. 1 Warnung pro Ort und Tag.\n"
+        f"Naechste Warnung frühestens in 2 Stunden.\n"
         f"WetterExtended Kaernten"
     )
 

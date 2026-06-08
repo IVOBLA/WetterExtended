@@ -49,7 +49,8 @@ _RISK_ALERT_LOG = os.path.join(
 def _risk_alert_check(timestamp: str) -> None:
     import json as _j
     from datetime import datetime as _dt, timezone as _tz
-    _today = _dt.now(_tz.utc).strftime("%Y-%m-%d")
+    _RISK_COOLDOWN_S = 7200          # 2 Stunden zwischen Risk-Alarmen pro Ort
+    _now_epoch = _dt.now(_tz.utc).timestamp()
     _sent = {}
     try:
         if os.path.exists(_RISK_ALERT_LOG):
@@ -77,7 +78,18 @@ def _risk_alert_check(timestamp: str) -> None:
         loc_lon = float(loc.get("lon", 0))
         email  = loc.get("email",    "").strip()
         wa_str = loc.get("whatsapp", "").strip()
-        if _sent.get(loc_name) == _today:
+        # Epoch-basierter Cooldown (rückwärtskompatibel: alter Datumsstring
+        # → float() schlägt fehl → epoch=0 → Cooldown abgelaufen → Alarm ok)
+        try:
+            _last_sent_epoch = float(_sent.get(loc_name, 0))
+        except (TypeError, ValueError):
+            _last_sent_epoch = 0.0
+        if _last_sent_epoch > _now_epoch - _RISK_COOLDOWN_S:
+            debug_log(
+                f"[RISK-ALERT] {loc_name}: Cooldown aktiv — "
+                f"naechster Alarm in "
+                f"{int((_last_sent_epoch + _RISK_COOLDOWN_S - _now_epoch) / 60)} min."
+            )
             continue
         best_cell = min(_grid, key=lambda c: abs(c["lat"] - loc_lat) + abs(c["lon"] - loc_lon), default=None)
         if not best_cell or best_cell.get("risk", 0) < 3:
@@ -87,7 +99,7 @@ def _risk_alert_check(timestamp: str) -> None:
             from email_notifier import send_risk_alert_email
             ok = send_risk_alert_email(location_name=loc_name, dominant=info.get("dominant", "atm"), details=info, recipient=email)
             if ok:
-                _sent[loc_name] = _today
+                _sent[loc_name] = _now_epoch     # Epoch statt Datum
                 _changed = True
                 debug_log(f"[RISK-ALERT] ✅ Alarm gesendet: {loc_name} → {email}")
             else:
