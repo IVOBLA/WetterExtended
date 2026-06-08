@@ -1124,6 +1124,12 @@ kinematisch = aus jüngstem Trend abgeleitet, grau dargestellt).
 |Δ Fläche| ≤ 10 %. Außerhalb dieses Korridors gilt die Zelle als
 verstärkend/abschwächend bzw. wachsend/schrumpfend.
 
+**Darstellung im Popup:** Die Tendenz erscheint als zweizeilige Anzeige
+„↑ Intensität: verstärkt sich" und „⤢ Größe: wächst" (bzw. die jeweils
+zutreffenden Symbole/Texte). Eine kinematisch (ohne ML-Modell) ermittelte
+Tendenz wird abgeschwächt (grau) dargestellt und mit „aus Verlauf
+(kinematisch)" gekennzeichnet.
+
 ## 23.8 Polygon-basierte Orts-Treffer mit richtungsabhängigem Wachstum
 
 **`current`:** Abstand Ort → Zell-Polygon-Rand ≤ Ortsradius.
