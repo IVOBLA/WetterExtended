@@ -32,6 +32,7 @@ _AROME_PARAMS = ",".join([
     "temperature_2m", "dewpoint_2m",
     "wind_speed_10m", "wind_direction_10m",
     "freezing_level_height",
+    "cape",          # CAPE (icon_d2) — für Atmosphäre-Seite und Schwere-Proxy
 ])
 # Erweitert um T500/T700/CIN/PW — gleicher HTTP-Request, mehr Parameter.
 # Alle 4 sind in icon_global hourly verfuegbar (verifiziert gegen
@@ -216,13 +217,14 @@ def fetch_atmospheric_snapshot() -> dict:
         lon  = loc.get("lon",  0.0)
 
         # AROME-Werte
-        t2m = td2m = ff10m = li = fl_h = 0.0
+        t2m = td2m = ff10m = li = fl_h = cape_jkg = 0.0
         if arome_data and i < len(arome_data):
             h = arome_data[i].get("hourly", {})
-            t2m   = _extract_slot(h, "temperature_2m",      target_time)
-            td2m  = _extract_slot(h, "dewpoint_2m",          target_time)
-            ff10m = _extract_slot(h, "wind_speed_10m",       target_time)
-            fl_h  = _extract_slot(h, "freezing_level_height",target_time)
+            t2m      = _extract_slot(h, "temperature_2m",       target_time)
+            td2m     = _extract_slot(h, "dewpoint_2m",           target_time)
+            ff10m    = _extract_slot(h, "wind_speed_10m",        target_time)
+            fl_h     = _extract_slot(h, "freezing_level_height", target_time)
+            cape_jkg = _extract_slot(h, "cape",                  target_time)
 
         # 700 hPa Wind + T500/T700 + 300 hPa Wind aus Pressure-Response
         w_speed = w_dir_cos = w_dir_sin = 0.0
@@ -282,6 +284,7 @@ def fetch_atmospheric_snapshot() -> dict:
             "cin":              round(cin_jkg, 1),
             "pw":               round(pw_mm,   1),
             "lapse_700_500":    round(lapse_700_500, 2),
+            "cape":             round(cape_jkg, 0),
         })
 
     # Wolkenhöhen für alle Snapshot-Orte aus EUMETView TIFF (kein neuer API-Call
