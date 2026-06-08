@@ -14,6 +14,48 @@ import {
 } from '../constants/mapDefaults.js'
 import api from '../api.js'
 
+// ── B93: Tendenz-Anzeige (Intensität & Größe) im Zell-Popup ──────────────────
+// Liest intensity_tendency / size_tendency / tendency_source (gesetzt vom Backend
+// in prediction.py, B92). Fallback-Quelle ("kinematic") wird grau dargestellt.
+function CellTendency({ obj }) {
+  if (!obj) return null
+  const it = obj.intensity_tendency
+  const st = obj.size_tendency
+  if (!it && !st) return null
+  const isMl = obj.tendency_source === 'ml'
+
+  const intMap = {
+    staerker:   { sym: '↑', txt: 'verstärkt sich', color: '#dc2626' },
+    schwaecher: { sym: '↓', txt: 'schwächt ab',    color: '#2563eb' },
+    stabil:     { sym: '→', txt: 'stabil',          color: '#6b7280' },
+  }
+  const sizeMap = {
+    waechst:   { sym: '⤢', txt: 'wächst',    color: '#dc2626' },
+    schrumpft: { sym: '⤡', txt: 'schrumpft', color: '#2563eb' },
+    stabil:    { sym: '◻', txt: 'stabil',     color: '#6b7280' },
+  }
+  const i = intMap[it] || intMap.stabil
+  const s = sizeMap[st] || sizeMap.stabil
+
+  return (
+    <div style={{ marginTop: 6, fontSize: 14, lineHeight: 1.5,
+                  opacity: isMl ? 1 : 0.7 }}>
+      <div style={{ fontWeight: 600, color: '#374151' }}>Tendenz</div>
+      <div>
+        <span style={{ color: i.color, fontWeight: 700 }}>{i.sym} Intensität:</span>{' '}
+        {i.txt}
+      </div>
+      <div>
+        <span style={{ color: s.color, fontWeight: 700 }}>{s.sym} Größe:</span>{' '}
+        {s.txt}
+      </div>
+      <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+        {isMl ? 'ML-Prognose' : 'aus Verlauf (kinematisch)'}
+      </div>
+    </div>
+  )
+}
+
 const lineageColor = {
   new: 'green', continued: 'blue', merged: 'orange', split: 'magenta'
 }
@@ -563,6 +605,7 @@ export default function MapFullscreen() {
                   {o.tawes_max_gust_kmh > 30 && <div className="text-gray-500 text-xs">Station-Böe: {o.tawes_max_gust_kmh} km/h</div>}
                   {o.intensification_prob != null &&
                     <div>Intensivierung: {(o.intensification_prob * 100).toFixed(0)}%</div>}
+                  <CellTendency obj={o} />
                 </Popup>
               </Polygon>
               {(o.intensity_zones || []).map((zone, zi) => (
