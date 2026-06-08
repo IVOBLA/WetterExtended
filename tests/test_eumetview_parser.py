@@ -1,8 +1,14 @@
 import sys
 import types
+import pytest
+
+# B96: numpy NICHT mocken — cloud_height_from_eumetview.py hat HAS_NUMPY/HAS_RASTERIO-
+# Guard (try/except beim Import), der Mock ist unnötig. Ein SimpleNamespace in
+# sys.modules["numpy"] korrumpiert rasterio- und pandas-Imports aller nachfolgenden
+# Test-Dateien im selben pytest-Lauf.
+pytest.importorskip("numpy")  # Test überspringen wenn numpy nicht nutzbar
 
 sys.modules.setdefault("requests", types.SimpleNamespace())
-sys.modules.setdefault("numpy", types.SimpleNamespace(ndarray=object))
 sys.modules.setdefault("cv2", types.SimpleNamespace())
 sys.modules.setdefault("utils", types.SimpleNamespace(log=lambda *a, **k: None))
 sys.modules.setdefault("http_retry", types.SimpleNamespace(retry_get=lambda *a, **k: None))

@@ -1,5 +1,12 @@
 import sys
 import types
+import pytest
+
+# B96: severity_dataset importiert dataset_builder (numpy) + pandas auf Modulebene.
+# Ohne importorskip führt ein defektes numpy/pandas zu einem Sammlungsfehler
+# statt einem sauberen Skip.
+pytest.importorskip("numpy")   # transitiv über dataset_builder
+pytest.importorskip("pandas")  # severity_dataset.py: pd = importlib.import_module("pandas")
 
 sys.modules.setdefault(
     "debug_utils",
