@@ -127,6 +127,12 @@ rechtfertigt nur Modelle die ohne Hailo zu langsam wären.
 | **C — Skalierung** | Optimierungen, weitere Modelle, KI-Analyse vertiefen, Bugfixes B10–B12 | bei Bedarf | Pi 5 + Linux-Rechner | ⏳ Offen |
 | **E — IR-Sat Pre-Convection Tracking** | Hohe Wolken (BT < 230 K) aus EUMETView IR108 als eigenständige Objekte detektieren, tracken und vorhersagen. Pseudo-Zellen erweitern Risk-Grid und KMZ. 300-hPa-Steuerstrom als neue Höhenwind-Schicht. Neue ML-Features (`bt_min_k`, `bt_trend_k_per_min`, `overshooting_top`, `ir_only_precursor`, …) für Radar-Zellen. | 3–4 Wochen | Nur Pi 5 (Inferenz) + Linux-Trainer (Modelle) | 🚧 **Teilweise erledigt** (E1–E5,E7,E9,E10 ✅ — E6,E8 warten auf Linux-Trainer) |
 
+### 4.1 Prompt-Status A.1
+
+| Prompt | Inhalt | Datei(en) | Status |
+|---|---|---|---|
+| P27 | EWMA-Gewichtung kinematischer Forecast + `TRACK_HISTORY_LEN=6` | `prediction.py`, `object_tracking.py`, `config.py` | ✅ erledigt |
+
 ### Pre-Conditions
 - ✅ Phase B startet erst NACH vollständiger Phase A → **Phase A ist abgeschlossen**
 - ✅ Linux-Rechner (Lenovo M910q, Ubuntu) vorhanden — Hailo DFC direkt installierbar

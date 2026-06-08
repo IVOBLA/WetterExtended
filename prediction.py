@@ -15,7 +15,18 @@ if np is None:
         "Bitte ausführen: pip3 install numpy --break-system-packages"
     )
 
-from config import ML_CELL_FEATURES as CELL_KEYS, ML_FORECAST_HORIZONS_MIN as _STATIC_HORIZONS, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, ML_STATION_FEATURES as STATION_KEYS, PX_TO_KMH, SAVE_PATHS, UPSCALE_FACTOR as _UF, FRAME_INTERVAL_MIN as _FRAME_MIN
+from config import (
+    FRAME_INTERVAL_MIN as _FRAME_MIN,
+    KINEMATIC_EWMA_ALPHA as _STATIC_EWMA_ALPHA,
+    ML_CELL_FEATURES as CELL_KEYS,
+    ML_FORECAST_HORIZONS_MIN as _STATIC_HORIZONS,
+    ML_NUM_FEATURES,
+    ML_SEQUENCE_LENGTH,
+    ML_STATION_FEATURES as STATION_KEYS,
+    PX_TO_KMH,
+    SAVE_PATHS,
+    UPSCALE_FACTOR as _UF,
+)
 
 try:
     import runtime_config as _runtime_cfg
@@ -65,32 +76,50 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
     """
     Kinematischer Fallback wenn kein ML-Modell verfügbar oder Sequenz zu kurz.
 
-    Geschwindigkeit wird aus den letzten bis zu 3 History-Einträgen gemittelt
-    (jeder Eintrag = 1 Radarbild-Zyklus). Wenn weniger als 2 History-Einträge
-    vorhanden sind, wird der aktuelle Kalman-Wert (vx/vy) verwendet.
+    Geschwindigkeit wird aus ALLEN vorhandenen History-Einträgen (bis zu
+    TRACK_HISTORY_LEN Frames) mit EWMA-Gewichtung berechnet (P27).
+    Neuere Zeitintervalle erhalten exponentiell höheres Gewicht — ältere fließen
+    gedämpft ein. Reagiert schnell auf Kursänderungen, dämpft Einzelausreißer.
+
+    Gewichtungsformel für n Intervalle (Index 0 = ältestes):
+      w[i] = alpha × (1−alpha)^(n−1−i)   normiert auf Summe 1
+
+    Beispiel alpha=0.6, 3 Frames (2 Intervalle):
+      w_norm = [0.2857, 0.7143]  → neuestes Intervall dominiert mit 71 %
+
+    Wenn weniger als 2 History-Einträge vorhanden sind, wird der aktuelle
+    Kalman-Wert (vx/vy) verwendet (src = "kalman_only").
+
+    Konfiguration (runtime-überschreibbar):
+      TRACK_HISTORY_LEN    — History-Buffer-Größe (default 6)
+      KINEMATIC_EWMA_ALPHA — Glättungsfaktor     (default 0.6)
     """
     history = obj.get("history") or []
-    n = min(3, len(history))
+    n = len(history)
 
-    # P26: Echte px/min aus Timestamp-Differenzen wenn x/y in History vorhanden.
-    # Fallback auf vx/vy (px/Frame × FRAME_INTERVAL_MIN) wenn Timestamps fehlen.
+    # EWMA-Alpha aus runtime_config lesen (P27)
+    _ewma_alpha = float(
+        _runtime_cfg.get("KINEMATIC_EWMA_ALPHA", _STATIC_EWMA_ALPHA)
+        if _runtime_cfg else _STATIC_EWMA_ALPHA
+    )
+    _ewma_alpha = max(0.01, min(0.99, _ewma_alpha))   # Bereich [0.01, 0.99] erzwingen
+
     avg_vx: float = 0.0
     avg_vy: float = 0.0
     src: str = "kalman_only"
 
     if n >= 2:
-        recent = history[-n:]
-        # Prüfe ob alle Einträge Timestamp + x/y haben
+        # P26 + P27: Prüfe ob alle Einträge Timestamp + x/y haben
         _has_xy_ts = all(
             h.get("timestamp") and "x" in h and "y" in h
-            for h in recent
+            for h in history
         )
         if _has_xy_ts:
-            # Echte px/min aus letzten n Einträgen (P26)
+            # Echte px/min aus Timestamp-Differenzen + EWMA-Gewichtung
             try:
                 _vx_list, _vy_list = [], []
-                for _i in range(1, len(recent)):
-                    _h0, _h1 = recent[_i - 1], recent[_i]
+                for _i in range(1, n):
+                    _h0, _h1 = history[_i - 1], history[_i]
                     _t0 = datetime.strptime(_h0["timestamp"], "%Y-%m-%d_%H-%M-%S")
                     _t1 = datetime.strptime(_h1["timestamp"], "%Y-%m-%d_%H-%M-%S")
                     _dt_min = (_t1 - _t0).total_seconds() / 60.0
@@ -98,23 +127,40 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
                         _vx_list.append((_h1["x"] - _h0["x"]) / _dt_min)
                         _vy_list.append((_h1["y"] - _h0["y"]) / _dt_min)
                 if _vx_list:
-                    avg_vx = sum(_vx_list) / len(_vx_list)   # px/min
-                    avg_vy = sum(_vy_list) / len(_vy_list)   # px/min
-                    src = f"real_ts_{len(_vx_list)+1}"
+                    _n_v = len(_vx_list)
+                    # EWMA: Index 0 = ältestes Intervall → geringstes Gewicht
+                    _weights = [
+                        _ewma_alpha * (1.0 - _ewma_alpha) ** (_n_v - 1 - _i)
+                        for _i in range(_n_v)
+                    ]
+                    _w_sum = sum(_weights) or 1.0
+                    _weights = [_w / _w_sum for _w in _weights]
+                    avg_vx = sum(_w * _v for _w, _v in zip(_weights, _vx_list))
+                    avg_vy = sum(_w * _v for _w, _v in zip(_weights, _vy_list))
+                    src = f"ewma_{n}f_a{round(_ewma_alpha, 2)}"
                 else:
                     raise ValueError("keine gültigen Intervalle")
             except Exception:
-                # Fallback: vx/vy (px/Frame) → px/min via FRAME_INTERVAL_MIN
+                # Fallback: einfaches Mittel vx/vy (px/Frame) → px/min
                 _frame_min_fb = float(_FRAME_MIN) if _FRAME_MIN else 2.0
-                avg_vx = (sum(float(h.get("vx", 0.0)) for h in recent) / n) / _frame_min_fb
-                avg_vy = (sum(float(h.get("vy", 0.0)) for h in recent) / n) / _frame_min_fb
+                avg_vx = (sum(float(h.get("vx", 0.0)) for h in history) / n) / _frame_min_fb
+                avg_vy = (sum(float(h.get("vy", 0.0)) for h in history) / n) / _frame_min_fb
                 src = f"history_{n}_fallback"
         else:
-            # History ohne x/y: vx/vy (px/Frame) → px/min
+            # History ohne x/y-Timestamps: EWMA auf gespeicherte vx/vy-Werte
             _frame_min_fb = float(_FRAME_MIN) if _FRAME_MIN else 2.0
-            avg_vx = (sum(float(h.get("vx", 0.0)) for h in recent) / n) / _frame_min_fb
-            avg_vy = (sum(float(h.get("vy", 0.0)) for h in recent) / n) / _frame_min_fb
-            src = f"history_{n}"
+            _vx_vals = [float(h.get("vx", 0.0)) for h in history]
+            _vy_vals = [float(h.get("vy", 0.0)) for h in history]
+            _n_v = len(_vx_vals)
+            _weights = [
+                _ewma_alpha * (1.0 - _ewma_alpha) ** (_n_v - 1 - _i)
+                for _i in range(_n_v)
+            ]
+            _w_sum = sum(_weights) or 1.0
+            _weights = [_w / _w_sum for _w in _weights]
+            avg_vx = sum(_w * _v for _w, _v in zip(_weights, _vx_vals)) / _frame_min_fb
+            avg_vy = sum(_w * _v for _w, _v in zip(_weights, _vy_vals)) / _frame_min_fb
+            src = f"ewma_novts_{n}f"
     else:
         # < 2 History-Einträge: Kalman-Werte (px/Frame) → px/min
         _frame_min_fb = float(_FRAME_MIN) if _FRAME_MIN else 2.0
@@ -131,7 +177,6 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
     for horizon in _get_horizons():
         # EINHEITEN (Fix P01 + P26):
         # avg_vx/vy = px/min (echte Zeitdifferenz oder Fallback via FRAME_INTERVAL_MIN).
-        # horizon   = Vorhersagezeit in MINUTEN.
         # → x_pred  = x0 + avg_vx * horizon  (direkte Multiplikation — kein Frame-Divisor)
         # pixel_to_geo() erwartet SKALIERTE Koordinaten (teilt intern durch _UF).
         _x0 = _safe_float(obj.get("x", 0.0))
@@ -146,14 +191,7 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
             if base_lat == 0.0 and base_lon == 0.0:
                 lat, lon = 0.0, 0.0
             else:
-                # Kinematische Verschiebung auf lat/lon-Basis.
-                # avg_vx/vy : Original-px pro Frame.
-                # km-Verschiebung = avg_vx * horizon_frames * KM_PER_PX
-                # KM_PER_PX = PX_TO_KMH / 60 * FRAME_INTERVAL_MIN
-                #           = km/h pro px/Frame ÷ 60 min/h × Frame-Dauer (min)
-                #           = km pro Original-px (für einen Frame).
                 # avg_vx/vy in px/min; horizon in min → px Versatz = avg_vx * horizon
-                # km/min Versatz = (px/min * horizon_min) * KM_PER_PX_PER_MIN
                 # KM_PER_PX_PER_MIN = PX_TO_KMH / 60  (km/h pro (px/Frame)) / (60 min/h)
                 _KM_PER_PX_MIN = PX_TO_KMH / 60.0   # km pro (px·min)
                 _dlat = -(avg_vy * float(horizon) * _KM_PER_PX_MIN) / 111.0

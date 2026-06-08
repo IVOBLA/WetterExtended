@@ -111,7 +111,9 @@ const PARAM_GROUPS = [
       { key: 'MAX_CELL_SPEED_KMH',        type: 'number', default: 150, unit: 'km/h', desc: 'Plausibilitätsgrenze: schnellere Zellen werden verworfen.', example: 150 },
       { key: 'MAX_SPEED_CHANGE_PER_CYCLE_KMH', type: 'number', default: 60, unit: 'km/h', desc: 'Maximale Geschwindigkeitsänderung pro Zyklus (Anti-Jitter).', example: 60 },
       { key: 'VERIFICATION_TOLERANCE_KM', type: 'number', default: 5,   unit: 'km',  desc: 'Toleranz-Radius für Closed-Loop-Verifikation (Forecast vs. tatsächliche Position).', example: 5 },
-      { key: 'ML_SEQUENCE_LENGTH',        type: 'number', default: 6,   unit: '',    desc: 'Anzahl historischer Frames die das LSTM als Input-Sequenz bekommt.', example: 6 },
+      { key: 'ML_SEQUENCE_LENGTH',        type: 'number', default: 6,   unit: '',       desc: 'Anzahl historischer Frames die das LSTM als Input-Sequenz bekommt.', example: 6 },
+      { key: 'TRACK_HISTORY_LEN',         type: 'number', default: 6,   unit: 'Frames', desc: 'Anzahl gespeicherter History-Frames pro Zelle. Basis für EWMA-Geschwindigkeitsberechnung. Erhöhung verbessert Glättung; mind. 2.', example: 6 },
+      { key: 'KINEMATIC_EWMA_ALPHA',      type: 'number', default: 0.6, unit: '',       desc: 'EWMA-Glättungsfaktor für kinematischen Forecast. 0.01 = gleichgewichtet (alle Frames gleich), 0.99 = fast nur neuester Frame. Empfohlen: 0.5–0.7.', example: 0.6 },
     ],
   },
 ]

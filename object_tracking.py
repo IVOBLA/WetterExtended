@@ -363,7 +363,7 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
         )
 
     previous_snapshot = tracking_memory.copy()
-    history_len = int(_rc.get("TRACK_HISTORY_LEN", 3))
+    history_len = int(_rc.get("TRACK_HISTORY_LEN", 6))
 
     # ── 3-Stage-Matching-Strukturen ──────────────────────────────────────────
     # prev_polys:     (id, Polygon) an URSPRÜNGLICHER Position → Stage 3 + Merge-Fallback
