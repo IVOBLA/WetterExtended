@@ -50,11 +50,12 @@ def _rain_mm_h(obj):
 
 
 def _gust_kmh(obj):
+    # B89: arome_ff10m ist mittlerer Hintergrundwind, kein Böenwert — entfernt.
+    # Böenquellen in Priorität: Nowcast-Böe → TAWES-FFX → Open-Meteo-Böe
     cands = [
         _safe_float(obj.get("nowcast_ffx_kmh")),
         _safe_float(obj.get("FFX")),
         _safe_float(obj.get("wind_gust_10m_kmh")),
-        _safe_float(obj.get("arome_ff10m")),
     ]
     return round(max(cands), 1)
 
