@@ -901,6 +901,12 @@ Konvektive Szenarien (CAPE > 0, negative LI) werden nicht beeinträchtigt.
 | B85 | `email_notifier.py` + `drift_detector.py`: Drift-Alert-Email ohne Cooldown — `send_drift_alert()` hatte keinen Cooldown (anders als `send_warning_email` mit 15 min). Im Fallback-Modus (keine ML-Modelle, MAE systemisch erhöht) wurde stündlich ein Drift-Alarm versendet. Fix (1): 6h dateibasierter Cooldown in `send_drift_alert()` via `_DRIFT_COOLDOWN_FILE` (`train_data/evaluation/drift_mail_cooldown.json`). Fix (2): `_has_ml_model()`-Guard in `check_and_alert()` — kein E-Mail-Alarm wenn `train_data/models/current/` und `v_*`-Verzeichnisse fehlen (kinematischer Fallback-Modus). | `email_notifier.py`, `drift_detector.py` | ✅ erledigt |
 | B86 | `app.py`: Risk-Grid Tooltip zeigte CAPE, SHIP, cloud_height_m als `null` bei `dominant='atm'` (keine aktiven Sturmzellen). Ursache: `best_cape`, `best_ship`, `best_cloud_top_m` wurden nur aus Zell-Objekten befüllt, nie aus dem ATM-Snapshot. Fix: Im ATM-Instabilitäts-Loop (Abschnitt 3) werden jetzt `best_cape`, `best_ship` (Proxy: cape×lapse/14000) und `best_cloud_top_m` aus `aloc`-Feldern des Atmosphären-Snapshots übertragen. | `app.py` | ✅ erledigt |
 
+### 5.14 Phase A.14 — Bug-Fix-Welle 14
+
+| # | Task | Datei(en) | Status |
+|---|------|-----------|--------|
+| B89 | `severity_dataset._gust_kmh()`: `arome_ff10m` wurde fälschlich als Böen-Fallback genutzt, obwohl es die mittlere 10-m-Windgeschwindigkeit aus AROME und kein Böenwert ist. Fix: Kandidatenliste auf echte Böenquellen begrenzt (`nowcast_ffx_kmh`, `FFX`, `wind_gust_10m_kmh`). Dadurch verwenden Fallback-Ausgabe und zukünftige Severity-Trainingssamples keine überhöhten Böen-Targets aus mittlerem Hintergrundwind mehr. | `severity_dataset.py`, `tests/test_severity_dataset_b89.py` | ✅ erledigt |
+
 
 ## B76 — GeoSphere Nowcast HTTP 400: Timestamp-Format-Fehler
 
