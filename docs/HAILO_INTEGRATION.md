@@ -882,6 +882,12 @@ Konvektive Szenarien (CAPE > 0, negative LI) werden nicht beeinträchtigt.
 | B82 | `main.py` + `whatsapp_notifier.py`: Risk-Alert Cooldown von 1× täglich auf 1× 2 Stunden geändert. `_RISK_ALERT_LOG` speichert jetzt Epoch-Timestamp statt Datumsstring. Rückwärtskompatibel (alte Datumsstrings → Cooldown abgelaufen → Alarm erlaubt). | `main.py`, `whatsapp_notifier.py` | ✅ erledigt |
 | B83 | `MapView.jsx` + `MapFullscreen.jsx`: Risikozonen-Popup zeigte LI doppelt (in `atm`-dominantLabel UND als Detail-Zeile). Zusätzlich fehlten Regen/Böe/Hagel im Popup. Fix: LI aus `dominantLabel` entfernt; Severity-Proxy (Regen/Böe/Hagel) aus bereits vorhandenen `info`-Feldern (cape, pw, ship, lapse_700_500) direkt im Frontend berechnet und angezeigt — identisch zur Formel in `convective_outlook.py`. | `frontend/src/pages/MapView.jsx`, `frontend/src/pages/MapFullscreen.jsx` | ✅ erledigt |
 
+### 5.13 Phase A.13 — Bug-Fix-Welle 13
+
+| # | Task | Datei(en) | Status |
+|---|------|-----------|--------|
+| B84 | `Progress.jsx`: Leere Charts ohne Empty-State-Erklärung — wenn keine Modell-Versionen vorhanden (`versions = []`), wurden drei leere Recharts-Diagramme und eine leere Tabelle angezeigt ohne jede Erklärung. Fix: `loaded`-State ergänzt; Amber-Banner wenn `loaded && versions.length === 0`; Charts und Tabelle nur bei `versions.length > 0`. | `frontend/src/pages/Progress.jsx` | ✅ erledigt |
+
 ## B76 — GeoSphere Nowcast HTTP 400: Timestamp-Format-Fehler
 
 **Status:** ✅ Implementiert  
