@@ -27,6 +27,7 @@ sys.modules.setdefault(
         debug_log=lambda *args, **kwargs: None,
         log_http_response=lambda *args, **kwargs: None,
         log_api_failure=lambda *args, **kwargs: None,
+        log_api_call=lambda *args, **kwargs: None,
     ),
 )
 

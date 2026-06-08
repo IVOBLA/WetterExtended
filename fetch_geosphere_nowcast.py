@@ -12,31 +12,44 @@ _DEFAULT = {"nowcast_rr_mm15":0.0,"nowcast_ff_kmh":0.0,"nowcast_ffx_kmh":0.0,"no
 GUST_WARN_KMH = 60.0
 HEAVY_RAIN_MM_PER_H = 25.0
 
-def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
-    for obj in objects: obj.update(_DEFAULT)
-    valid=[(i,o) for i,o in enumerate(objects) if o.get("lat") is not None and o.get("lon") is not None]
+def _build_nowcast_slots(now: datetime) -> list[dict[str, str]]:
     from datetime import timedelta as _td
-    _now   = datetime.now(timezone.utc)
-    _floor  = _now.replace(minute=(_now.minute // 15) * 15,
-                           second=0, microsecond=0)
-    _td15  = _td(minutes=15)
-    # 2-Slot-Strategie: aktuellen Slot bevorzugen — erfasst neue Stürme die gerade
-    # begonnen haben. Fallback auf vorherigen Slot wenn aktueller noch berechnet
-    # wird (HTTP 422, typisch in den ersten 2–3 min nach Slot-Beginn).
-    #   Slot 0 (bevorzugt): _floor     … _floor+15min  — Niederschlag JETZT
-    #   Slot 1 (Fallback):  _floor-15min … _floor       — Niederschlag VOR 15 min
-    _nowcast_slots = [
+
+    _floor = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
+    _td15 = _td(minutes=15)
+    # B88: Nur aktuellen Slot abfragen — Fallback-Slot lag in der Vergangenheit
+    # und lieferte HTTP 400 (GeoSphere Forecast-API akzeptiert nur aktuelle/zukünftige Slots).
+    # Wenn der aktuelle Slot noch nicht berechnet ist → HTTP 422 → _slot_result bleibt None
+    # → Felder bleiben auf DEFAULT (0.0) → kein falscher Wert.
+    return [
         {
             "start_str":  _floor.strftime("%Y-%m-%dT%H:%M"),
             "end_str":    (_floor + _td15).strftime("%Y-%m-%dT%H:%M"),
             "cache_sfx":  _floor.strftime("%Y-%m-%dT%H:%M"),
         },
-        {
-            "start_str":  (_floor - _td15).strftime("%Y-%m-%dT%H:%M"),
-            "end_str":    _floor.strftime("%Y-%m-%dT%H:%M"),
-            "cache_sfx":  (_floor - _td15).strftime("%Y-%m-%dT%H:%M"),
-        },
     ]
+
+
+def _build_nowcast_url(lat: float, lon: float, slot: dict[str, str]) -> str:
+    # GeoSphere Nowcast erwartet lat_lon als kombinierten Parameter MIT
+    # LITERAL-Komma: lat_lon=46.526,14.548
+    # requests.get(..., params=[("lat_lon","46.526,14.548")]) kodiert das
+    # Komma zu %2C → HTTP 400 "Bad Request".
+    # Lösung: URL vollständig manuell bauen — kein params=-Argument.
+    _lat_lon_raw = f"{lat},{lon}"
+    _url_params = (
+        f"lat_lon={_lat_lon_raw}"
+        f"&parameters=rr&parameters=ff&parameters=ffx"
+        f"&start={slot['start_str']}&end={slot['end_str']}"
+    )
+    return f"{_BASE_URL}?{_url_params}"
+
+
+def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
+    for obj in objects: obj.update(_DEFAULT)
+    valid=[(i,o) for i,o in enumerate(objects) if o.get("lat") is not None and o.get("lon") is not None]
+    _now = datetime.now(timezone.utc)
+    _nowcast_slots = _build_nowcast_slots(_now)
     # GeoSphere Nowcast-Domain: Österreich + 0.2° Puffer.
     # Koordinaten außerhalb dieses Bereichs liefern HTTP 422 (Unprocessable Content).
     # BBOX_KAERNTEN_EXTENDED reicht bis lat 45.5 (Norditalien/Slowenien) — diese überspringen.
@@ -54,7 +67,7 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
             )
             obj.update(_DEFAULT)
             continue
-        # 2-Slot-Strategie: aktuellen Slot zuerst, Fallback auf vorherigen bei 422.
+        # B88: aktuellen Slot abfragen, keinen vergangenen Fallback-Slot mehr versuchen.
         _slot_result = None
         for _slot in _nowcast_slots:
             _ck = cache_key("geosphere:nowcast", lat, lon, _slot["cache_sfx"])
@@ -62,20 +75,9 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
             if _cached is not None:
                 _slot_result = _cached
                 break
-            # GeoSphere Nowcast erwartet lat_lon als kombinierten Parameter MIT
-            # LITERAL-Komma: lat_lon=46.526,14.548
-            # requests.get(..., params=[("lat_lon","46.526,14.548")]) kodiert das
-            # Komma zu %2C → HTTP 400 "Bad Request".
-            # Lösung: URL vollständig manuell bauen — kein params=-Argument.
-            _lat_lon_raw = f"{lat},{lon}"
             import time as _t_nowcast
             from http_retry import retry_get
-            _url_params  = (
-                f"lat_lon={_lat_lon_raw}"
-                f"&parameters=rr&parameters=ff&parameters=ffx"
-                f"&start={_slot['start_str']}&end={_slot['end_str']}"
-            )
-            url = f"{_BASE_URL}?{_url_params}"
+            url = _build_nowcast_url(lat, lon, _slot)
             try:
                 _t0_nowcast = _t_nowcast.monotonic()
                 r = retry_get(
@@ -104,7 +106,7 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
                 if _nc_status == 422:
                     debug_log(
                         f"[NOWCAST] Slot {_slot['start_str'][:16]} HTTP 422 "
-                        f"({_nc_body}) — versuche Fallback-Slot"
+                        f"({_nc_body}) — kein Fallback-Slot"
                     )
                     log_api_failure(
                         "geosphere_nowcast", str(url),
@@ -118,7 +120,7 @@ def assign_nowcast_to_objects(objects: list, timestamp: str) -> list:
                         response_text=_nc_body[:200],
                         error=f"http-422 | {_nc_body[:80]}",
                     )
-                    continue  # Fallback-Slot versuchen
+                    continue  # weitere Slots nur falls künftig wieder konfiguriert
                 # Anderer HTTP-Fehler → abbrechen
                 log_api_failure("geosphere_nowcast", str(url),
                                 str(_nc_exc)[:80], fallback_used=True,
