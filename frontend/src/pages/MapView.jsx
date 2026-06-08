@@ -849,9 +849,21 @@ export default function MapView() {
                       } catch { return o.first_seen } })()}
                     </div>
                   )}
-                  {o.active_frames != null && (
+                  {o.total_active_frames != null && (
                     <div style={{fontSize:'0.8em',color:'#666'}}>
-                      Aktiv: {o.active_frames} {o.active_frames === 1 ? 'Frame' : 'Frames'} (~{Math.round(o.active_frames * 2)} min)
+                      {(() => {
+                        const tf = o.total_active_frames ?? 0
+                        let minStr = ''
+                        if (o.first_seen) {
+                          try {
+                            const fs = new Date(o.first_seen.replace(/_/g, 'T').replace(/-(\d{2})-(\d{2})$/, ':$1:$2') + 'Z')
+                            const diffMin = Math.round((Date.now() - fs.getTime()) / 60000)
+                            if (diffMin >= 0 && diffMin < 1440) minStr = ` (~${diffMin} min)`
+                          } catch (_) {}
+                        }
+                        if (!minStr) minStr = ` (~${Math.round(tf * 2)} min)`
+                        return `Aktiv: ${tf} ${tf === 1 ? 'Frame' : 'Frames'}${minStr}`
+                      })()}
                     </div>
                   )}
                   {o.speed_kmh != null && (
