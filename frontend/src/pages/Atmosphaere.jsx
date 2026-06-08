@@ -122,6 +122,14 @@ export default function Atmosphaere() {
                 <th className="p-3 text-right cursor-help"
                   title="Lifted Index (°C): Instabilitätsmaß. Positiv = stabil. 0 bis −1 = leicht instabil. −1 bis −3 = mäßig instabil (Gewitter möglich). &lt; −3 = hoch instabil (Gewitter wahrscheinlich).">LI</th>
                 <th className="p-3 text-right cursor-help"
+                  title="CAPE — Konvektiv verfügbare pot. Energie (J/kg). &gt;500: mäßig, &gt;1500: stark, &gt;3000: extrem">CAPE</th>
+                <th className="p-3 text-right cursor-help"
+                  title="PW — Precipitable Water (mm). Gesamtwasserdampf. Starkregenpotenzial steigt ab ~30 mm.">PW</th>
+                <th className="p-3 text-right cursor-help"
+                  title="Lapse Rate 700–500 hPa (°C/km). &gt;7: labil, &gt;6: mäßig labil, &lt;6: stabil.">Lapse</th>
+                <th className="p-3 text-right cursor-help"
+                  title="Schwere-Proxy: Regen (mm/h) · Böe (~km/h) · Hagel. Berechnet aus CAPE, PW, Lapse — grobe Schätzung.">Schwere</th>
+                <th className="p-3 text-right cursor-help"
                   title="Gefriergrenze: Höhe der 0°C-Isotherme über MSL. Je höher, desto wärmer die Atmosphäre. &gt; 4000 m im Sommer = sehr warme Luftmasse. Relevant für Hagelgröße.">Gefriergrenze</th>
                 <th className="p-3 text-right cursor-help"
                   title="Bodennaher Wind in 10 m Höhe (km/h). Lokal gemessen, beeinflusst Zell-Entwicklung kaum, relevant für Sturmböen-Prognose.">Wind 10m</th>
@@ -145,6 +153,41 @@ export default function Atmosphaere() {
                     <td className={`p-3 text-right font-mono ${loc.li < -1 ? 'text-red-600 font-semibold' : ''}`}>
                       {loc.li?.toFixed(1)}
                     </td>
+                    {/* B84 — CAPE */}
+                    <td className={`p-3 text-right font-semibold ${
+                      (loc.cape ?? 0) > 3000 ? 'text-red-700' :
+                      (loc.cape ?? 0) > 1500 ? 'text-orange-600' :
+                      (loc.cape ?? 0) > 500  ? 'text-yellow-600' : 'text-gray-400'}`}>
+                      {(loc.cape ?? 0) > 0 ? Math.round(loc.cape) : '—'}
+                    </td>
+                    {/* B84 — PW */}
+                    <td className={`p-3 text-right text-xs ${
+                      (loc.pw ?? 0) > 35 ? 'text-blue-700 font-semibold' :
+                      (loc.pw ?? 0) > 25 ? 'text-blue-500' : 'text-gray-500'}`}>
+                      {(loc.pw ?? 0) > 0 ? `${loc.pw?.toFixed(0)} mm` : '—'}
+                    </td>
+                    {/* B84 — Lapse */}
+                    <td className={`p-3 text-right text-xs ${
+                      (loc.lapse_700_500 ?? 0) > 7 ? 'text-red-600' :
+                      (loc.lapse_700_500 ?? 0) > 6 ? 'text-orange-500' : 'text-gray-500'}`}>
+                      {(loc.lapse_700_500 ?? 0) > 0 ? `${loc.lapse_700_500?.toFixed(1)}` : '—'}
+                    </td>
+                    {/* B84 — Schwere-Proxy */}
+                    {(() => {
+                      const c = loc.cape ?? 0, p = loc.pw ?? 0, l = loc.lapse_700_500 ?? 0
+                      if (c <= 0) return <td className="p-3 text-right text-gray-300 text-xs">—</td>
+                      const rain = p > 0 ? Math.round(Math.min(p, 50) * Math.min(c / 1500, 2) * 1.2 * 10) / 10 : null
+                      const gust = Math.round((10 + Math.min(c / 100, 40) * (l > 0 ? l / 7 : 0)) * 10) / 10
+                      const hi = Math.round(Math.min((loc.ship ?? 0), 3) * 100) / 100
+                      const hcat = hi >= 1.5 ? 'gross' : hi >= 0.8 ? 'klein' : 'kein'
+                      return (
+                        <td className="p-3 text-right text-xs text-gray-600 leading-tight">
+                          {rain != null && <div>🌧 {rain}</div>}
+                          <div>💨 ~{gust}</div>
+                          <div className={hi >= 0.8 ? 'text-orange-600' : ''}>{hi >= 0.8 ? `🧊 ${hcat}` : '🧊 kein'}</div>
+                        </td>
+                      )
+                    })()}
                     <td className="p-3 text-right text-gray-600">
                       {loc.fl_height > 0 ? `${Math.round(loc.fl_height)} m` : '—'}
                     </td>
@@ -170,6 +213,10 @@ export default function Atmosphaere() {
           {/* Legende */}
           <div className="mt-3 pt-3 border-t text-xs text-gray-500 grid grid-cols-2 md:grid-cols-4 gap-2">
             <div><b>LI</b> = Lifted Index (°C). Negativ = labil. &lt;−1 = mäßig, &lt;−3 = hoch instabil</div>
+            <div><b>CAPE</b> = Konvektive Energie (J/kg). &gt;500: mäßig, &gt;1500: stark, &gt;3000: extrem</div>
+            <div><b>PW</b> = Precipitable Water (mm). &gt;30 mm: Starkregenpotenzial erhöht</div>
+            <div><b>Lapse</b> = Temp.-Abnahme 700–500 hPa (°C/km). &gt;7: labil, &gt;6: mäßig labil</div>
+            <div><b>Schwere</b> = Proxy-Schätzung aus CAPE/PW/Lapse. 🌧 Regen (mm/h) · 💨 Böe (~km/h) · 🧊 Hagel</div>
             <div><b>Spread</b> = T − Td. &lt;3 K = sehr feucht (Gewitterrisiko erhöht)</div>
             <div><b>Gefriergrenze</b> = Höhe der 0°C-Isotherme (MSL)</div>
             <div><b>Wind 700hPa</b> ≈ 3000 m, steuert Zugrichtung von Zellen</div>
