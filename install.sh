@@ -1594,6 +1594,29 @@ else
 fi
 
 # ==============================================================================
+# PHASE 7g — Logs leeren
+# ==============================================================================
+CURRENT_PHASE="Phase 7g — Logs leeren"
+log_step "Phase 7g — Logs leeren"
+
+# api_health.jsonl immer leeren — Admin-Panel zeigt sauberen Start nach
+# jedem Upgrade. Gilt für --mode=full, --mode=upgrade und ohne Parameter.
+# Im full-Modus ist evaluation/ bereits gelöscht → mkdir -p sichert Existenz.
+_eval_dir="$TARGET/train_data/evaluation"
+_api_log="$_eval_dir/api_health.jsonl"
+mkdir -p "$_eval_dir"
+: > "$_api_log"
+check_ok "API-Fehler-Log geleert"
+
+# log_clear_state.json setzen → Admin-Panel zeigt "seit HH:MM" korrekt
+python3 -c "
+import json, os, datetime
+p = '$_eval_dir/log_clear_state.json'
+with open(p, 'w') as f:
+    json.dump({'cleared_at_utc': datetime.datetime.utcnow().isoformat() + 'Z'}, f)
+" 2>/dev/null && check_ok "log_clear_state.json gesetzt" || true
+
+# ==============================================================================
 # PHASE 8 — Abschluss-Report
 # ==============================================================================
 CURRENT_PHASE="Phase 8 — Abschluss-Report"
