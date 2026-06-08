@@ -403,14 +403,20 @@ elif [[ -d "$TARGET/.git" ]]; then
             git reset --hard "origin/$BRANCH"
             log_info "Repository auf remote Stand zurückgesetzt: $(git rev-parse --short HEAD)"
         else
-            if ! git pull --ff-only origin "$BRANCH"; then
-                log_error "Fast-Forward nicht möglich — lokale Commits weichen von remote ab."
-                log_error "Optionen:"
-                log_error "  a) Lokale Commits verwerfen:  git reset --hard origin/$BRANCH"
-                log_error "  b) Vollinstallation:          bash install.sh --mode=full"
-                exit 1
+            # Upgrade: zuerst sauberes Fast-Forward versuchen.
+            if git pull --ff-only origin "$BRANCH"; then
+                log_info "Repository aktualisiert (ff-only): $(git rev-parse --short HEAD)"
+            else
+                # Fast-Forward unmöglich (lokale Commits/Drift). Auf einem
+                # Deployment-Pi soll der Code IMMER exakt origin/main entsprechen.
+                # Uncommittete lokale Änderungen am Quellcode werden verworfen —
+                # geschützte Benutzerdaten (.env, runtime_overrides.json,
+                # train_data/) sind nicht Teil des Git-Trees und bleiben unberührt.
+                log_warn "Fast-Forward nicht möglich — erzwinge Sync auf origin/$BRANCH."
+                log_warn "Lokale, nicht gepushte Quellcode-Änderungen werden verworfen."
+                git reset --hard "origin/$BRANCH"
+                log_info "Repository hart auf origin/$BRANCH gesetzt: $(git rev-parse --short HEAD)"
             fi
-            log_info "Repository aktualisiert: $(git rev-parse --short HEAD)"
         fi
     fi
 else
@@ -1530,25 +1536,44 @@ JOURNALDCONF
     done
 else
     log_warn "Services werden nicht aktiviert (--enable-services nicht gesetzt)."
-    # Im upgrade-Modus: vorher gestoppte Services automatisch neu starten
-    if [[ "${_RESTART_AFTER_UPGRADE:-false}" == "true" && ${#_RUNNING_SERVICES[@]} -gt 0 ]]; then
-        log_info "Starte Services nach Upgrade neu..."
-        sudo systemctl daemon-reload 2>/dev/null || true
-        for _svc in "${_RUNNING_SERVICES[@]}"; do
-            sudo systemctl reset-failed "$_svc" 2>/dev/null || true
-            if sudo systemctl start "$_svc" 2>/dev/null; then
-                sleep 2
-                systemctl is-active --quiet "$_svc" \
-                    && check_ok "$_svc neu gestartet" \
-                    || check_warn "$_svc gestartet aber nicht aktiv — prüfen: journalctl -u $_svc -n 20"
-            else
-                log_warn "$_svc konnte nicht gestartet werden"
-                note_manual "sudo systemctl start $_svc && journalctl -u $_svc -n 30"
-            fi
-        done
-    else
-        note_manual "sudo systemctl daemon-reload && sudo systemctl enable --now wetterprojekt wetterprojekt-scheduler wetterprojekt-admin"
-    fi
+    # Upgrade-Modus: ALLE drei Services zwingend neu starten — unabhängig davon
+    # ob sie vorher liefen. Neuer Code + neue pip-Pakete werden erst nach
+    # Prozess-Neustart wirksam. Garantiert dass Fixes nach jedem Upgrade aktiv sind.
+    log_info "Starte alle Wetterprojekt-Services neu (erzwungen)..."
+    sudo systemctl daemon-reload 2>/dev/null || true
+    for _svc in wetterprojekt wetterprojekt-scheduler wetterprojekt-admin; do
+        sudo systemctl reset-failed "$_svc" 2>/dev/null || true
+        if sudo systemctl restart "$_svc" 2>/dev/null; then
+            sleep 2
+            systemctl is-active --quiet "$_svc" \
+                && check_ok "$_svc neu gestartet" \
+                || check_warn "$_svc gestartet aber nicht aktiv — prüfen: journalctl -u $_svc -n 20"
+        else
+            log_warn "$_svc konnte nicht (neu) gestartet werden"
+            note_manual "sudo systemctl restart $_svc && journalctl -u $_svc -n 30"
+        fi
+    done
+fi
+
+# ==============================================================================
+# PHASE 7c — Code-Fix-Verifikation
+# ==============================================================================
+CURRENT_PHASE="Phase 7c — Fix-Verifikation"
+log_step "Phase 7c — Verifikation kritischer Fixes"
+
+# B76: GeoSphere-Nowcast-Zeitformat darf KEIN ":00Z" mehr enthalten
+if grep -q '%Y-%m-%dT%H:%M:00Z' "$TARGET/fetch_geosphere_nowcast.py" 2>/dev/null; then
+    check_warn "B76 NICHT aktiv: fetch_geosphere_nowcast.py enthält noch altes Zeitformat (:00Z)"
+else
+    check_ok "B76 aktiv: GeoSphere-Nowcast-Zeitformat korrekt"
+fi
+
+# B78: Speed-Fix-Marker in locations_check.py + app.py
+_b78=$(grep -lc "B78-FIX" "$TARGET/locations_check.py" "$TARGET/app.py" 2>/dev/null | wc -l)
+if [[ "$_b78" -ge 2 ]]; then
+    check_ok "B78 aktiv: Speed-Fix in locations_check.py + app.py"
+else
+    check_warn "B78 unvollständig: B78-FIX-Marker fehlt in locations_check.py oder app.py"
 fi
 
 # ==============================================================================
