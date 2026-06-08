@@ -874,6 +874,13 @@ Konvektive Szenarien (CAPE > 0, negative LI) werden nicht beeinträchtigt.
 | B78 | `locations_check.py` + `app.py`: Zellgeschwindigkeit 3× zu hoch — `UPSCALE_FACTOR` fehlte bei `speed_kmh`-Berechnung aus `vx`/`vy`. Beweis: Screenshot zeigt 64.4 km/h im Orts-Treffer vs. 21.5 km/h im Zellen-Popup (Faktor 3.0 = UPSCALE_FACTOR exakt). Fix: `obj.get("speed_kmh")` verwenden (bereits korrekt berechnet von `object_tracking.py`). Betroffen: Orts-Treffer-Anzeige, `is_slow_arrow`, Risk-Grid-Stationär-Boost. | `locations_check.py`, `app.py` | ✅ erledigt |
 | B79 | `MapView.jsx` + `MapFullscreen.jsx`: Grammatikfehler „1 Frames" im Zellen-Popup bei `active_frames === 1`. Fix: Ternary für Singular/Plural. | `frontend/src/pages/MapView.jsx`, `frontend/src/pages/MapFullscreen.jsx` | ✅ erledigt |
 
+### 5.12 Phase A.12 — Bug-Fix-Welle 12
+
+| # | Task | Datei(en) | Status |
+|---|------|-----------|--------|
+| B81 | `whatsapp_notifier.py` + `main.py`: Stille WhatsApp-Fehlschläge — kein Log wenn Empfänger-String leer, keine Empfänger geparsed, oder WhatsApp-Feld im Ort fehlt. Fix: `debug_log` an allen 3 Stellen ergänzt. Diagnose: `[WA] Kein WhatsApp-Eintrag für {Ort}` / `[WA] keine gültigen Empfänger` / `[WA] Warnung NICHT gesendet`. | `whatsapp_notifier.py`, `main.py` | ✅ erledigt |
+| B82 | `main.py` + `whatsapp_notifier.py`: Risk-Alert Cooldown von 1× täglich auf 1× 2 Stunden geändert. `_RISK_ALERT_LOG` speichert jetzt Epoch-Timestamp statt Datumsstring. Rückwärtskompatibel (alte Datumsstrings → Cooldown abgelaufen → Alarm erlaubt). | `main.py`, `whatsapp_notifier.py` | ✅ erledigt |
+
 ## B76 — GeoSphere Nowcast HTTP 400: Timestamp-Format-Fehler
 
 **Status:** ✅ Implementiert  
