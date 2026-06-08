@@ -875,6 +875,12 @@ Konvektive Szenarien (CAPE > 0, negative LI) werden nicht beeinträchtigt.
 | B78 | `locations_check.py` + `app.py`: Zellgeschwindigkeit 3× zu hoch — `UPSCALE_FACTOR` fehlte bei `speed_kmh`-Berechnung aus `vx`/`vy`. Beweis: Screenshot zeigt 64.4 km/h im Orts-Treffer vs. 21.5 km/h im Zellen-Popup (Faktor 3.0 = UPSCALE_FACTOR exakt). Fix: `obj.get("speed_kmh")` verwenden (bereits korrekt berechnet von `object_tracking.py`). Betroffen: Orts-Treffer-Anzeige, `is_slow_arrow`, Risk-Grid-Stationär-Boost. | `locations_check.py`, `app.py` | ✅ erledigt |
 | B79 | `MapView.jsx` + `MapFullscreen.jsx`: Grammatikfehler „1 Frames" im Zellen-Popup bei `active_frames === 1`. Fix: Ternary für Singular/Plural. | `frontend/src/pages/MapView.jsx`, `frontend/src/pages/MapFullscreen.jsx` | ✅ erledigt |
 
+### 5.13 Phase A.13 — Bug-Fix-Welle 13
+
+| # | Task | Datei(en) | Status |
+|---|------|-----------|--------|
+| B91 | Popup zeigte alle treffenden Forecast-Horizonte statt nur den frühesten. Alarm wurde bei jedem Orts-Treffer gesendet unabhängig vom Eintreffzeitpunkt. Fix: (1) Frontend (`MapView.jsx`, `MapFullscreen.jsx`): nur frühester Horizont-Eintrag im Popup, Anzahl weiterer in grau. (2) Backend (`main.py`): Vorwarnzeit-Guard vor `_ready_to_warn.add()` — Alarm nur wenn frühester Horizont ≤ `WARN_MAX_HORIZON_MIN`. (3) `config.py`: neuer Default `WARN_MAX_HORIZON_MIN = 20`. (4) Admin-Panel (`Horizons.jsx`): neues Eingabefeld "Vorwarnzeit" (5–60 min, Schritt 5), persistiert via `runtime_overrides.json`. | `main.py`, `config.py`, `MapView.jsx`, `MapFullscreen.jsx`, `Horizons.jsx` | ✅ erledigt |
+
 ### 5.12 Phase A.12 — Bug-Fix-Welle 12
 
 | # | Task | Datei(en) | Status |
