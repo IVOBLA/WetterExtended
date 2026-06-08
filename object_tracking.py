@@ -19,6 +19,81 @@ from config import MIN_CONTOUR_TOUCH
 from config import TENDENCY_AREA_PCT_STABLE
 
 
+def _compute_neighbor_ahead(self_obj, all_objs, *,
+                            range_km, half_angle_deg, min_speed_kmh,
+                            px_to_kmh, upscale):
+    """B94: Weggefährten-Features im Bewegungs-Zielkorridor.
+
+    Rückgabe-dict: neighbor_count_ahead, neighbor_max_core_ahead,
+                   neighbor_min_dist_km_ahead, strat_area_ahead_px
+    """
+    import math
+
+    neutral = {
+        "neighbor_count_ahead": 0.0,
+        "neighbor_max_core_ahead": 0.0,
+        "neighbor_min_dist_km_ahead": 999.0,
+        "strat_area_ahead_px": 0.0,
+    }
+    lat0 = self_obj.get("lat")
+    lon0 = self_obj.get("lon")
+    if lat0 is None or lon0 is None:
+        return neutral
+    lat0 = float(lat0)
+    lon0 = float(lon0)
+
+    vx = float(self_obj.get("vx") or 0.0)
+    vy = float(self_obj.get("vy") or 0.0)
+    kmh_per_scaled_px = px_to_kmh / max(float(upscale), 1.0)
+    speed_kmh = math.hypot(vx, vy) * kmh_per_scaled_px
+    if speed_kmh < min_speed_kmh:
+        return neutral
+
+    dir_x = vx
+    dir_y = -vy   # Bildkoord y→unten/Süd → für Geo invertieren
+    norm = math.hypot(dir_x, dir_y)
+    if norm < 1e-9:
+        return neutral
+    dir_x /= norm
+    dir_y /= norm
+
+    cos_half = math.cos(math.radians(half_angle_deg))
+    count = 0
+    max_core = 0.0
+    min_dist = 999.0
+    strat_ahead = 0.0
+    self_id = self_obj.get("id")
+    coslat = math.cos(math.radians(lat0)) or 1e-6
+
+    for other in all_objs:
+        if other is self_obj or other.get("id") == self_id:
+            continue
+        olat = other.get("lat")
+        olon = other.get("lon")
+        if olat is None or olon is None:
+            continue
+        dnorth = (float(olat) - lat0) * 111.0
+        deast = (float(olon) - lon0) * 111.0 * coslat
+        dist = math.hypot(dnorth, deast)
+        if dist <= 0.0 or dist > range_km:
+            continue
+        ox = deast / dist
+        oy = dnorth / dist
+        if (ox * dir_x + oy * dir_y) < cos_half:
+            continue
+        count += 1
+        max_core = max(max_core, float(other.get("core_ratio") or 0.0))
+        min_dist = min(min_dist, dist)
+        strat_ahead += float(other.get("strat_area_px") or 0.0)
+
+    return {
+        "neighbor_count_ahead": float(count),
+        "neighbor_max_core_ahead": float(max_core),
+        "neighbor_min_dist_km_ahead": float(min_dist),
+        "strat_area_ahead_px": float(strat_ahead),
+    }
+
+
 def _validate_bbox(bbox: object, fallback: dict) -> dict:
     """
     Prüft ob bbox ein gültiges BBOX-Dict ist.
@@ -647,6 +722,30 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
 
     if len(set(new_memory.keys())) != len(new_memory):
         debug_log("[TRACKING] WARN: Doppelte IDs in new_memory erkannt")
+
+    # ── B94: Weggefährten-Features (zweiter Durchlauf, braucht alle Zellen) ──
+    try:
+        from config import (
+            NEIGHBOR_AHEAD_RANGE_KM, NEIGHBOR_AHEAD_HALF_ANGLE,
+            NEIGHBOR_MIN_SPEED_KMH, PX_TO_KMH, UPSCALE_FACTOR,
+        )
+        _all = list(new_memory.values())
+        for _o in _all:
+            _o.update(_compute_neighbor_ahead(
+                _o, _all,
+                range_km=NEIGHBOR_AHEAD_RANGE_KM,
+                half_angle_deg=NEIGHBOR_AHEAD_HALF_ANGLE,
+                min_speed_kmh=NEIGHBOR_MIN_SPEED_KMH,
+                px_to_kmh=PX_TO_KMH,
+                upscale=UPSCALE_FACTOR,
+            ))
+    except Exception as _e:
+        try:
+            from debug_utils import debug_log
+            debug_log(f"[B94] Weggefährten-Features übersprungen: {_e}")
+        except Exception:
+            pass
+
     # Orographische Scores werden in main.py nach assign_cape gesetzt
     # (brauchen CAPE-Werte die hier noch nicht verfügbar sind).
     tracking_memory = new_memory

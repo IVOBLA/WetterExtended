@@ -403,6 +403,8 @@ Das ML-Modell verwendet folgende Feature-Gruppen. Gesamtanzahl wird automatisch 
 | Optical Flow [NEU] | `of_vx`, `of_vy`, `of_speed`, `of_divergence` | pysteps Lucas-Kanade |
 | AROME icon_d2 Gitterpunkt [NEU] | `arome_t2m`, `arome_td2m`, `arome_ff10m`, `arome_dd_cos`, `arome_dd_sin`, `arome_li`, `arome_fl_height` | Open-Meteo icon_d2 |
 | Stratiforme Umgebung [NEU] | `strat_area_px`, `strat_intensity_mean`, `strat_dbz_gradient` | HSV-Segmentierung |
+| Weggefährten-Einfluss [NEU] | `neighbor_count_ahead`, `neighbor_max_core_ahead`, `neighbor_min_dist_km_ahead`, `strat_area_ahead_px` | Tracking (Korridor-Analyse) |
+| Pfad-Wetter [NEU] | `path_cape_end`, `path_li_end`, `path_cape_mean`, `path_li_min`, `path_cin_end`, `path_lapse_end`, `path_wind700_end`, `path_cape_trend` | Atmosphären-Snapshot entlang Forecast-Pfad |
 | Talkanalisierung [NEU] | `valley_alignment`, `valley_distance_km`, `valley_confinement` | Orographisches Modul |
 | Großwetterlage 500 hPa [NEU] | `z500_dam`, `wind_500_speed`, `wind_500_dir_cos`, `wind_500_dir_sin` | Open-Meteo icon_global |
 | Orographische Risk-Scores [NEU] | `terrain_blocking_score`, `orographic_lift_score`, `stationary_risk` | Orographisches Modul |
@@ -2214,3 +2216,26 @@ Das Feld `kinematic_source` im Objekt-JSON zeigt die Berechnungsbasis an:
 | `ewma_novts_4f` | EWMA aus 4 Frames ohne Timestamps (vx/vy-Fallback) |
 | `history_6_fallback` | Einfaches Mittel (Exception-Fallback) |
 | `kalman_only` | Weniger als 2 Frames verfügbar (neue Zelle) |
+---
+
+# 31 NEU: Pfadabhängige Entwicklung — Weggefährten & Pfad-Wetter (Phase B-Vorbereitung)
+
+Eine Gewitterzelle entwickelt sich abhängig davon, wohin sie zieht und was
+auf ihrem Weg liegt. Das System bewertet daher zwei Aspekte entlang der
+**berechneten Zugbahn:**
+
+**Weggefährten** — In einem keilförmigen Korridor voraus (40 km, ±45°) werden
+andere konvektive Zellen erfasst: Anzahl, maximale Kern-Intensität, Distanz
+zur nächsten Zelle sowie stratiforme Fläche als Nachschub-Indikator.
+
+**Pfad-Wetter** — An den vorhergesagten Forecast-Positionen (alle Horizonte)
+werden die atmosphärischen Bedingungen aus dem 30-Minuten-Snapshot abgegriffen:
+CAPE, Lifted Index, CIN, Lapse-Rate und 700-hPa-Wind. Besonders aussagekräftig
+ist `path_cape_trend` — die CAPE-Differenz zwischen Pfad-Ende und Start: Zieht
+die Zelle in instabilere Luft (positiv) oder in stabilere (negativ)?
+
+Beide Gruppen liefern dem maschinellen Lernen Kontext; ob daraus Verstärkung
+oder Abschwächung folgt, lernt das Modell aus Trainingsdaten ähnlicher Lagen.
+Es werden ausschließlich bereits vorhandene Daten genutzt — **kein zusätzlicher
+Abruf von Fremdsystemen.**
+
