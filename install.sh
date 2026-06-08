@@ -1562,7 +1562,7 @@ else
         : > "$_api_log"
         check_ok "API-Fehler-Log geleert (frischer Start nach Upgrade)"
     fi
-    # log_clear_state.json setzen → Admin-Panel zeigt "seit HH:MM" korrekt
+    # log_clear_state.json aktualisieren → Admin-Panel zeigt "seit HH:MM" korrekt
     python3 -c "
 import json, os, datetime
 p = '$TARGET/train_data/evaluation/log_clear_state.json'
@@ -1573,10 +1573,10 @@ with open(p, 'w') as f:
 fi
 
 # ==============================================================================
-# PHASE 7c — Code-Fix-Verifikation
+# PHASE 7f — Code-Fix-Verifikation
 # ==============================================================================
-CURRENT_PHASE="Phase 7c — Fix-Verifikation"
-log_step "Phase 7c — Verifikation kritischer Fixes"
+CURRENT_PHASE="Phase 7f — Fix-Verifikation"
+log_step "Phase 7f — Verifikation kritischer Fixes"
 
 # B76: GeoSphere-Nowcast-Zeitformat darf KEIN ":00Z" mehr enthalten
 if grep -q '%Y-%m-%dT%H:%M:00Z' "$TARGET/fetch_geosphere_nowcast.py" 2>/dev/null; then
