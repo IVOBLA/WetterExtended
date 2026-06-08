@@ -887,6 +887,7 @@ Konvektive Szenarien (CAPE > 0, negative LI) werden nicht beeinträchtigt.
 | # | Task | Datei(en) | Status |
 |---|------|-----------|--------|
 | B84 | `Progress.jsx`: Leere Charts ohne Empty-State-Erklärung — wenn keine Modell-Versionen vorhanden (`versions = []`), wurden drei leere Recharts-Diagramme und eine leere Tabelle angezeigt ohne jede Erklärung. Fix: `loaded`-State ergänzt; Amber-Banner wenn `loaded && versions.length === 0`; Charts und Tabelle nur bei `versions.length > 0`. | `frontend/src/pages/Progress.jsx` | ✅ erledigt |
+| B85 | `email_notifier.py` + `drift_detector.py`: Drift-Alert-Email ohne Cooldown — `send_drift_alert()` hatte keinen Cooldown und sendete bei jeder `accuracy_eval`-Ausführung (stündlich) eine E-Mail wenn Drift erkannt. Zusätzlich: Im kinematischen Fallback-Modus (keine ML-Modelle) ist Drift nicht relevant. Fix (1): 6h dateibasierter Cooldown in `send_drift_alert()` (`_DRIFT_COOLDOWN_FILE`). Fix (2): `_has_ml_model()`-Guard in `check_and_alert()` — kein Alert wenn `train_data/models/current/` und `v_*` fehlen. | `email_notifier.py`, `drift_detector.py` | ✅ erledigt |
 
 ## B76 — GeoSphere Nowcast HTTP 400: Timestamp-Format-Fehler
 

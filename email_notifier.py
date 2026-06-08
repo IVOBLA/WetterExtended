@@ -16,6 +16,7 @@ Cooldown verhindert Mail-Flut:
     Entwarnung: max. 1 Mail pro Ort alle 5 Minuten
 """
 
+import json
 import os
 import smtplib
 import ssl
@@ -52,6 +53,11 @@ _cooldown_warning:  dict = {}   # loc_name → letzte Sendezeit (epoch)
 _cooldown_allclear: dict = {}   # loc_name → letzte Sendezeit (epoch)
 _COOLDOWN_WARNING_S  = 900   # 15 Minuten
 _COOLDOWN_ALLCLEAR_S = 300   #  5 Minuten
+_COOLDOWN_DRIFT_H    = 6     # 6 Stunden — Drift-Alert-Cooldown (dateibasiert)
+_DRIFT_COOLDOWN_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "train_data", "evaluation", "drift_mail_cooldown.json"
+)
 
 
 def _is_configured() -> bool:
@@ -596,10 +602,29 @@ def send_drift_alert(status: dict) -> None:
     """
     Sendet eine E-Mail-Warnung bei erkanntem Model-Drift.
     Nutzt dieselbe SMTP-Konfiguration wie Sturmwarnungen.
+    Cooldown: max. 1 Alert alle 6 Stunden (dateibasiert, überlebt Neustarts).
     """
     if not _is_configured():
         debug_log("[DRIFT-MAIL] SMTP nicht konfiguriert — kein Alert.")
         return
+
+    # Dateibasierter Cooldown — überlebt Service-Neustarts
+    now_epoch = time.time()
+    try:
+        os.makedirs(os.path.dirname(_DRIFT_COOLDOWN_FILE), exist_ok=True)
+        if os.path.exists(_DRIFT_COOLDOWN_FILE):
+            with open(_DRIFT_COOLDOWN_FILE, "r", encoding="utf-8") as cooldown_file:
+                cooldown_data = json.load(cooldown_file)
+            last_sent = float(cooldown_data.get("last_sent", 0))
+            if now_epoch - last_sent < _COOLDOWN_DRIFT_H * 3600:
+                remaining = int((_COOLDOWN_DRIFT_H * 3600 - (now_epoch - last_sent)) / 60)
+                debug_log(
+                    f"[DRIFT-MAIL] Cooldown aktiv — "
+                    f"naechster Alert in ~{remaining} min."
+                )
+                return
+    except Exception as exc:
+        debug_log(f"[DRIFT-MAIL] Cooldown-Pruefung Fehler: {exc}")
 
     subject = "⚠️ WetterExtended: Model-Drift erkannt"
     delta = status.get("delta_km", "?")
@@ -618,7 +643,7 @@ def send_drift_alert(status: dict) -> None:
 </table>
 <p><b>Mögliche Ursachen:</b> Wetter-Regime-Wechsel, zu wenig Training-Samples,
 Feature-Drift (neue Radar-Kalibrierung), Datenausfall bei einem API-Provider.</p>
-<p><b>Maßnahmen:</b></p>
+<p><b>Massnahmen:</b></p>
 <ul>
   <li>Admin-Panel → Seite „Genauigkeit" prüfen</li>
   <li><code>python3 models_rollback.py list</code> — frühere bessere Version?</li>
@@ -630,6 +655,12 @@ Feature-Drift (neue Radar-Kalibrierung), Datenausfall bei einem API-Provider.</p
     try:
         _send_smtp(_get_all_drift_recipients(), subject, body)
         debug_log("[DRIFT-MAIL] Drift-Alarm versendet.")
+        # Cooldown-Zeitstempel persistieren
+        try:
+            with open(_DRIFT_COOLDOWN_FILE, "w", encoding="utf-8") as cooldown_file:
+                json.dump({"last_sent": now_epoch}, cooldown_file)
+        except Exception as exc:
+            debug_log(f"[DRIFT-MAIL] Cooldown-Datei schreiben Fehler: {exc}")
     except Exception as exc:
         debug_log(f"[DRIFT-MAIL] Fehler beim Senden: {exc}")
 
