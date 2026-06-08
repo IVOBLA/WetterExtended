@@ -144,6 +144,13 @@ KINEMATIC_EWMA_ALPHA: float = 0.6  # EWMA-Faktor: 0.01=gleichgewichtet · 0.99=n
 SLOW_CELL_MAX_KMH: float = 15.0          # Obergrenze "langsam ziehend"
 SLOW_CELL_RADIUS_FACTOR: float = 1.5     # Ortsradius-Faktor für slow_approach
 
+# Vorwarnzeit-Schwelle für E-Mail/WhatsApp-Alarm.
+# Alarm wird nur gesendet wenn der früheste treffende Forecast-Horizont
+# (kleinster Horizont-Key > 0) <= diesem Wert liegt.
+# Horizon-Key 0 (Zelle JETZT im Ort) löst immer sofort Alarm aus.
+# Konfigurierbar über Admin-Panel → runtime_overrides.json.
+WARN_MAX_HORIZON_MIN: int = 20
+
 # --------------------------------------
 # Datenquellen
 # --------------------------------------

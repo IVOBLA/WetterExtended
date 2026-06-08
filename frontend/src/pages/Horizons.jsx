@@ -5,6 +5,7 @@ export default function Horizons() {
   const [horizons, setHorizons] = useState([10, 20, 30, 40, 60])
   const [colors, setColors] = useState({})
   const [styles, setStyles] = useState({})
+  const [cfg, setCfg] = useState({ WARN_MAX_HORIZON_MIN: 20 })
   const [msg, setMsg] = useState('')
 
   useEffect(() => {
@@ -13,6 +14,9 @@ export default function Horizons() {
       setHorizons(hz)
       const c = {}; hz.forEach(h => { c[h] = d.colors[h] || d.colors[String(h)] || '#888888' }); setColors(c)
       const s = {}; hz.forEach(h => { s[h] = d.styles[h] || d.styles[String(h)] || { weight: 2, dash: '' } }); setStyles(s)
+    }).catch(() => {})
+    api.get('/api/config').then(d => {
+      setCfg(c => ({ ...c, WARN_MAX_HORIZON_MIN: Number(d.WARN_MAX_HORIZON_MIN ?? 20) }))
     }).catch(() => {})
   }, [])
 
@@ -26,7 +30,8 @@ export default function Horizons() {
       const colorsByH = {}; horizons.forEach(h => { colorsByH[h] = colors[h] || '#888888' })
       const stylesByH = {}; horizons.forEach(h => { stylesByH[h] = styles[h] || { weight: 2, dash: '' } })
       await api.post('/api/horizons', { horizons, colors: colorsByH, styles: stylesByH })
-      setMsg('Gespeichert. Live-Loop und Karte verwenden die neuen Werte ab dem nächsten Frame.')
+      await api.post('/api/config', { WARN_MAX_HORIZON_MIN: cfg.WARN_MAX_HORIZON_MIN ?? 20 })
+      setMsg('Gespeichert. Live-Loop, Karte und Alarm-Vorwarnzeit verwenden die neuen Werte ab dem nächsten Frame.')
     } catch (e) { setMsg('Fehler: ' + e.message) }
   }
 
@@ -59,6 +64,27 @@ export default function Horizons() {
           ))}
         </tbody>
       </table>
+      <div className="mt-4 bg-white border border-gray-200 rounded p-4">
+        {/* B91: Vorwarnzeit-Schwelle */}
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Vorwarnzeit — Alarm nur wenn Eintreffzeit ≤ (Minuten)
+        </label>
+        <input
+          type="number"
+          min={5} max={60} step={5}
+          className="input w-32"
+          value={cfg.WARN_MAX_HORIZON_MIN ?? 20}
+          onChange={e => setCfg(c => ({
+            ...c,
+            WARN_MAX_HORIZON_MIN: Math.max(5, Math.min(60, Number(e.target.value)))
+          }))}
+        />
+        <p className="text-xs text-gray-500 mt-1">
+          E-Mail/WhatsApp-Alarm wird nur gesendet wenn der nächste berechnete
+          Eintreffzeitpunkt ≤ diesem Wert liegt (Standard: 20 min).
+          Horizont 0 (Zelle bereits im Ort) löst immer sofort Alarm aus.
+        </p>
+      </div>
       <button className="btn-primary mt-4" onClick={save}>Speichern</button>
     </div>
   )

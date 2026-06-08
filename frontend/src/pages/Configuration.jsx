@@ -48,6 +48,7 @@ const PARAM_GROUPS = [
       { key: 'MIN_MOVEMENT_FOR_ARROW_KMH',  type: 'number', default: 5,    unit: 'km/h',  desc: 'Minimale Zellgeschwindigkeit für die Darstellung eines Richtungspfeils.', example: 5 },
       { key: 'SLOW_CELL_MAX_KMH',           type: 'number', default: 15,   unit: 'km/h',  desc: 'Unter diesem Wert gilt eine Zelle als "langsam ziehend" → erweiterter Warnradius.', example: 15 },
       { key: 'SLOW_CELL_RADIUS_FACTOR',     type: 'number', default: 1.5,  unit: '',      desc: 'Faktor für den erweiterten Warnradius langsamer Zellen (radius_km × Faktor).', example: 1.5 },
+      { key: 'WARN_MAX_HORIZON_MIN',       type: 'number', default: 20,   unit: 'min',   desc: 'Vorwarnzeit-Schwelle für E-Mail/WhatsApp: Alarm nur wenn der früheste Forecast-Horizont ≤ diesem Wert liegt. Horizont 0 alarmiert immer sofort.', example: 20 },
     ],
   },
   {
