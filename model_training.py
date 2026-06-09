@@ -184,8 +184,12 @@ def train_lstm(X, y, model_dir):
     if Sequential is None or train_test_split is None:
         debug_log("[LSTM] Skip: tensorflow oder sklearn nicht installiert")
         return {"trained": False, "model_path": model_path, "val_loss": None, "samples": len(X)}
-    if len(X) < 50:
-        debug_log(f"[LSTM] Skip: zu wenig Samples ({len(X)} < 50)")
+    try:
+        from config import MIN_SEQUENCES_LSTM as _LSTM_MIN
+    except ImportError:
+        _LSTM_MIN = 50
+    if len(X) < _LSTM_MIN:
+        debug_log(f"[LSTM] Skip: zu wenig Samples ({len(X)} < {_LSTM_MIN})")
         return {"trained": False, "model_path": model_path, "val_loss": None, "samples": len(X)}
     # Fix P07: zeitbasierter Split — Samples sind in build_dataset chronologisch
     # angeordnet. Zufälliger Split würde sehr ähnliche Frames in Train+Val mischen
@@ -216,8 +220,12 @@ def train_lgbm(X, y, model_dir):
     if lgb is None or train_test_split is None:
         debug_log("[LGBM] Skip: lightgbm oder sklearn nicht installiert")
         return {"trained": False, "models": {}, "best_scores": {}, "samples": len(X)}
-    if len(X) < 30:
-        debug_log(f"[LGBM] Skip: zu wenig Samples ({len(X)} < 30)")
+    try:
+        from config import MIN_SEQUENCES_LGBM as _LGBM_MIN
+    except ImportError:
+        _LGBM_MIN = 30
+    if len(X) < _LGBM_MIN:
+        debug_log(f"[LGBM] Skip: zu wenig Samples ({len(X)} < {_LGBM_MIN})")
         return {"trained": False, "models": {}, "best_scores": {}, "samples": len(X)}
     X_flat = X[:, -1, :]
     # Fix P07: zeitbasierter Split (siehe train_lstm).

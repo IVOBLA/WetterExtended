@@ -51,9 +51,20 @@ _MAP_URL = "http://blasolar.ddns.net:81/karte"
 # ── Cooldown-Tracking (in-memory, Reset bei Service-Neustart) ─────────────────
 _cooldown_warning:  dict = {}   # loc_name → letzte Sendezeit (epoch)
 _cooldown_allclear: dict = {}   # loc_name → letzte Sendezeit (epoch)
-_COOLDOWN_WARNING_S  = 900   # 15 Minuten
-_COOLDOWN_ALLCLEAR_S = 300   #  5 Minuten
-_COOLDOWN_DRIFT_H    = 6     # 6 Stunden — Drift-Alert-Cooldown (dateibasiert)
+# B98: Fallback-Defaults — echte Werte werden zur Laufzeit aus config/runtime gelesen.
+_COOLDOWN_WARNING_S  = 900   # Fallback 15 Min
+_COOLDOWN_ALLCLEAR_S = 300   # Fallback 5 Min
+_COOLDOWN_DRIFT_H    = 6     # Fallback 6 h
+
+
+def _get_cooldown(key: str, fallback: int) -> int:
+    """Liest Cooldown-Wert aus runtime_config (live) oder config.py, sonst fallback."""
+    try:
+        import runtime_config as _rc
+        import config as _cfg
+        return int(_rc.get(key, getattr(_cfg, key, fallback)))
+    except Exception:
+        return fallback
 _DRIFT_COOLDOWN_FILE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "train_data", "evaluation", "drift_mail_cooldown.json"
@@ -127,8 +138,9 @@ def send_warning_email(loc_name: str, hits: dict, email_str: str,
     # Cooldown pruefen
     now = time.time()
     last = _cooldown_warning.get(loc_name, 0)
-    if now - last < _COOLDOWN_WARNING_S:
-        debug_log(f"[EMAIL] Warnung {loc_name}: Cooldown aktiv ({int(_COOLDOWN_WARNING_S/60)} min).")
+    _cd_warn = _get_cooldown("WARN_COOLDOWN_S", _COOLDOWN_WARNING_S)
+    if now - last < _cd_warn:
+        debug_log(f"[EMAIL] Warnung {loc_name}: Cooldown aktiv ({int(_cd_warn/60)} min).")
         return False
 
     recipients = _parse_recipients(email_str)
@@ -229,8 +241,9 @@ def send_allclear_email(loc_name: str, email_str: str) -> bool:
 
     now = time.time()
     last = _cooldown_allclear.get(loc_name, 0)
-    if now - last < _COOLDOWN_ALLCLEAR_S:
-        debug_log(f"[EMAIL] Entwarnung {loc_name}: Cooldown aktiv.")
+    _cd_ac = _get_cooldown("ALLCLEAR_COOLDOWN_S", _COOLDOWN_ALLCLEAR_S)
+    if now - last < _cd_ac:
+        debug_log(f"[EMAIL] Entwarnung {loc_name}: Cooldown aktiv ({int(_cd_ac/60)} min).")
         return False
 
     recipients = _parse_recipients(email_str)
@@ -616,8 +629,9 @@ def send_drift_alert(status: dict) -> None:
             with open(_DRIFT_COOLDOWN_FILE, "r", encoding="utf-8") as cooldown_file:
                 cooldown_data = json.load(cooldown_file)
             last_sent = float(cooldown_data.get("last_sent", 0))
-            if now_epoch - last_sent < _COOLDOWN_DRIFT_H * 3600:
-                remaining = int((_COOLDOWN_DRIFT_H * 3600 - (now_epoch - last_sent)) / 60)
+            _cd_drift_h = _get_cooldown("DRIFT_ALERT_COOLDOWN_H", _COOLDOWN_DRIFT_H)
+            if now_epoch - last_sent < _cd_drift_h * 3600:
+                remaining = int((_cd_drift_h * 3600 - (now_epoch - last_sent)) / 60)
                 debug_log(
                     f"[DRIFT-MAIL] Cooldown aktiv — "
                     f"naechster Alert in ~{remaining} min."

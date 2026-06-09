@@ -2307,6 +2307,51 @@ def api_local_training():
     })
 
 
+@app.route("/api/training_readiness")
+def api_training_readiness():
+    """
+    B99: Trainingsbereitschaft — wieviele Sequenzen noch fehlen.
+    Liest die aktuelle Sequenzzahl aus dataset.npz und vergleicht mit
+    den konfigurierten Mindestschwellen (MIN_SEQUENCES_LSTM/LGBM).
+    """
+    try:
+        from config import MIN_SEQUENCES_LSTM as _lstm_def, MIN_SEQUENCES_LGBM as _lgbm_def
+    except ImportError:
+        _lstm_def, _lgbm_def = 50, 30
+
+    lstm_min = int(runtime_config.get("MIN_SEQUENCES_LSTM", _lstm_def))
+    lgbm_min = int(runtime_config.get("MIN_SEQUENCES_LGBM", _lgbm_def))
+
+    dataset_path = os.path.join(
+        SAVE_PATHS.get("dataset", "train_data/dataset"), "dataset.npz"
+    )
+    current = 0
+    dataset_exists = os.path.exists(dataset_path)
+    if dataset_exists:
+        try:
+            import numpy as _np_rd
+            _d = _np_rd.load(dataset_path, allow_pickle=True)
+            current = int(_d["X"].shape[0])
+        except Exception as _exc:
+            debug_log(f"[API] training_readiness: dataset.npz lesen fehlgeschlagen: {_exc}")
+
+    return jsonify({
+        "current_sequences":  current,
+        "dataset_exists":     dataset_exists,
+        "lstm": {
+            "required": lstm_min,
+            "missing":  max(0, lstm_min - current),
+            "ready":    current >= lstm_min,
+        },
+        "lgbm": {
+            "required": lgbm_min,
+            "missing":  max(0, lgbm_min - current),
+            "ready":    current >= lgbm_min,
+        },
+        "all_ready": current >= lstm_min,
+    })
+
+
 @app.route("/api/hailo/reload", methods=["POST"])
 def api_hailo_reload():
     """

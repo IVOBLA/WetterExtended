@@ -335,6 +335,20 @@ Treffen mehrere Horizonte wird die Anzahl weiterer Horizonte in grau angezeigt.
 
 Manueller Trainings-Trigger für alle Modelle, Anzeige des letzten Trainingszeitstempels und des `LOCAL_TRAINING`-Status.
 
+### Trainingsbereitschaft
+
+Oben auf der Trainings-Seite erscheint eine Fortschrittsanzeige, die zeigt
+wie viele Zell-Sequenzen bereits gesammelt wurden und wie viele noch fehlen:
+
+| Modell | Mindest-Sequenzen | Bedeutung |
+|---|---|---|
+| LSTM | 50 (konfigurierbar) | Tiefes Netz, braucht mehr Daten |
+| LightGBM | 30 (konfigurierbar) | Schnelleres Modell |
+
+Eine Zell-Sequenz entsteht, wenn dieselbe Gewitterzelle über
+`ML_SEQUENCE_LENGTH` aufeinanderfolgende Radar-Frames verfolgt wird.
+Sequenzen wachsen nur bei aktiver Gewitteraktivität.
+
 ## 4.10 Konfiguration (`/config`)
 
 Vollständige JSON-Konfiguration direkt editieren (fortgeschrittene Benutzer). Vorsicht: fehlerhafte JSON bricht die Konfiguration.
@@ -745,6 +759,15 @@ Der E-Mail-Body enthaelt immer einen direkten Link zur oeffentlichen Karte:
 **Cooldown** verhindert Mail-Flut: max. 1 Warnung pro Ort / 15 Minuten,
 max. 1 Entwarnung pro Ort / 5 Minuten (Reset bei Service-Neustart).
 
+### Einmal-pro-Zelle-Warnung
+
+Für jeden überwachten Ort wird pro erkannter Gewitterzelle **genau eine Warnung**
+gesendet. Bleibt dieselbe Zelle über mehrere Radar-Zyklen im Bereich, wird nicht
+erneut gewarnt. Zieht die Zelle ab (Entwarnung) und kehrt zurück oder trifft eine
+neue Zelle den Ort, wird wieder gewarnt.
+
+Alle Cooldown-Zeiten sind über Admin-Panel → Konfiguration zur Laufzeit einstellbar.
+
 **Konfiguration in `.env`:**
 ```env
 SMTP_HOST=smtp.gmail.com
@@ -831,6 +854,15 @@ WhatsApp-Eingabefeld ein kleiner **„Test"**-Button:
 | Cooldown Entwarnung | 5 Minuten pro Ort |
 | Pause zwischen Empfängern | 5 Sekunden (CallMeBot Rate-Limit) |
 | Tages-Cooldown Risiko-Stufe-3 | 1× täglich pro Ort (gemeinsam mit E-Mail) |
+
+### Einmal-pro-Zelle-Warnung
+
+Für jeden überwachten Ort wird pro erkannter Gewitterzelle **genau eine Warnung**
+gesendet. Bleibt dieselbe Zelle über mehrere Radar-Zyklen im Bereich, wird nicht
+erneut gewarnt. Zieht die Zelle ab (Entwarnung) und kehrt zurück oder trifft eine
+neue Zelle den Ort, wird wieder gewarnt.
+
+Alle Cooldown-Zeiten sind über Admin-Panel → Konfiguration zur Laufzeit einstellbar.
 
 ## 17.6 Verhalten bei Fehlern
 

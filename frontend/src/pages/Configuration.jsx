@@ -117,6 +117,19 @@ const PARAM_GROUPS = [
       { key: 'KINEMATIC_EWMA_ALPHA',      type: 'number', default: 0.6, unit: '',       desc: 'EWMA-Glättungsfaktor für kinematischen Forecast. 0.01 = gleichgewichtet (alle Frames gleich), 0.99 = fast nur neuester Frame. Empfohlen: 0.5–0.7.', example: 0.6 },
     ],
   },
+  {
+    label: '🔔 Benachrichtigungen & Cooldowns',
+    params: [
+      { key: 'WARN_COOLDOWN_S',                type: 'number', default: 900,   unit: 's',   desc: 'Safety-Cooldown für Gewitterwarnungen pro Ort (Sekunden). Primär-Logik ist einmal-pro-Zelle — dieser Wert ist der Fallback.', example: 900 },
+      { key: 'ALLCLEAR_COOLDOWN_S',             type: 'number', default: 300,   unit: 's',   desc: 'Mindestabstand zwischen zwei Entwarnungen pro Ort (Sekunden).', example: 300 },
+      { key: 'RISK_ALERT_COOLDOWN_S',           type: 'number', default: 43200, unit: 's',   desc: 'Mindestabstand zwischen zwei atmosphärischen Risikoalarmen pro Ort. Default: 43200 = 12 Stunden.', example: 43200 },
+      { key: 'DRIFT_ALERT_COOLDOWN_H',          type: 'number', default: 6,     unit: 'h',   desc: 'Mindestabstand zwischen zwei Model-Drift-Alarmen (Stunden).', example: 6 },
+      { key: 'WARN_MAX_HORIZON_MIN',            type: 'number', default: 20,    unit: 'min', desc: 'Vorwarnzeit: E-Mail/WhatsApp-Alarm nur wenn frühester Forecast-Horizont ≤ diesem Wert liegt.', example: 20 },
+      { key: 'MIN_SEQUENCES_LSTM',              type: 'number', default: 50,    unit: 'Seq', desc: 'Mindestanzahl Zell-Sequenzen für LSTM-Training. Unter diesem Wert wird das Training übersprungen.', example: 50 },
+      { key: 'MIN_SEQUENCES_LGBM',              type: 'number', default: 30,    unit: 'Seq', desc: 'Mindestanzahl Zell-Sequenzen für LightGBM-Training.', example: 30 },
+      { key: 'RISK_ALERT_REQUIRED_DOMINANTS',   type: 'text',   default: '["atm"]', unit: '', desc: 'JSON-Array: Welche dominant-Quellen dürfen Risiko-Stufe-3-Alarm auslösen. Standard: ["atm"]. Mögliche Werte: "cell","track","lightning","ir_cell","atm".', example: '["atm"]' },
+    ],
+  },
 ]
 
 function ParamRow({ p }) {

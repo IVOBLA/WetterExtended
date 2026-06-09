@@ -34,8 +34,18 @@ _SEND_DELAY_S    = 5      # Pause zwischen Nachrichten bei mehreren Empfaengern
 _TIMEOUT_S       = 10     # HTTP-Timeout pro Request
 
 # Cooldown — verhindert Nachrichten-Flut (in-memory, Reset bei Service-Neustart)
-_COOLDOWN_WARNING_S  = 900   # 15 Minuten zwischen Warnungen pro Ort
-_COOLDOWN_ALLCLEAR_S = 300   #  5 Minuten zwischen Entwarnungen pro Ort
+# B98: Fallback-Defaults — echte Werte werden zur Laufzeit aus config/runtime gelesen.
+_COOLDOWN_WARNING_S  = 900
+_COOLDOWN_ALLCLEAR_S = 300
+
+
+def _get_cooldown(key: str, fallback: int) -> int:
+    try:
+        import runtime_config as _rc
+        import config as _cfg
+        return int(_rc.get(key, getattr(_cfg, key, fallback)))
+    except Exception:
+        return fallback
 
 _cooldown_warning:  dict = {}   # {loc_name: float (epoch)}
 _cooldown_allclear: dict = {}   # {loc_name: float (epoch)}
@@ -128,11 +138,9 @@ def send_warning_wa(loc_name: str, hits: dict, wa_str: str,
         return False
 
     now = time.time()
-    if now - _cooldown_warning.get(loc_name, 0) < _COOLDOWN_WARNING_S:
-        debug_log(
-            f"[WA] Warnung {loc_name}: Cooldown aktiv "
-            f"({int(_COOLDOWN_WARNING_S / 60)} min)."
-        )
+    _cd_warn = _get_cooldown("WARN_COOLDOWN_S", _COOLDOWN_WARNING_S)
+    if now - _cooldown_warning.get(loc_name, 0) < _cd_warn:
+        debug_log(f"[WA] Warnung {loc_name}: Cooldown aktiv ({int(_cd_warn/60)} min).")
         return False
 
     # Fruehesten Treffer ermitteln: Horizont-Key 0 (jetzt) hat Vorrang,
@@ -183,8 +191,9 @@ def send_allclear_wa(loc_name: str, wa_str: str) -> bool:
         return False
 
     now = time.time()
-    if now - _cooldown_allclear.get(loc_name, 0) < _COOLDOWN_ALLCLEAR_S:
-        debug_log(f"[WA] Entwarnung {loc_name}: Cooldown aktiv.")
+    _cd_ac = _get_cooldown("ALLCLEAR_COOLDOWN_S", _COOLDOWN_ALLCLEAR_S)
+    if now - _cooldown_allclear.get(loc_name, 0) < _cd_ac:
+        debug_log(f"[WA] Entwarnung {loc_name}: Cooldown aktiv ({int(_cd_ac/60)} min).")
         return False
 
     message = (
