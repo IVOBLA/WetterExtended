@@ -223,6 +223,10 @@ def main_loop():
     # Orte für die in diesem Session bereits eine Warnung gesendet wurde
     # (Entwarnung nur senden wenn vorher eine Warnung gesandt wurde).
     _location_warned: set = set()
+    # B98: {loc_name: set(cell_ids)} — je Zelle wird nur einmal gewarnt.
+    # Wird bei Entwarnung geleert, sodass eine zurückkehrende/neue Zelle
+    # erneut auslöst.
+    _warned_cells: dict = {}
 
     while True:
         runtime_config.reload_overrides()
@@ -709,7 +713,17 @@ def main_loop():
                         continue
                 return False
 
-            # ── Hilfsfunktion: Ist die Vorhersage für diesen Orts-Treffer unsicher?
+            def _earliest_cell_id(loc_hit: dict):
+                """B98: cell_id des frühesten Treffers (Horizon 0 > kleinster positiver Horizon)."""
+                hits = loc_hit.get("hits") or {}
+                if not hits:
+                    return None
+                try:
+                    _, h_info = min(hits.items(), key=lambda kv: int(kv[0]))
+                    return h_info.get("cell_id") or None
+                except Exception:
+                    return None
+
             def _hit_is_kinematic(loc_hit: dict) -> bool:
                 """
                 Gibt True zurück wenn mindestens eine treffende Zelle
@@ -760,8 +774,27 @@ def main_loop():
             for _loc_hit in location_hits:
                 _lname = _loc_hit["name"]
                 _emails = _loc_email_map.get(_lname, "")
-                if not _emails or _lname in _location_warned:
+                if not _emails:
                     continue
+                # B98: Einmal-pro-Zelle — gleiche cell_id nicht doppelt warnen.
+                _hit_cell_id = _earliest_cell_id(_loc_hit)
+                if _hit_cell_id and _hit_cell_id in _warned_cells.get(_lname, set()):
+                    continue
+                # Fallback: keine cell_id ermittelbar → altes Verhalten
+                if not _hit_cell_id and _lname in _location_warned:
+                    continue
+
+                if _hit_cell_id and _lname in _location_warned:
+                    from config import WARN_MAX_HORIZON_MIN as _WARN_CELL_DEF
+                    _warn_cell_max_h = int(runtime_config.get("WARN_MAX_HORIZON_MIN", _WARN_CELL_DEF))
+                    _earliest_cell_h = _earliest_forecast_horizon(_loc_hit)
+                    if _has_current_horizon(_loc_hit) or _earliest_cell_h <= _warn_cell_max_h:
+                        _ready_to_warn.add(_lname)
+                    else:
+                        debug_log(
+                            f"[EMAIL] {_lname}: neue Zelle {_hit_cell_id}, aber frühester Horizont "
+                            f"+{_earliest_cell_h} min > Vorwarnzeit {_warn_cell_max_h} min — kein Alarm"
+                        )
 
                 if _lname in _new_hit_names:
                     # Neuer Treffer in diesem Frame
@@ -822,6 +855,10 @@ def main_loop():
                                 timestamp,
                             ):
                                 _location_warned.add(_loc_hit["name"])
+                                # B98: Zelle merken — selbe Zelle löst keinen weiteren Alarm aus
+                                _cid = _earliest_cell_id(_loc_hit)
+                                if _cid:
+                                    _warned_cells.setdefault(_loc_hit["name"], set()).add(_cid)
                                 debug_log(f"[EMAIL] Warnung gesendet: {_loc_hit['name']}")
                 except Exception as _e:
                     debug_log(f"[EMAIL] Warnung fehlgeschlagen: {_e}")
@@ -869,6 +906,7 @@ def main_loop():
                             ok = send_allclear_email(_loc_name, _emails)
                             if ok:
                                 _location_warned.discard(_loc_name)
+                                _warned_cells.pop(_loc_name, None)  # B98: neue Zellen können wieder warnen
                                 debug_log(f"[EMAIL] Entwarnung gesendet: {_loc_name}")
                             else:
                                 debug_log(

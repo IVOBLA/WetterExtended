@@ -125,6 +125,30 @@ MIN_CONTOUR_TOUCH = 5
 TENDENCY_CORE_DELTA_STABLE = 0.05   # |Δcore_ratio| ≤ 0.05 → Intensität stabil
 TENDENCY_AREA_PCT_STABLE   = 0.10   # |Δarea_pct|   ≤ 0.10 → Größe stabil
 
+# --------------------------------------
+# Risikoalarm-Cooldowns (B97/B98)
+# --------------------------------------
+RISK_ALERT_REQUIRED_DOMINANTS: list = ["atm"]
+RISK_ALERT_COOLDOWN_S: int = 43200   # 12 Stunden
+
+# Gewitterwarnung (Zell-Treffer) — max. 1× pro Zelle + Safety-Cooldown
+WARN_COOLDOWN_S: int = 900           # 15 Min Safety-Net (nach per-Zelle-Logik, B98)
+
+# Entwarnung
+ALLCLEAR_COOLDOWN_S: int = 300       # 5 Min
+
+# Drift-Alert (E-Mail)
+DRIFT_ALERT_COOLDOWN_H: int = 6      # 6 Stunden
+
+# --------------------------------------
+# Trainings-Mindestsequenzen (B99)
+# --------------------------------------
+# Anzahl gültiger LSTM-Sequenzen die für ein Training mindestens vorliegen müssen.
+# Werte entsprechen den Schwellen in model_training.py (train_lstm/train_lgbm).
+# Werden auch vom /api/training_readiness-Endpoint und der Training-Seite genutzt.
+MIN_SEQUENCES_LSTM: int = 50    # LSTM benötigt mind. 50 Sequenzen
+MIN_SEQUENCES_LGBM: int = 30    # LightGBM benötigt mind. 30 Sequenzen
+
 # Minimale Zell-Geschwindigkeit für Pfeil-Darstellung in der Karte (km/h).
 # Zellen langsamer als dieser Wert erhalten KEINEN Bewegungspfeil.
 # 0 = alle Zellen bekommen Pfeil (altes Verhalten).

@@ -1798,3 +1798,11 @@ Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sow
 
 **Hailo-Integrationsstatus (unverändert):**
 - Phase 1 (Installation) ✅ — Phase 2 (HEF-Export) 🔲 — Phase 3 (Runtime) 🔲
+---
+
+### B98/B99 Admin-Panel- und Warnlogik-Erweiterungen ✅
+
+| ID | Änderung | Dateien | Status |
+|---|---|---|---|
+| B98 | **Einmal-pro-Zelle-Warnung + alle Cooldowns konfigurierbar.** Gewitterwarnung (`send_warning_*`) feuert jetzt einmal pro (Ort, Zell-ID) — `_warned_cells`-Dict in `main.py` trackt bereits gewarntes Zell-ID je Ort; bei Entwarnung geleert. Alle Cooldown-Konstanten aus `email_notifier.py`, `whatsapp_notifier.py` werden über `_get_cooldown()` aus `config.py`/`runtime_config` gelesen (`WARN_COOLDOWN_S`, `ALLCLEAR_COOLDOWN_S`, `DRIFT_ALERT_COOLDOWN_H`, `RISK_ALERT_COOLDOWN_S`). Neue `Configuration.jsx`-Gruppe „Benachrichtigungen & Cooldowns". | `config.py`, `main.py`, `email_notifier.py`, `whatsapp_notifier.py`, `Configuration.jsx` | ✅ erledigt |
+| B99 | **Trainingsbereitschaft im Admin-Panel.** `MIN_SEQUENCES_LSTM=50`, `MIN_SEQUENCES_LGBM=30` in `config.py` (ersetzt Hardcoding in `model_training.py`). Neuer API-Endpoint `/api/training_readiness`: liest `dataset.npz`, berechnet fehlende Sequenzen je Modell. `Training.jsx`: neue Readiness-Karte mit Fortschrittsbalken, Modell-Tabelle und Fehlzahl oben auf der Seite. | `config.py`, `model_training.py`, `app.py`, `Training.jsx` | ✅ erledigt |

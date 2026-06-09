@@ -11,10 +11,17 @@ export default function Training() {
     convlstm_cron_hour:       2,
     convlstm_cron_minute:     0,
   })
-  const [msg, setMsg]                   = useState('')
+  const [msg, setMsg]                     = useState('')
   const [localTraining, setLocalTraining] = useState(true)
+  const [readiness, setReadiness]         = useState(null)
 
   useEffect(() => {
+    // B99: Countdown — Live-Refresh alle 60 s (sinkt sichtbar bei Sturmereignissen)
+    const fetchReadiness = () =>
+      api.get('/api/training_readiness').then(setReadiness).catch(() => {})
+    fetchReadiness()
+    const _rdTimer = setInterval(fetchReadiness, 60_000)
+
     api.get('/api/training')
       .then(d => {
         if (d.DATASET_REBUILD_INTERVAL_MIN != null) setRebuild(d.DATASET_REBUILD_INTERVAL_MIN)
@@ -25,6 +32,8 @@ export default function Training() {
     api.get('/api/local_training')
       .then(d => setLocalTraining(d.local_training !== false))
       .catch(() => {})
+
+    return () => clearInterval(_rdTimer)  // B99: Timer beim Unmount stoppen
   }, [])
 
   const save = async () => {
@@ -54,6 +63,88 @@ export default function Training() {
       {msg && (
         <div className="bg-blue-100 border border-blue-300 text-blue-900 p-2 rounded mb-3 text-sm">
           {msg}
+        </div>
+      )}
+
+      {/* B99: Trainingsbereitschaft — Live-Countdown */}
+      {readiness && (
+        <div className="card mb-4">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <h2 className="text-lg font-semibold">Trainingsbereitschaft</h2>
+            <span style={{ fontSize: 11, color: '#9ca3af' }}>↺ alle 60 s</span>
+          </div>
+
+          {/* Countdown-Zahl */}
+          <div style={{ textAlign: 'center', padding: '8px 0 20px' }}>
+            {readiness.all_ready ? (
+              <>
+                <div style={{ fontSize: 72, lineHeight: 1 }}>✅</div>
+                <div style={{ fontWeight: 700, fontSize: 18, color: '#16a34a', marginTop: 6 }}>
+                  Bereit für Training!
+                </div>
+                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                  {readiness.current_sequences} Sequenzen gesammelt
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{
+                  fontSize: 88, fontWeight: 900, lineHeight: 1, letterSpacing: '-2px',
+                  fontVariantNumeric: 'tabular-nums',
+                  color: readiness.current_sequences === 0 ? '#d1d5db' : '#f59e0b',
+                }}>
+                  {readiness.lstm.missing}
+                </div>
+                <div style={{ fontWeight: 600, fontSize: 14, color: '#92400e', marginTop: 6 }}>
+                  Sequenz{readiness.lstm.missing !== 1 ? 'en' : ''} noch benötigt
+                </div>
+                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                  {readiness.current_sequences} von {readiness.lstm.required} gesammelt
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Fortschrittsbalken */}
+          <div style={{ background: '#e5e7eb', borderRadius: 8, height: 12, marginBottom: 16, overflow: 'hidden' }}>
+            <div style={{
+              height: '100%', borderRadius: 8,
+              background: readiness.all_ready ? '#16a34a' : '#f59e0b',
+              width: `${Math.min(100, Math.round(readiness.current_sequences / readiness.lstm.required * 100))}%`,
+              transition: 'width 0.6s ease',
+            }} />
+          </div>
+
+          {/* Modell-Chips */}
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+            {[
+              { label: 'LSTM + LightGBM', r: readiness.lstm },
+              { label: 'LightGBM (solo)',  r: readiness.lgbm },
+            ].map(({ label, r }) => (
+              <div key={label} style={{
+                flex: 1, minWidth: 130,
+                background: r.ready ? '#f0fdf4' : '#fffbeb',
+                border: `1px solid ${r.ready ? '#86efac' : '#fcd34d'}`,
+                borderRadius: 8, padding: '8px 12px',
+              }}>
+                <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 2 }}>{label}</div>
+                {r.ready
+                  ? <span style={{ color: '#16a34a', fontWeight: 700, fontSize: 13 }}>✅ bereit ({r.required} erreicht)</span>
+                  : <span style={{ color: '#92400e', fontWeight: 600, fontSize: 13 }}>⏳ noch {r.missing} fehlen</span>
+                }
+              </div>
+            ))}
+          </div>
+
+          {!readiness.dataset_exists && (
+            <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 4px' }}>
+              Kein dataset.npz — wird beim nächsten Rebuild-Job erstellt.
+            </p>
+          )}
+          <p style={{ fontSize: 11, color: '#9ca3af', margin: 0, lineHeight: 1.5 }}>
+            Kumulativ gesammelt (max. 90 Tage) · Nach Training kein Reset ·
+            Wächst nur bei aktiven Gewitterzellen
+          </p>
         </div>
       )}
 
