@@ -204,18 +204,30 @@ def _build_lstm(n_horizons: int = 0):
     (z. B. wenn TF erst nach Collection verfügbar ist). RuntimeError statt
     kryptischem TypeError wenn TF wirklich fehlt.
     """
-    # B101: Lazy-Re-Import — damit pytest.importorskip("tensorflow") greift
-    global Sequential, LSTM, Dense, Dropout, Adam  # noqa: PLW0603
-    if Sequential is None or LSTM is None:
+    # B101/B110: Lazy-Re-Import — damit pytest.importorskip("tensorflow") greift
+    global Sequential, LSTM, Dense, Dropout, Adam, EarlyStopping, ModelCheckpoint  # noqa: PLW0603
+    if (
+        Sequential is None
+        or LSTM is None
+        or Dense is None
+        or Dropout is None
+        or Adam is None
+        or EarlyStopping is None
+        or ModelCheckpoint is None
+    ):
         _km = _optional_import("tensorflow.keras.models")
         _kl = _optional_import("tensorflow.keras.layers")
         _ko = _optional_import("tensorflow.keras.optimizers")
+        _kc = _optional_import("tensorflow.keras.callbacks")
         if _km is not None and _kl is not None and _ko is not None:
             Sequential = getattr(_km, "Sequential", None)
             LSTM = getattr(_kl, "LSTM", None)
             Dense = getattr(_kl, "Dense", None)
             Dropout = getattr(_kl, "Dropout", None)
             Adam = getattr(_ko, "Adam", None)
+        if _kc is not None:
+            EarlyStopping = getattr(_kc, "EarlyStopping", None)
+            ModelCheckpoint = getattr(_kc, "ModelCheckpoint", None)
 
     if Sequential is None or LSTM is None or Dense is None or Dropout is None or Adam is None:
         raise RuntimeError(
@@ -258,16 +270,19 @@ def train_lstm(X, y, model_dir):
     y_train, y_val = y[:split_idx], y[split_idx:]
     debug_log(f"[LSTM] Zeitbasierter Split: train={len(X_train)}, val={len(X_val)}")
     model = _build_lstm(n_horizons=len(_get_training_horizons()))  # P0-2
+    # B110: Guards für den Fall, dass Keras-Callbacks nicht importiert werden konnten.
+    callbacks = []
+    if EarlyStopping is not None:
+        callbacks.append(EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True))
+    if ModelCheckpoint is not None:
+        callbacks.append(ModelCheckpoint(filepath=model_path, monitor="val_loss", save_best_only=True))
     history = model.fit(
         X_train,
         y_train,
         validation_data=(X_val, y_val),
         epochs=200,
         batch_size=32,
-        callbacks=[
-            EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True),
-            ModelCheckpoint(filepath=model_path, monitor="val_loss", save_best_only=True),
-        ],
+        callbacks=callbacks or None,
         verbose=1,
     )
     val_loss = float(min(history.history.get("val_loss", [float("nan")])))
