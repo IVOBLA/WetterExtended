@@ -196,14 +196,17 @@ def evaluate_on_recent(model_dir, hours=24):
     mae_total = float(np.mean([mae_by_horizon[str(h)] for h in _eval_horizons]))
     return {"mae_total": mae_total, "mae_by_horizon": mae_by_horizon, "samples": len(idx)}
 
-def _build_lstm():
+def _build_lstm(n_horizons: int = 0):
+    """P0-2: n_horizons aus _get_training_horizons() — NICHT aus compile-time Import.
+    Sicherstellt dass LSTM-Output-Dim mit LightGBM-Zielspalten übereinstimmt."""
+    _n = n_horizons if n_horizons > 0 else len(_get_training_horizons())
     model = Sequential([
         LSTM(64, return_sequences=True, input_shape=(ML_SEQUENCE_LENGTH, ML_NUM_FEATURES)),
         Dropout(0.2),
         LSTM(32),
         Dropout(0.2),
         Dense(32, activation="relu"),
-        Dense(len(ML_FORECAST_HORIZONS_MIN) * 2),
+        Dense(_n * 2),
     ])
     model.compile(optimizer=Adam(1e-3), loss="mse")
     return model
@@ -229,7 +232,7 @@ def train_lstm(X, y, model_dir):
     X_train, X_val = X[:split_idx], X[split_idx:]
     y_train, y_val = y[:split_idx], y[split_idx:]
     debug_log(f"[LSTM] Zeitbasierter Split: train={len(X_train)}, val={len(X_val)}")
-    model = _build_lstm()
+    model = _build_lstm(n_horizons=len(_get_training_horizons()))  # P0-2
     history = model.fit(
         X_train,
         y_train,
@@ -551,13 +554,13 @@ def retrain_all():
         meta = {
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
             "version": timestamp,
-            "ML_FORECAST_HORIZONS_MIN": list(ML_FORECAST_HORIZONS_MIN),
-            "horizons": list(ML_FORECAST_HORIZONS_MIN),
+            "ML_FORECAST_HORIZONS_MIN": list(_get_training_horizons()),   # P0-2
+            "horizons": list(_get_training_horizons()),                    # P0-2
             "num_samples": int(len(X)) if has_data else 0,
             "rejected_samples": int(dataset.get("rejected_samples", 0)),
             "rejection_reasons": dataset.get("rejection_reasons", {}),
             "lstm": {"trained": lstm_result.get("trained", False), "val_loss": lstm_result.get("val_loss")},
-            "horizons_trained": list(ML_FORECAST_HORIZONS_MIN),  # P23: explizit für Kompatibilitätsprüfung
+            "horizons_trained": list(_get_training_horizons()),   # P0-2 + P23: Runtime-Horizonte
             "feature_count": int(ML_NUM_FEATURES),               # P23: Feature-Dimension bei Training
             "lgbm": {
                 "trained": lgbm_result.get("trained", False),
@@ -587,8 +590,8 @@ def retrain_all():
         meta = {
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
             "version": timestamp,
-            "ML_FORECAST_HORIZONS_MIN": list(ML_FORECAST_HORIZONS_MIN),
-            "horizons": list(ML_FORECAST_HORIZONS_MIN),
+            "ML_FORECAST_HORIZONS_MIN": list(_get_training_horizons()),   # P0-2
+            "horizons": list(_get_training_horizons()),                    # P0-2
             "num_samples": 0,
             "rejected_samples": 0,
             "rejection_reasons": {},
