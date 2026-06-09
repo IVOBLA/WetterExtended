@@ -21,6 +21,23 @@ HEAVY_RAIN_MM_PER_H = 25.0
 # (= neuester Forecast), KEIN start/end. Der Parser nimmt den ersten Zeitschritt.
 _FORECAST_OFFSET = "0"
 
+# B105: GeoSphere Nowcast-v1-15min-1km Abdeckungsgrenzen (MGI/Austria-Lambert-Raster).
+# Quelle: https://data.hub.geosphere.at/dataset/nowcast-v1-15min-1km
+# Bbox: 45.5–49.48 °N, 8.1–17.74 °E.
+# Zusätzlicher 0.1°-Puffer innen um Randzellen zu vermeiden die trotz Bbox 400 liefern.
+_NOWCAST_LAT_MIN: float = 45.6
+_NOWCAST_LAT_MAX: float = 49.38
+_NOWCAST_LON_MIN: float = 8.2
+_NOWCAST_LON_MAX: float = 17.64
+
+
+def _in_nowcast_bbox(lat: float, lon: float) -> bool:
+    """True wenn Koordinaten innerhalb des GeoSphere-Nowcast-Rasters liegen."""
+    return (
+        _NOWCAST_LAT_MIN <= lat <= _NOWCAST_LAT_MAX
+        and _NOWCAST_LON_MIN <= lon <= _NOWCAST_LON_MAX
+    )
+
 
 def _params_suffix() -> str:
     # Parameter MUESSEN einzeln wiederholt werden (kommasepariert -> HTTP 422).
@@ -75,7 +92,20 @@ def assign_nowcast_to_objects(objects: list, timestamp: str | None = None) -> li
         except (TypeError, ValueError):
             _coords.append(None)
 
-    _valid_indices = [i for i, c in enumerate(_coords) if c is not None]
+    # B105: Koordinaten außerhalb des INCA-Rasters überspringen (400-Quelle).
+    _valid_indices = [
+        i for i, c in enumerate(_coords)
+        if c is not None and _in_nowcast_bbox(c[0], c[1])
+    ]
+    _outside = [
+        i for i, c in enumerate(_coords)
+        if c is not None and not _in_nowcast_bbox(c[0], c[1])
+    ]
+    if _outside:
+        debug_log(
+            f"[NOWCAST] {len(_outside)} Objekt(e) außerhalb INCA-Bbox "
+            f"(45.6–49.38°N, 8.2–17.64°E) → Default-Werte, kein API-Call."
+        )
     if not _valid_indices:
         return objects
 
@@ -136,11 +166,20 @@ def assign_nowcast_to_objects(objects: list, timestamp: str | None = None) -> li
 
     except requests.exceptions.HTTPError as _exc:
         _status = getattr(getattr(_exc, "response", None), "status_code", None) or 0
-        log_api_failure("geosphere_nowcast", _url, str(_exc), fallback_used=False, http_status=_status)
+        # B105: Response-Body loggen (max. 400 Zeichen) zur Root-Cause-Analyse.
+        _resp_text = ""
+        try:
+            _resp_text = (getattr(getattr(_exc, "response", None), "text", "") or "")[:400]
+        except Exception:
+            pass
+        if _resp_text:
+            debug_log(f"[NOWCAST] 400-Body: {_resp_text}")
+        # B105: fallback_used=True korrekt gesetzt — Defaults wurden bereits befüllt.
+        log_api_failure("geosphere_nowcast", _url, str(_exc), fallback_used=True, http_status=_status)
         log_api_call("geosphere_nowcast", url=_url, status_code=_status, method="GET", error=str(_exc))
         return objects
     except Exception as _exc:
-        log_api_failure("geosphere_nowcast", _url, str(_exc), fallback_used=False)
+        log_api_failure("geosphere_nowcast", _url, str(_exc), fallback_used=True)
         return objects
 
 
