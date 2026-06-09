@@ -916,19 +916,9 @@ def main_loop():
                 except Exception as _e:
                     debug_log(f"[EMAIL] Entwarnung fehlgeschlagen: {_e}")
 
-            # ── WhatsApp: Entwarnung (nur wenn zuvor E-Mail-Warnung gesendet)
-            if _cleared:
-                try:
-                    from whatsapp_notifier import send_allclear_wa
-                    for _loc_name in sorted(_cleared):
-                        if _loc_name not in _location_warned:
-                            # Kein E-Mail-Alarm gesendet → keine WA-Entwarnung
-                            continue
-                        _wa = _loc_wa_map.get(_loc_name, "")
-                        if _wa:
-                            send_allclear_wa(_loc_name, _wa)
-                except Exception as _e:
-                    debug_log(f"[WA] Entwarnung fehlgeschlagen: {_e}")
+            # ── WhatsApp: Entwarnung bewusst NICHT implementiert ─────────
+            # Design-Entscheidung (B108): WhatsApp sendet ausschließlich Warnungen.
+            # Entwarnungen erfolgen nur per E-Mail.
 
             _prev_location_hit_names = _current_hit_names
 
