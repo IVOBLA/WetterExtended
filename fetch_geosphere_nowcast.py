@@ -129,6 +129,7 @@ def assign_nowcast_to_objects(objects: list, timestamp: str | None = None) -> li
     )
     _url = f"{_BASE_URL}?{_lat_lon_parts}&{_params_suffix()}"
 
+    _resp = None
     try:
         _t0 = _t_nowcast_mod.monotonic()
         _resp = requests.get(_url, timeout=_TIMEOUT, headers={"Accept": "application/json"})
@@ -164,12 +165,14 @@ def assign_nowcast_to_objects(objects: list, timestamp: str | None = None) -> li
         debug_log(f"[NOWCAST] Bulk OK — {len(_valid_indices)} Objekte, {_dur_ms:.0f} ms")
         return objects
 
-    except requests.exceptions.HTTPError as _exc:
-        _status = getattr(getattr(_exc, "response", None), "status_code", None) or 0
+    except Exception as _exc:
+        _exc_resp = getattr(_exc, "response", None)
+        _err_resp = _exc_resp if _exc_resp is not None else _resp
+        _status = getattr(_err_resp, "status_code", None) or 0
         # B105: Response-Body loggen (max. 400 Zeichen) zur Root-Cause-Analyse.
         _resp_text = ""
         try:
-            _resp_text = (getattr(getattr(_exc, "response", None), "text", "") or "")[:400]
+            _resp_text = (getattr(_err_resp, "text", "") or "")[:400]
         except Exception:
             pass
         if _resp_text:
@@ -177,9 +180,6 @@ def assign_nowcast_to_objects(objects: list, timestamp: str | None = None) -> li
         # B105: fallback_used=True korrekt gesetzt — Defaults wurden bereits befüllt.
         log_api_failure("geosphere_nowcast", _url, str(_exc), fallback_used=True, http_status=_status)
         log_api_call("geosphere_nowcast", url=_url, status_code=_status, method="GET", error=str(_exc))
-        return objects
-    except Exception as _exc:
-        log_api_failure("geosphere_nowcast", _url, str(_exc), fallback_used=True)
         return objects
 
 
