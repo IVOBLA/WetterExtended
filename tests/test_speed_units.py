@@ -44,7 +44,10 @@ def test_clamp_uses_original_px_units():
     assert kf.x[2] == pytest.approx(vx_just_under, rel=1e-6)
 
     # vx klar ÜBER dem Limit → muss geklemmt werden (Original-px-Annahme).
-    vx_over = (float(MAX_CELL_SPEED_KMH) / float(PX_TO_KMH)) * 1.5
+    # B107: Multiplikator 1.5 triggerte kaskadiert Absolut- UND Delta-Clamp
+    # (Δ=75 km/h > MAX_SPEED_CHANGE=60 → Ergebnis 165 statt 150).
+    # 1.2: 18 px = 180 km/h → Korrektur Δ=3 px=30 km/h < 60 → nur Absolut-Clamp → 150. ✓
+    vx_over = (float(MAX_CELL_SPEED_KMH) / float(PX_TO_KMH)) * 1.2
     kf2 = _KF(vx_over)
     ot._clamp_kalman_velocity(kf2, vx_over, 0.0)
     speed_after = abs(kf2.x[2]) * float(PX_TO_KMH)

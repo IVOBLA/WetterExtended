@@ -1801,9 +1801,11 @@ else
         # Im Projektverzeichnis ausführen, damit pytest.ini + Imports greifen.
         # rootdir = $TARGET; -p no:cacheprovider vermeidet .pytest_cache-Schreibrechte-Probleme.
         set +e
+        trap '' ERR        # B107: ERR-Trap temporär deaktivieren — set+e reicht nicht
         ( cd "$TARGET" && "$VENV/bin/python3" -m pytest tests \
               -p no:cacheprovider 2>&1 ) | tee "$_TEST_LOG"
         _PYTEST_RC=${PIPESTATUS[0]}
+        trap on_error ERR  # ERR-Trap wiederherstellen
         set -e
 
         # Kurz-Zusammenfassung aus der letzten pytest-Zeile (passed/failed/...)
