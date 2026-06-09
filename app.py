@@ -75,6 +75,22 @@ _ADMIN_WRITE_PREFIXES = (
     "/api/sms_config",
     "/api/notification",
 )
+# P1-1: GET/HEAD auf diesen Präfixen erfordern mind. viewer-Level (eingeloggt).
+# Bewusst NICHT enthalten (öffentliche Karte): /api/objects, /api/forecast,
+# /api/horizons, /api/intensity_bands, /api/accuracy, Bild-/Karten-Endpunkte.
+_SENSITIVE_READ_PREFIXES = (
+    "/api/config",
+    "/api/logs",
+    "/api/log/",
+    "/api/system/",
+    "/api/drift/",
+    "/api/ai_analysis",
+    "/api/email_config",
+    "/api/sms_config",
+    "/api/notification",
+    "/api/users",
+    "/api/admin/",
+)
 # Alle anderen POST/PATCH/DELETE erfordern operator-Level (20):
 # Training, Scheduler, API-Health-Run, manuelle Trigger usw.
 
@@ -88,8 +104,17 @@ def _jwt_auth_check():
     # Auth-Endpunkte selbst benötigen kein Token
     if request.path.startswith("/api/auth/"):
         return
-    # Alle GET- und HEAD-Requests sind öffentlich
+    # P1-1: GET/HEAD sind öffentlich — AUSSER für sensible Lese-Endpunkte
+    # (Konfiguration, Logs, System-Interna, Benachrichtigungs-Configs,
+    # Benutzerverwaltung). Diese erfordern mindestens einen eingeloggten User.
     if request.method in ("GET", "HEAD"):
+        if not any(request.path.startswith(p) for p in _SENSITIVE_READ_PREFIXES):
+            return
+        _u = get_current_user()
+        if _u is None:
+            return jsonify({"error": "Nicht authentifiziert — Login erforderlich"}), 401
+        if ROLE_LEVEL.get(_u.get("role", ""), 0) < ROLE_LEVEL["viewer"]:
+            return jsonify({"error": "Keine Berechtigung"}), 403
         return
     # Statische Assets sind öffentlich
     if request.path.startswith("/assets/") or request.path in ("/favicon.ico",):
