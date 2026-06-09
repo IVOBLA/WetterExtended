@@ -913,13 +913,14 @@ def api_forecast():
         if _spd_pre is not None:
             speed_kmh = float(_spd_pre)
         else:
+            # B105/P0-1: vx/vy sind ORIGINAL-px/Frame → direkt PX_TO_KMH, kein /UF.
             vx = float(o.get("vx") or 0.0)
             vy = float(o.get("vy") or 0.0)
             try:
-                from config import UPSCALE_FACTOR as _uf_fc
+                from config import speed_kmh_from_px as _spd_fn_fc
+                speed_kmh = _spd_fn_fc(vx, vy)
             except ImportError:
-                _uf_fc = 3.0
-            speed_kmh = _math.hypot(vx, vy) * (PX_TO_KMH / max(float(_uf_fc), 1.0))
+                speed_kmh = _math.hypot(vx, vy) * PX_TO_KMH
         # is_slow_arrow: Zelle bewegt sich < MIN_MOVEMENT_FOR_ARROW_KMH.
         # has_arrow: True wenn Forecast-Position vom Zell-Zentrum abweicht (min 0.001°).
         # Trennung: langsame Zellen werden sichtbar (aber transparent), nicht ausgeblendet.

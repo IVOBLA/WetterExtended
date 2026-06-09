@@ -284,14 +284,14 @@ def annotate_locations(
             if _precomp_spd is not None:
                 speed_kmh = float(_precomp_spd)
             else:
+                # B105/P0-1: vx/vy sind ORIGINAL-px/Frame → direkt PX_TO_KMH, kein /UF.
                 vx = float(obj.get("vx") or 0.0)
                 vy = float(obj.get("vy") or 0.0)
                 try:
-                    from config import UPSCALE_FACTOR as _uf_lc
+                    from config import speed_kmh_from_px as _spd_fn_lc
+                    speed_kmh = _spd_fn_lc(vx, vy)
                 except ImportError:
-                    _uf_lc = 3.0
-                _kmh_per_scaled_px = _PX_TO_KMH / max(float(_uf_lc), 1.0)
-                speed_kmh = math.hypot(vx, vy) * _kmh_per_scaled_px
+                    speed_kmh = math.hypot(vx, vy) * _PX_TO_KMH
 
             # ── Typ 1: CURRENT ────────────────────────────────────────────
             # Abstand Ort → nächster Polygon-Punkt (0 wenn Ort im Polygon).
