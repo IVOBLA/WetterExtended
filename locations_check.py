@@ -211,6 +211,65 @@ def _forecast_polygon_at_h(
     )
 
 
+def _cell_survival_fraction(obj: dict, horizon_min: float) -> float:
+    """P-T06: Geschätzter Anteil der Zell-Lebenskraft bei +horizon_min Minuten.
+
+    1.0 = unverändert / wachsend / verstärkend → kein Abzug.
+    →0  = Zelle löst sich auf, bevor sie den Ort erreicht.
+
+    Grundlage: intensity_tendency ("schwaecher") und size_tendency ("schrumpft");
+    ML-Feinjustage über delta_core_ratio_pred (negativ = Kern schwächt sich ab).
+    Exponentieller Zerfall mit konfigurierbarer Halbwertszeit.
+    """
+    try:
+        import runtime_config as _rc
+        _HL = float(_rc.get("CELL_DECAY_HALF_LIFE_MIN", 25.0))
+    except Exception:
+        try:
+            from config import CELL_DECAY_HALF_LIFE_MIN as _HL
+        except Exception:
+            _HL = 25.0
+    intens = str(obj.get("intensity_tendency", "stabil"))
+    size = str(obj.get("size_tendency", "stabil"))
+    weakening = (intens == "schwaecher")
+    shrinking = (size == "schrumpft")
+    if not weakening and not shrinking:
+        return 1.0
+    half_life = float(_HL)
+    if not (weakening and shrinking):
+        half_life *= 2.0  # nur ein Signal → langsamerer Zerfall
+    try:
+        dc = float(obj.get("delta_core_ratio_pred", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        dc = 0.0
+    if dc < 0:
+        half_life = max(5.0, half_life * (1.0 + dc))  # dc∈(-1,0) → kürzere HWZ
+    h = max(0.0, float(horizon_min))
+    return 0.5 ** (h / max(1.0, half_life))
+
+
+def _survival_allows(obj: dict, horizon_min: float):
+    """P-T06: (allowed, survival_frac). allowed=False → Treffer unterdrücken,
+    weil sich die Zelle voraussichtlich vor dem Ort auflöst.
+    Konfig über runtime_overrides.json überschreibbar."""
+    try:
+        import runtime_config as _rc
+        _enabled = bool(_rc.get("CELL_DECAY_SUPPRESS_ENABLED", True))
+        _min = float(_rc.get("CELL_SURVIVAL_MIN_FRAC", 0.35))
+    except Exception:
+        try:
+            from config import (
+                CELL_DECAY_SUPPRESS_ENABLED as _enabled,
+                CELL_SURVIVAL_MIN_FRAC as _min,
+            )
+        except Exception:
+            _enabled, _min = True, 0.35
+    frac = _cell_survival_fraction(obj, horizon_min)
+    if not _enabled:
+        return True, frac
+    return (frac >= float(_min)), frac
+
+
 def annotate_locations(
     objects: Iterable[dict],
     locations: List[dict],
@@ -362,13 +421,29 @@ def annotate_locations(
                         # Fallback: kein Polygon verfügbar
                         _hit_s = d <= extended_r
                     if _hit_s:
-                        hits[h] = {
-                            "hit_type":    "slow_approach",
-                            "color":       "#f97316",  # Orange: Starkregenpotential
-                            "cell_id":     cell_id,
-                            "distance_km": round(d, 3),
-                            "speed_kmh":   round(speed_kmh, 1),
-                        }
+                        # P-T06: Überlebensprüfung (current-Hits sind nicht betroffen).
+                        _ok_surv, _surv = _survival_allows(obj, float(h))
+                        if _ok_surv:
+                            hits[h] = {
+                                "hit_type":    "slow_approach",
+                                "color":       "#f97316",  # Orange: Starkregenpotential
+                                "cell_id":     cell_id,
+                                "distance_km": round(d, 3),
+                                "speed_kmh":   round(speed_kmh, 1),
+                                "survival_frac": round(_surv, 2),
+                                "intensity_tendency": obj.get("intensity_tendency", "stabil"),
+                                "size_tendency": obj.get("size_tendency", "stabil"),
+                            }
+                        else:
+                            try:
+                                from debug_utils import debug_log as _dlog_s
+                                _dlog_s(
+                                    f"[LOCATIONS] P-T06: '{name}' slow-Hit h={h} "
+                                    f"unterdrückt (Zelle {cell_id} löst sich auf, "
+                                    f"survival={_surv:.2f})"
+                                )
+                            except Exception:
+                                pass
 
             # ── Typ 3: FORECAST ───────────────────────────────────────────
             # Schnell ziehende Zelle: Forecast-Pfad vs. normaler Radius.
@@ -419,13 +494,29 @@ def annotate_locations(
                     else:
                         _hit_f = d <= radius
                     if _hit_f:
-                        hits[h] = {
-                            "hit_type":    "forecast",
-                            "color":       colors.get(h) or colors.get(str(h), "#888888"),
-                            "cell_id":     cell_id,
-                            "distance_km": round(d, 3),
-                            "speed_kmh":   round(speed_kmh, 1),
-                        }
+                        # P-T06: Überlebensprüfung (current-Hits sind nicht betroffen).
+                        _ok_surv, _surv = _survival_allows(obj, float(h))
+                        if _ok_surv:
+                            hits[h] = {
+                                "hit_type":    "forecast",
+                                "color":       colors.get(h) or colors.get(str(h), "#888888"),
+                                "cell_id":     cell_id,
+                                "distance_km": round(d, 3),
+                                "speed_kmh":   round(speed_kmh, 1),
+                                "survival_frac": round(_surv, 2),
+                                "intensity_tendency": obj.get("intensity_tendency", "stabil"),
+                                "size_tendency": obj.get("size_tendency", "stabil"),
+                            }
+                        else:
+                            try:
+                                from debug_utils import debug_log as _dlog_f
+                                _dlog_f(
+                                    f"[LOCATIONS] P-T06: '{name}' forecast-Hit h={h} "
+                                    f"unterdrückt (Zelle {cell_id} löst sich auf, "
+                                    f"survival={_surv:.2f})"
+                                )
+                            except Exception:
+                                pass
 
         if hits:
             out.append({

@@ -306,6 +306,22 @@ einen Countdown bis zur nächsten automatischen Aktualisierung. Das Intervall
 
 Definition von Überwachungsorten mit Umkreis (km). Durchquerungsanzeige in der Farbe des jeweiligen Vorhersage-Horizonts.
 
+## Zell-Überleben bis zum Ort (P-T06) [NEU]
+
+Beim Markieren betroffener Orte wird jetzt berücksichtigt, ob eine Zelle sich
+abschwächt (intensity_tendency = "schwaecher") und/oder schrumpft (size_tendency =
+"schrumpft"). Aus diesen Tendenzen (und – sofern vorhanden – der ML-Kernprognose
+delta_core_ratio_pred) wird je Vorhersagehorizont eine Überlebensfraktion geschätzt.
+Fällt sie unter den Schwellwert, wird der Forecast-/Slow-Treffer unterdrückt: Für
+Zellen, die sich voraussichtlich vor Erreichen des Ortes auflösen, wird keine Warnung
+mehr erzeugt. Akute Treffer (Zelle befindet sich JETZT im Ortsradius) sind davon nicht
+betroffen. Verbleibende Treffer tragen zusätzlich survival_frac sowie die Tendenz-Felder.
+
+Konfiguration (Admin-Panel /config, sofort wirksam):
+- CELL_DECAY_SUPPRESS_ENABLED (Default: an) — Filter ein/aus
+- CELL_DECAY_HALF_LIFE_MIN (Default: 25 min) — Halbwertszeit bei Abschwächung + Schrumpfen
+- CELL_SURVIVAL_MIN_FRAC (Default: 0.35) — Mindest-Überlebensfraktion für einen Treffer
+
 ## 4.7 Schwellwerte (`/thresholds`)
 
 HSV-Farbschwellwerte für die Zellerkennung (Gewitterzellen, moderate Zellen, Minimum-Intensität). Änderungen wirken sofort auf den nächsten Live-Loop-Zyklus.
