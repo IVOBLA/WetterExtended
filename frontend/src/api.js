@@ -71,6 +71,21 @@ const api = {
     });
     return _handleResponse(r, url);
   },
+  async download(url) {
+    const r = await fetch(url, { headers: _readHeaders() });
+    if (r.status === 401) {
+      if (_onUnauthorized) _onUnauthorized();
+      throw new Error('Nicht authentifiziert');
+    }
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.error || `${url}: ${r.status}`);
+    }
+    const disposition = r.headers.get('content-disposition') || '';
+    const match = disposition.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);
+    const filename = match ? decodeURIComponent(match[1] || match[2]) : 'wetterextended_debug_last24h.zip';
+    return { blob: await r.blob(), filename };
+  },
 };
 
 export default api;
