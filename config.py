@@ -265,6 +265,23 @@ MAX_CELL_SPEED_KMH: float = 150.0
 # Kalman-Sprünge bei Mess-Artefakten (Plausibilitätsprüfung F14).
 MAX_SPEED_CHANGE_PER_CYCLE_KMH: float = 60.0
 
+
+def speed_kmh_from_px(vx, vy) -> float:
+    """B105/P0-1: Zellgeschwindigkeit [km/h] aus vx/vy in ORIGINAL-px/Frame.
+
+    Invariante: Der Kalman-Filter wird mit original_cx/original_cy gefuettert
+    (object_tracking.py), daher sind vx/vy Original-px/Frame. PX_TO_KMH ist
+    km/h pro Original-px/Frame. KEINE Division durch UPSCALE_FACTOR.
+    Single Source of Truth fuer object_tracking.py, locations_check.py und app.py.
+    """
+    import math as _m
+    try:
+        _vx = float(vx or 0.0)
+        _vy = float(vy or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    return _m.hypot(_vx, _vy) * float(PX_TO_KMH)
+
 # was_active Flag: True sobald core_ratio diesen Schwellwert je überschritten hat.
 # Sticky — bleibt True bis Zelle aus Tracking fällt. Missing-Limit bleibt 10.
 # core_ratio = Anteil Rot+Violett (≥54 dBZ) Pixel an Gesamtzelle.

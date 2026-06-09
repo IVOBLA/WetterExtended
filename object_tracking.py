@@ -823,16 +823,14 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             obj_clean["is_merged"] = 1.0 if _lin == "merged" else 0.0
             obj_clean["is_split"]  = 1.0 if _lin == "split"  else 0.0
             # Vorberechnete Geschwindigkeit [km/h] + meteorolog. Richtung [°] für Frontend.
-            # vx/vy sind in SCALED Pixel/Frame (Kalman-State × UPSCALE_FACTOR).
-            # Korrekte Umrechnung: speed_kmh = hypot(vx, vy) × (PX_TO_KMH / UPSCALE_FACTOR).
+            # B105/P0-1: vx/vy sind ORIGINAL-px/Frame (Kalman wird mit original_cx/cy
+            # gefüttert). PX_TO_KMH = km/h pro Original-px/Frame → KEINE /UF-Division.
             try:
                 import math as _math_spd
-                from config import PX_TO_KMH as _ptk_spd, UPSCALE_FACTOR as _uf_spd
+                from config import speed_kmh_from_px as _spd_fn
                 _spd_vx = float(obj_clean.get("vx", 0.0))
                 _spd_vy = float(obj_clean.get("vy", 0.0))
-                # PX_TO_KMH gilt für Original-px/Frame → durch UPSCALE_FACTOR dividieren
-                _pixel_to_kmh = float(_ptk_spd) / max(float(_uf_spd or 1), 1.0)
-                _raw_speed = _math_spd.hypot(_spd_vx, _spd_vy) * _pixel_to_kmh
+                _raw_speed = _spd_fn(_spd_vx, _spd_vy)
                 # Sicherheitsclamp: max. MAX_CELL_SPEED_KMH (Konsistenz mit Kalman-Clamp)
                 try:
                     import runtime_config as _rc_spd
@@ -864,12 +862,11 @@ def _clamp_kalman_velocity(kf, prev_vx: float, prev_vy: float) -> None:
     sinnvolle Werte. Verhindert Sprünge durch Mess-Artefakte oder kurzzeitige
     Zellverwechslungen.
 
-    Einheiten:
-      Kalman-vx/vy sind im SKALIERTEN Maßstab (px/Frame im upgeskalten Bild).
-      Für die km/h-Berechnung wird auf Original-px/Frame umgerechnet
-      (vx/UPSCALE_FACTOR) und anschließend mit PX_TO_KMH aus config.py
-      multipliziert — derselbe Wert, den auch locations_check.py und
-      die GUI verwenden (Single Source of Truth).
+    Einheiten (B105/P0-1):
+      Kalman-vx/vy sind ORIGINAL-px/Frame — der Filter wird mit
+      original_cx/original_cy gefüttert. PX_TO_KMH = km/h pro Original-px/Frame.
+      km/h = hypot(vx, vy) * PX_TO_KMH (KEINE Division durch UPSCALE_FACTOR).
+      Identischer Wert wie config.speed_kmh_from_px(), locations_check.py und GUI.
 
     Grenzen aus config.py:
       MAX_CELL_SPEED_KMH              — absolute Obergrenze Zellgeschwindigkeit
@@ -881,17 +878,14 @@ def _clamp_kalman_velocity(kf, prev_vx: float, prev_vy: float) -> None:
             MAX_CELL_SPEED_KMH,
             MAX_SPEED_CHANGE_PER_CYCLE_KMH,
             PX_TO_KMH,
-            UPSCALE_FACTOR,
         )
     except ImportError:
         MAX_CELL_SPEED_KMH = 150.0
         MAX_SPEED_CHANGE_PER_CYCLE_KMH = 60.0
         PX_TO_KMH = 10.0
-        UPSCALE_FACTOR = 3.0
 
-    # Skalierte px/Frame → Original-px/Frame → km/h
-    _UF = float(UPSCALE_FACTOR) if UPSCALE_FACTOR else 1.0
-    PIXEL_TO_KMH = float(PX_TO_KMH) / _UF  # km/h pro SKALIERTEM px/Frame
+    # B105/P0-1: vx/vy sind ORIGINAL-px/Frame → direkt PX_TO_KMH, kein /UF.
+    PIXEL_TO_KMH = float(PX_TO_KMH)  # km/h pro ORIGINAL-px/Frame
 
     vx = float(kf.x[2])
     vy = float(kf.x[3])
