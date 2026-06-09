@@ -71,7 +71,11 @@ except Exception:
 def _lstm_feature_dimensions_ok(lstm_model, seq_scaled):
     """Prüft, ob das geladene LSTM dieselbe Feature-Anzahl wie die Sequenz erwartet."""
     expected = getattr(lstm_model, "input_shape", None)
-    expected_feats = int(expected[-1]) if expected is not None else None
+    expected_feats = None
+    if expected is not None:
+        expected_last = expected[-1]
+        if expected_last is not None:
+            expected_feats = int(expected_last)
     actual_feats = int(seq_scaled.shape[-1])
     return expected_feats is None or expected_feats == actual_feats, expected_feats, actual_feats
 
