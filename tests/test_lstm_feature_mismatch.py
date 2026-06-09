@@ -62,3 +62,17 @@ def test_dimension_check_accepts_matching_feature_count(monkeypatch):
     assert ok is True
     assert expected_feats == 23
     assert actual_feats == 23
+
+
+def test_dimension_check_allows_unknown_model_feature_count(monkeypatch):
+    """Unbekannte Modell-Feature-Dimension darf den Guard nicht selbst auslösen."""
+    pred = _import_prediction_with_numpy_stub(monkeypatch)
+    fake_lstm = FakeLSTM(expected_features=23)
+    fake_lstm.input_shape = (None, 6, None)
+    seq_scaled = _Seq(feature_count=102)
+
+    ok, expected_feats, actual_feats = pred._lstm_feature_dimensions_ok(fake_lstm, seq_scaled)
+
+    assert ok is True
+    assert expected_feats is None
+    assert actual_feats == 102
