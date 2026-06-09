@@ -8,65 +8,54 @@ _BASE_URL = "https://dataset.api.hub.geosphere.at/v1/timeseries/forecast/nowcast
 _PARAMS = "rr,ff,ffx"
 _TIMEOUT = 12
 _TTL = 720
-_DEFAULT = {"nowcast_rr_mm15":0.0,"nowcast_ff_kmh":0.0,"nowcast_ffx_kmh":0.0,"nowcast_rain_rate_1h":0.0,"gust_warning":False,"heavy_rain_warning":False}
+_DEFAULT = {
+    "nowcast_rr_mm15": 0.0, "nowcast_ff_kmh": 0.0, "nowcast_ffx_kmh": 0.0,
+    "nowcast_rain_rate_1h": 0.0, "gust_warning": False, "heavy_rain_warning": False,
+}
 GUST_WARN_KMH = 60.0
 HEAVY_RAIN_MM_PER_H = 25.0
 
-def _build_nowcast_slots(now: datetime) -> list[dict[str, str]]:
-    from datetime import timedelta as _td
+# B104: nowcast-v1-15min-1km ist ein FORECAST-Endpunkt (Modus "forecast"),
+# KEINE frei abfragbare Vergangenheits-Zeitreihe. start/end ausserhalb des aktuell
+# verfuegbaren Forecast-Fensters -> HTTP 400. Korrekt: forecast_offset=0
+# (= neuester Forecast), KEIN start/end. Der Parser nimmt den ersten Zeitschritt.
+_FORECAST_OFFSET = "0"
 
+
+def _params_suffix() -> str:
+    # Parameter MUESSEN einzeln wiederholt werden (kommasepariert -> HTTP 422).
+    return f"parameters=rr&parameters=ff&parameters=ffx&forecast_offset={_FORECAST_OFFSET}"
+
+
+def _build_nowcast_url(lat: float, lon: float) -> str:
+    # lat_lon MUSS literales Komma behalten (lat_lon=46.526,14.548).
+    # requests(..., params=...) kodiert das Komma zu %2C -> HTTP 400.
+    # Deshalb URL manuell bauen. B104: forecast_offset=0, kein start/end.
+    return f"{_BASE_URL}?lat_lon={lat},{lon}&{_params_suffix()}"
+
+
+def _cache_suffix(now: datetime) -> str:
+    # Cache rotiert mit dem 15-min-Raster (Nowcast-Aktualisierung), TTL _TTL s.
     _floor = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
-    _td15 = _td(minutes=15)
-    # B92: Letzten abgeschlossenen 15-min-Slot abfragen, nicht den laufenden.
-    # Der zweite Eintrag ist ein konservativer Fallback-Slot, falls GeoSphere den
-    # letzten abgeschlossenen Slot noch nicht vollständig bereitgestellt hat.
-    return [
-        {
-            "start_str": (_floor - _td15).strftime("%Y-%m-%dT%H:%M"),
-            "end_str": _floor.strftime("%Y-%m-%dT%H:%M"),
-            "cache_sfx": (_floor - _td15).strftime("%Y-%m-%dT%H:%M"),
-        },
-        {
-            "start_str": (_floor - 2 * _td15).strftime("%Y-%m-%dT%H:%M"),
-            "end_str": (_floor - _td15).strftime("%Y-%m-%dT%H:%M"),
-            "cache_sfx": (_floor - 2 * _td15).strftime("%Y-%m-%dT%H:%M"),
-        },
-    ]
-
-
-def _build_nowcast_url(lat: float, lon: float, slot: dict[str, str]) -> str:
-    # GeoSphere Nowcast erwartet lat_lon als kombinierten Parameter MIT
-    # LITERAL-Komma: lat_lon=46.526,14.548
-    # requests.get(..., params=[("lat_lon","46.526,14.548")]) kodiert das
-    # Komma zu %2C → HTTP 400 "Bad Request".
-    # Lösung: URL vollständig manuell bauen — kein params=-Argument.
-    _lat_lon_raw = f"{lat},{lon}"
-    _url_params = (
-        f"lat_lon={_lat_lon_raw}"
-        f"&parameters=rr&parameters=ff&parameters=ffx"
-        f"&start={slot['start_str']}&end={slot['end_str']}"
-    )
-    return f"{_BASE_URL}?{_url_params}"
+    return _floor.strftime("%Y-%m-%dT%H:%M")
 
 
 def assign_nowcast_to_objects(objects: list, timestamp: str | None = None) -> list:
     """
-    Weist jedem Objekt aktuelle Nowcast-Werte zu (Niederschlag, Wind, Böen).
+    Weist jedem Objekt aktuelle Nowcast-Werte zu (Niederschlag, Wind, Boeen).
 
-    B92: Letzten abgeschlossenen 15-min-Slot abfragen (nicht den laufenden).
-         GeoSphere berechnet Nowcast erst nach Slot-Abschluss — laufender
-         Slot liefert HTTP 400.
+    B104: GeoSphere-Nowcast als FORECAST-Endpunkt (forecast_offset=0, kein
+          start/end). Ersetzt die fruehere B92/B93-Slot-Logik (abgeschlossene
+          Vergangenheits-Slots), die gegen den Forecast-Endpunkt HTTP 400 erzeugte.
 
-    B93: Bulk-Request — alle Zellen in einem einzigen HTTP-Call statt N
-         Einzelrequests. GeoSphere gibt features-Array zurück, Reihenfolge
-         entspricht der Eingabe-Reihenfolge der lat_lon-Parameter.
+    Bulk-Request: alle Zellen in EINEM HTTP-Call (wiederholte lat_lon-Parameter).
+    GeoSphere gibt features-Array in Eingabe-Reihenfolge zurueck.
 
-    ``timestamp`` bleibt als optionaler Parameter erhalten, weil bestehende
-    Aufrufer den Wert weiterhin übergeben; für den Nowcast-Slot ist immer die
-    aktuelle UTC-Zeit maßgeblich.
+    ``timestamp`` bleibt als optionaler Parameter erhalten (Aufrufer uebergeben
+    ihn weiterhin); fuer forecast_offset=0 ist immer die aktuelle UTC-Zeit
+    massgeblich (nur fuer den Cache-Suffix).
     """
     import time as _t_nowcast_mod
-    from datetime import timedelta
 
     if not objects:
         return objects
@@ -74,27 +63,6 @@ def assign_nowcast_to_objects(objects: list, timestamp: str | None = None) -> li
     for obj in objects:
         obj.update(_DEFAULT)
 
-    _now = datetime.now(timezone.utc)
-    _td15 = timedelta(minutes=15)
-    _floor = _now.replace(
-        minute=(_now.minute // 15) * 15, second=0, microsecond=0
-    )
-
-    # B92: abgeschlossene Slots (nicht laufenden _floor ... _floor+15)
-    _slots = [
-        {
-            "start_str": (_floor - _td15).strftime("%Y-%m-%dT%H:%M"),
-            "end_str": _floor.strftime("%Y-%m-%dT%H:%M"),
-            "cache_sfx": (_floor - _td15).strftime("%Y-%m-%dT%H:%M"),
-        },
-        {
-            "start_str": (_floor - 2 * _td15).strftime("%Y-%m-%dT%H:%M"),
-            "end_str": (_floor - _td15).strftime("%Y-%m-%dT%H:%M"),
-            "cache_sfx": (_floor - 2 * _td15).strftime("%Y-%m-%dT%H:%M"),
-        },
-    ]
-
-    # B93: Koordinaten aller Objekte sammeln (Reihenfolge merken)
     _coords = []
     for obj in objects:
         try:
@@ -111,160 +79,81 @@ def assign_nowcast_to_objects(objects: list, timestamp: str | None = None) -> li
     if not _valid_indices:
         return objects
 
-    for _slot in _slots:
-        # Cache-Key für diesen Bulk-Slot
-        _coord_cache_component = ";".join(
-            f"{_coords[i][0]},{_coords[i][1]}" for i in _valid_indices
+    _now = datetime.now(timezone.utc)
+    _sfx = _cache_suffix(_now)
+
+    _coord_cache_component = ";".join(
+        f"{_coords[i][0]},{_coords[i][1]}" for i in _valid_indices
+    )
+    _ck = cache_key("geosphere:nowcast_bulk", _coord_cache_component, _sfx)
+    _cached = cache_get(_ck, ttl_seconds=_TTL)
+    if _cached is not None:
+        for list_pos, obj_idx in enumerate(_valid_indices):
+            if list_pos < len(_cached):
+                objects[obj_idx].update(_cached[list_pos])
+        debug_log(f"[NOWCAST] Bulk Cache-HIT — {len(_valid_indices)} Objekte")
+        return objects
+
+    _lat_lon_parts = "&".join(
+        f"lat_lon={_coords[i][0]},{_coords[i][1]}" for i in _valid_indices
+    )
+    _url = f"{_BASE_URL}?{_lat_lon_parts}&{_params_suffix()}"
+
+    try:
+        _t0 = _t_nowcast_mod.monotonic()
+        _resp = requests.get(_url, timeout=_TIMEOUT, headers={"Accept": "application/json"})
+        _dur_ms = (_t_nowcast_mod.monotonic() - _t0) * 1000
+        _resp.raise_for_status()
+
+        _headers = getattr(_resp, "headers", {}) or {}
+        _content_type = _headers.get("content-type") if hasattr(_headers, "get") else None
+        log_api_call(
+            "geosphere_nowcast", url=_url, status_code=_resp.status_code,
+            duration_ms=_dur_ms, method="GET", response_text=_resp.text,
+            content_type=_content_type,
         )
-        _ck = cache_key(
-            "geosphere:nowcast_bulk",
-            _coord_cache_component,
-            _slot["cache_sfx"],
-        )
-        _cached = cache_get(_ck, ttl_seconds=_TTL)
-        if _cached is not None:
-            # Cache-Treffer: Ergebnisse direkt zuweisen
-            for list_pos, obj_idx in enumerate(_valid_indices):
-                if list_pos < len(_cached):
-                    objects[obj_idx].update(_cached[list_pos])
+
+        _data = _resp.json()
+        _features = _data.get("features", [])
+
+        if len(_features) != len(_valid_indices):
             debug_log(
-                f"[NOWCAST] Bulk Cache-HIT — {len(_valid_indices)} Objekte, "
-                f"Slot {_slot['start_str']}"
+                f"[NOWCAST] Bulk: {len(_features)} Features fuer "
+                f"{len(_valid_indices)} Objekte — Fallback Einzelabfragen"
             )
-            return objects
+            _results = [_parse_nowcast_single(_coords[i]) for i in _valid_indices]
+        else:
+            _results = [_parse_nowcast(_f, url=_url) for _f in _features]
 
-        # Bulk-URL aufbauen: alle gültigen Koordinaten als repeated lat_lon
-        _lat_lon_parts = "&".join(
-            f"lat_lon={_coords[i][0]},{_coords[i][1]}"
-            for i in _valid_indices
-        )
-        _url = (
-            f"{_BASE_URL}"
-            f"?{_lat_lon_parts}"
-            f"&parameters=rr&parameters=ff&parameters=ffx"
-            f"&start={_slot['start_str']}&end={_slot['end_str']}"
-        )
+        _cache_data = []
+        for list_pos, obj_idx in enumerate(_valid_indices):
+            if list_pos < len(_results):
+                objects[obj_idx].update(_results[list_pos])
+                _cache_data.append(_results[list_pos])
+        cache_set(_ck, _cache_data)
+        debug_log(f"[NOWCAST] Bulk OK — {len(_valid_indices)} Objekte, {_dur_ms:.0f} ms")
+        return objects
 
-        try:
-            _t0 = _t_nowcast_mod.monotonic()
-            _resp = requests.get(
-                _url,
-                timeout=_TIMEOUT,
-                headers={"Accept": "application/json"},
-            )
-            _dur_ms = (_t_nowcast_mod.monotonic() - _t0) * 1000
-
-            if _resp.status_code == 422:
-                _body = (_resp.text or "")[:200]
-                debug_log(
-                    f"[NOWCAST] Bulk Slot {_slot['start_str']} HTTP 422 "
-                    f"({_body}) — Fallback-Slot"
-                )
-                log_api_failure(
-                    "geosphere_nowcast", _url,
-                    f"http-422 | {_body}",
-                    fallback_used=True, http_status=422,
-                )
-                log_api_call(
-                    "geosphere_nowcast", url=_url, status_code=422,
-                    duration_ms=_dur_ms, method="GET",
-                    response_text=_body,
-                    error=f"http-422 | {_body}",
-                )
-                continue  # Fallback-Slot versuchen
-
-            _resp.raise_for_status()
-
-            _headers = getattr(_resp, "headers", {}) or {}
-            _content_type = _headers.get("content-type") if hasattr(_headers, "get") else None
-            log_api_call(
-                "geosphere_nowcast", url=_url, status_code=_resp.status_code,
-                duration_ms=_dur_ms, method="GET",
-                response_text=_resp.text,
-                content_type=_content_type,
-            )
-
-            _data = _resp.json()
-            _features = _data.get("features", [])
-
-            if len(_features) != len(_valid_indices):
-                debug_log(
-                    f"[NOWCAST] Bulk: {len(_features)} Features für "
-                    f"{len(_valid_indices)} Objekte — Fallback auf Einzelabfragen"
-                )
-                # Fallback: Einzelabfragen für alle Objekte
-                _results = []
-                for i in _valid_indices:
-                    _r = _parse_nowcast_single(
-                        _coords[i], _slot, _BASE_URL
-                    )
-                    _results.append(_r)
-            else:
-                # Normalpfad: Feature i gehört zu _valid_indices[i]
-                _results = [
-                    _parse_nowcast(_feature_data, url=_url)
-                    for _feature_data in _features
-                ]
-
-            # Ergebnisse zuweisen und cachen
-            _cache_data = []
-            for list_pos, obj_idx in enumerate(_valid_indices):
-                if list_pos < len(_results):
-                    objects[obj_idx].update(_results[list_pos])
-                    _cache_data.append(_results[list_pos])
-            cache_set(_ck, _cache_data)
-
-            debug_log(
-                f"[NOWCAST] Bulk OK — {len(_valid_indices)} Objekte, "
-                f"Slot {_slot['start_str']}, {_dur_ms:.0f} ms"
-            )
-            return objects
-
-        except requests.exceptions.HTTPError as _exc:
-            _status = getattr(_exc.response, "status_code", None) or 0
-            log_api_failure(
-                "geosphere_nowcast", _url,
-                str(_exc), fallback_used=True, http_status=_status,
-            )
-            log_api_call(
-                "geosphere_nowcast", url=_url, status_code=_status,
-                method="GET", error=str(_exc),
-            )
-            continue
-        except Exception as _exc:
-            log_api_failure(
-                "geosphere_nowcast", _url, str(_exc), fallback_used=True
-            )
-            continue
-
-    return objects
+    except requests.exceptions.HTTPError as _exc:
+        _status = getattr(getattr(_exc, "response", None), "status_code", None) or 0
+        log_api_failure("geosphere_nowcast", _url, str(_exc), fallback_used=False, http_status=_status)
+        log_api_call("geosphere_nowcast", url=_url, status_code=_status, method="GET", error=str(_exc))
+        return objects
+    except Exception as _exc:
+        log_api_failure("geosphere_nowcast", _url, str(_exc), fallback_used=False)
+        return objects
 
 
-def _parse_nowcast_single(
-    coord: tuple,
-    slot: dict,
-    base_url: str,
-) -> dict:
-    """
-    Fallback-Einzelabfrage wenn Bulk-Response unvollständig ist.
-    Wird nur aufgerufen wenn len(features) != len(objects).
-    """
+def _parse_nowcast_single(coord: tuple) -> dict:
+    """Fallback-Einzelabfrage wenn die Bulk-Response unvollstaendig ist.
+    B104: forecast_offset=0, kein start/end."""
     import time as _t_single
 
     _lat, _lon = coord
-    _url = (
-        f"{base_url}"
-        f"?lat_lon={_lat},{_lon}"
-        f"&parameters=rr&parameters=ff&parameters=ffx"
-        f"&start={slot['start_str']}&end={slot['end_str']}"
-    )
+    _url = _build_nowcast_url(_lat, _lon)
     try:
         _t0 = _t_single.monotonic()
-        _r = requests.get(
-            _url,
-            timeout=_TIMEOUT,
-            headers={"Accept": "application/json"},
-        )
+        _r = requests.get(_url, timeout=_TIMEOUT, headers={"Accept": "application/json"})
         _dur_ms = (_t_single.monotonic() - _t0) * 1000
         _r.raise_for_status()
         log_api_call(
@@ -279,11 +168,8 @@ def _parse_nowcast_single(
 
 
 def _parse_nowcast(feature: dict, url: str = "") -> dict:
-    """
-    Parst ein einzelnes GeoJSON-Feature aus der Nowcast-Response.
-    Ersetzt den bisherigen _parse_nowcast(data, url) der ein volles
-    FeatureCollection-Dict erwartet hatte.
-    """
+    """Parst ein einzelnes GeoJSON-Feature. Nimmt den ersten Zeitschritt
+    (= jetzt, forecast_offset=0)."""
     result = dict(_DEFAULT)
     try:
         params = feature.get("properties", {}).get("parameters", {})
