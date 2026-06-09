@@ -239,6 +239,42 @@ def update_ir_tracking(new_cells: list, timestamp: str) -> list:
     return active
 
 
+def mark_radar_matched_tracks(matched_ir_ids: list) -> None:
+    """
+    B109: Setzt ir_only_precursor=0.0 für alle IR-Tracks die radar-gematcht wurden
+    und persistiert den aktualisierten State sofort.
+
+    Muss von main.py NACH update_ir_tracking() und NACH Radar-Matching aufgerufen
+    werden, damit api_risk_grid() einen konsistenten State liest.
+
+    Parameters
+    ----------
+    matched_ir_ids : list
+        Liste von IR-Track-IDs (ir_id) die aktuell radar-gematcht sind.
+    """
+    if not matched_ir_ids:
+        return
+
+    matched_set = {str(tid) for tid in matched_ir_ids if tid is not None}
+    if not matched_set:
+        return
+
+    state = _load_state()
+    tracks = state.get("tracks", {})
+    updated = 0
+    for track in tracks.values():
+        if str(track.get("ir_id", "")) in matched_set:
+            track["ir_only_precursor"] = 0.0
+            track["radar_matched"] = True
+            updated += 1
+
+    if updated > 0:
+        state["tracks"] = tracks
+        _save_state(state)
+        debug_log(f"[IR-TRACK] B109: {updated} Radar-gematchte Tracks persistiert "
+                  f"(ir_only_precursor=0.0).")
+
+
 def load_active_ir_tracks() -> list:
     """
     Gibt alle aktiven IR-Tracks (missing == 0) aus dem letzten State zurück.

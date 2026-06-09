@@ -32,7 +32,7 @@ from fetch_geosphere_nowcast import assign_nowcast_to_objects
 from compute_convective_indices import assign_convective_indices
 from fetch_tawes_gust import fetch_tawes_stations, max_gust_near
 from ir_cell_detection import detect_ir_cells
-from ir_cell_tracking import update_ir_tracking
+from ir_cell_tracking import mark_radar_matched_tracks, update_ir_tracking
 import math as _math_main
 import runtime_config
 from locations_check import annotate_locations
@@ -375,6 +375,10 @@ def main_loop():
                 for _ir in _ir_tracks:
                     if _ir.get("ir_id") not in _matched_ir_ids:
                         _ir["ir_only_precursor"] = 1.0
+
+                # B109: Radar-Match-Status sofort persistieren damit api_risk_grid()
+                # keinen veralteten IR-State liest.
+                mark_radar_matched_tracks(list(_matched_ir_ids))
 
                 debug_log(f"[IR-TRACK] {len(_ir_tracks)} aktive IR-Tracks, "
                           f"{len(_matched_ir_ids)} Radar-Matches.")
