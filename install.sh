@@ -1289,19 +1289,41 @@ server {
     # Debug-Export kann auf kleinen Raspberry-Pi-Systemen laenger laufen.
     # Exakte Location muss vor der allgemeinen /api/-Location stehen.
     location = /api/admin/export/last-24h.zip {
-        limit_req zone=wetter_api burst=30 nodelay;
-        limit_req_status 429;
-
+        # Admin-Export gezielt nicht durch das normale API-Rate-Limit bremsen:
+        # der Endpunkt bleibt durch Flask/JWT-Rollen geschützt.
         proxy_pass         http://127.0.0.1:5000/api/admin/export/last-24h.zip;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              \\$host;
+        proxy_set_header   X-Real-IP         \\$remote_addr;
+        proxy_set_header   X-Forwarded-For   \\$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto \\$scheme;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+        proxy_connect_timeout 10s;
+        proxy_buffering off;
+    }
+
+    # Logs/Admin-Liveansicht separat, damit Polling nicht mit Karten-/Radar-Bursts konkurriert.
+    location = /api/logs {
+        proxy_pass         http://127.0.0.1:5000/api/logs;
         proxy_http_version 1.1;
         proxy_set_header   Host              \$host;
         proxy_set_header   X-Real-IP         \$remote_addr;
         proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto \$scheme;
-        proxy_read_timeout 600s;
-        proxy_send_timeout 600s;
+        proxy_read_timeout 120s;
         proxy_connect_timeout 10s;
-        proxy_buffering off;
+    }
+
+    location = /api/logs/capabilities {
+        proxy_pass         http://127.0.0.1:5000/api/logs/capabilities;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              \$host;
+        proxy_set_header   X-Real-IP         \$remote_addr;
+        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 120s;
+        proxy_connect_timeout 10s;
     }
 
     # Alle API-Endpunkte an Flask weiterleiten.
@@ -1317,10 +1339,10 @@ server {
 
         proxy_pass         http://127.0.0.1:5000/api/;
         proxy_http_version 1.1;
-        proxy_set_header   Host              \$host;
-        proxy_set_header   X-Real-IP         \$remote_addr;
-        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \$scheme;
+        proxy_set_header   Host              \\$host;
+        proxy_set_header   X-Real-IP         \\$remote_addr;
+        proxy_set_header   X-Forwarded-For   \\$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto \\$scheme;
         proxy_read_timeout 120s;
         proxy_connect_timeout 10s;
     }
@@ -1332,10 +1354,10 @@ server {
 
         proxy_pass         http://127.0.0.1:5000/api/auth/login;
         proxy_http_version 1.1;
-        proxy_set_header   Host              \$host;
-        proxy_set_header   X-Real-IP         \$remote_addr;
-        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \$scheme;
+        proxy_set_header   Host              \\$host;
+        proxy_set_header   X-Real-IP         \\$remote_addr;
+        proxy_set_header   X-Forwarded-For   \\$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto \\$scheme;
         proxy_read_timeout 30s;
         proxy_connect_timeout 10s;
     }

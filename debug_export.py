@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import time
 import zipfile
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -216,6 +217,128 @@ def _read_redacted(path: Path) -> bytes:
     return redacted.encode("utf-8", errors="replace")
 
 
+def _journalctl_export_text(unit: str, window_start: datetime) -> tuple[str, bool]:
+    if not shutil.which("journalctl"):
+        return f"[journalctl] journalctl nicht verfügbar; {unit}.service konnte nicht gelesen werden.\n", False
+    since = window_start.strftime("%Y-%m-%d %H:%M:%S")
+    cmd = ["journalctl", "-u", unit, "--since", since, "--no-pager"]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
+    except Exception as exc:
+        return f"[journalctl] Fehler beim Lesen von {unit}.service: {exc}\n", False
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        details = f" Details: {stderr}" if stderr else ""
+        return f"[journalctl] {unit}.service nicht verfügbar oder nicht lesbar.{details}\n", False
+    return result.stdout or f"[journalctl] Keine Einträge für {unit}.service im Exportzeitraum.\n", True
+
+
+_NGINX_TS_RE = re.compile(r"\[(?P<stamp>\d{2}/[A-Za-z]{3}/\d{4}:\d{2}:\d{2}:\d{2})(?: [+-]\d{4})?\]")
+
+
+def _nginx_line_in_window(line: str, window_start: datetime, now: datetime) -> bool:
+    match = _NGINX_TS_RE.search(line)
+    if not match:
+        return True
+    try:
+        parsed = datetime.strptime(match.group("stamp"), "%d/%b/%Y:%H:%M:%S").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return True
+    return window_start <= parsed <= now
+
+
+def _read_nginx_log_for_export(path: Path, window_start: datetime | None = None, now: datetime | None = None) -> tuple[str, bool]:
+    try:
+        lines: list[str] = []
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.rstrip("\n")
+                if window_start is not None and now is not None and not _nginx_line_in_window(line, window_start, now):
+                    continue
+                lines.append(line)
+    except (PermissionError, FileNotFoundError):
+        return f"[nginx] {path} nicht lesbar\n", False
+    except OSError as exc:
+        return f"[nginx] {path} nicht lesbar: {exc}\n", False
+    text = "\n".join(lines)
+    if text:
+        text += "\n"
+    return text or f"[nginx] Keine Einträge in {path} im Exportzeitraum.\n", True
+
+
+def _project_log_candidates(base_dir: Path, save_paths: dict | None) -> list[Path]:
+    roots = [base_dir / "logs", base_dir / "train_data" / "evaluation"]
+    for raw in (save_paths or {}).values():
+        try:
+            roots.append(Path(raw) if Path(raw).is_absolute() else base_dir / Path(raw))
+        except Exception:
+            continue
+    candidates: dict[Path, Path] = {}
+    for root in roots:
+        if not root.exists():
+            continue
+        for pattern in ("*.log", "*.txt", "*.jsonl"):
+            for path in root.rglob(pattern) if root.is_dir() else []:
+                lname = path.name.lower()
+                if any(token in lname for token in ("api", "debug", "error", "log", "health")):
+                    candidates[path.resolve()] = path
+    return list(candidates.values())
+
+
+def _write_api_logs_to_zip(zf: zipfile.ZipFile, root_name: str, base_dir: Path, save_paths: dict | None, window_start: datetime, now: datetime) -> dict:
+    files_count = 0
+    total_bytes = 0
+    redacted: list[str] = []
+    unavailable: list[str] = []
+    journal_success = False
+    nginx_success = False
+
+    def write_text(arc_rel: str, text: str, redact: bool = True):
+        nonlocal files_count, total_bytes
+        payload = redact_text(text) if redact else text
+        data = payload.encode("utf-8", errors="replace")
+        zf.writestr(f"{root_name}/api_logs/{arc_rel}", data)
+        files_count += 1
+        total_bytes += len(data)
+        if redact:
+            redacted.append(f"api_logs/{arc_rel}")
+
+    for unit in ("wetterprojekt", "wetterprojekt-scheduler", "wetterprojekt-admin"):
+        text, ok = _journalctl_export_text(unit, window_start)
+        journal_success = journal_success or ok
+        if not ok:
+            unavailable.append(f"{unit}.service")
+        write_text(f"journal/{unit}.service.log", text)
+
+    for label, raw_path in (("nginx_error", "/var/log/nginx/error.log"), ("nginx_access", "/var/log/nginx/access.log")):
+        text, ok = _read_nginx_log_for_export(Path(raw_path), window_start, now)
+        nginx_success = nginx_success or ok
+        if not ok:
+            unavailable.append(raw_path)
+        write_text(f"nginx/{label}.log", text)
+
+    for path in _project_log_candidates(base_dir, save_paths):
+        if not _file_in_window(path, window_start, now, False):
+            continue
+        try:
+            rel = _safe_rel(path, base_dir).as_posix()
+            write_text(f"project/{rel}", path.read_text(encoding="utf-8", errors="replace"))
+        except Exception as exc:
+            unavailable.append(f"{path}: {exc}")
+
+    included = files_count > 0
+    reason = "; ".join(unavailable) if unavailable else None
+    return {
+        "files_count": files_count,
+        "total_bytes": total_bytes,
+        "included": included,
+        "unavailable_reason": reason,
+        "nginx_logs_included": nginx_success,
+        "journal_logs_included": journal_success,
+        "redacted_files": redacted,
+    }
+
+
 def _expected_sections_present(files_by_section: dict[str, int]) -> list[str]:
     expected = {
         "radar": "radar",
@@ -310,6 +433,14 @@ def create_debug_export_zip(
                 except Exception as exc:
                     excluded_files.append(f"{rel}: {exc}")
 
+            api_log_info = _write_api_logs_to_zip(zf, root_name, base_dir, save_paths, window_start, now)
+            if api_log_info["files_count"]:
+                total_files += api_log_info["files_count"]
+                total_bytes += api_log_info["total_bytes"]
+                files_by_section["api_logs"] = files_by_section.get("api_logs", 0) + api_log_info["files_count"]
+                included_roots.add("api_logs")
+                redacted_files.extend(api_log_info["redacted_files"])
+
             manifest = {
                 "created_at": now.isoformat(timespec="seconds"),
                 "window_start": window_start.isoformat(timespec="seconds"),
@@ -332,8 +463,12 @@ def create_debug_export_zip(
                 "radar_files_count": files_by_section.get("radar", 0),
                 "forecast_files_count": files_by_section.get("forecast", 0),
                 "evaluation_files_count": files_by_section.get("evaluation", 0),
+                "api_logs_files_count": api_log_info["files_count"],
+                "api_logs_included": api_log_info["included"],
+                "api_logs_unavailable_reason": api_log_info["unavailable_reason"],
+                "nginx_logs_included": api_log_info["nginx_logs_included"],
                 "duration_s": round(time.perf_counter() - started, 3),
-                "candidates_count": diagnostics["candidates_count"],
+                "candidates_count": diagnostics["candidates_count"] + api_log_info["files_count"],
                 "scanned_roots": diagnostics["scanned_roots"],
                 "skipped_old_files": skipped_old_files,
                 "excluded_files_count": diagnostics["excluded_files_count"] + len(excluded_files),

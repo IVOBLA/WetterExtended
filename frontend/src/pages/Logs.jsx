@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import api from '../api.js'
 
 function severityColor(reason = '') {
@@ -22,8 +22,10 @@ function Logs() {
   const [physicalPurge, setPhysicalPurge] = useState(false)
   const [exporting,    setExporting]    = useState(false)
   const [exportMsg,    setExportMsg]    = useState(null)
+  const exportingRef = useRef(false)
 
   async function loadLogs() {
+    if (exportingRef.current) return
     try { setLogs(await api.get('/api/logs')) } catch (e) { console.error(e) }
   }
   async function loadCapabilities() {
@@ -73,8 +75,9 @@ function Logs() {
   }
 
   async function downloadDebugExport() {
+    exportingRef.current = true
     setExporting(true)
-    setExportMsg(null)
+    setExportMsg({ ok: true, text: 'Export wird erstellt...' })
     try {
       const { blob, filename } = await api.download('/api/admin/export/last-24h.zip')
       const url = window.URL.createObjectURL(blob)
@@ -86,9 +89,18 @@ function Logs() {
       link.remove()
       window.URL.revokeObjectURL(url)
       setExportMsg({ ok: true, text: 'Debug-Datenexport wurde erstellt und heruntergeladen.' })
+      exportingRef.current = false
+      await loadLogs()
     } catch (e) {
-      setExportMsg({ ok: false, text: `Datenexport fehlgeschlagen: ${e.message}` })
+      const is502 = String(e.message || '').includes('502')
+      setExportMsg({
+        ok: false,
+        text: is502
+          ? `Datenexport fehlgeschlagen: ${e.message}. 502 bedeutet: Admin-Backend war während der Anfrage nicht erreichbar oder hat die Verbindung geschlossen. Details siehe nginx/admin Logs.`
+          : `Datenexport fehlgeschlagen: ${e.message}`,
+      })
     } finally {
+      exportingRef.current = false
       setExporting(false)
       setTimeout(() => setExportMsg(null), 6000)
     }
@@ -97,7 +109,9 @@ function Logs() {
   useEffect(() => {
     loadLogs()
     loadCapabilities()
-    const t = setInterval(loadLogs, 30000)
+    const t = setInterval(() => {
+      if (!exportingRef.current) loadLogs()
+    }, 30000)
     return () => clearInterval(t)
   }, [])
 
@@ -119,7 +133,8 @@ function Logs() {
           </button>
         ))}
         <button onClick={active === 'api_fehler' ? loadHealth : loadLogs}
-          className="btn-secondary ml-auto">↺ Reload</button>
+          disabled={exporting}
+          className="btn-secondary ml-auto disabled:opacity-50">↺ Reload</button>
         <button
           onClick={downloadDebugExport}
           disabled={exporting}
@@ -169,6 +184,7 @@ function Logs() {
 
       <div className="mb-3 text-xs text-gray-500">
         Der Export enthält Logs, Bilder, Forecasts, externe Responses und Auswertungsdaten der letzten 24 Stunden. Secrets werden entfernt.
+        {' '}Anzeige kann gekürzt sein. Vollständige Logs befinden sich im Datenexport.
       </div>
 
       {/* Feedback-Banner nach Löschen */}

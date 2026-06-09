@@ -203,7 +203,7 @@ def test_export_route_success_logs_start_and_success(client_with_export_data, mo
     try:
         assert resp.status_code == 200
         assert "[ADMIN-EXPORT] start" in caplog.text
-        assert "[ADMIN-EXPORT] success" in caplog.text
+        assert "[ADMIN-EXPORT] zip_created" in caplog.text
         assert "manifest_total_files=" in caplog.text
     finally:
         resp.close()
@@ -230,3 +230,163 @@ def test_download_logs_contains_nginx_section_or_not_readable_message(client_wit
     assert "=== nginx error (/var/log/nginx/error.log) ===" in text
     assert "=== nginx access (/var/log/nginx/access.log) ===" in text
     assert ("[nginx] /var/log/nginx/error.log nicht lesbar" in text) or ("=== nginx error" in text and len(text) > 0)
+
+
+def test_debug_export_includes_api_logs_and_manifest_metadata(export_tree, monkeypatch):
+    import debug_export
+
+    base, save_paths, now = export_tree
+
+    def fake_journal(unit, window_start):
+        return f"{unit} token=secret log\n", True
+
+    def fake_nginx(path, *args):
+        return f"{path} error 502\n", True
+
+    monkeypatch.setattr(debug_export, "_journalctl_export_text", fake_journal)
+    monkeypatch.setattr(debug_export, "_read_nginx_log_for_export", fake_nginx)
+
+    zip_path, _filename, manifest = create_debug_export_zip(base_dir=base, save_paths=save_paths, now=now)
+    try:
+        names, zip_manifest, contents = _zip_names_and_manifest(zip_path)
+        assert manifest["api_logs_included"] is True
+        assert zip_manifest["api_logs_included"] is True
+        assert zip_manifest["api_logs_files_count"] >= 5
+        assert zip_manifest["nginx_logs_included"] is True
+        assert "api_logs" not in zip_manifest["missing_expected_sections"]
+        assert any("/api_logs/journal/wetterprojekt.service.log" in name for name in names)
+        assert any("/api_logs/nginx/nginx_error.log" in name for name in names)
+        redacted_text = b"\n".join(contents.values()).decode("utf-8", errors="ignore")
+        assert "secret" not in redacted_text
+        assert "***REDACTED***" in redacted_text
+    finally:
+        zip_path.unlink(missing_ok=True)
+
+
+def test_debug_export_notes_unreadable_nginx_logs(export_tree, monkeypatch):
+    import debug_export
+
+    base, save_paths, now = export_tree
+    monkeypatch.setattr(debug_export, "_journalctl_export_text", lambda unit, window_start: (f"{unit}\n", True))
+    monkeypatch.setattr(debug_export, "_read_nginx_log_for_export", lambda path, *args: (f"[nginx] {path} nicht lesbar\n", False))
+
+    zip_path, _filename, manifest = create_debug_export_zip(base_dir=base, save_paths=save_paths, now=now)
+    try:
+        names, zip_manifest, contents = _zip_names_and_manifest(zip_path)
+        assert zip_manifest["api_logs_included"] is True
+        assert zip_manifest["nginx_logs_included"] is False
+        assert "/var/log/nginx/error.log" in zip_manifest["api_logs_unavailable_reason"]
+        nginx_error_name = next(name for name in names if name.endswith("/api_logs/nginx/nginx_error.log"))
+        assert "nicht lesbar" in contents[nginx_error_name].decode("utf-8")
+        assert "api_logs" not in zip_manifest["missing_expected_sections"]
+    finally:
+        zip_path.unlink(missing_ok=True)
+
+
+def test_export_route_streams_file_path_and_cleans_after_close(client_with_export_data, monkeypatch, tmp_path):
+    import app as app_module
+
+    monkeypatch.setattr("auth.get_current_user", lambda: {"role": "admin", "sub": "1"})
+    zip_path = tmp_path / "streamed.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("manifest.json", "{}")
+
+    monkeypatch.setattr(app_module.debug_export, "create_debug_export_zip", lambda **kwargs: (zip_path, "streamed.zip", {"total_files": 1}))
+    calls = {}
+    real_send_file = app_module.send_file
+
+    def spy_send_file(path, **kwargs):
+        calls["path"] = path
+        calls["kwargs"] = kwargs
+        return real_send_file(path, **kwargs)
+
+    monkeypatch.setattr(app_module, "send_file", spy_send_file)
+    resp = client_with_export_data.get("/api/admin/export/last-24h.zip")
+    assert resp.status_code == 200
+    assert calls["path"] == zip_path
+    assert calls["kwargs"]["mimetype"] == "application/zip"
+    assert calls["kwargs"]["as_attachment"] is True
+    assert calls["kwargs"]["download_name"] == "streamed.zip"
+    assert zip_path.exists()
+    resp.close()
+    assert not zip_path.exists()
+
+
+def test_export_route_source_uses_no_zip_bytesio_delivery():
+    source = Path("app.py").read_text(encoding="utf-8")
+    route_start = source.index('def api_admin_export_last_24h_zip():')
+    route_end = source.index('@app.route("/api/download/logs")', route_start)
+    route_source = source[route_start:route_end]
+    assert "Path(zip_path).read_bytes" not in route_source
+    assert "io.BytesIO" not in route_source
+    assert "send_file(\n            zip_path" in route_source
+
+
+def test_api_logs_limits_and_truncation_marker(client_with_export_data, monkeypatch):
+    import app as app_module
+
+    huge = "\n".join(f"line-{i}" for i in range(20))
+    monkeypatch.setattr(app_module.subprocess, "run", lambda *args, **kwargs: type("R", (), {"returncode": 0, "stdout": huge, "stderr": ""})())
+    monkeypatch.setattr(app_module, "_tail_readable_file_lines", lambda *args, **kwargs: ["nginx"])
+
+    resp = client_with_export_data.get("/api/logs?lines=5&max_bytes=1024")
+    assert resp.status_code == 200
+    payload = resp.get_json()
+    assert payload["limits"]["lines"] == 5
+    assert payload["wetterprojekt"][0].startswith("[TRUNCATED]")
+    assert len(payload["wetterprojekt"]) == 6
+
+
+def test_api_logs_source_error_does_not_abort_route(client_with_export_data, monkeypatch):
+    import app as app_module
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("journal kaputt")
+
+    monkeypatch.setattr(app_module, "_journalctl_unit_lines", fail)
+    monkeypatch.setattr(app_module, "_tail_readable_file_lines", lambda *args, **kwargs: ["nginx ok"])
+
+    resp = client_with_export_data.get("/api/logs")
+    assert resp.status_code == 200
+    payload = resp.get_json()
+    assert "Fehler beim Lesen" in payload["wetterprojekt"][0]
+    assert payload["nginx_error"] == ["nginx ok"]
+
+
+def test_api_logs_limits_do_not_change_debug_export(export_tree, monkeypatch):
+    import debug_export
+
+    base, save_paths, now = export_tree
+    monkeypatch.setattr(debug_export, "_journalctl_export_text", lambda unit, window_start: ("full\n" * 2000, True))
+    monkeypatch.setattr(debug_export, "_read_nginx_log_for_export", lambda path, *args: ("nginx\n" * 2000, True))
+
+    zip_path, _filename, manifest = create_debug_export_zip(base_dir=base, save_paths=save_paths, now=now)
+    try:
+        names, _zip_manifest, contents = _zip_names_and_manifest(zip_path)
+        journal_name = next(name for name in names if name.endswith("/api_logs/journal/wetterprojekt.service.log"))
+        assert contents[journal_name].decode("utf-8").count("full") == 2000
+        assert manifest["api_logs_included"] is True
+    finally:
+        zip_path.unlink(missing_ok=True)
+
+
+def test_api_logs_then_export_succeeds_without_process_abort(client_with_export_data, monkeypatch, tmp_path):
+    import app as app_module
+
+    monkeypatch.setattr("auth.get_current_user", lambda: {"role": "admin", "sub": "1"})
+    monkeypatch.setattr(app_module, "_journalctl_unit_lines", lambda *args, **kwargs: ["ok"])
+    monkeypatch.setattr(app_module, "_tail_readable_file_lines", lambda *args, **kwargs: ["ok"])
+
+    zip_path = tmp_path / "after-logs.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("manifest.json", "{}")
+    monkeypatch.setattr(app_module.debug_export, "create_debug_export_zip", lambda **kwargs: (zip_path, "after-logs.zip", {"total_files": 1}))
+
+    logs_resp = client_with_export_data.get("/api/logs")
+    export_resp = client_with_export_data.get("/api/admin/export/last-24h.zip")
+    try:
+        assert logs_resp.status_code == 200
+        assert export_resp.status_code == 200
+        assert export_resp.mimetype == "application/zip"
+    finally:
+        export_resp.close()
