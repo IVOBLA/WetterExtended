@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory, send_file
+from werkzeug.wsgi import ClosingIterator
 
 import config as cfg
 from config import SAVE_PATHS
@@ -777,12 +778,19 @@ def api_admin_export_last_24h_zip():
         app.logger.info("[ADMIN-EXPORT] response_ready filename=%s", filename)
         print(f"[ADMIN-EXPORT] response_ready filename={filename}", flush=True)
 
+        cleanup_done = False
+
         def _cleanup_export_zip(path=zip_path):
+            nonlocal cleanup_done
+            if cleanup_done:
+                return
+            cleanup_done = True
             print(f"[ADMIN-EXPORT] cleanup zip_path={path}", flush=True)
             app.logger.info("[ADMIN-EXPORT] cleanup zip_path=%s", path)
             Path(path).unlink(missing_ok=True)
 
         response.call_on_close(_cleanup_export_zip)
+        response.response = ClosingIterator(response.response, _cleanup_export_zip)
         return response
     except Exception as exc:
         duration_s = time.perf_counter() - started
