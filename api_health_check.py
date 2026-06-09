@@ -88,25 +88,17 @@ def _check_geosphere() -> dict:
     WICHTIG: Parameter müssen EINZELN wiederholt werden, NICHT kommasepariert.
     ?parameters=rr&parameters=ff&parameters=ffx → OK
     ?parameters=rr,ff,ffx                       → HTTP 422
-    Zeitformat: %Y-%m-%dT%H:%M (Minutenauflösung, ohne Sekunden/Z-Suffix).
+    B104: Forecast-Endpunkt mit forecast_offset=0, kein start/end.
     """
-    from datetime import timedelta, timezone as _tz
-
-    _now = datetime.now(_tz.utc)
-    # Vorherigen Slot abfragen — immer vollständig berechnet.
-    # Identisch zu fetch_geosphere_nowcast.py (Prompt-15-Fix):
-    # _floor selbst (= aktueller Slot) → HTTP 422 bis Nowcast berechnet ist.
-    _floor = _now.replace(minute=(_now.minute // 15) * 15, second=0, microsecond=0)
-    _start = (_floor - timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M")
-    _end   = _floor.strftime("%Y-%m-%dT%H:%M")
+    # B104: Forecast-Endpunkt — forecast_offset=0, KEIN start/end (sonst HTTP 400).
+    # Identischer Query-Stil wie fetch_geosphere_nowcast.py.
     # URL manuell bauen — kein params=-Argument, sonst kodiert requests das
     # Komma in lat_lon=46.62,14.31 zu %2C → HTTP 400 "Bad Request".
-    # Identische Lösung wie fetch_geosphere_nowcast.py (B58).
     _base = "https://dataset.api.hub.geosphere.at/v1/timeseries/forecast/nowcast-v1-15min-1km"
     url = (
         f"{_base}?lat_lon=46.62,14.31"
         f"&parameters=rr&parameters=ff&parameters=ffx"
-        f"&start={_start}&end={_end}"
+        f"&forecast_offset=0"
     )
     t0 = time.monotonic()
     try:
