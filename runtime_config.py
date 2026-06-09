@@ -19,6 +19,7 @@ import config as _cfg
 
 _LOCK = threading.RLock()
 _OVERRIDES: dict = {}
+_LAST_LOAD_ERROR: str | None = None   # P2-2: letzter Ladefehler aus _load()
 
 
 def _get_path() -> str:
@@ -36,9 +37,13 @@ def _deep_merge(base: dict, patch_data: dict) -> dict:
 
 
 def _load() -> dict:
-    """Liest runtime_overrides.json mit Shared File-Lock (Cross-Process-sicher)."""
+    """Liest runtime_overrides.json mit Shared File-Lock (Cross-Process-sicher).
+    P2-2: Ladefehler werden in _LAST_LOAD_ERROR gespeichert und geloggt statt still
+    verworfen, damit der Admin über Config-Probleme informiert wird."""
+    global _LAST_LOAD_ERROR
     path = _get_path()
     if not os.path.exists(path):
+        _LAST_LOAD_ERROR = None
         return {}
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -47,9 +52,29 @@ def _load() -> dict:
                 data = json.load(f)
             finally:
                 fcntl.flock(f, fcntl.LOCK_UN)
+        _LAST_LOAD_ERROR = None
         return data if isinstance(data, dict) else {}
-    except Exception:
+    except json.JSONDecodeError as _exc:
+        _LAST_LOAD_ERROR = f"JSON-Fehler in {path}: {_exc}"
+        try:
+            from debug_utils import debug_log as _dlog
+            _dlog(f"[CONFIG] P2-2: {_LAST_LOAD_ERROR} — System nutzt Defaults")
+        except Exception:
+            pass
         return {}
+    except Exception as _exc:
+        _LAST_LOAD_ERROR = f"Ladefehler {path}: {type(_exc).__name__}: {_exc}"
+        try:
+            from debug_utils import debug_log as _dlog
+            _dlog(f"[CONFIG] P2-2: {_LAST_LOAD_ERROR} — System nutzt Defaults")
+        except Exception:
+            pass
+        return {}
+
+
+def get_load_error() -> str | None:
+    """P2-2: Liefert den letzten Ladefehler aus runtime_overrides.json oder None."""
+    return _LAST_LOAD_ERROR
 
 
 def reload_overrides() -> None:

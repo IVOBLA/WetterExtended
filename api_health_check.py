@@ -186,6 +186,18 @@ def _check_blitzortung() -> dict:
         return {"ok": False, "status": None, "latency_ms": None, "note": str(exc)[:100]}
 
 
+def _check_runtime_config() -> dict:
+    """P2-2: Prüft ob runtime_overrides.json gültig geladen wurde."""
+    try:
+        import runtime_config as _rc_hc
+        err = _rc_hc.get_load_error()
+        if err:
+            return {"ok": False, "status": None, "latency_ms": None, "note": err}
+        return {"ok": True, "status": None, "latency_ms": None, "note": "runtime_overrides.json OK"}
+    except Exception as exc:
+        return {"ok": False, "status": None, "latency_ms": None, "note": str(exc)[:120]}
+
+
 def check_all_apis() -> dict:
     """
     Führt Health-Checks für alle externen APIs durch.
@@ -194,6 +206,7 @@ def check_all_apis() -> dict:
     """
     debug_log("[API-HEALTH] Starte täglichen Connectivity-Check...")
     checks = {
+        "runtime_config": _check_runtime_config,   # P2-2: Config-Ladefehler sichtbar
         "arso": _check_arso,
         "open_meteo": _check_openmeteo,
         "geosphere": _check_geosphere,
