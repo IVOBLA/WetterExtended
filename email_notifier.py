@@ -389,18 +389,22 @@ def send_ai_report_email(result: dict, email_str: str) -> bool:
 
     rows = ""
     for s in suggestions[:8]:
-        pri   = s.get("priority", "low")
-        style = _PRI_STYLE.get(pri, "background:#f3f4f6;color:#374151")
+        title = _html_escape(str(s.get("title", "")))
+        description = _html_escape(str(s.get("description", "")))
+        action = _html_escape(str(s.get("action", "")))
+        pri_raw = str(s.get("priority", "low"))
+        priority = _html_escape(pri_raw.upper())
+        style = _PRI_STYLE.get(pri_raw, "background:#f3f4f6;color:#374151")
         rows += (
             f'<tr style="border-bottom:1px solid #e5e7eb">'
             f'<td style="padding:6px 8px;{style};font-weight:bold;white-space:nowrap">'
-            f'{pri.upper()}</td>'
+            f'{priority}</td>'
             f'<td style="padding:6px 8px;font-weight:bold;font-size:13px">'
-            f'{s.get("title","")}</td>'
+            f'{title}</td>'
             f'<td style="padding:6px 8px;font-size:12px;color:#6b7280">'
-            f'{s.get("description","")}</td>'
+            f'{description}</td>'
             f'<td style="padding:6px 8px;font-size:12px">'
-            f'{s.get("action","")}</td>'
+            f'{action}</td>'
             f'</tr>'
         )
 

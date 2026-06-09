@@ -1376,7 +1376,9 @@ export default function MapView() {
             <Tooltip direction="top" sticky opacity={0.95}>
               <div style={{ fontSize: 11, lineHeight: 1.4, minWidth: 150 }}>
                 <div style={{ fontWeight: 700, color: '#7c3aed' }}>
-                  🛰 CB &gt; 10.000 — {ir.ir_id}
+                  {(ir.cloud_height_m ?? ir.ir_cloud_height_m ?? 0) >= 10000
+                    ? '🛰 CB > 10.000'
+                    : '🛰 IR-Vorläufer'} — {ir.ir_id}
                 </div>
                 <div>Trend: <b>
                   {ir.bt_trend_k_per_min < -0.1
