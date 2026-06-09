@@ -543,11 +543,38 @@ def predict_positions(objects: list, timestamp: str, stations: list):
     ts_dt = datetime.strptime(timestamp, "%Y-%m-%d_%H-%M-%S")
     forecasts = {h: [] for h in _horizons}
 
+    # B108: Atmosphären-Snapshot einmalig VOR dem Objekt-Loop laden.
+    # _compute_path_weather() braucht forecast_lat_H/forecast_lon_H bereits
+    # auf obj gesetzt → kinematische Erstschätzung via _append_kinematic().
+    try:
+        from config import PATH_ATM_MAX_DIST_KM as _PATM_B108
+        _atm_snap_b108 = _load_atmosphere_snapshot()
+    except Exception as _e_atm:
+        debug_log(f"[B108] Atmosphären-Snapshot nicht ladbar: {_e_atm}")
+        _atm_snap_b108 = {}
+        _PATM_B108 = 50.0
+
     for obj in objects:
+        # B108: Kinematic-First: kinematische Erstschätzung → path_*-Features
+        # deterministisch setzen BEVOR _build_sequence() den Feature-Vektor liest.
+        # _append_kinematic() setzt forecast_lat_H/forecast_lon_H aus vx/vy.
+        # _compute_path_weather() liest diese Positionen → path_* auf obj.
+        # Train-Konsistenz: Gespeicherte JSONs nutzen ebenfalls kinematische path_*.
+        _temp_fc = {h: [] for h in _horizons}
+        try:
+            _append_kinematic(obj, _temp_fc)
+            if _atm_snap_b108:
+                _compute_path_weather(obj, _horizons, _atm_snap_b108, _PATM_B108)
+        except Exception as _e_b108:
+            debug_log(f"[B108] path_*-Vorbelegung fehlgeschlagen (obj={obj.get('id')}): {_e_b108}")
+
         seq = _build_sequence(obj.get("id"), obj, stations, ts_dt)
         if seq is None:
             _classify_tendency(obj, has_ml=False)
-            _append_kinematic(obj, forecasts)
+            # forecast_lat_H/forecast_lon_H bereits durch _append_kinematic gesetzt.
+            # Kinematische Forecasts in echtes forecasts-Dict übernehmen.
+            for _h in _horizons:
+                forecasts[_h].extend(_temp_fc.get(_h, []))
             continue
 
         seq_scaled = scaler_X.transform(seq).reshape(1, ML_SEQUENCE_LENGTH, ML_NUM_FEATURES)
@@ -697,13 +724,8 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                 }
             )
 
-    # ── B95: Pfad-Wetter aus atmosphere_latest.json (kein API-Call, Z.28) ──
-    try:
-        from config import PATH_ATM_MAX_DIST_KM as _PATM
-        _atm_snap = _load_atmosphere_snapshot()
-        for _o in objects:
-            _compute_path_weather(_o, _horizons, _atm_snap, _PATM)
-    except Exception as _e_b95:
-        debug_log(f"[B95] Pfad-Wetter übersprungen: {_e_b95}")
+    # B108: B95-Pfad-Wetter-Berechnung wurde in den Objekt-Loop VORGEZOGEN
+    # (Kinematic-First vor _build_sequence). Hier kein zweiter Durchlauf nötig.
+    # path_*-Werte sind bereits deterministisch (kinematisch) auf allen Objekten.
 
     return tuple(forecasts[h] for h in _horizons)
