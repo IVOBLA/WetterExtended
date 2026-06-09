@@ -1293,10 +1293,10 @@ server {
         # der Endpunkt bleibt durch Flask/JWT-Rollen geschützt.
         proxy_pass         http://127.0.0.1:5000/api/admin/export/last-24h.zip;
         proxy_http_version 1.1;
-        proxy_set_header   Host              \\$host;
-        proxy_set_header   X-Real-IP         \\$remote_addr;
-        proxy_set_header   X-Forwarded-For   \\$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \\$scheme;
+        proxy_set_header   Host              \$host;
+        proxy_set_header   X-Real-IP         \$remote_addr;
+        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto \$scheme;
         proxy_read_timeout 600s;
         proxy_send_timeout 600s;
         proxy_connect_timeout 10s;
@@ -1339,10 +1339,10 @@ server {
 
         proxy_pass         http://127.0.0.1:5000/api/;
         proxy_http_version 1.1;
-        proxy_set_header   Host              \\$host;
-        proxy_set_header   X-Real-IP         \\$remote_addr;
-        proxy_set_header   X-Forwarded-For   \\$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \\$scheme;
+        proxy_set_header   Host              \$host;
+        proxy_set_header   X-Real-IP         \$remote_addr;
+        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto \$scheme;
         proxy_read_timeout 120s;
         proxy_connect_timeout 10s;
     }
@@ -1354,10 +1354,10 @@ server {
 
         proxy_pass         http://127.0.0.1:5000/api/auth/login;
         proxy_http_version 1.1;
-        proxy_set_header   Host              \\$host;
-        proxy_set_header   X-Real-IP         \\$remote_addr;
-        proxy_set_header   X-Forwarded-For   \\$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \\$scheme;
+        proxy_set_header   Host              \$host;
+        proxy_set_header   X-Real-IP         \$remote_addr;
+        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto \$scheme;
         proxy_read_timeout 30s;
         proxy_connect_timeout 10s;
     }
