@@ -307,6 +307,20 @@ LOOP_INTERVAL_NACHBEOBACHTUNG_S: int = 300
 NO_CELLS_SLOW_INTERVAL_TIMEOUT_S: int = 7200
 
 # --------------------------------------
+# P-T06: Zell-Überleben bis zum Ort
+# --------------------------------------
+# Schwächer/schrumpfende Zellen lösen sich evtl. auf, bevor sie einen Ort
+# erreichen. Forecast-/Slow-Treffer werden unterdrückt, wenn die geschätzte
+# Überlebensfraktion bei +Horizont unter CELL_SURVIVAL_MIN_FRAC fällt.
+# current-Treffer (Zelle JETZT im Radius) sind davon NICHT betroffen.
+CELL_DECAY_SUPPRESS_ENABLED: bool = True
+# Halbwertszeit (min) der "Lebenskraft" wenn Zelle schwächer UND kleiner wird.
+# Nur eines von beidem → doppelte Halbwertszeit (langsamerer Zerfall).
+CELL_DECAY_HALF_LIFE_MIN: float = 25.0
+# Mindest-Überlebensfraktion (0..1), ab der ein Forecast-/Slow-Treffer noch gilt.
+CELL_SURVIVAL_MIN_FRAC: float = 0.35
+
+# --------------------------------------
 # ML-Konfiguration (Single Source of Truth)
 # --------------------------------------
 
