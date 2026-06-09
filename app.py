@@ -217,13 +217,61 @@ def _sanitize_for_json(obj, _depth=0):
     return obj
 
 
-def _tail_readable_file_lines(path, limit=500, label=None):
-    """Liest lokale Logdateien best-effort und liefert klare Meldungen bei fehlenden Rechten."""
+_LOGS_DEFAULT_LINES = 1000
+_LOGS_DEFAULT_MAX_BYTES = 2 * 1024 * 1024
+_LOGS_MAX_LINES = 5000
+_LOGS_MAX_BYTES = 5 * 1024 * 1024
+
+
+def _coerce_log_limit(value, default, minimum, maximum):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(parsed, maximum))
+
+
+def _truncation_notice(limit, max_bytes):
+    return (
+        f"[TRUNCATED] Anzeige auf {limit} Zeilen / {max_bytes} Bytes begrenzt. "
+        "Vollständige Logs sind im Datenexport enthalten."
+    )
+
+
+def _limit_log_text_for_display(text, *, limit=500, max_bytes=_LOGS_DEFAULT_MAX_BYTES):
+    encoded = (text or "").encode("utf-8", errors="replace")
+    truncated_by_bytes = len(encoded) > max_bytes
+    if truncated_by_bytes:
+        text = encoded[-max_bytes:].decode("utf-8", errors="replace")
+    all_lines = text.splitlines()
+    truncated_by_lines = len(all_lines) > limit
+    lines = all_lines[-limit:] if truncated_by_lines else all_lines
+    truncated = truncated_by_bytes or truncated_by_lines
+    if truncated:
+        lines.insert(0, _truncation_notice(limit, max_bytes))
+    return lines, truncated
+
+
+def _tail_readable_file_lines(path, limit=500, label=None, max_bytes=_LOGS_DEFAULT_MAX_BYTES):
+    """Liest lokale Logdateien best-effort mit harter Anzeige-Byte-Grenze."""
     log_path = Path(path)
     display = label or str(log_path)
     try:
-        with log_path.open("r", encoding="utf-8", errors="replace") as fh:
-            return fh.read().splitlines()[-limit:]
+        with log_path.open("rb") as fh:
+            try:
+                fh.seek(0, os.SEEK_END)
+                size = fh.tell()
+                fh.seek(max(0, size - max_bytes))
+                data = fh.read(max_bytes)
+                text = data.decode("utf-8", errors="replace")
+                lines, truncated = _limit_log_text_for_display(text, limit=limit, max_bytes=max_bytes)
+                if size > max_bytes and not truncated:
+                    lines.insert(0, _truncation_notice(limit, max_bytes))
+                return lines
+            except OSError:
+                fh.seek(0)
+                text = fh.read(max_bytes).decode("utf-8", errors="replace")
+                return _limit_log_text_for_display(text, limit=limit, max_bytes=max_bytes)[0]
     except PermissionError:
         return [f"[nginx] {display} nicht lesbar"]
     except FileNotFoundError:
@@ -232,7 +280,7 @@ def _tail_readable_file_lines(path, limit=500, label=None):
         return [f"[nginx] {display} nicht lesbar: {exc}"]
 
 
-def _journalctl_unit_lines(unit, limit=500):
+def _journalctl_unit_lines(unit, limit=500, max_bytes=_LOGS_DEFAULT_MAX_BYTES):
     cmd = ["journalctl", "-u", unit, "-n", str(limit), "--no-pager"]
     since = _get_log_clear_since()
     if since:
@@ -245,30 +293,37 @@ def _journalctl_unit_lines(unit, limit=500):
         except Exception:
             _since_jctl = since  # Fallback: Originalwert übergeben
         cmd = ["journalctl", "-u", unit, "--since", _since_jctl, "-n", str(limit), "--no-pager"]
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=8,
-        check=False,
-    )
-    if result.returncode != 0:
-        unit_service = f"{unit}.service"
-        unit_check = subprocess.run(
-            ["systemctl", "list-unit-files", unit_service],
+    try:
+        result = subprocess.run(
+            cmd,
             capture_output=True,
             text=True,
             timeout=8,
             check=False,
         )
-        if unit_service not in unit_check.stdout:
+    except Exception as exc:
+        return [f"[journalctl] Fehler beim Lesen von {unit}: {exc}"]
+    if result.returncode != 0:
+        unit_service = f"{unit}.service"
+        try:
+            unit_check = subprocess.run(
+                ["systemctl", "list-unit-files", unit_service],
+                capture_output=True,
+                text=True,
+                timeout=8,
+                check=False,
+            )
+            unit_missing = unit_service not in unit_check.stdout
+        except Exception:
+            unit_missing = False
+        if unit_missing:
             return [f"[systemd] Unit {unit_service} ist nicht installiert."]
         stderr = (result.stderr or "").strip()
         msg = f"[journalctl] Keine Logs verfügbar oder Unit nicht vorhanden: {unit}"
         if stderr:
             msg += f"\nDetails: {stderr}"
         return [msg]
-    return result.stdout.splitlines()[-limit:]
+    return _limit_log_text_for_display(result.stdout, limit=limit, max_bytes=max_bytes)[0]
 
 
 # ---------- JSON-APIs (von React konsumiert) ----------
@@ -701,14 +756,14 @@ def api_admin_export_last_24h_zip():
         duration_s = time.perf_counter() - started
         manifest_total_files = manifest.get("total_files", "unknown") if isinstance(manifest, dict) else "unknown"
         app.logger.info(
-            "[ADMIN-EXPORT] success file=%s bytes=%s duration_s=%.3f manifest_total_files=%s",
+            "[ADMIN-EXPORT] zip_created file=%s bytes=%s duration_s=%.3f manifest_total_files=%s",
             zip_path,
             size_bytes,
             duration_s,
             manifest_total_files,
         )
         print(
-            f"[ADMIN-EXPORT] success file={zip_path} bytes={size_bytes} "
+            f"[ADMIN-EXPORT] zip_created file={zip_path} bytes={size_bytes} "
             f"duration_s={duration_s:.3f} manifest_total_files={manifest_total_files}",
             flush=True,
         )
@@ -719,7 +774,15 @@ def api_admin_export_last_24h_zip():
             download_name=filename,
             max_age=0,
         )
-        response.call_on_close(lambda path=zip_path: Path(path).unlink(missing_ok=True))
+        app.logger.info("[ADMIN-EXPORT] response_ready filename=%s", filename)
+        print(f"[ADMIN-EXPORT] response_ready filename={filename}", flush=True)
+
+        def _cleanup_export_zip(path=zip_path):
+            print(f"[ADMIN-EXPORT] cleanup zip_path={path}", flush=True)
+            app.logger.info("[ADMIN-EXPORT] cleanup zip_path=%s", path)
+            Path(path).unlink(missing_ok=True)
+
+        response.call_on_close(_cleanup_export_zip)
         return response
     except Exception as exc:
         duration_s = time.perf_counter() - started
@@ -1721,12 +1784,29 @@ def api_api_health_raw():
 
 @app.route("/api/logs")
 def api_logs():
+    lines = _coerce_log_limit(request.args.get("lines"), _LOGS_DEFAULT_LINES, 1, _LOGS_MAX_LINES)
+    max_bytes = _coerce_log_limit(request.args.get("max_bytes"), _LOGS_DEFAULT_MAX_BYTES, 1024, _LOGS_MAX_BYTES)
+
+    def safe_source(loader, label):
+        try:
+            return loader()
+        except Exception as exc:
+            app.logger.exception("[API-LOGS] source failed label=%s", label)
+            return [f"[{label}] Fehler beim Lesen dieser Logquelle: {exc}"]
+
     return jsonify({
-        "wetterprojekt": _journalctl_unit_lines("wetterprojekt", limit=500),
-        "scheduler": _journalctl_unit_lines("wetterprojekt-scheduler", limit=500),
-        "admin": _journalctl_unit_lines("wetterprojekt-admin", limit=500),
-        "nginx_error": _tail_readable_file_lines("/var/log/nginx/error.log", limit=500),
-        "nginx_access": _tail_readable_file_lines("/var/log/nginx/access.log", limit=500),
+        "wetterprojekt": safe_source(lambda: _journalctl_unit_lines("wetterprojekt", limit=lines, max_bytes=max_bytes), "wetterprojekt"),
+        "scheduler": safe_source(lambda: _journalctl_unit_lines("wetterprojekt-scheduler", limit=lines, max_bytes=max_bytes), "scheduler"),
+        "admin": safe_source(lambda: _journalctl_unit_lines("wetterprojekt-admin", limit=lines, max_bytes=max_bytes), "admin"),
+        "nginx_error": safe_source(lambda: _tail_readable_file_lines("/var/log/nginx/error.log", limit=lines, max_bytes=max_bytes), "nginx_error"),
+        "nginx_access": safe_source(lambda: _tail_readable_file_lines("/var/log/nginx/access.log", limit=lines, max_bytes=max_bytes), "nginx_access"),
+        "limits": {
+            "lines": lines,
+            "max_bytes": max_bytes,
+            "max_lines": _LOGS_MAX_LINES,
+            "max_max_bytes": _LOGS_MAX_BYTES,
+            "note": "Anzeige kann gekürzt sein. Vollständige Logs befinden sich im Datenexport.",
+        },
     })
 
 
