@@ -67,6 +67,14 @@ except Exception:
 
 
 
+
+def _lstm_feature_dimensions_ok(lstm_model, seq_scaled):
+    """Prüft, ob das geladene LSTM dieselbe Feature-Anzahl wie die Sequenz erwartet."""
+    expected = getattr(lstm_model, "input_shape", None)
+    expected_feats = int(expected[-1]) if expected is not None else None
+    actual_feats = int(seq_scaled.shape[-1])
+    return expected_feats is None or expected_feats == actual_feats, expected_feats, actual_feats
+
 def _safe_float(value):
     try:
         return float(value)
@@ -546,7 +554,46 @@ def predict_positions(objects: list, timestamp: str, stations: list):
             if has_lgbm_q["q90"]:
                 prediction_q90_scaled = _predict_lgbm_vector(lgbm_models, last_frame, "_q90")
         elif has_lstm:
-            prediction_scaled = np.asarray(lstm_model.predict(seq_scaled, verbose=0)[0], dtype=float)
+            # B100: Feature-Dimension-Guard — verhindert Service-Crash bei
+            # veraltetem LSTM-Modell (trainiert mit anderer Feature-Anzahl).
+            # Lösung: graceful Fallback auf kinematisch statt ungefangener Exception.
+            _lstm_ok = True
+            try:
+                _lstm_ok, _expected_feats, _actual_feats = _lstm_feature_dimensions_ok(
+                    lstm_model, seq_scaled
+                )
+                if not _lstm_ok:
+                    debug_log(
+                        f"[LSTM] B100: Feature-Mismatch — Modell erwartet {_expected_feats}, "
+                        f"Sequenz hat {_actual_feats} (ML_NUM_FEATURES={ML_NUM_FEATURES}). "
+                        f"Kinematischer Fallback für alle Objekte dieses Laufs. "
+                        f"Modell nach neuem Training (≥50 Sequenzen) automatisch aktualisiert."
+                    )
+                    has_lstm = False   # Für alle weiteren Objekte dieses Laufs deaktivieren
+            except Exception as _chk_exc:
+                debug_log(f"[LSTM] B100: Dimension-Check fehlgeschlagen ({_chk_exc}) — kinematisch")
+                has_lstm = False
+                _lstm_ok = False
+
+            if not _lstm_ok:
+                _classify_tendency(obj, has_ml=False)
+                _append_kinematic(obj, forecasts)
+                continue
+
+            try:
+                prediction_scaled = np.asarray(
+                    lstm_model.predict(seq_scaled, verbose=0)[0], dtype=float
+                )
+            except Exception as _lstm_exc:
+                # Catches z.B. TF-interne Dimension-Fehler die den Guard umgehen
+                debug_log(
+                    f"[LSTM] B100: Vorhersage fehlgeschlagen: {_lstm_exc} — "
+                    f"kinematischer Fallback, has_lstm=False für restliche Objekte"
+                )
+                has_lstm = False
+                _classify_tendency(obj, has_ml=False)
+                _append_kinematic(obj, forecasts)
+                continue
 
         if prediction_scaled is None or prediction_scaled.shape[0] != len(_get_horizons()) * 2:
             _classify_tendency(obj, has_ml=False)
