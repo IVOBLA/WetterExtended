@@ -124,14 +124,30 @@ function Logs() {
       <h1 className="text-2xl font-bold mb-4">Logs</h1>
 
       <div className="flex gap-2 mb-3 flex-wrap items-center">
-        {['wetterprojekt', 'scheduler', 'admin', 'api_fehler'].map(k => (
-          <button key={k} onClick={() => setActive(k)}
-            className={active === k ? 'btn-primary' : 'btn-secondary'}>
-            {k === 'api_fehler'
-              ? `⚠ API-Fehler${summary.total > 0 ? ` (${summary.total})` : ''}`
-              : k}
-          </button>
-        ))}
+        {(() => {
+          // B111: Tabs dynamisch aus API-Response + bekannte Reihenfolge.
+          const KNOWN_TABS = [
+            { key: 'wetterprojekt', label: 'wetterprojekt' },
+            { key: 'scheduler', label: 'scheduler' },
+            { key: 'admin', label: 'admin' },
+            { key: 'nginx_error', label: 'nginx error' },
+            { key: 'nginx_access', label: 'nginx access' },
+          ]
+          const apiErrorTab = {
+            key: 'api_fehler',
+            label: `⚠ API-Fehler${summary?.total > 0 ? ` (${summary.total})` : ''}`,
+          }
+          const TABS = [
+            ...KNOWN_TABS.filter(t => logs && t.key in logs),
+            apiErrorTab,
+          ]
+          return TABS.map(t => (
+            <button key={t.key} onClick={() => setActive(t.key)}
+              className={active === t.key ? 'btn-primary' : 'btn-secondary'}>
+              {t.label}
+            </button>
+          ))
+        })()}
         <button onClick={active === 'api_fehler' ? loadHealth : loadLogs}
           disabled={exporting}
           className="btn-secondary ml-auto disabled:opacity-50">↺ Reload</button>

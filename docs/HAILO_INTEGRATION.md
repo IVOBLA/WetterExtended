@@ -1848,3 +1848,5 @@ Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sow
   entfernt (`monkeypatch.delitem`) damit kein gecachtes Modul verwendet
   wird. Hilfsfunktion `_make_requests_mock()` zentralisiert Mock-Erstellung.
 - **Tests:** `tests/test_p2_1_radar_hash_dedup.py` — alle 3 Tests PASSED.
+| B111 | `Logs.jsx` | Nginx-Logs in UI sichtbar (PR #544). Feste Tab-Liste durch dynamische Generierung ersetzt. `nginx_error` und `nginx_access` erscheinen als Tabs wenn das Backend sie liefert. | ✅ erledigt |
+| B112 | `MapView.jsx`, `MapFullscreen.jsx` | first_seen Timestamp-Parsing (PR #524). `new Date(ts + 'Z')` erzeugte falsche UTC-Interpretation der Vienna-Lokalzeit (Fehler bis -2h). Neue Funktion `parseViennaLocalTimestamp()` parst ohne Z-Suffix. | ✅ erledigt |
