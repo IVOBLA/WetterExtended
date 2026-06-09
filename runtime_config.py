@@ -115,8 +115,44 @@ def save(overrides: dict) -> None:
     reload_overrides()
 
 
+# P1-4: Schlüssel, die NIEMALS über runtime_overrides.json überschrieben werden dürfen.
+# - UPSCALE_FACTOR definiert das Koordinatensystem aller gespeicherten JSON-Objekte;
+#   eine Laufzeitänderung korrumpiert alle gespeicherten Objekt-Koordinaten.
+# - Secrets (Token/Keys/Passwörter) gehören ausschließlich in .env.
+_FORBIDDEN_OVERRIDE_KEYS = frozenset({
+    "UPSCALE_FACTOR",
+    "GITHUB_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_KEY",
+})
+_FORBIDDEN_KEY_SUBSTRINGS = (
+    "TOKEN", "SECRET", "PASSWORD", "PASSWD", "APIKEY", "API_KEY", "PRIVATE_KEY",
+)
+
+
+def is_forbidden_override_key(key) -> bool:
+    """True wenn key nicht als Runtime-Override zulässig ist (P1-4)."""
+    ku = str(key).upper()
+    if ku in _FORBIDDEN_OVERRIDE_KEYS:
+        return True
+    return any(tok in ku for tok in _FORBIDDEN_KEY_SUBSTRINGS)
+
+
+def forbidden_keys_in(partial: dict) -> list:
+    """Liefert die Top-Level-Schlüssel aus partial, die nicht überschrieben werden dürfen."""
+    if not isinstance(partial, dict):
+        return []
+    return sorted(k for k in partial.keys() if is_forbidden_override_key(k))
+
+
 def patch(partial: dict) -> dict:
-    """Mergt partial in bestehende Overrides und persistiert."""
+    """Mergt partial in bestehende Overrides und persistiert.
+
+    P1-4: Verbotene Schlüssel (UPSCALE_FACTOR, Secrets) werden defensiv entfernt,
+    bevor gemergt wird — unabhängig vom aufrufenden Endpunkt (Defense-in-Depth).
+    """
+    if isinstance(partial, dict):
+        _forbidden = forbidden_keys_in(partial)
+        if _forbidden:
+            partial = {k: v for k, v in partial.items() if k not in _forbidden}
     with _LOCK:
         merged = _deep_merge(_OVERRIDES, partial)
     save(merged)

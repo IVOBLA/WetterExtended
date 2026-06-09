@@ -1319,6 +1319,15 @@ def api_config_save():
         assert isinstance(data, dict)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
+    # P1-4: Schlüssel, die niemals zur Laufzeit überschrieben werden dürfen,
+    # explizit ablehnen (klare Rückmeldung). UPSCALE_FACTOR korrumpiert das
+    # Koordinatensystem gespeicherter Objekte; Secrets gehören in .env.
+    _forbidden = runtime_config.forbidden_keys_in(data)
+    if _forbidden:
+        return jsonify({
+            "ok": False,
+            "error": f"Diese Schlüssel sind als Runtime-Override gesperrt: {_forbidden}",
+        }), 400
     runtime_config.patch(data)
     return jsonify({"ok": True})
 
