@@ -161,23 +161,50 @@ def is_forbidden_override_key(key) -> bool:
     return any(tok in ku for tok in _FORBIDDEN_KEY_SUBSTRINGS)
 
 
+def _find_forbidden_paths(obj, prefix: str = "") -> list:
+    """
+    B106: Rekursiv alle verbotenen Schlüsselpfade in obj finden.
+    Gibt Pfade wie 'GITHUB_VERIFY_CONFIG.token' zurück.
+    """
+    found = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            path = f"{prefix}.{k}" if prefix else str(k)
+            if is_forbidden_override_key(k):
+                found.append(path)
+            found.extend(_find_forbidden_paths(v, path))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            found.extend(_find_forbidden_paths(v, f"{prefix}[{i}]"))
+    return found
+
+
 def forbidden_keys_in(partial: dict) -> list:
-    """Liefert die Top-Level-Schlüssel aus partial, die nicht überschrieben werden dürfen."""
+    """
+    Liefert alle verbotenen Schlüsselpfade aus partial (Top-Level und verschachtelt).
+    B106: Rekursive Prüfung — verhindert Secrets in nested Objekten wie
+    GITHUB_VERIFY_CONFIG.token oder AI_ANALYSIS_CONFIG.api_key.
+    """
     if not isinstance(partial, dict):
         return []
-    return sorted(k for k in partial.keys() if is_forbidden_override_key(k))
+    return sorted(_find_forbidden_paths(partial))
 
 
 def patch(partial: dict) -> dict:
     """Mergt partial in bestehende Overrides und persistiert.
 
-    P1-4: Verbotene Schlüssel (UPSCALE_FACTOR, Secrets) werden defensiv entfernt,
-    bevor gemergt wird — unabhängig vom aufrufenden Endpunkt (Defense-in-Depth).
+    P1-4/B106: Verbotene Schlüssel (UPSCALE_FACTOR, Secrets, auch verschachtelt)
+    werden defensiv entfernt. Defense-in-Depth: patch() bereinigt unabhängig vom
+    aufrufenden Endpunkt. Die öffentliche API (/api/config) lehnt bei verbotenen
+    Pfaden mit HTTP 400 ab (vor patch()-Aufruf).
     """
     if isinstance(partial, dict):
         _forbidden = forbidden_keys_in(partial)
         if _forbidden:
-            partial = {k: v for k, v in partial.items() if k not in _forbidden}
+            # B106: Gesamte Anfrage defensiv ablehnen wenn verbotene Pfade vorhanden.
+            # Top-Level-Keys entfernen deren Unterpfade verboten sind.
+            _forbidden_top = {p.split(".")[0].split("[")[0] for p in _forbidden}
+            partial = {k: v for k, v in partial.items() if k not in _forbidden_top}
     with _LOCK:
         merged = _deep_merge(_OVERRIDES, partial)
     save(merged)

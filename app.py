@@ -78,11 +78,13 @@ _ADMIN_WRITE_PREFIXES = (
 # P1-1: GET/HEAD auf diesen Präfixen erfordern mind. viewer-Level (eingeloggt).
 # Bewusst NICHT enthalten (öffentliche Karte): /api/objects, /api/forecast,
 # /api/horizons, /api/intensity_bands, /api/accuracy, Bild-/Karten-Endpunkte.
+# B106/B107: Ergänzt um /api/system_consistency (PR #550).
 _SENSITIVE_READ_PREFIXES = (
     "/api/config",
     "/api/logs",
     "/api/log/",
     "/api/system/",
+    "/api/system_consistency",
     "/api/drift/",
     "/api/ai_analysis",
     "/api/email_config",
@@ -1329,11 +1331,12 @@ def api_config_save():
     # P1-4: Schlüssel, die niemals zur Laufzeit überschrieben werden dürfen,
     # explizit ablehnen (klare Rückmeldung). UPSCALE_FACTOR korrumpiert das
     # Koordinatensystem gespeicherter Objekte; Secrets gehören in .env.
-    _forbidden = runtime_config.forbidden_keys_in(data)
-    if _forbidden:
+    # B106: Auch verschachtelte Secrets prüfen (z.B. GITHUB_VERIFY_CONFIG.token).
+    forbidden = runtime_config.forbidden_keys_in(data)
+    if forbidden:
         return jsonify({
             "ok": False,
-            "error": f"Diese Schlüssel sind als Runtime-Override gesperrt: {_forbidden}",
+            "error": f"Verbotene Schlüsselpfade (Secrets/geschützte Werte): {', '.join(forbidden)}"
         }), 400
     runtime_config.patch(data)
     return jsonify({"ok": True})
