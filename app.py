@@ -110,7 +110,14 @@ def _jwt_auth_check():
     if request.method in ("GET", "HEAD"):
         if not any(request.path.startswith(p) for p in _SENSITIVE_READ_PREFIXES):
             return
-        _u = get_current_user()
+        # B107: Modul-Referenz statt gebundener Name, damit monkeypatch("auth.get_current_user")
+        # im Test funktioniert. "from auth import get_current_user" bindet eine lokale Kopie;
+        # auth.get_current_user() geht immer über das Modul-Dict → wird korrekt gepatcht.
+        try:
+            import auth as _a_mod
+            _u = _a_mod.get_current_user()
+        except Exception:
+            _u = None
         if _u is None:
             return jsonify({"error": "Nicht authentifiziert — Login erforderlich"}), 401
         if ROLE_LEVEL.get(_u.get("role", ""), 0) < ROLE_LEVEL["viewer"]:

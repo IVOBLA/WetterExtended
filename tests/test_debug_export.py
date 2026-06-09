@@ -325,6 +325,8 @@ def test_export_route_source_uses_no_zip_bytesio_delivery():
 def test_api_logs_limits_and_truncation_marker(client_with_export_data, monkeypatch):
     import app as app_module
 
+    # B107: /api/logs ist nach P1-1 geschützt → Auth-Mock erforderlich.
+    monkeypatch.setattr("auth.get_current_user", lambda: {"role": "admin", "sub": "1"})
     huge = "\n".join(f"line-{i}" for i in range(20))
     monkeypatch.setattr(app_module.subprocess, "run", lambda *args, **kwargs: type("R", (), {"returncode": 0, "stdout": huge, "stderr": ""})())
     monkeypatch.setattr(app_module, "_tail_readable_file_lines", lambda *args, **kwargs: ["nginx"])
@@ -339,6 +341,9 @@ def test_api_logs_limits_and_truncation_marker(client_with_export_data, monkeypa
 
 def test_api_logs_source_error_does_not_abort_route(client_with_export_data, monkeypatch):
     import app as app_module
+
+    # B107: /api/logs ist nach P1-1 geschützt → Auth-Mock erforderlich.
+    monkeypatch.setattr("auth.get_current_user", lambda: {"role": "admin", "sub": "1"})
 
     def fail(*args, **kwargs):
         raise RuntimeError("journal kaputt")
