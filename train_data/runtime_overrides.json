@@ -1,6 +1,0 @@
-{
-  "FILTER_CONFIG": {
-    "min_object_area": 400
-  },
-  "MORPH_CLOSE_SIZE": 5
-}

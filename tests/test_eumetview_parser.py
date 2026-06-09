@@ -9,7 +9,6 @@ import pytest
 pytest.importorskip("numpy")  # Test überspringen wenn numpy nicht nutzbar
 
 sys.modules.setdefault("requests", types.SimpleNamespace())
-sys.modules.setdefault("cv2", types.SimpleNamespace())
 sys.modules.setdefault("utils", types.SimpleNamespace(log=lambda *a, **k: None))
 sys.modules.setdefault("http_retry", types.SimpleNamespace(retry_get=lambda *a, **k: None))
 

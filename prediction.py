@@ -6,14 +6,33 @@ from math import cos, pi, radians, sin
 
 import importlib
 import importlib.util
+import sys
 
-np = importlib.import_module("numpy") if importlib.util.find_spec("numpy") else None
 
-if np is None:
-    raise ImportError(
-        "[prediction.py] numpy ist nicht installiert. "
-        "Bitte ausführen: pip3 install numpy --break-system-packages"
-    )
+def _optional_import(name):
+    """Importiert optionale Abhängigkeiten robust ohne Modulimport-Crash."""
+    try:
+        if name not in sys.modules and importlib.util.find_spec(name) is None:
+            return None
+    except Exception as exc:
+        _prediction_debug_log(f"[OPTIONAL_IMPORT] {name}: find_spec fehlgeschlagen: {exc}")
+        return None
+    try:
+        return importlib.import_module(name)
+    except Exception as exc:
+        _prediction_debug_log(f"[OPTIONAL_IMPORT] {name}: Import fehlgeschlagen: {exc}")
+        return None
+
+
+def _prediction_debug_log(message):
+    try:
+        from debug_utils import debug_log as _debug_log
+        _debug_log(message)
+    except Exception:
+        print(message)
+
+
+np = _optional_import("numpy")
 
 from config import (
     FRAME_INTERVAL_MIN as _FRAME_MIN,
@@ -42,10 +61,26 @@ def _get_horizons() -> list:
     if _runtime_cfg is not None:
         return _runtime_cfg.get("ML_FORECAST_HORIZONS_MIN", _STATIC_HORIZONS)
     return list(_STATIC_HORIZONS)
-from dataset_builder import load_scalers
-from model_training import load_lgbm_models, load_lstm
+try:
+    from dataset_builder import load_scalers
+except Exception as exc:
+    _prediction_debug_log(f"[OPTIONAL_IMPORT] dataset_builder.load_scalers: Import fehlgeschlagen: {exc}")
 
-lgb = importlib.import_module("lightgbm") if importlib.util.find_spec("lightgbm") else None
+    def load_scalers():
+        return None, None
+
+try:
+    from model_training import load_lgbm_models, load_lstm
+except Exception as exc:
+    _prediction_debug_log(f"[OPTIONAL_IMPORT] model_training: Import fehlgeschlagen: {exc}")
+
+    def load_lgbm_models():
+        return {}
+
+    def load_lstm():
+        return None
+
+lgb = _optional_import("lightgbm")
 
 try:
     from debug_utils import debug_log
