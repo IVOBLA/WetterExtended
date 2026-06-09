@@ -13,7 +13,31 @@ from debug_utils import debug_log, log_api_failure, log_api_call, log_http_respo
 
 KMZ_URL  = "https://meteo.arso.gov.si/uploads/probase/www/nowcast/inca/inca_si0zm_latest.kmz"
 KMZ_PATH = "weather_data.kmz"
-_LAST_MODIFIED_FILE = "data/.kmz_last_modified"
+_LAST_MODIFIED_FILE  = "data/.kmz_last_modified"
+_CONTENT_HASH_FILE   = "data/.kmz_content_sha256"
+
+
+def _read_content_hash() -> str | None:
+    """P2-1: Liest den SHA256-Hash des letzten KMZ-Inhalts."""
+    try:
+        if os.path.exists(_CONTENT_HASH_FILE):
+            with open(_CONTENT_HASH_FILE, "r") as f:
+                return f.read().strip() or None
+    except Exception:
+        pass
+    return None
+
+
+def _write_content_hash(content: bytes) -> None:
+    """P2-1: Speichert den SHA256-Hash des heruntergeladenen Inhalts."""
+    import hashlib
+    try:
+        digest = hashlib.sha256(content).hexdigest()
+        os.makedirs(os.path.dirname(_CONTENT_HASH_FILE), exist_ok=True)
+        with open(_CONTENT_HASH_FILE, "w") as f:
+            f.write(digest)
+    except Exception:
+        pass
 
 _HEADERS = {
     "User-Agent": "WetterExtended/1.0 (Raspberry Pi 5; Kaernten weather tracking)"
@@ -167,10 +191,22 @@ def download_kmz() -> bool:
 
             response.raise_for_status()
 
+            # P2-1: SHA256-Dedup — identischer Inhalt trotz neuem Last-Modified?
+            import hashlib as _hl_radar
+            _new_hash = _hl_radar.sha256(response.content).hexdigest()
+            _prev_hash = _read_content_hash()
+            if _prev_hash and _prev_hash == _new_hash:
+                debug_log(
+                    f"[RADAR] Inhalt unverändert (SHA256 identisch) — "
+                    f"kein Tracking-Zyklus nötig."
+                )
+                return False
+
             with open(KMZ_PATH, "wb") as f:
                 f.write(response.content)
 
-            # Last-Modified für nächsten Zyklus speichern
+            # SHA256 + Last-Modified für nächsten Zyklus speichern
+            _write_content_hash(response.content)
             new_lm = response.headers.get("Last-Modified")
             if new_lm:
                 _write_last_modified(new_lm)
