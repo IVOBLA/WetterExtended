@@ -1818,3 +1818,14 @@ Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sow
 | B107 | **Fix: 8 Phase-9-Testfehler nach P1-1.** (A) `_jwt_auth_check` rief das module-level-gebundene `get_current_user` auf → `monkeypatch("auth.get_current_user")` griff nicht → 401 für alle Tests mit gesichertem GET. Fix: `import auth as _a_mod; _a_mod.get_current_user()` in `_jwt_auth_check`. (B) `test_api_logs_*`-Tests ohne Auth-Mock nach P1-1 ergänzt. (C) `test_clamp_uses_original_px_units` Multiplikator 1.5→1.2 (kaskadierter Delta-Clamp mit 1.5 = korrekt aber Test-Assertion falsch). (D) Phase-9-ERR-Trap: `set+e` deaktiviert nur `errexit`, nicht `trap ERR` → mit `pipefail` bricht Phase 9 trotzdem ab. Fix: `trap '' ERR` vor pytest, `trap on_error ERR` danach. | `app.py`, `tests/test_debug_export.py`, `tests/test_speed_units.py`, `install.sh` | ✅ erledigt |
 | B108 | **Design: WhatsApp sendet keine Entwarnungen.** Der bestehende WA-Entwarnung-Block in `main.py` wurde durch eine explizite Design-Kommentar-Zeile ersetzt. `send_allclear_wa()` in `whatsapp_notifier.py` bleibt vorhanden (nicht aufgerufen). | `main.py` | ✅ erledigt |
 | P0-2 | **ML-Horizont-Konsistenz End-to-End.** `_build_lstm()` nutzte `len(ML_FORECAST_HORIZONS_MIN)` (compile-time) statt `_get_training_horizons()` (runtime) → LSTM-Output-Dim passte bei Horizon-Override nicht zu LightGBM. `meta["horizons_trained"]`/`meta["horizons"]` speicherte ebenfalls compile-time-Wert → `_check_model_compatibility()` erkannte Runtime-Divergenz nicht. Fix: `_build_lstm(n_horizons)` parametrisch; `train_lstm()` übergibt Runtime-Anzahl; Meta nutzt `_get_training_horizons()`. Wirkt erst beim nächsten Training. | `model_training.py`, `tests/test_p0_2_horizons_consistency.py` | ✅ erledigt |
+
+### B101 – `_build_lstm` TypeError bei None-Keras-Klassen (behoben)
+- **Datei:** `model_training.py`
+- **Problem:** `_build_lstm()` rief `LSTM(64, ...)` auf ohne zu prüfen ob
+  `LSTM` (Modul-Level-Variable) noch `None` ist. Das passiert wenn TF beim
+  Modul-Import nicht verfügbar war (Pytest-Collection-Reihenfolge).
+- **Fix:** Lazy-Re-Import der Keras-Klassen am Anfang von `_build_lstm()`
+  via `global`-Deklaration + `_optional_import()`. Klarer `RuntimeError`
+  statt kryptischem `TypeError` wenn TF wirklich fehlt.
+- **Tests:** `tests/test_p0_2_horizons_consistency.py` — alle 2 betroffenen
+  Tests jetzt PASSED (TF installiert) oder SKIPPED (TF fehlt).

@@ -198,7 +198,32 @@ def evaluate_on_recent(model_dir, hours=24):
 
 def _build_lstm(n_horizons: int = 0):
     """P0-2: n_horizons aus _get_training_horizons() — NICHT aus compile-time Import.
-    Sicherstellt dass LSTM-Output-Dim mit LightGBM-Zielspalten übereinstimmt."""
+    Sicherstellt dass LSTM-Output-Dim mit LightGBM-Zielspalten übereinstimmt.
+
+    B101: Lazy-Re-Import der Keras-Klassen falls beim Modul-Import noch None
+    (z. B. wenn TF erst nach Collection verfügbar ist). RuntimeError statt
+    kryptischem TypeError wenn TF wirklich fehlt.
+    """
+    # B101: Lazy-Re-Import — damit pytest.importorskip("tensorflow") greift
+    global Sequential, LSTM, Dense, Dropout, Adam  # noqa: PLW0603
+    if Sequential is None or LSTM is None:
+        _km = _optional_import("tensorflow.keras.models")
+        _kl = _optional_import("tensorflow.keras.layers")
+        _ko = _optional_import("tensorflow.keras.optimizers")
+        if _km is not None and _kl is not None and _ko is not None:
+            Sequential = getattr(_km, "Sequential", None)
+            LSTM = getattr(_kl, "LSTM", None)
+            Dense = getattr(_kl, "Dense", None)
+            Dropout = getattr(_kl, "Dropout", None)
+            Adam = getattr(_ko, "Adam", None)
+
+    if Sequential is None or LSTM is None or Dense is None or Dropout is None or Adam is None:
+        raise RuntimeError(
+            "[_build_lstm] TensorFlow/Keras nicht verfügbar — "
+            "Sequential/LSTM/Dense/Dropout/Adam sind None. "
+            "Bitte tensorflow installieren: pip install tensorflow"
+        )
+
     _n = n_horizons if n_horizons > 0 else len(_get_training_horizons())
     model = Sequential([
         LSTM(64, return_sequences=True, input_shape=(ML_SEQUENCE_LENGTH, ML_NUM_FEATURES)),
