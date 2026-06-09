@@ -178,6 +178,8 @@ def assign_nowcast_to_objects(objects: list, timestamp: str | None = None) -> li
             log_api_call(
                 "geosphere_nowcast", url=_url, status_code=_resp.status_code,
                 duration_ms=_dur_ms, method="GET",
+                response_text=_resp.text,
+                content_type=_resp.headers.get("content-type"),
             )
 
             _data = _resp.json()

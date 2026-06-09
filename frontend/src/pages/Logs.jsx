@@ -20,6 +20,8 @@ function Logs() {
   const [clearing,    setClearing]    = useState(false)
   const [allowPhysicalPurge, setAllowPhysicalPurge] = useState(false)
   const [physicalPurge, setPhysicalPurge] = useState(false)
+  const [exporting,    setExporting]    = useState(false)
+  const [exportMsg,    setExportMsg]    = useState(null)
 
   async function loadLogs() {
     try { setLogs(await api.get('/api/logs')) } catch (e) { console.error(e) }
@@ -70,6 +72,28 @@ function Logs() {
     }
   }
 
+  async function downloadDebugExport() {
+    setExporting(true)
+    setExportMsg(null)
+    try {
+      const { blob, filename } = await api.download('/api/admin/export/last-24h.zip')
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+      setExportMsg({ ok: true, text: 'Debug-Datenexport wurde erstellt und heruntergeladen.' })
+    } catch (e) {
+      setExportMsg({ ok: false, text: `Datenexport fehlgeschlagen: ${e.message}` })
+    } finally {
+      setExporting(false)
+      setTimeout(() => setExportMsg(null), 6000)
+    }
+  }
+
   useEffect(() => {
     loadLogs()
     loadCapabilities()
@@ -96,6 +120,13 @@ function Logs() {
         ))}
         <button onClick={active === 'api_fehler' ? loadHealth : loadLogs}
           className="btn-secondary ml-auto">↺ Reload</button>
+        <button
+          onClick={downloadDebugExport}
+          disabled={exporting}
+          className="btn-secondary text-emerald-700 border-emerald-300 hover:bg-emerald-50 disabled:opacity-50 text-xs px-2"
+          title="Logs, Bilder, Forecasts, externe Responses und Auswertungen der letzten 24 Stunden als ZIP herunterladen. Secrets werden entfernt.">
+          {exporting ? '⌛ Export wird erstellt…' : '⬇ Datenexport letzte 24h herunterladen'}
+        </button>
         {active !== 'api_fehler' && (
           <a href="/api/download/logs" download
             className="btn-secondary text-blue-600 border-blue-300 hover:bg-blue-50 text-xs px-2"
@@ -125,6 +156,19 @@ function Logs() {
             Systemd-Journal physisch löschen
           </label>
         )}
+      </div>
+
+      {exportMsg && (
+        <div className={`mb-3 px-3 py-2 rounded text-sm font-medium
+          ${exportMsg.ok
+            ? 'bg-green-50 border border-green-300 text-green-800'
+            : 'bg-red-50  border border-red-300  text-red-800'}`}>
+          {exportMsg.text}
+        </div>
+      )}
+
+      <div className="mb-3 text-xs text-gray-500">
+        Der Export enthält Logs, Bilder, Forecasts, externe Responses und Auswertungsdaten der letzten 24 Stunden. Secrets werden entfernt.
       </div>
 
       {/* Feedback-Banner nach Löschen */}
