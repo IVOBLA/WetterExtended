@@ -23,14 +23,21 @@ def pytest_configure(config):
     _preload_critical_modules()
 
 
+def _is_module_impostor(module):
+    """Erkennt einfache Test-Doubles, die echte Imports blockieren würden."""
+    return isinstance(module, types.SimpleNamespace) or (
+        isinstance(module, types.ModuleType) and getattr(module, "__spec__", None) is None
+    )
+
+
 def _preload_critical_modules():
     """
-    Entfernt SimpleNamespace-Impostoren und lädt echte Module nach.
-    Gilt für numpy, pandas und cv2 — diese Module dürfen kein
-    SimpleNamespace-Mock-Objekt sein.
+    Entfernt SimpleNamespace-/Fake-Impostoren und lädt echte Module nach.
+    Gilt für numpy, pandas, cv2 und shapely — diese Module dürfen kein
+    Mock-Objekt sein, weil spätere Tests echte Submodule daraus importieren.
     """
-    for name in ("numpy", "pandas", "cv2"):
-        if name in sys.modules and isinstance(sys.modules[name], types.SimpleNamespace):
+    for name in ("numpy", "pandas", "cv2", "shapely", "shapely.geometry", "shapely.ops"):
+        if name in sys.modules and _is_module_impostor(sys.modules[name]):
             del sys.modules[name]
         try:
             importlib.import_module(name)

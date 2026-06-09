@@ -1,3 +1,4 @@
+import importlib
 import sys
 import types
 from datetime import datetime, timezone
@@ -14,28 +15,62 @@ class _FakePoint:
         return sum((a - b) ** 2 for a, b in zip(self.coords, other.coords)) ** 0.5
 
 
-sys.modules.setdefault("requests", types.SimpleNamespace(get=None))
-_shapely = types.ModuleType("shapely")
-_geometry = types.ModuleType("shapely.geometry")
-_geometry.Point = _FakePoint
-sys.modules.setdefault("shapely", _shapely)
-sys.modules.setdefault("shapely.geometry", _geometry)
+def _module_is_available(name):
+    was_missing = name not in sys.modules
+    try:
+        importlib.import_module(name)
+    except Exception:
+        if was_missing:
+            sys.modules.pop(name, None)
+        return False
+    return True
 
-sys.modules.setdefault(
-    "debug_utils",
-    types.SimpleNamespace(
-        debug_log=lambda *args, **kwargs: None,
-        log_http_response=lambda *args, **kwargs: None,
-        log_api_failure=lambda *args, **kwargs: None,
-        log_api_call=lambda *args, **kwargs: None,
-    ),
-)
 
-from assign_cape_from_forecast import (
-    _find_nearest_cape_ts,
-    _parse_cape_ts,
-    assign_cape,
-)
+def _install_missing_import_doubles():
+    if not _module_is_available("requests") and "requests" not in sys.modules:
+        requests = types.ModuleType("requests")
+        requests.get = None
+        sys.modules["requests"] = requests
+
+    if not _module_is_available("shapely") and "shapely" not in sys.modules:
+        shapely = types.ModuleType("shapely")
+        geometry = types.ModuleType("shapely.geometry")
+        geometry.Point = _FakePoint
+        shapely.geometry = geometry
+        sys.modules["shapely"] = shapely
+        sys.modules["shapely.geometry"] = geometry
+
+    if not _module_is_available("debug_utils") and "debug_utils" not in sys.modules:
+        debug_utils = types.ModuleType("debug_utils")
+        debug_utils.debug_log = lambda *args, **kwargs: None
+        debug_utils.log_http_response = lambda *args, **kwargs: None
+        debug_utils.log_api_failure = lambda *args, **kwargs: None
+        debug_utils.log_api_call = lambda *args, **kwargs: None
+        sys.modules["debug_utils"] = debug_utils
+
+
+def _import_assign_cape_from_forecast():
+    module_names = ("requests", "shapely", "shapely.geometry", "debug_utils")
+    previous_modules = {name: sys.modules.get(name) for name in module_names}
+    _install_missing_import_doubles()
+
+    try:
+        from assign_cape_from_forecast import (  # noqa: PLC0415
+            _find_nearest_cape_ts,
+            _parse_cape_ts,
+            assign_cape,
+        )
+    finally:
+        for name, module in previous_modules.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
+
+    return _find_nearest_cape_ts, _parse_cape_ts, assign_cape
+
+
+_find_nearest_cape_ts, _parse_cape_ts, assign_cape = _import_assign_cape_from_forecast()
 
 
 def test_parse_cape_ts_accepts_geojson_iso_variants():
