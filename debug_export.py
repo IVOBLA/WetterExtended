@@ -9,6 +9,7 @@ import re
 import socket
 import subprocess
 import tempfile
+import time
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -46,6 +47,10 @@ class ExportCandidate:
     section: str
     arc_rel: Path
     force_include: bool = False
+
+
+class ExportLimitExceeded(RuntimeError):
+    """Der Debug-Export wurde wegen konfigurierter Schutzgrenzen abgebrochen."""
 
 
 def parse_timestamp_from_name(name: str) -> datetime | None:
@@ -131,7 +136,7 @@ def _section_for_external(path: Path) -> str:
     return "external_responses/other"
 
 
-def _build_candidates(base_dir: Path, save_paths: dict | None) -> list[ExportCandidate]:
+def _build_candidates_with_diagnostics(base_dir: Path, save_paths: dict | None) -> tuple[list[ExportCandidate], dict]:
     save_paths = save_paths or {}
     roots: list[tuple[str, Path, bool]] = [
         ("radar", Path(save_paths.get("radar", "train_data/radar")), False),
@@ -162,15 +167,20 @@ def _build_candidates(base_dir: Path, save_paths: dict | None) -> list[ExportCan
     ])
     config_patterns = ("*.json", "*.yaml", "*.yml")
     candidates: dict[Path, ExportCandidate] = {}
+    scanned_roots: list[str] = []
+    excluded_files_count = 0
     for section, root, force in roots:
         full = root if root.is_absolute() else base_dir / root
         if not full.exists():
             continue
+        scanned_roots.append(str(full))
         for file_path in _iter_files(full):
             if _is_excluded(file_path, base_dir):
+                excluded_files_count += 1
                 continue
             rel = _safe_rel(file_path, base_dir)
             if section == "radar" and root.name == "archiv" and not file_path.name.startswith("radarbild_"):
+                excluded_files_count += 1
                 continue
             try:
                 root_rel = file_path.relative_to(full) if full.is_dir() else Path(file_path.name)
@@ -185,7 +195,19 @@ def _build_candidates(base_dir: Path, save_paths: dict | None) -> list[ExportCan
         for file_path in base_dir.glob(pattern):
             if file_path.is_file() and not _is_excluded(file_path, base_dir):
                 candidates.setdefault(file_path.resolve(), ExportCandidate(file_path, "config", Path("config") / file_path.name, True))
-    return list(candidates.values())
+            elif file_path.is_file():
+                excluded_files_count += 1
+    diagnostics = {
+        "candidates_count": len(candidates),
+        "scanned_roots": sorted(scanned_roots),
+        "excluded_files_count": excluded_files_count,
+    }
+    return list(candidates.values()), diagnostics
+
+
+def _build_candidates(base_dir: Path, save_paths: dict | None) -> list[ExportCandidate]:
+    candidates, _diagnostics = _build_candidates_with_diagnostics(base_dir, save_paths)
+    return candidates
 
 
 def _read_redacted(path: Path) -> bytes:
@@ -206,7 +228,15 @@ def _expected_sections_present(files_by_section: dict[str, int]) -> list[str]:
     return [label for section, label in expected.items() if files_by_section.get(section, 0) == 0]
 
 
-def create_debug_export_zip(*, base_dir: str | Path = ".", save_paths: dict | None = None, hours: int = 24, now: datetime | None = None) -> tuple[Path, str, dict]:
+def create_debug_export_zip(
+    *,
+    base_dir: str | Path = ".",
+    save_paths: dict | None = None,
+    hours: int = 24,
+    now: datetime | None = None,
+    max_files: int = 5000,
+    max_total_bytes: int = 512 * 1024 * 1024,
+) -> tuple[Path, str, dict]:
     base_dir = Path(base_dir).resolve()
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
@@ -219,7 +249,8 @@ def create_debug_export_zip(*, base_dir: str | Path = ".", save_paths: dict | No
     tmp_path = Path(tmp.name)
     tmp.close()
 
-    candidates = _build_candidates(base_dir, save_paths)
+    started = time.perf_counter()
+    candidates, diagnostics = _build_candidates_with_diagnostics(base_dir, save_paths)
     included_roots: set[str] = set()
     excluded_files: list[str] = []
     redacted_files: list[str] = []
@@ -227,69 +258,95 @@ def create_debug_export_zip(*, base_dir: str | Path = ".", save_paths: dict | No
     total_bytes = 0
     total_files = 0
     external_sources: set[str] = set()
+    skipped_old_files = 0
 
-    with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        readme = (
-            "WetterExtended Debug-Export der letzten 24 Stunden\n"
-            "Enthält Logs, Bilder, Forecasts, externe Responses und Auswertungsdaten, sofern vorhanden.\n"
-            "Textuelle Konfigurationen und Logs wurden auf Secrets geprüft und redacted.\n"
-        )
-        zf.writestr(f"{root_name}/README.txt", readme)
-        for cand in candidates:
-            path = cand.src
-            rel = _safe_rel(path, base_dir).as_posix()
-            if not _file_in_window(path, window_start, now, cand.force_include):
-                excluded_files.append(rel)
-                continue
-            section = cand.section
-            arcname = f"{root_name}/{cand.arc_rel.as_posix()}"
-            try:
-                if _is_text_file(path):
-                    data = _read_redacted(path)
-                    zf.writestr(arcname, data)
-                    total_bytes += len(data)
-                    redacted_files.append(rel)
-                else:
-                    zf.write(path, arcname)
-                    total_bytes += path.stat().st_size
-                total_files += 1
-                files_by_section[section] = files_by_section.get(section, 0) + 1
-                included_roots.add(str(cand.arc_rel.parts[0]) if cand.arc_rel.parts else section)
-                if "external_responses" in cand.arc_rel.parts:
-                    idx = cand.arc_rel.parts.index("external_responses")
-                    if len(cand.arc_rel.parts) > idx + 1:
-                        external_sources.add(cand.arc_rel.parts[idx + 1])
-            except Exception as exc:
-                excluded_files.append(f"{rel}: {exc}")
+    try:
+        with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            readme = (
+                "WetterExtended Debug-Export der letzten 24 Stunden\n"
+                "Enthält Logs, Bilder, Forecasts, externe Responses und Auswertungsdaten, sofern vorhanden.\n"
+                "Textuelle Konfigurationen und Logs wurden auf Secrets geprüft und redacted.\n"
+            )
+            zf.writestr(f"{root_name}/README.txt", readme)
+            for cand in candidates:
+                path = cand.src
+                rel = _safe_rel(path, base_dir).as_posix()
+                if not _file_in_window(path, window_start, now, cand.force_include):
+                    excluded_files.append(rel)
+                    skipped_old_files += 1
+                    continue
+                if max_files and total_files + 1 > max_files:
+                    raise ExportLimitExceeded(f"Debug-Export abgebrochen: max_files={max_files} überschritten")
+                section = cand.section
+                arcname = f"{root_name}/{cand.arc_rel.as_posix()}"
+                try:
+                    if _is_text_file(path):
+                        data = _read_redacted(path)
+                        next_size = len(data)
+                        if max_total_bytes and total_bytes + next_size > max_total_bytes:
+                            raise ExportLimitExceeded(
+                                f"Debug-Export abgebrochen: max_total_bytes={max_total_bytes} überschritten"
+                            )
+                        zf.writestr(arcname, data)
+                        total_bytes += next_size
+                        redacted_files.append(rel)
+                    else:
+                        next_size = path.stat().st_size
+                        if max_total_bytes and total_bytes + next_size > max_total_bytes:
+                            raise ExportLimitExceeded(
+                                f"Debug-Export abgebrochen: max_total_bytes={max_total_bytes} überschritten"
+                            )
+                        zf.write(path, arcname)
+                        total_bytes += next_size
+                    total_files += 1
+                    files_by_section[section] = files_by_section.get(section, 0) + 1
+                    included_roots.add(str(cand.arc_rel.parts[0]) if cand.arc_rel.parts else section)
+                    if "external_responses" in cand.arc_rel.parts:
+                        idx = cand.arc_rel.parts.index("external_responses")
+                        if len(cand.arc_rel.parts) > idx + 1:
+                            external_sources.add(cand.arc_rel.parts[idx + 1])
+                except ExportLimitExceeded:
+                    raise
+                except Exception as exc:
+                    excluded_files.append(f"{rel}: {exc}")
 
-        manifest = {
-            "created_at": now.isoformat(timespec="seconds"),
-            "window_start": window_start.isoformat(timespec="seconds"),
-            "window_end": now.isoformat(timespec="seconds"),
-            "hostname": socket.gethostname(),
-            "git_commit": _git_commit(base_dir),
-            "app_version": os.getenv("WETTEREXTENDED_VERSION", "unknown"),
-            "python_version": platform.python_version(),
-            "export_reason": "last_24h_debug_run",
-            "total_files": total_files,
-            "total_bytes": total_bytes,
-            "included_roots": sorted(included_roots),
-            "excluded_files": sorted(excluded_files),
-            "redacted_files": sorted(redacted_files),
-            "missing_expected_sections": _expected_sections_present(files_by_section),
-            "external_sources_detected": sorted(external_sources),
-            "forecast_horizons_min": _extract_forecast_horizons(base_dir),
-            "locations_count": _extract_locations_count(base_dir),
-            "objects_files_count": files_by_section.get("objects", 0),
-            "radar_files_count": files_by_section.get("radar", 0),
-            "forecast_files_count": files_by_section.get("forecast", 0),
-            "evaluation_files_count": files_by_section.get("evaluation", 0),
-        }
-        manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
-        zf.writestr(f"{root_name}/manifest.json", manifest_bytes)
-    manifest["total_files"] = total_files
-    return tmp_path, filename, manifest
-
+            manifest = {
+                "created_at": now.isoformat(timespec="seconds"),
+                "window_start": window_start.isoformat(timespec="seconds"),
+                "window_end": now.isoformat(timespec="seconds"),
+                "hostname": socket.gethostname(),
+                "git_commit": _git_commit(base_dir),
+                "app_version": os.getenv("WETTEREXTENDED_VERSION", "unknown"),
+                "python_version": platform.python_version(),
+                "export_reason": "last_24h_debug_run",
+                "total_files": total_files,
+                "total_bytes": total_bytes,
+                "included_roots": sorted(included_roots),
+                "excluded_files": sorted(excluded_files),
+                "redacted_files": sorted(redacted_files),
+                "missing_expected_sections": _expected_sections_present(files_by_section),
+                "external_sources_detected": sorted(external_sources),
+                "forecast_horizons_min": _extract_forecast_horizons(base_dir),
+                "locations_count": _extract_locations_count(base_dir),
+                "objects_files_count": files_by_section.get("objects", 0),
+                "radar_files_count": files_by_section.get("radar", 0),
+                "forecast_files_count": files_by_section.get("forecast", 0),
+                "evaluation_files_count": files_by_section.get("evaluation", 0),
+                "duration_s": round(time.perf_counter() - started, 3),
+                "candidates_count": diagnostics["candidates_count"],
+                "scanned_roots": diagnostics["scanned_roots"],
+                "skipped_old_files": skipped_old_files,
+                "excluded_files_count": diagnostics["excluded_files_count"] + len(excluded_files),
+                "max_files": max_files,
+                "max_total_bytes": max_total_bytes,
+            }
+            manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
+            zf.writestr(f"{root_name}/manifest.json", manifest_bytes)
+        manifest["total_files"] = total_files
+        return tmp_path, filename, manifest
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 def _extract_forecast_horizons(base_dir: Path) -> list[int]:
     try:

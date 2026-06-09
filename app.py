@@ -2,6 +2,8 @@ import glob
 import json
 import os
 import subprocess
+import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -13,6 +15,7 @@ import runtime_config
 from debug_utils import debug_log
 from accuracy_tracker import evaluate_all, load_history
 from auth import auth_bp, init_db, get_current_user, ROLE_LEVEL, require_role
+import debug_export
 
 app = Flask(__name__, static_folder="frontend/dist", static_url_path="")
 app.register_blueprint(auth_bp)
@@ -212,6 +215,21 @@ def _sanitize_for_json(obj, _depth=0):
     if isinstance(obj, list):
         return [_sanitize_for_json(v, _depth+1) for v in obj]
     return obj
+
+
+def _tail_readable_file_lines(path, limit=500, label=None):
+    """Liest lokale Logdateien best-effort und liefert klare Meldungen bei fehlenden Rechten."""
+    log_path = Path(path)
+    display = label or str(log_path)
+    try:
+        with log_path.open("r", encoding="utf-8", errors="replace") as fh:
+            return fh.read().splitlines()[-limit:]
+    except PermissionError:
+        return [f"[nginx] {display} nicht lesbar"]
+    except FileNotFoundError:
+        return [f"[nginx] {display} nicht lesbar"]
+    except OSError as exc:
+        return [f"[nginx] {display} nicht lesbar: {exc}"]
 
 
 def _journalctl_unit_lines(unit, limit=500):
@@ -665,30 +683,61 @@ def api_git():
 @require_role("admin")
 def api_admin_export_last_24h_zip():
     """Geschützter ZIP-Export aller relevanten Debug-Daten der letzten 24 Stunden."""
+    hours = 24
+    export_base_dir = _resolve_debug_export_base_dir(SAVE_PATHS)
+    started = time.perf_counter()
+    zip_path = None
+    app.logger.info("[ADMIN-EXPORT] start hours=%s base_dir=%s", hours, export_base_dir)
+    print(f"[ADMIN-EXPORT] start hours={hours} base_dir={export_base_dir}", flush=True)
     try:
-        import io
-        from debug_export import create_debug_export_zip
-
-        hours = 24
-        export_base_dir = _resolve_debug_export_base_dir(SAVE_PATHS)
-        zip_path, filename, _manifest = create_debug_export_zip(
+        zip_path, filename, manifest = debug_export.create_debug_export_zip(
             base_dir=export_base_dir,
             save_paths=SAVE_PATHS,
             hours=hours,
         )
 
-        data = Path(zip_path).read_bytes()
-        Path(zip_path).unlink(missing_ok=True)
-        return send_file(
-            io.BytesIO(data),
+        zip_path = Path(zip_path)
+        size_bytes = zip_path.stat().st_size
+        duration_s = time.perf_counter() - started
+        manifest_total_files = manifest.get("total_files", "unknown") if isinstance(manifest, dict) else "unknown"
+        app.logger.info(
+            "[ADMIN-EXPORT] success file=%s bytes=%s duration_s=%.3f manifest_total_files=%s",
+            zip_path,
+            size_bytes,
+            duration_s,
+            manifest_total_files,
+        )
+        print(
+            f"[ADMIN-EXPORT] success file={zip_path} bytes={size_bytes} "
+            f"duration_s={duration_s:.3f} manifest_total_files={manifest_total_files}",
+            flush=True,
+        )
+        response = send_file(
+            zip_path,
             mimetype="application/zip",
             as_attachment=True,
             download_name=filename,
             max_age=0,
         )
+        response.call_on_close(lambda path=zip_path: Path(path).unlink(missing_ok=True))
+        return response
     except Exception as exc:
-        debug_log(f"[ADMIN] Debug-Export fehlgeschlagen: {exc}")
-        return jsonify({"error": f"Debug-Export konnte nicht erstellt werden: {exc}"}), 500
+        duration_s = time.perf_counter() - started
+        app.logger.exception(
+            "[ADMIN-EXPORT] failed hours=%s base_dir=%s duration_s=%.3f error=%s",
+            hours,
+            export_base_dir,
+            duration_s,
+            exc,
+        )
+        print(
+            f"[ADMIN-EXPORT] failed hours={hours} base_dir={export_base_dir} "
+            f"duration_s={duration_s:.3f} error={exc}\n{traceback.format_exc()}",
+            flush=True,
+        )
+        if zip_path is not None:
+            Path(zip_path).unlink(missing_ok=True)
+        return jsonify({"error": f"Debug-Export konnte nicht erstellt werden: {exc}", "type": type(exc).__name__}), 500
 
 
 @app.route("/api/download/logs")
@@ -706,6 +755,16 @@ def api_download_logs():
         lines.append(f"=== {unit} ===")
         lines.append(f"{'='*60}")
         lines.extend(_journalctl_unit_lines(unit, limit=500))
+        lines.append("")
+    nginx_logs = {
+        "nginx error": "/var/log/nginx/error.log",
+        "nginx access": "/var/log/nginx/access.log",
+    }
+    for label, path in nginx_logs.items():
+        lines.append(f"{'='*60}")
+        lines.append(f"=== {label} ({path}) ===")
+        lines.append(f"{'='*60}")
+        lines.extend(_tail_readable_file_lines(path, limit=500))
         lines.append("")
     content = "\n".join(lines)
     buf = _io_dl.BytesIO(content.encode("utf-8", errors="replace"))
@@ -1666,6 +1725,8 @@ def api_logs():
         "wetterprojekt": _journalctl_unit_lines("wetterprojekt", limit=500),
         "scheduler": _journalctl_unit_lines("wetterprojekt-scheduler", limit=500),
         "admin": _journalctl_unit_lines("wetterprojekt-admin", limit=500),
+        "nginx_error": _tail_readable_file_lines("/var/log/nginx/error.log", limit=500),
+        "nginx_access": _tail_readable_file_lines("/var/log/nginx/access.log", limit=500),
     })
 
 

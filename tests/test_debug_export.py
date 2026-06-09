@@ -146,3 +146,87 @@ def test_export_route_returns_zip_with_admin_auth(client_with_export_data, monke
         names = zf.namelist()
         assert any(name.endswith("/manifest.json") for name in names)
         assert any(name.endswith("latest_objects.json") for name in names)
+
+
+def test_debug_export_manifest_contains_diagnostics(export_tree):
+    base, save_paths, now = export_tree
+    zip_path, _filename, manifest = create_debug_export_zip(base_dir=base, save_paths=save_paths, now=now)
+    try:
+        assert manifest["duration_s"] >= 0
+        assert manifest["candidates_count"] >= manifest["total_files"]
+        assert isinstance(manifest["scanned_roots"], list)
+        assert manifest["skipped_old_files"] >= 1
+        assert manifest["excluded_files_count"] >= manifest["skipped_old_files"]
+    finally:
+        zip_path.unlink(missing_ok=True)
+
+
+def test_debug_export_limit_exceeded_aborts_cleanly(export_tree):
+    base, save_paths, now = export_tree
+    import pytest
+    from debug_export import ExportLimitExceeded
+
+    with pytest.raises(ExportLimitExceeded, match="max_files=1"):
+        create_debug_export_zip(base_dir=base, save_paths=save_paths, now=now, max_files=1)
+
+
+def test_export_route_exception_logs_stacktrace_and_returns_json(client_with_export_data, monkeypatch, caplog):
+    import logging
+    import debug_export
+
+    monkeypatch.setattr("auth.get_current_user", lambda: {"role": "admin", "sub": "1"})
+
+    def boom(**_kwargs):
+        raise RuntimeError("kaputt")
+
+    monkeypatch.setattr(debug_export, "create_debug_export_zip", boom)
+    caplog.set_level(logging.INFO, logger="app")
+
+    resp = client_with_export_data.get("/api/admin/export/last-24h.zip")
+
+    assert resp.status_code == 500
+    payload = resp.get_json()
+    assert payload["type"] == "RuntimeError"
+    assert "kaputt" in payload["error"]
+    assert "[ADMIN-EXPORT] start" in caplog.text
+    assert "[ADMIN-EXPORT] failed" in caplog.text
+    assert "Traceback" in caplog.text
+
+
+def test_export_route_success_logs_start_and_success(client_with_export_data, monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setattr("auth.get_current_user", lambda: {"role": "admin", "sub": "1"})
+    caplog.set_level(logging.INFO, logger="app")
+
+    resp = client_with_export_data.get("/api/admin/export/last-24h.zip")
+    try:
+        assert resp.status_code == 200
+        assert "[ADMIN-EXPORT] start" in caplog.text
+        assert "[ADMIN-EXPORT] success" in caplog.text
+        assert "manifest_total_files=" in caplog.text
+    finally:
+        resp.close()
+
+
+def test_export_route_does_not_use_read_bytes():
+    source = Path("app.py").read_text(encoding="utf-8")
+    route_start = source.index('def api_admin_export_last_24h_zip():')
+    route_end = source.index('@app.route("/api/download/logs")', route_start)
+    route_source = source[route_start:route_end]
+
+    assert ".read_bytes(" not in route_source
+    assert "send_file(" in route_source
+    assert "call_on_close" in route_source
+
+
+def test_download_logs_contains_nginx_section_or_not_readable_message(client_with_export_data, monkeypatch):
+    import app as app_module
+
+    monkeypatch.setattr(app_module, "_journalctl_unit_lines", lambda unit, limit=500: [f"{unit} log"])
+    resp = client_with_export_data.get("/api/download/logs")
+    assert resp.status_code == 200
+    text = resp.get_data(as_text=True)
+    assert "=== nginx error (/var/log/nginx/error.log) ===" in text
+    assert "=== nginx access (/var/log/nginx/access.log) ===" in text
+    assert ("[nginx] /var/log/nginx/error.log nicht lesbar" in text) or ("=== nginx error" in text and len(text) > 0)
