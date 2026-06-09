@@ -1850,3 +1850,6 @@ Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sow
 - **Tests:** `tests/test_p2_1_radar_hash_dedup.py` — alle 3 Tests PASSED.
 | B111 | `Logs.jsx` | Nginx-Logs in UI sichtbar (PR #544). Feste Tab-Liste durch dynamische Generierung ersetzt. `nginx_error` und `nginx_access` erscheinen als Tabs wenn das Backend sie liefert. | ✅ erledigt |
 | B112 | `MapView.jsx`, `MapFullscreen.jsx` | first_seen Timestamp-Parsing (PR #524). `new Date(ts + 'Z')` erzeugte falsche UTC-Interpretation der Vienna-Lokalzeit (Fehler bis -2h). Neue Funktion `parseViennaLocalTimestamp()` parst ohne Z-Suffix. | ✅ erledigt |
+
+| B113 | `MapView.jsx`, `MapFullscreen.jsx` | IR-Tooltip-Label (PR #375). `CB > 10.000` nur wenn `cloud_height_m >= 10000`, sonst `IR-Vorläufer`. Fix in MapView und MapFullscreen. | ✅ erledigt |
+| B114 | AI-Report-E-Mail-Datei | HTML-Escaping im AI-Report (PR #182). LLM-generierte Felder (title, description, action, priority) werden mit `html.escape()` bereinigt bevor HTML-Einbettung. | ✅ erledigt |
