@@ -1829,3 +1829,16 @@ Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sow
   statt kryptischem `TypeError` wenn TF wirklich fehlt.
 - **Tests:** `tests/test_p0_2_horizons_consistency.py` — alle 2 betroffenen
   Tests jetzt PASSED (TF installiert) oder SKIPPED (TF fehlt).
+
+### B102 – `test_p2_1_radar_hash_dedup` AttributeError namespace (behoben)
+- **Datei:** `tests/test_p2_1_radar_hash_dedup.py`
+- **Problem:** `monkeypatch.setattr(rd.requests, "get", ...)` schlug fehl
+  mit `AttributeError: namespace() has no attribute 'get'`, weil
+  `rd.requests` je nach Test-Reihenfolge ein `types.SimpleNamespace`
+  (ohne `.get`) war statt das echte `requests`-Modul.
+- **Fix:** `requests` wird als ganzer Namespace im `radar_download`-Modul
+  ersetzt (`monkeypatch.setattr(rd, "requests", mock_ns)`).
+  Zusätzlich wird `radar_download` vor jedem Test aus `sys.modules`
+  entfernt (`monkeypatch.delitem`) damit kein gecachtes Modul verwendet
+  wird. Hilfsfunktion `_make_requests_mock()` zentralisiert Mock-Erstellung.
+- **Tests:** `tests/test_p2_1_radar_hash_dedup.py` — alle 3 Tests PASSED.
