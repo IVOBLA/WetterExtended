@@ -2,35 +2,64 @@ import importlib
 import importlib.util
 import json
 import os
+import sys
 from datetime import datetime, timedelta, timezone
 
-np = importlib.import_module("numpy") if importlib.util.find_spec("numpy") else None
-lgb = importlib.import_module("lightgbm") if importlib.util.find_spec("lightgbm") else None
-joblib = importlib.import_module("joblib") if importlib.util.find_spec("joblib") else None
+try:
+    from debug_utils import debug_log
+except Exception:
+    def debug_log(message):
+        print(message)
 
-if importlib.util.find_spec("sklearn"):
-    train_test_split = importlib.import_module("sklearn.model_selection").train_test_split
-    sklearn_metrics = importlib.import_module("sklearn.metrics")
-    roc_auc_score = sklearn_metrics.roc_auc_score
-    precision_score = sklearn_metrics.precision_score
-    recall_score = sklearn_metrics.recall_score
+
+def _optional_import(name):
+    """Importiert optionale Abhängigkeiten robust ohne Modulimport-Crash."""
+    try:
+        if name not in sys.modules and importlib.util.find_spec(name) is None:
+            return None
+    except Exception as exc:
+        debug_log(f"[OPTIONAL_IMPORT] {name}: find_spec fehlgeschlagen: {exc}")
+        return None
+    try:
+        return importlib.import_module(name)
+    except Exception as exc:
+        debug_log(f"[OPTIONAL_IMPORT] {name}: Import fehlgeschlagen: {exc}")
+        return None
+
+
+np = _optional_import("numpy")
+lgb = _optional_import("lightgbm")
+joblib = _optional_import("joblib")
+
+sklearn_model_selection = _optional_import("sklearn.model_selection")
+sklearn_metrics = _optional_import("sklearn.metrics")
+if sklearn_model_selection is not None and sklearn_metrics is not None:
+    train_test_split = getattr(sklearn_model_selection, "train_test_split", None)
+    roc_auc_score = getattr(sklearn_metrics, "roc_auc_score", None)
+    precision_score = getattr(sklearn_metrics, "precision_score", None)
+    recall_score = getattr(sklearn_metrics, "recall_score", None)
 else:
     train_test_split = None
     roc_auc_score = precision_score = recall_score = None
 
-if importlib.util.find_spec("tensorflow"):
-    keras_models = importlib.import_module("tensorflow.keras.models")
-    keras_layers = importlib.import_module("tensorflow.keras.layers")
-    keras_callbacks = importlib.import_module("tensorflow.keras.callbacks")
-    keras_optimizers = importlib.import_module("tensorflow.keras.optimizers")
-    Sequential = keras_models.Sequential
-    load_model = keras_models.load_model
-    LSTM = keras_layers.LSTM
-    Dense = keras_layers.Dense
-    Dropout = keras_layers.Dropout
-    EarlyStopping = keras_callbacks.EarlyStopping
-    ModelCheckpoint = keras_callbacks.ModelCheckpoint
-    Adam = keras_optimizers.Adam
+keras_models = _optional_import("tensorflow.keras.models")
+keras_layers = _optional_import("tensorflow.keras.layers")
+keras_callbacks = _optional_import("tensorflow.keras.callbacks")
+keras_optimizers = _optional_import("tensorflow.keras.optimizers")
+if (
+    keras_models is not None
+    and keras_layers is not None
+    and keras_callbacks is not None
+    and keras_optimizers is not None
+):
+    Sequential = getattr(keras_models, "Sequential", None)
+    load_model = getattr(keras_models, "load_model", None)
+    LSTM = getattr(keras_layers, "LSTM", None)
+    Dense = getattr(keras_layers, "Dense", None)
+    Dropout = getattr(keras_layers, "Dropout", None)
+    EarlyStopping = getattr(keras_callbacks, "EarlyStopping", None)
+    ModelCheckpoint = getattr(keras_callbacks, "ModelCheckpoint", None)
+    Adam = getattr(keras_optimizers, "Adam", None)
 else:
     Sequential = load_model = LSTM = Dense = Dropout = EarlyStopping = ModelCheckpoint = Adam = None
 
@@ -39,14 +68,16 @@ from config import ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH
 _MODELS_BASE = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "train_data", "models")
 )
-from dataset_builder import build_classification_dataset, build_dataset
 try:
-    from debug_utils import debug_log
-except Exception:
-    def debug_log(message):
-        print(message)
+    from dataset_builder import build_classification_dataset, build_dataset
+except Exception as exc:
+    debug_log(f"[OPTIONAL_IMPORT] dataset_builder: Import fehlgeschlagen: {exc}")
 
+    def build_classification_dataset():
+        return None
 
+    def build_dataset(*args, **kwargs):
+        return None
 
 
 def _current_models_dir():

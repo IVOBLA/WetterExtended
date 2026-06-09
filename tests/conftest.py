@@ -9,7 +9,7 @@ sys.modules war, blieb dieser Mock haften und korrumpierte rasterio-
 und pandas-Imports in allen nachfolgenden Test-Dateien (Phase-9-Fehler).
 
 pytest_configure läuft VOR der Test-Sammlung und stellt sicher, dass
-sys.modules["numpy"] das echte numpy-Modul enthält, bevor irgendeine
+sys.modules["numpy"] echte kritische Module enthält, bevor irgendeine
 Test-Datei einen SimpleNamespace-Mock setzen kann.
 """
 
@@ -26,13 +26,13 @@ def pytest_configure(config):
 def _preload_critical_modules():
     """
     Entfernt SimpleNamespace-Impostoren und lädt echte Module nach.
-    Gilt für numpy und pandas — beide werden von rasterio bzw. pandas
-    transitiv importiert und dürfen kein Mock-Objekt sein.
+    Gilt für numpy, pandas und cv2 — diese Module dürfen kein
+    SimpleNamespace-Mock-Objekt sein.
     """
-    for name in ("numpy", "pandas"):
+    for name in ("numpy", "pandas", "cv2"):
         if name in sys.modules and isinstance(sys.modules[name], types.SimpleNamespace):
             del sys.modules[name]
         try:
             importlib.import_module(name)
-        except ImportError:
-            pass  # Nicht verfügbar → pytest.importorskip in Test-Dateien zuständig
+        except Exception:
+            pass  # Nicht verfügbar/kaputt → pytest.importorskip bzw. Modul-Guards zuständig

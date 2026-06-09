@@ -1,12 +1,51 @@
 # geo_utils.py
 
 import os
-import cv2
+
+try:
+    import cv2
+except Exception:
+    cv2 = None
 from xml.etree import ElementTree as ET
 from debug_utils import debug_log
 
 LAT, LON = 46.05, 14.51  # Fallback-Koordinaten
 kml_bounds = {}
+_FALLBACK_IMG_WIDTH = 512
+_FALLBACK_IMG_HEIGHT = 512
+
+
+def _safe_imread(path):
+    """Liest ein Bild nur, wenn cv2 echt/nutzbar ist; sonst None."""
+    imread = getattr(cv2, "imread", None)
+    if imread is None:
+        debug_log(f"[GEO] WARNUNG: cv2.imread nicht verfügbar — Bild kann nicht gelesen werden: {path}")
+        return None
+    try:
+        return imread(path)
+    except Exception as exc:
+        debug_log(f"[GEO] WARNUNG: cv2.imread fehlgeschlagen für {path}: {exc}")
+        return None
+
+
+def _image_dimensions_or_fallback(path="data/latest.png"):
+    img_width = kml_bounds.get("orig_width")
+    img_height = kml_bounds.get("orig_height")
+    if img_width is not None and img_height is not None:
+        return img_width, img_height
+
+    img = _safe_imread(path)
+    if img is not None:
+        img_height, img_width = img.shape[:2]
+        kml_bounds["orig_width"] = img_width
+        kml_bounds["orig_height"] = img_height
+        return img_width, img_height
+
+    debug_log(
+        f"[GEO] WARNUNG: {path} nicht lesbar oder cv2 nicht nutzbar — "
+        f"Fallback {_FALLBACK_IMG_WIDTH}x{_FALLBACK_IMG_HEIGHT} aktiv, Positionen ungenau!"
+    )
+    return _FALLBACK_IMG_WIDTH, _FALLBACK_IMG_HEIGHT
 
 def parse_kml_bounds():
     global kml_bounds
@@ -31,7 +70,7 @@ def parse_kml_bounds():
             }
             # Originaldimensionen einmalig einlesen und cachen.
             # pixel_to_geo liest diese Werte direkt statt cv2.imread bei jedem Aufruf.
-            _img_check = cv2.imread("data/latest.png")
+            _img_check = _safe_imread("data/latest.png")
             if _img_check is not None:
                 kml_bounds["orig_height"], kml_bounds["orig_width"] = _img_check.shape[:2]
                 debug_log(
@@ -61,18 +100,7 @@ def pixel_to_geo(x, y):
     # Gecachte Originaldimensionen verwenden — kein cv2.imread bei jedem Aufruf.
     # cv2.imread gibt None zurück (keine Exception) wenn Datei fehlt →
     # None.shape → AttributeError → 512×512-Fallback → 125km Positionsfehler.
-    img_width  = kml_bounds.get("orig_width")
-    img_height = kml_bounds.get("orig_height")
-    if img_width is None or img_height is None:
-        # Einmalig nachlesen (z.B. direkt nach parse_kml_bounds ohne crop)
-        _img_fallback = cv2.imread("data/latest.png")
-        if _img_fallback is not None:
-            img_height, img_width = _img_fallback.shape[:2]
-            kml_bounds["orig_width"] = img_width
-            kml_bounds["orig_height"] = img_height
-        else:
-            debug_log("[GEO] WARNUNG: data/latest.png nicht lesbar — Fallback 512x512 aktiv, Positionen ungenau!")
-            img_width, img_height = 512, 512
+    img_width, img_height = _image_dimensions_or_fallback("data/latest.png")
 
     lon = kml_bounds["west"] + (x / img_width) * (kml_bounds["east"] - kml_bounds["west"])
     lat = kml_bounds["north"] - (y / img_height) * (kml_bounds["north"] - kml_bounds["south"])
@@ -85,16 +113,7 @@ def geo_to_pixel(lat, lon):
     if not kml_bounds:
         return 0, 0
 
-    img_width  = kml_bounds.get("orig_width")
-    img_height = kml_bounds.get("orig_height")
-    if img_width is None or img_height is None:
-        _img_fallback = cv2.imread("data/latest.png")
-        if _img_fallback is not None:
-            img_height, img_width = _img_fallback.shape[:2]
-            kml_bounds["orig_width"] = img_width
-            kml_bounds["orig_height"] = img_height
-        else:
-            img_width, img_height = 512, 512
+    img_width, img_height = _image_dimensions_or_fallback("data/latest.png")
 
     x = int((lon - kml_bounds["west"]) / (kml_bounds["east"] - kml_bounds["west"]) * img_width)
     y = int((kml_bounds["north"] - lat) / (kml_bounds["north"] - kml_bounds["south"]) * img_height)
@@ -123,7 +142,7 @@ def crop_and_upscale_to_bbox(image_path, bbox, upscale=3.0, save_path=None):
     global kml_bounds
     parse_kml_bounds()
 
-    img = cv2.imread(image_path)
+    img = _safe_imread(image_path)
     if img is None:
         raise FileNotFoundError(f"Bild nicht gefunden: {image_path}")
     original_height, original_width = img.shape[:2]

@@ -74,6 +74,51 @@ github_ssh_preflight() {
     exit 1
 }
 
+
+# Runtime-Overrides sind Benutzereinstellungen. Bei Upgrades von alten
+# Versionen kann train_data/runtime_overrides.json noch im Git-Index verfolgt
+# und lokal geändert sein. Deshalb vor Git-Operationen sichern, lokale
+# Index-Konflikte für genau diese Datei neutralisieren und danach wiederherstellen.
+RUNTIME_OVERRIDES_REL="train_data/runtime_overrides.json"
+RUNTIME_OVERRIDES_BACKUP=""
+
+backup_runtime_overrides() {
+    local runtime_path="$TARGET/$RUNTIME_OVERRIDES_REL"
+    if [[ -f "$runtime_path" ]]; then
+        RUNTIME_OVERRIDES_BACKUP=$(mktemp /tmp/wetterprojekt_runtime_overrides.XXXXXX.json)
+        cp "$runtime_path" "$RUNTIME_OVERRIDES_BACKUP"
+        log_info "runtime_overrides.json vor Git-Update gesichert."
+    fi
+
+    if [[ -d "$TARGET/.git" ]]; then
+        (
+            cd "$TARGET"
+            if git ls-files --error-unmatch "$RUNTIME_OVERRIDES_REL" >/dev/null 2>&1; then
+                git checkout -- "$RUNTIME_OVERRIDES_REL" 2>/dev/null || true
+            fi
+        )
+    fi
+}
+
+restore_runtime_overrides() {
+    local runtime_path="$TARGET/$RUNTIME_OVERRIDES_REL"
+    if [[ -n "$RUNTIME_OVERRIDES_BACKUP" && -f "$RUNTIME_OVERRIDES_BACKUP" ]]; then
+        mkdir -p "$(dirname "$runtime_path")"
+        cp "$RUNTIME_OVERRIDES_BACKUP" "$runtime_path"
+        rm -f "$RUNTIME_OVERRIDES_BACKUP"
+        log_info "runtime_overrides.json nach Git-Update wiederhergestellt."
+    fi
+
+    if [[ -d "$TARGET/.git" ]]; then
+        (
+            cd "$TARGET"
+            if git ls-files --error-unmatch "$RUNTIME_OVERRIDES_REL" >/dev/null 2>&1; then
+                git update-index --skip-worktree "$RUNTIME_OVERRIDES_REL" 2>/dev/null || true
+            fi
+        )
+    fi
+}
+
 # --- Optionen -----------------------------------------------------------------
 CURRENT_PHASE="Init"
 MODE="upgrade"
@@ -240,7 +285,7 @@ fi
 
 # Raspberry Pi 5 erkennen
 PI_MODEL=""
-[[ -f /proc/device-tree/model ]] && PI_MODEL=$(cat /proc/device-tree/model 2>/dev/null || true)
+[[ -f /proc/device-tree/model ]] && PI_MODEL=$(tr -d '\0' < /proc/device-tree/model 2>/dev/null || true)
 # Generische Pi-Erkennung (alle Modelle — für piwheels u.a.)
 if echo "$PI_MODEL" | grep -qi "Raspberry Pi"; then
     IS_PI=true
@@ -353,6 +398,8 @@ fi
 CURRENT_PHASE="Phase 3 — Source holen"
 log_step "Phase 3 — Source holen"
 
+backup_runtime_overrides
+
 if [[ "$LOCAL_INSTALL" == true ]]; then
     log_info "Lokale Installation aus: $LOCAL_SOURCE"
     if [[ "$LOCAL_SOURCE" != "$TARGET" ]]; then
@@ -432,6 +479,8 @@ else
     cd "$TARGET"
     log_info "Repository geklont ($_GIT_REF): $(git rev-parse --short HEAD)"
 fi
+
+restore_runtime_overrides
 
 # ==============================================================================
 # PHASE 3b — Vollinstallation: Daten und Build löschen
