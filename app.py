@@ -23,6 +23,17 @@ app.register_blueprint(auth_bp)
 init_db()
 
 
+def _project_timestamp_to_utc(ts: str):
+    """Parse project timestamps as Europe/Vienna local time and return UTC datetime."""
+    from datetime import timezone
+    from zoneinfo import ZoneInfo
+
+    local_dt = datetime.strptime(ts, "%Y-%m-%d_%H-%M-%S").replace(
+        tzinfo=ZoneInfo("Europe/Vienna")
+    )
+    return local_dt.astimezone(timezone.utc)
+
+
 def _resolve_debug_export_base_dir(save_paths):
     """Bestimmt die Projektbasis für den Debug-Export robust für Produktion und Tests."""
     configured = app.config.get("DEBUG_EXPORT_BASE_DIR")
@@ -1007,17 +1018,25 @@ def api_lightning():
     """
     # Default: 15 Minuten (überschreibbar per ?max_age_min=N)
     max_age_min = int(request.args.get("max_age_min", 15))
-    files = sorted(glob.glob(os.path.join(SAVE_PATHS.get("lightning", "train_data/lightning"), "*.json")))
-    if not files:
+    lightning_dir = SAVE_PATHS.get("lightning", "train_data/lightning")
+    latest_path = os.path.join(lightning_dir, "latest_lightning.json")
+    files = sorted(glob.glob(os.path.join(lightning_dir, "*.json")))
+    data_file = latest_path if os.path.exists(latest_path) else (files[-1] if files else None)
+    if not data_file:
         return jsonify({"strikes": [], "count": 0, "ts": None, "max_age_min": max_age_min})
 
     try:
-        with open(files[-1], encoding="utf-8") as f:
+        with open(data_file, encoding="utf-8") as f:
             all_strikes = json.load(f)
-    except Exception:
+    except Exception as exc:
+        debug_log(f"[LIGHTNING] Cache-Datei konnte nicht gelesen werden: {data_file}: {exc}")
         return jsonify({"strikes": [], "count": 0, "ts": None, "max_age_min": max_age_min})
 
-    ts_file = os.path.basename(files[-1]).replace(".json", "")
+    if not isinstance(all_strikes, list):
+        debug_log(f"[LIGHTNING] Cache-Datei ist keine Liste: {data_file}")
+        return jsonify({"strikes": [], "count": 0, "ts": None, "max_age_min": max_age_min})
+
+    ts_file = os.path.basename(data_file).replace(".json", "")
 
     # Zeitfilter: Datei-Timestamp als Referenz (nicht datetime.now()).
     # Verhindert dass Blitze eines aktiven Gewitters ausgeblendet werden wenn
@@ -1027,9 +1046,7 @@ def api_lightning():
     from datetime import datetime, timezone, timedelta
     _now_utc = datetime.now(timezone.utc)
     try:
-        _file_dt = datetime.strptime(ts_file, "%Y-%m-%d_%H-%M-%S").replace(
-            tzinfo=timezone.utc
-        )
+        _file_dt = _project_timestamp_to_utc(ts_file)
         _file_age_min = (_now_utc - _file_dt).total_seconds() / 60.0
         if _file_age_min > max_age_min * 3:
             return jsonify({
@@ -1041,7 +1058,12 @@ def api_lightning():
             })
         ref_time = _file_dt
     except Exception:
-        ref_time = _now_utc
+        radar_files = sorted(glob.glob(os.path.join("data", "radar", "radar_*.png")))
+        try:
+            radar_ts = os.path.basename(radar_files[-1]).replace("radar_", "").replace(".png", "")
+            ref_time = _project_timestamp_to_utc(radar_ts)
+        except Exception:
+            ref_time = _now_utc
 
     cutoff_ns = int((ref_time - timedelta(minutes=max_age_min)).timestamp() * 1e9)
     recent = [s for s in all_strikes if s.get("timestamp_ns", 0) >= cutoff_ns]
@@ -3552,7 +3574,7 @@ def api_risk_grid():
     for path in reversed(bolt_files[-12:]):
         try:
             ts_str = os.path.basename(path).replace(".json", "")
-            ts = datetime.strptime(ts_str, "%Y-%m-%d_%H-%M-%S").replace(tzinfo=timezone.utc)
+            ts = _project_timestamp_to_utc(ts_str)
             if ts < cutoff_utc:
                 break
             with open(path, encoding="utf-8") as _f:
