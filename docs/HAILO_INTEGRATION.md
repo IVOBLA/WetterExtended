@@ -132,6 +132,7 @@ rechtfertigt nur Modelle die ohne Hailo zu langsam wären.
 | Prompt | Inhalt | Datei(en) | Status |
 |---|---|---|---|
 | P27 | EWMA-Gewichtung kinematischer Forecast + `TRACK_HISTORY_LEN=6` | `prediction.py`, `object_tracking.py`, `config.py` | ✅ erledigt |
+| P2-1 | **Radar-Dedup: SHA256 als zweite Prüfebene.** Nach erfolgtem 200-Download wird SHA256 des KMZ-Inhalts mit gespeichertem Vorgänger-Hash (`data/.kmz_content_sha256`) verglichen. Bei Übereinstimmung → `False` (kein Tracking-Zyklus). Schützt vor CDN-Fällen wo ARSO gleichen Inhalt mit neuem `Last-Modified` liefert. `If-Modified-Since`-Mechanismus bleibt Primärschutz. | `radar_download.py`, `tests/test_p2_1_radar_hash_dedup.py` | ✅ erledigt |
 
 ### Pre-Conditions
 - ✅ Phase B startet erst NACH vollständiger Phase A → **Phase A ist abgeschlossen**
