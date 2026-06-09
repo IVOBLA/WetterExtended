@@ -14,6 +14,22 @@ import {
 } from '../constants/mapDefaults.js'
 import api from '../api.js'
 
+/**
+ * B112: first_seen-Timestamps kommen als Europe/Vienna-Lokalzeit, NICHT UTC.
+ * Kein 'Z' anhängen – Browser interpretiert ISO ohne Offset als lokale Zeit.
+ * Format-Beispiele: '2026-06-09_13-41-02' oder '2026-06-09T13:41:02'
+ */
+function parseViennaLocalTimestamp(ts) {
+  if (!ts) return null
+  // Normalize: Unterstriche → T, letztes Bindestrich-Paar → Doppelpunkte
+  const iso = ts
+    .replace(/_(\d{2})-(\d{2})-(\d{2})$/, 'T$1:$2:$3')
+    .replace(/_/g, 'T')
+  // KEIN 'Z' hinzufügen: Server liefert Vienna-Lokalzeit
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
 // ── B93: Tendenz-Anzeige (Intensität & Größe) im Zell-Popup ──────────────────
 // Liest intensity_tendency / size_tendency / tendency_source (gesetzt vom Backend
 // in prediction.py, B92). Fallback-Quelle ("kinematic") wird grau dargestellt.
@@ -562,7 +578,7 @@ export default function MapFullscreen() {
                   {o.first_seen && (
                     <div style={{fontSize:'0.8em',color:'#666'}}>
                       Erstmals: {(() => { try {
-                        const d = new Date(o.first_seen.replace(/_/g,'-').replace(/(\d{4}-\d{2}-\d{2})-(\d{2})-(\d{2})-(\d{2})/, '$1T$2:$3:$4'))
+                        const d = parseViennaLocalTimestamp(o.first_seen)
                         return d.toLocaleTimeString('de-AT', {hour:'2-digit',minute:'2-digit'})
                       } catch { return o.first_seen } })()}
                     </div>
@@ -574,7 +590,7 @@ export default function MapFullscreen() {
                         let minStr = ''
                         if (o.first_seen) {
                           try {
-                            const fs = new Date(o.first_seen.replace(/_/g, 'T').replace(/-(\d{2})-(\d{2})$/, ':$1:$2') + 'Z')
+                            const fs = parseViennaLocalTimestamp(o.first_seen)
                             const diffMin = Math.round((Date.now() - fs.getTime()) / 60000)
                             if (diffMin >= 0 && diffMin < 1440) minStr = ` (~${diffMin} min)`
                           } catch (_) {}
