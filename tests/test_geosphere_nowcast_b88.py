@@ -141,3 +141,61 @@ def test_b92_b93_assign_nowcast_uses_completed_slot_and_single_bulk_request(monk
     assert objects[1]["nowcast_rr_mm15"] == 2.0
     assert objects[1]["nowcast_ff_kmh"] == 18.0
     assert objects[1]["nowcast_ffx_kmh"] == 28.8
+
+
+def test_b92_nowcast_http_error_tries_fallback_slot(monkeypatch):
+    calls = []
+
+    class DummyDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 6, 8, 14, 21, 19, tzinfo=tz)
+
+    class FailResponse:
+        status_code = 422
+        text = "slot incomplete"
+        headers = {}
+
+        def raise_for_status(self):
+            raise nowcast.requests.exceptions.HTTPError("422", response=self)
+
+    class OkResponse:
+        status_code = 200
+        text = ""
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "features": [
+                    {
+                        "properties": {
+                            "parameters": {
+                                "rr": {"data": [3.0]},
+                                "ff": {"data": [4.0]},
+                                "ffx": {"data": [6.0]},
+                            }
+                        }
+                    }
+                ]
+            }
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        return FailResponse() if len(calls) == 1 else OkResponse()
+
+    monkeypatch.setattr(nowcast, "datetime", DummyDatetime)
+    monkeypatch.setattr(nowcast, "cache_get", lambda *args, **kwargs: None)
+    monkeypatch.setattr(nowcast, "cache_set", lambda *args, **kwargs: None)
+    monkeypatch.setattr(nowcast.requests, "get", fake_get, raising=False)
+
+    objects = nowcast.assign_nowcast_to_objects([{"lat": 47.0014, "lon": 13.9066}], "ignored")
+
+    assert len(calls) == 2
+    assert "start=2026-06-08T14:00&end=2026-06-08T14:15" in calls[0]
+    assert "start=2026-06-08T13:45&end=2026-06-08T14:00" in calls[1]
+    assert objects[0]["nowcast_rr_mm15"] == 3.0
+    assert objects[0]["nowcast_ff_kmh"] == 14.4
+    assert objects[0]["nowcast_ffx_kmh"] == 21.6

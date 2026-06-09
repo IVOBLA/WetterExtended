@@ -726,18 +726,21 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
     # ── B94: Weggefährten-Features (zweiter Durchlauf, braucht alle Zellen) ──
     try:
         from config import (
-            NEIGHBOR_AHEAD_RANGE_KM, NEIGHBOR_AHEAD_HALF_ANGLE,
-            NEIGHBOR_MIN_SPEED_KMH, PX_TO_KMH, UPSCALE_FACTOR,
+            NEIGHBOR_AHEAD_RANGE_KM as _NEIGHBOR_AHEAD_RANGE_KM,
+            NEIGHBOR_AHEAD_HALF_ANGLE as _NEIGHBOR_AHEAD_HALF_ANGLE,
+            NEIGHBOR_MIN_SPEED_KMH as _NEIGHBOR_MIN_SPEED_KMH,
+            PX_TO_KMH as _PX_TO_KMH_NEIGHBOR,
+            UPSCALE_FACTOR as _UPSCALE_FACTOR_NEIGHBOR,
         )
         _all = list(new_memory.values())
         for _o in _all:
             _o.update(_compute_neighbor_ahead(
                 _o, _all,
-                range_km=NEIGHBOR_AHEAD_RANGE_KM,
-                half_angle_deg=NEIGHBOR_AHEAD_HALF_ANGLE,
-                min_speed_kmh=NEIGHBOR_MIN_SPEED_KMH,
-                px_to_kmh=PX_TO_KMH,
-                upscale=UPSCALE_FACTOR,
+                range_km=_NEIGHBOR_AHEAD_RANGE_KM,
+                half_angle_deg=_NEIGHBOR_AHEAD_HALF_ANGLE,
+                min_speed_kmh=_NEIGHBOR_MIN_SPEED_KMH,
+                px_to_kmh=_PX_TO_KMH_NEIGHBOR,
+                upscale=_UPSCALE_FACTOR_NEIGHBOR,
             ))
     except Exception as _e:
         try:
