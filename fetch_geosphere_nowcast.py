@@ -175,11 +175,13 @@ def assign_nowcast_to_objects(objects: list, timestamp: str | None = None) -> li
 
             _resp.raise_for_status()
 
+            _headers = getattr(_resp, "headers", {}) or {}
+            _content_type = _headers.get("content-type") if hasattr(_headers, "get") else None
             log_api_call(
                 "geosphere_nowcast", url=_url, status_code=_resp.status_code,
                 duration_ms=_dur_ms, method="GET",
                 response_text=_resp.text,
-                content_type=_resp.headers.get("content-type"),
+                content_type=_content_type,
             )
 
             _data = _resp.json()
@@ -228,12 +230,12 @@ def assign_nowcast_to_objects(objects: list, timestamp: str | None = None) -> li
                 "geosphere_nowcast", url=_url, status_code=_status,
                 method="GET", error=str(_exc),
             )
-            break
+            continue
         except Exception as _exc:
             log_api_failure(
                 "geosphere_nowcast", _url, str(_exc), fallback_used=True
             )
-            break
+            continue
 
     return objects
 

@@ -5,7 +5,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, jsonify, request, send_from_directory, send_file, after_this_request
+from flask import Flask, jsonify, request, send_from_directory, send_file
 
 import config as cfg
 from config import SAVE_PATHS
@@ -17,6 +17,33 @@ from auth import auth_bp, init_db, get_current_user, ROLE_LEVEL, require_role
 app = Flask(__name__, static_folder="frontend/dist", static_url_path="")
 app.register_blueprint(auth_bp)
 init_db()
+
+
+def _resolve_debug_export_base_dir(save_paths):
+    """Bestimmt die Projektbasis für den Debug-Export robust für Produktion und Tests."""
+    configured = app.config.get("DEBUG_EXPORT_BASE_DIR")
+    if configured:
+        return Path(configured).expanduser().resolve()
+
+    env_base = os.environ.get("WETTEREXTENDED_EXPORT_BASE_DIR")
+    if env_base:
+        return Path(env_base).expanduser().resolve()
+
+    for raw_path in (save_paths or {}).values():
+        try:
+            path = Path(raw_path).expanduser()
+            if not path.is_absolute():
+                continue
+            resolved = path.resolve()
+            parts = resolved.parts
+            if "train_data" in parts:
+                idx = parts.index("train_data")
+                if idx > 0:
+                    return Path(*parts[:idx]).resolve()
+        except Exception:
+            continue
+
+    return Path(__file__).resolve().parent
 
 # ---------------------------------------------------------------------------
 # JWT-Authentifizierung (rollenbasiert)
@@ -639,31 +666,28 @@ def api_git():
 def api_admin_export_last_24h_zip():
     """Geschützter ZIP-Export aller relevanten Debug-Daten der letzten 24 Stunden."""
     try:
+        import io
         from debug_export import create_debug_export_zip
 
         hours = 24
+        export_base_dir = _resolve_debug_export_base_dir(SAVE_PATHS)
         zip_path, filename, _manifest = create_debug_export_zip(
-            base_dir=Path(__file__).resolve().parent,
+            base_dir=export_base_dir,
             save_paths=SAVE_PATHS,
             hours=hours,
         )
 
-        @after_this_request
-        def _cleanup_export(response):
-            try:
-                Path(zip_path).unlink(missing_ok=True)
-            except Exception:
-                pass
-            return response
-
+        data = Path(zip_path).read_bytes()
+        Path(zip_path).unlink(missing_ok=True)
         return send_file(
-            zip_path,
+            io.BytesIO(data),
             mimetype="application/zip",
             as_attachment=True,
             download_name=filename,
             max_age=0,
         )
     except Exception as exc:
+        debug_log(f"[ADMIN] Debug-Export fehlgeschlagen: {exc}")
         return jsonify({"error": f"Debug-Export konnte nicht erstellt werden: {exc}"}), 500
 
 
