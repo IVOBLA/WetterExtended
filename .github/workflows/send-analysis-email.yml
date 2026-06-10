@@ -1,11 +1,9 @@
 name: Analyse-Mail versenden
 
 on:
-  push:
-    branches:
-      - debug-export-latest
-    paths:
-      - 'analysis_result.json'
+  schedule:
+    - cron: '0 6 * * *'   # täglich 06:00 UTC (08:00 CEST) – nach KI-Analyse-Lauf
+  workflow_dispatch:       # manueller Trigger für Tests
 
 jobs:
   send-email:
@@ -22,8 +20,19 @@ jobs:
           SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
         run: |
           python3 << 'PYEOF'
-          import os, json, urllib.request, urllib.error
+          import os, json, time, urllib.request, urllib.error
           from datetime import datetime
+
+          # Guard A: Datei muss vorhanden sein
+          if not os.path.exists("analysis_result.json"):
+              print("Keine analysis_result.json vorhanden – kein Mail-Versand heute.")
+              raise SystemExit(0)
+
+          # Guard B: Datei darf nicht älter als 25h sein
+          age_h = (time.time() - os.path.getmtime("analysis_result.json")) / 3600
+          if age_h > 25:
+              print(f"analysis_result.json ist {age_h:.1f}h alt – überspringe Mail-Versand.")
+              raise SystemExit(0)
 
           SENDGRID_API_KEY = os.environ["SENDGRID_API_KEY"]
           FROM_EMAIL       = "claude@blatec.at"
@@ -53,7 +62,7 @@ jobs:
               '<div style="font-family:Arial,sans-serif;max-width:800px;color:#333">'
               '<div style="background:#2c3e50;color:white;padding:22px;'
               'border-radius:8px 8px 0 0">'
-              '<h2 style="margin:0">WetterExtended – Taegliche Analyse</h2>'
+              '<h2 style="margin:0">WetterExtended &#8211; Taegliche Analyse</h2>'
               f'<p style="margin:6px 0 0;opacity:.8;font-size:13px">{datum}</p>'
               '</div>'
               '<div style="padding:22px;border:1px solid #ddd;border-top:none">'
@@ -75,7 +84,7 @@ jobs:
               + '</div>'
               '<div style="background:#ecf0f1;padding:12px;text-align:center;'
               'border-radius:0 0 8px 8px;font-size:12px;color:#7f8c8d">'
-              'Claude Code Routine – IVOBLA/WetterExtended – taeglich 13:00 GMT+2'
+              'Claude Code Routine &#8211; IVOBLA/WetterExtended &#8211; taeglich 08:00 CEST'
               '</div></div>'
           )
 
