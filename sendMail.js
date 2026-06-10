@@ -109,7 +109,7 @@ async function sendMail() {
 
     const info = await transporter.sendMail({
       from:    '"WetterExtended Bot" <claude@blatec.at>',
-      to:      'blaha540@gmail.com',
+      to:      'bla@uniquare.com',
       subject: `WetterExtended Analyse ${datum}`,
       html:    buildHtml(analysis),
       text:    JSON.stringify(analysis, null, 2)
