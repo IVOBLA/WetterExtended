@@ -132,6 +132,27 @@ rechtfertigt nur Modelle die ohne Hailo zu langsam wären.
 | Prompt | Inhalt | Datei(en) | Status |
 |---|---|---|---|
 | P27 | EWMA-Gewichtung kinematischer Forecast + `TRACK_HISTORY_LEN=6` | `prediction.py`, `object_tracking.py`, `config.py` | ✅ erledigt |
+### B121 – tracking_memory Persistenz + korrekter Loop-Intervall nach Neustart ✅
+- **Symptom:** Zellen OYNHJFV9 + TFHWG0FD erhalten `lineage=new` statt `lineage=split`
+  nach einem Admin-ausgelösten Service-Neustart während ILO9G570 aktiv war.
+- **Beleg:** `log_clear_state.json` → `cleared_at_utc=14:33:15Z`;
+  systemd `Starting...` 37s später; `_last_cells_active_ts=None` obwohl ILO9G570
+  nur 3 min vorher aktiv war — ausschließlich durch Neustart erklärbar.
+- **Ursache A:** `tracking_memory` ist in-memory, nach Neustart leer →
+  kein Parent-Polygon → 3-Stage-Matching → `lineage=new`.
+- **Ursache B:** `_last_cells_active_ts=None` nach Neustart → `_elapsed_skip=inf`
+  → 900s-LOOP-SKIP sofort beim ersten 304-Zyklus → 15 min Blindflug
+  mitten im aktiven Gewitter.
+- **Fix A:** `save_tracking_snapshot()` schreibt `tracking_memory` nach jedem
+  Tracking-Zyklus als JSON (ohne `kf`, numpy→list). Datei:
+  `train_data/evaluation/tracking_memory_snapshot.json`.
+  `load_tracking_snapshot()` lädt beim Modulimport (nur wenn Alter <
+  `INACTIVE_CELL_TRACK_DURATION_S`). Gibt Snapshot-Alter zurück.
+- **Fix B:** `main_loop()` ruft `load_tracking_snapshot()` vor dem While-Loop auf
+  und setzt `_last_cells_active_ts = time.time() - snap_age_s` wenn Snapshot
+  vorhanden → kein falscher 900s-Skip mehr nach Neustart bei aktivem Gewitter.
+- **Dateien:** `object_tracking.py`, `main.py`, `tests/test_b121_tracking_snapshot.py`
+
 | P28 | **Live-Daten: Inaktive Zellen (12 h) + Frames + Geschwindigkeit.** Neue Gruppe „Inaktive Zellen (letzte 12 h)" in `/live`. Neuer Backend-Endpoint `GET /api/objects/history` mit 60 s In-Memory-Cache liest gespeicherte Object-JSON-Dateien rückwärts, dedupliziert per Cell-ID (neuester Stand), filtert live IDs aus `tracking_memory` heraus. Neue „Frames"-Spalte (`total_active_frames`) in beiden Tabellen. Spalte „VX/VY" ersetzt durch „Geschw." (`speed_kmh` km/h + `direction_deg` °), beide bereits von `object_tracking.py` vorberechnet. | `app.py`, `frontend/src/pages/LiveDaten.jsx`, `tests/test_p28_inactive_cells_history.py` | ✅ erledigt |
 | P2-1 | **Radar-Dedup: SHA256 als zweite Prüfebene.** Nach erfolgtem 200-Download wird SHA256 des KMZ-Inhalts mit gespeichertem Vorgänger-Hash (`data/.kmz_content_sha256`) verglichen. Bei Übereinstimmung → `False` (kein Tracking-Zyklus). Schützt vor CDN-Fällen wo ARSO gleichen Inhalt mit neuem `Last-Modified` liefert. `If-Modified-Since`-Mechanismus bleibt Primärschutz. | `radar_download.py`, `tests/test_p2_1_radar_hash_dedup.py` | ✅ erledigt |
 

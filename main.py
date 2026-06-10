@@ -216,7 +216,26 @@ def main_loop():
 
     _prev_radar_path = None
     _prev_location_hit_names: set = set()  # F47: Auto-Entwarnung
-    _last_cells_active_ts: float | None = None  # Zeitpunkt der letzten aktiven Zelle
+    # B121: _last_cells_active_ts aus Snapshot initialisieren damit nach einem
+    # Neustart der adaptive Loop nicht sofort in den 900s-Ast fällt, obwohl kurz
+    # vorher Zellen aktiv waren.
+    # load_tracking_snapshot() füllt tracking_memory und gibt das Snapshot-Alter
+    # zurück. Wenn Alter < INACTIVE_CELL_TRACK_DURATION_S → Zellen waren kürzlich
+    # aktiv → last_cells_active_ts auf (jetzt - Alter) setzen.
+    try:
+        from object_tracking import load_tracking_snapshot as _load_snap
+        _snap_age_s = _load_snap()
+        if _snap_age_s < float("inf"):
+            _last_cells_active_ts: float | None = time.time() - _snap_age_s
+            debug_log(
+                f"[SNAPSHOT] _last_cells_active_ts aus Snapshot gesetzt "
+                f"(Alter: {_snap_age_s:.0f}s)"
+            )
+        else:
+            _last_cells_active_ts: float | None = None
+    except Exception as _snap_exc:
+        debug_log(f"[SNAPSHOT] Initialisierung fehlgeschlagen: {_snap_exc}")
+        _last_cells_active_ts: float | None = None
     # 2-Frame-Bestätigung für unsichere Vorhersagen (kinematic forecast_mode):
     # Orte die schon 1× getroffen wurden aber noch auf Frame 2 warten.
     _location_warn_pending: dict = {}   # {loc_name: frame_count}
