@@ -288,7 +288,29 @@ Der Wert wird in der Tooltip-Anzeige in Metern (m MSL) mit Tausender-Trennpunkt 
 
 ## 4.3 Live-Daten (`/live`)
 
-Tabelle aller aktuell erkannten Zellen mit allen ML-Features: Position, Geschwindigkeit, CAPE, Wolkenhöhe, Blitze, Optical-Flow, AROME-Werte, Hagelwahrscheinlichkeit, Windscherung.
+Die Seite zeigt zwei getrennte Gruppen:
+
+**Aktive Zellen:** Alle aktuell vom Radar erkannten Sturmzellen mit vollständigen
+ML-Features. Die Tabelle aktualisiert sich automatisch alle 30 Sekunden.
+
+**Inaktive Zellen (letzte 12 h):** Zellen, die in den letzten 12 Stunden aktiv
+waren, aber kein aktuelles Radar-Echo mehr erzeugen. Spalte „Zuletzt" zeigt den
+Zeitpunkt der letzten bekannten Position. Zellen, die erst kürzlich verschwunden
+sind (< 20 min), kommen direkt aus dem Tracking-Memory; ältere Zellen werden aus
+den gespeicherten Frame-Dateien nachgeladen (Backend-Cache 60 s).
+
+**Frames-Spalte:** Beide Tabellen zeigen `total_active_frames` — die Gesamtanzahl
+der Frames, in denen die Zelle aktiv war (unbegrenzt, nicht auf die Tracking-History
+gekappt). Erlaubt Rückschlüsse auf die Lebensdauer einer Zelle.
+
+**Geschwindigkeitsspalte:** Zeigt die vorberechnete Durchschnittsgeschwindigkeit
+der Zelle (`speed_kmh` in km/h) sowie die Zugrichtung (`direction_deg` in °,
+meteorologisch: Richtung der Bewegung). Stationäre Zellen (< 0,5 km/h) zeigen
+keine Richtungsangabe.
+
+Alle übrigen Spalten: Position, Größe, Kern, Forecast-Modus, CAPE, LI, T2m,
+Td2m, Gefriergrenze, Wind 700 hPa, Wolkenhöhe, Blitze < 10 km,
+Optical-Flow-Geschwindigkeit.
 
 ## 4.4 Datensatz (`/data`)
 
