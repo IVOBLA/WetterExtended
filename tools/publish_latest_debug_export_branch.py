@@ -22,7 +22,8 @@ from pathlib import Path, PurePosixPath
 DEFAULT_BRANCH = "debug-export-latest"
 DEFAULT_TARGET_PATH = "debug_exports/wetterextended_debug_latest_last24h.zip"
 DEFAULT_HOURS = 24
-DEFAULT_MAX_TOTAL_MB = 90
+DEFAULT_MAX_SOURCE_TOTAL_MB = 512
+DEFAULT_MAX_ZIP_MB = 90
 LOG_PREFIX = "[DEBUG-EXPORT-BRANCH]"
 LOCK_PATH = Path("/tmp/wetterextended_debug_export_branch.lock")
 FORBIDDEN_BRANCHES = {"main", "master"}
@@ -83,13 +84,53 @@ def env_default(name: str, fallback: str | int) -> str:
     return os.environ.get(name, str(fallback))
 
 
+def env_int(name: str) -> int | None:
+    value = os.environ.get(name)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError as exc:
+        fail(f"Environment-Variable {name} muss eine ganze Zahl sein: {value}")
+        raise exc
+
+
+def resolve_max_source_total_mb(args: argparse.Namespace) -> int:
+    if args.max_source_total_mb is not None:
+        return args.max_source_total_mb
+    env_source_total_mb = env_int("WETTER_DEBUG_EXPORT_MAX_SOURCE_TOTAL_MB")
+    if env_source_total_mb is not None:
+        return env_source_total_mb
+    if args.max_total_mb is not None:
+        return args.max_total_mb
+    env_legacy_total_mb = env_int("WETTER_DEBUG_EXPORT_MAX_TOTAL_MB")
+    if env_legacy_total_mb is not None:
+        return env_legacy_total_mb
+    return DEFAULT_MAX_SOURCE_TOTAL_MB
+
+
+def resolve_max_zip_mb(args: argparse.Namespace) -> int:
+    if args.max_zip_mb is not None:
+        return args.max_zip_mb
+    env_zip_mb = env_int("WETTER_DEBUG_EXPORT_MAX_ZIP_MB")
+    if env_zip_mb is not None:
+        return env_zip_mb
+    return DEFAULT_MAX_ZIP_MB
+
+
+def format_mb(byte_count: int) -> str:
+    return f"{byte_count / 1024 / 1024:.1f}"
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-dir", default=env_default("WETTER_REPO_DIR", "."))
     parser.add_argument("--branch", default=env_default("WETTER_DEBUG_EXPORT_BRANCH", DEFAULT_BRANCH))
     parser.add_argument("--target-path", default=env_default("WETTER_DEBUG_EXPORT_TARGET_PATH", DEFAULT_TARGET_PATH))
     parser.add_argument("--hours", type=int, default=int(env_default("WETTER_DEBUG_EXPORT_HOURS", DEFAULT_HOURS)))
-    parser.add_argument("--max-total-mb", type=int, default=int(env_default("WETTER_DEBUG_EXPORT_MAX_TOTAL_MB", DEFAULT_MAX_TOTAL_MB)))
+    parser.add_argument("--max-source-total-mb", type=int, default=None, help="Maximale unkomprimierte Exportdaten vor ZIP-Kompression in MB.")
+    parser.add_argument("--max-zip-mb", type=int, default=None, help="Maximale finale ZIP-Dateigröße für GitHub in MB.")
+    parser.add_argument("--max-total-mb", type=int, default=None, help="DEPRECATED: Legacy-Alias für --max-source-total-mb.")
     parser.add_argument("--check-only", action="store_true", help="Nur GitHub-Schreibrecht per git push --dry-run prüfen.")
     parser.add_argument("--dry-run", action="store_true", help="Export und temporären Commit erzeugen, aber nicht pushen.")
     args = parser.parse_args(argv)
@@ -97,8 +138,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args.target_path = validate_relative_path(args.target_path)
     if args.hours <= 0:
         fail("--hours muss größer als 0 sein.")
-    if args.max_total_mb <= 0:
-        fail("--max-total-mb muss größer als 0 sein.")
+    args.max_source_total_mb = resolve_max_source_total_mb(args)
+    args.max_zip_mb = resolve_max_zip_mb(args)
+    if args.max_source_total_mb <= 0:
+        fail("--max-source-total-mb muss größer als 0 sein.")
+    if args.max_zip_mb <= 0:
+        fail("--max-zip-mb muss größer als 0 sein.")
     args.repo_dir = Path(args.repo_dir).resolve()
     return args
 
@@ -143,13 +188,16 @@ def check_write_access(repo_dir: Path, branch: str) -> None:
     log("GitHub-Schreibtest erfolgreich.")
 
 
-def create_export(repo_dir: Path, hours: int, max_total_mb: int) -> tuple[Path, str, dict]:
+def create_export(repo_dir: Path, hours: int, max_source_total_mb: int, max_zip_mb: int) -> tuple[Path, str, dict]:
     sys.path.insert(0, str(repo_dir))
     from config import SAVE_PATHS  # pylint: disable=import-outside-toplevel
     from debug_export import create_debug_export_zip  # pylint: disable=import-outside-toplevel
 
-    max_total_bytes = max_total_mb * 1024 * 1024
-    log(f"Erzeuge Debug-ZIP der letzten {hours} Stunden (Limit: {max_total_mb} MB).")
+    max_total_bytes = max_source_total_mb * 1024 * 1024
+    log(
+        f"Erzeuge Debug-ZIP der letzten {hours} Stunden "
+        f"(Source-Limit: {max_source_total_mb} MB, ZIP-Limit: {max_zip_mb} MB)."
+    )
     return create_debug_export_zip(
         base_dir=repo_dir,
         save_paths=SAVE_PATHS,
@@ -168,7 +216,9 @@ def write_branch_repo(
     branch: str,
     target_path: PurePosixPath,
     hours: int,
-    max_total_mb: int,
+    max_source_total_mb: int,
+    max_zip_mb: int,
+    zip_size_bytes: int,
 ) -> dict:
     run_git(["init", "-b", branch], cwd=temp_repo)
     run_git(["config", "user.name", "WetterExtended Debug Export"], cwd=temp_repo)
@@ -188,7 +238,9 @@ def write_branch_repo(
         "source_zip_filename": source_filename,
         "source_commit": git_commit(repo_dir),
         "hours": hours,
-        "max_total_mb": max_total_mb,
+        "max_source_total_mb": max_source_total_mb,
+        "max_zip_mb": max_zip_mb,
+        "zip_size_bytes": zip_size_bytes,
         "export_manifest": export_manifest,
     }
     manifest_path = temp_repo / "debug_exports" / "latest_manifest.json"
@@ -218,7 +270,18 @@ def publish(args: argparse.Namespace) -> None:
     try:
         with tempfile.TemporaryDirectory(prefix="wetterextended_debug_branch_") as tmpdir:
             tmp_repo = Path(tmpdir)
-            zip_path, filename, export_manifest = create_export(args.repo_dir, args.hours, args.max_total_mb)
+            zip_path, filename, export_manifest = create_export(
+                args.repo_dir, args.hours, args.max_source_total_mb, args.max_zip_mb
+            )
+            zip_size_bytes = zip_path.stat().st_size
+            log(f"Debug-ZIP erstellt: {zip_path} ({format_mb(zip_size_bytes)} MB).")
+            max_zip_bytes = args.max_zip_mb * 1024 * 1024
+            if zip_size_bytes > max_zip_bytes:
+                fail(
+                    "Finale ZIP-Datei ist zu groß für GitHub: "
+                    f"{format_mb(zip_size_bytes)} MB > {args.max_zip_mb} MB.\n"
+                    "Bitte Debug-Export-Profil verkleinern oder Limit bewusst anpassen."
+                )
             manifest = write_branch_repo(
                 temp_repo=tmp_repo,
                 source_zip=zip_path,
@@ -228,7 +291,9 @@ def publish(args: argparse.Namespace) -> None:
                 branch=args.branch,
                 target_path=args.target_path,
                 hours=args.hours,
-                max_total_mb=args.max_total_mb,
+                max_source_total_mb=args.max_source_total_mb,
+                max_zip_mb=args.max_zip_mb,
+                zip_size_bytes=zip_size_bytes,
             )
             if args.dry_run:
                 log(f"Dry-run: kein Push. Temporärer Commit für {manifest['target_path']} wurde erfolgreich erzeugt.")
