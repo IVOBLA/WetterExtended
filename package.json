@@ -1,0 +1,12 @@
+{
+  "name": "wetterextended",
+  "version": "1.0.0",
+  "description": "WetterExtended Analyse Tool",
+  "main": "sendMail.js",
+  "scripts": {
+    "test:mail": "node tests/test_sendMail.js"
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.0"
+  }
+}
