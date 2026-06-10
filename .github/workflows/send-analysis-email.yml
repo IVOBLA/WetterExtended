@@ -28,7 +28,7 @@ jobs:
           SENDGRID_API_KEY = os.environ["SENDGRID_API_KEY"]
           FROM_EMAIL       = "claude@blatec.at"
           FROM_NAME        = "WetterExtended"
-          TO_EMAIL         = "blaha540@gmail.com"
+          TO_EMAIL         = "bla@uniquare.com"
 
           with open("analysis_result.json", encoding="utf-8") as f:
               data = json.load(f)
