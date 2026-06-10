@@ -1,0 +1,11 @@
+[Unit]
+Description=Täglicher WetterExtended Debug-Export nach GitHub um 23:59
+
+[Timer]
+OnCalendar=*-*-* 23:59:00
+AccuracySec=1min
+Persistent=true
+Unit=wetterprojekt-debug-export-branch.service
+
+[Install]
+WantedBy=timers.target
