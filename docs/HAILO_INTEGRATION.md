@@ -132,6 +132,7 @@ rechtfertigt nur Modelle die ohne Hailo zu langsam wären.
 | Prompt | Inhalt | Datei(en) | Status |
 |---|---|---|---|
 | P27 | EWMA-Gewichtung kinematischer Forecast + `TRACK_HISTORY_LEN=6` | `prediction.py`, `object_tracking.py`, `config.py` | ✅ erledigt |
+| P28 | **Live-Daten: Inaktive Zellen (12 h) + Frames + Geschwindigkeit.** Neue Gruppe „Inaktive Zellen (letzte 12 h)" in `/live`. Neuer Backend-Endpoint `GET /api/objects/history` mit 60 s In-Memory-Cache liest gespeicherte Object-JSON-Dateien rückwärts, dedupliziert per Cell-ID (neuester Stand), filtert live IDs aus `tracking_memory` heraus. Neue „Frames"-Spalte (`total_active_frames`) in beiden Tabellen. Spalte „VX/VY" ersetzt durch „Geschw." (`speed_kmh` km/h + `direction_deg` °), beide bereits von `object_tracking.py` vorberechnet. | `app.py`, `frontend/src/pages/LiveDaten.jsx`, `tests/test_p28_inactive_cells_history.py` | ✅ erledigt |
 | P2-1 | **Radar-Dedup: SHA256 als zweite Prüfebene.** Nach erfolgtem 200-Download wird SHA256 des KMZ-Inhalts mit gespeichertem Vorgänger-Hash (`data/.kmz_content_sha256`) verglichen. Bei Übereinstimmung → `False` (kein Tracking-Zyklus). Schützt vor CDN-Fällen wo ARSO gleichen Inhalt mit neuem `Last-Modified` liefert. `If-Modified-Since`-Mechanismus bleibt Primärschutz. | `radar_download.py`, `tests/test_p2_1_radar_hash_dedup.py` | ✅ erledigt |
 
 ### Pre-Conditions

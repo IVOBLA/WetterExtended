@@ -949,6 +949,100 @@ def api_objects():
     return jsonify(data)
 
 
+# ── P28: In-Memory-Cache für /api/objects/history (60 s TTL) ─────────────────
+_history_cache: dict = {"ts": 0.0, "data": None}
+_HISTORY_CACHE_TTL_S = 60.0
+
+
+@app.route("/api/objects/history")
+def api_objects_history():
+    """P28: Inaktive Zellen der letzten N Stunden.
+
+    Liest die gespeicherten Object-JSON-Dateien rückwärts (neueste zuerst),
+    sammelt pro Cell-ID nur den neuesten bekannten Stand, und gibt alle Zellen
+    zurück, die NICHT mehr im aktuellen tracking_memory sind.
+
+    Query-Parameter:
+        hours (int, 1–48, default 12)
+
+    Antwort: JSON-Array von Objekt-Dicts, jedes mit Zusatzfeld:
+        _last_seen_ts (str "YYYY-MM-DD_HH-MM-SS") — Timestamp der letzten
+        bekannten Frame-Datei in der diese Zelle aktiv war.
+
+    Cache: Ergebnis wird für _HISTORY_CACHE_TTL_S Sekunden gecacht
+    (nur für den Standard-Parameter hours=12).
+    """
+    import time as _t_hist
+    import glob as _gl_hist
+    from datetime import datetime as _dt_hist, timedelta as _td_hist
+
+    global _history_cache
+
+    try:
+        hours = max(1, min(int(request.args.get("hours", "12")), 48))
+    except (ValueError, TypeError):
+        hours = 12
+
+    # Cache-Treffer nur für Standardwert (hours == 12)
+    if hours == 12:
+        cached = _history_cache
+        if (cached["data"] is not None and
+                (_t_hist.time() - cached["ts"]) < _HISTORY_CACHE_TTL_S):
+            return jsonify(cached["data"])
+
+    # Aktuelle Live-IDs aus tracking_memory (sowohl missing=0 als auch missing>0)
+    try:
+        import object_tracking as _ot_hist
+        live_ids = set(_ot_hist.tracking_memory.keys())
+    except Exception:
+        live_ids = set()
+
+    cutoff = _dt_hist.utcnow() - _td_hist(hours=hours)
+    obj_dir = SAVE_PATHS.get("objects", "train_data/objects")
+
+    try:
+        files = sorted(_gl_hist.glob(os.path.join(obj_dir, "*.json")))
+    except Exception:
+        files = []
+
+    seen: dict = {}  # cell_id → obj_dict (nur neueste Occurrence)
+
+    for fpath in reversed(files):
+        fname = os.path.basename(fpath).replace(".json", "")
+        try:
+            file_dt = _dt_hist.strptime(fname, "%Y-%m-%d_%H-%M-%S")
+        except ValueError:
+            continue  # Dateiname passt nicht zum Timestamp-Format → überspringen
+        if file_dt < cutoff:
+            break  # Dateien sind aufsteigend sortiert; alle weiteren sind älter
+        try:
+            with open(fpath, encoding="utf-8") as _fh:
+                objs = json.load(_fh)
+            if not isinstance(objs, list):
+                continue
+            for obj in objs:
+                oid = obj.get("id")
+                if not oid:
+                    continue
+                if oid not in seen:  # erste (= neueste) Occurrence pro Zelle behalten
+                    obj_copy = dict(obj)
+                    obj_copy["_last_seen_ts"] = fname
+                    seen[oid] = obj_copy
+        except Exception:
+            continue
+
+    # Nur Zellen die NICHT im aktuellen Tracking-Memory sind
+    result = [v for k, v in seen.items() if k not in live_ids]
+    # Sortierung: zuletzt gesehen zuerst
+    result.sort(key=lambda x: x.get("_last_seen_ts", ""), reverse=True)
+
+    if hours == 12:
+        _history_cache["ts"] = _t_hist.time()
+        _history_cache["data"] = result
+
+    return jsonify(result)
+
+
 @app.route("/api/forecast")
 def api_forecast():
     import math as _math
