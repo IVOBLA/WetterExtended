@@ -224,8 +224,10 @@ def build_dataset(model_save_dir=None):
             )
 
         for oid in common_ids:
-            if any(oid not in fmap for fmap in future_obj_maps):
-                continue
+            # P-T08: Per-Horizont-Maskierung. Sequenz wird verwertet sobald
+            # MINDESTENS EIN Horizont verfügbar ist; fehlende Horizonte → NaN.
+            if all(oid not in fmap for fmap in future_obj_maps):
+                continue  # kein einziger Horizont verfügbar → unbrauchbar
 
             seq_features = []
             seq_objects = []
@@ -243,8 +245,11 @@ def build_dataset(model_save_dir=None):
 
             targets = []
             for fmap in future_obj_maps:
-                fo = fmap[oid]
-                targets.extend([_safe_float(fo.get("x", 0.0)), _safe_float(fo.get("y", 0.0))])
+                if oid in fmap:
+                    fo = fmap[oid]
+                    targets.extend([_safe_float(fo.get("x", 0.0)), _safe_float(fo.get("y", 0.0))])
+                else:
+                    targets.extend([float("nan"), float("nan")])  # maskierter Horizont
 
             ok, reason = validate_sample(seq_features, targets, seq_context=seq_objects)
             if not ok:
@@ -281,8 +286,20 @@ def build_dataset(model_save_dir=None):
     X_flat = X.reshape(-1, X.shape[-1])
     X_scaled = scaler_X.fit_transform(X_flat).reshape(X.shape)
 
+    # P-T08: NaN-bewusste Standardisierung. y_raw enthält NaN für maskierte
+    # Horizonte. StandardScaler kann NaN nicht fitten → Mittel/Streuung pro
+    # Spalte aus den gültigen Werten berechnen und in den Scaler schreiben,
+    # damit inverse_transform im Inferenz-Pfad korrekt bleibt. NaN bleibt NaN.
     scaler_y = StandardScaler()
-    y_scaled = scaler_y.fit_transform(y_raw)
+    _col_mean = np.nanmean(y_raw, axis=0)
+    _col_std = np.nanstd(y_raw, axis=0)
+    _col_mean = np.where(np.isnan(_col_mean), 0.0, _col_mean)
+    _col_std = np.where(np.isnan(_col_std) | (_col_std == 0.0), 1.0, _col_std)
+    scaler_y.mean_ = _col_mean
+    scaler_y.scale_ = _col_std
+    scaler_y.var_ = _col_std ** 2
+    scaler_y.n_features_in_ = y_raw.shape[1]
+    y_scaled = (y_raw - _col_mean) / _col_std
 
     joblib.dump(scaler_X, os.path.join(effective_model_dir, "scaler_X.joblib"))
     joblib.dump(scaler_y, os.path.join(effective_model_dir, "scaler_y.joblib"))

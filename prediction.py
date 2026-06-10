@@ -255,6 +255,15 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
         obj[f"forecast_y_{horizon}"]   = float(y_pred)
         obj[f"forecast_lat_{horizon}"] = float(lat)
         obj[f"forecast_lon_{horizon}"] = float(lon)
+        _radar_age = obj.get("radar_age_min")
+        _staleness = {}
+        if _radar_age is not None:
+            _eff_lead = float(horizon) - _safe_float(_radar_age)
+            _staleness = {
+                "radar_age_min": round(_safe_float(_radar_age), 1),
+                "effective_lead_min": round(_eff_lead, 1),
+                "stale": _eff_lead <= 0.0,
+            }
         forecasts[horizon].append({
             "id":               obj.get("id"),
             "x":                float(x_pred),
@@ -266,14 +275,22 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
             "origin_lon":       _safe_float(obj.get("lon", 0.0)),
             "forecast_mode":    "kinematic",
             "kinematic_source": src,
+            **_staleness,
         })
 
 
 def _predict_lgbm_vector(models, frame, suffix=""):
+    # P-T08: Voll-Länge-Vektor über ALLE konfigurierten Horizonte. Horizonte ohne
+    # Modell → NaN (Layout passt zu scaler_y). Der Aufrufer ersetzt NaN-Horizonte
+    # durch den kinematischen Forecast.
     preds = []
     for h in _get_horizons():
         for axis in ["x", "y"]:
-            preds.append(models[f"lgbm_h{h}_{axis}{suffix}"].predict(frame)[0])
+            key = f"lgbm_h{h}_{axis}{suffix}"
+            if key in models:
+                preds.append(float(models[key].predict(frame)[0]))
+            else:
+                preds.append(float("nan"))
     return np.asarray(preds, dtype=float)
 
 
@@ -528,17 +545,38 @@ def predict_positions(objects: list, timestamp: str, stations: list):
 
     _horizons = _get_horizons()
 
-    has_lgbm = all(
-        f"lgbm_h{h}_{axis}" in lgbm_models for h in _horizons for axis in ["x", "y"]
-    )
+    # P-T08: Partielle Horizont-Abdeckung. Ein Horizont ist ML-fähig, wenn x- UND
+    # y-Modell vorhanden sind. has_lgbm = mindestens ein Horizont (statt alle).
+    _lgbm_horizons = [
+        h for h in _horizons
+        if f"lgbm_h{h}_x" in lgbm_models and f"lgbm_h{h}_y" in lgbm_models
+    ]
+    has_lgbm = len(_lgbm_horizons) > 0
     has_lgbm_q = {
-        "q10": all(f"lgbm_h{h}_{axis}_q10" in lgbm_models for h in _horizons for axis in ["x", "y"]),
-        "q90": all(f"lgbm_h{h}_{axis}_q90" in lgbm_models for h in _horizons for axis in ["x", "y"]),
+        "q10": has_lgbm and all(f"lgbm_h{h}_{axis}_q10" in lgbm_models for h in _lgbm_horizons for axis in ["x", "y"]),
+        "q90": has_lgbm and all(f"lgbm_h{h}_{axis}_q90" in lgbm_models for h in _lgbm_horizons for axis in ["x", "y"]),
     }
     has_lstm = lstm_model is not None
     if scaler_X is None or scaler_y is None or (not has_lgbm and not has_lstm):
         debug_log("[PREDICT] Fehlende Scaler/Modelle, nutze linearen Fallback.")
         return _kinematic_fallback(objects)
+
+    if has_lgbm and len(_lgbm_horizons) < len(_horizons):
+        debug_log(
+            f"[PREDICT] Partielle ML-Abdeckung: Modelle für {_lgbm_horizons} von "
+            f"{list(_horizons)} min — übrige Horizonte kinematisch."
+        )
+
+    # P-T08: Radarbild-Alter (Staleness der Eingabe). Bei ARSO-Lücken ist das
+    # letzte Radarbild älter als der Loop-Takt → ein +10-Forecast ist effektiv
+    # ein Nowcast der Vergangenheit. (Pi läuft in lokaler Zeit; Dateinamen lokal.)
+    try:
+        _radar_age_min = max(
+            0.0,
+            (datetime.now() - datetime.strptime(timestamp, "%Y-%m-%d_%H-%M-%S")).total_seconds() / 60.0,
+        )
+    except Exception:
+        _radar_age_min = 0.0
 
     ts_dt = datetime.strptime(timestamp, "%Y-%m-%d_%H-%M-%S")
     forecasts = {h: [] for h in _horizons}
@@ -555,6 +593,7 @@ def predict_positions(objects: list, timestamp: str, stations: list):
         _PATM_B108 = 50.0
 
     for obj in objects:
+        obj["radar_age_min"] = round(_radar_age_min, 1)
         # B108: Kinematic-First: kinematische Erstschätzung → path_*-Features
         # deterministisch setzen BEVOR _build_sequence() den Feature-Vektor liest.
         # _append_kinematic() setzt forecast_lat_H/forecast_lon_H aus vx/vy.
@@ -667,23 +706,52 @@ def predict_positions(objects: list, timestamp: str, stations: list):
             continue
 
         prediction = scaler_y.inverse_transform(prediction_scaled.reshape(1, -1))[0]
-        obj["forecast_mode"]   = "ml"
         obj["has_ml_forecast"] = True
+        obj["radar_age_min"]   = round(_radar_age_min, 1)
         prediction_q10 = scaler_y.inverse_transform(prediction_q10_scaled.reshape(1, -1))[0] if prediction_q10_scaled is not None else None
         prediction_q90 = scaler_y.inverse_transform(prediction_q90_scaled.reshape(1, -1))[0] if prediction_q90_scaled is not None else None
 
+        _ml_horizon_count = 0
         for idx, horizon in enumerate(_get_horizons()):
+            _x_raw = prediction[idx * 2]
+            _y_raw = prediction[idx * 2 + 1]
+            _eff_lead = float(horizon) - _radar_age_min   # effektive Vorlaufzeit
+            _stale = _eff_lead <= 0.0
+
+            # P-T08: Horizont ohne ML-Modell (NaN) → kinematischer Fallback aus
+            # _temp_fc (bereits per _append_kinematic für diesen obj befüllt).
+            if (_x_raw != _x_raw) or (_y_raw != _y_raw):   # NaN-Test
+                _kin = _temp_fc.get(horizon) or []
+                if _kin:
+                    k = _kin[0]
+                    obj[f"forecast_x_{horizon}"]   = k["x"]
+                    obj[f"forecast_y_{horizon}"]   = k["y"]
+                    obj[f"forecast_lat_{horizon}"] = k["lat"]
+                    obj[f"forecast_lon_{horizon}"] = k["lon"]
+                    forecasts[horizon].append({
+                        "id": obj.get("id"),
+                        "x": k["x"], "y": k["y"],
+                        "lat": k["lat"], "lon": k["lon"],
+                        "size": _safe_float(obj.get("size", 0.0)),
+                        "origin_lat": _safe_float(obj.get("lat", 0.0)),
+                        "origin_lon": _safe_float(obj.get("lon", 0.0)),
+                        "forecast_mode": "kinematic",
+                        "radar_age_min": round(_radar_age_min, 1),
+                        "effective_lead_min": round(_eff_lead, 1),
+                        "stale": _stale,
+                    })
+                continue
+
+            _ml_horizon_count += 1
             # ML-Modell trainiert auf pre-upscale obj["x"]/ ["y"] → _UF anwenden
-            x_pred = float(prediction[idx * 2])     * _UF
-            y_pred = float(prediction[idx * 2 + 1]) * _UF
+            x_pred = float(_x_raw) * _UF
+            y_pred = float(_y_raw) * _UF
             lat, lon = pixel_to_geo(x_pred, y_pred)
             obj[f"forecast_x_{horizon}"] = x_pred
             obj[f"forecast_y_{horizon}"] = y_pred
             obj[f"forecast_lat_{horizon}"] = float(lat)
             obj[f"forecast_lon_{horizon}"] = float(lon)
             if prediction_q10 is not None and prediction_q90 is not None:
-                # Fix #7: _UF anwenden wie bei x_pred/y_pred,
-                # dann pixel_to_geo für lat/lon-Felder (app.py liest forecast_lat_{h}_q10/q90)
                 x_q10 = float(prediction_q10[idx * 2])     * _UF
                 y_q10 = float(prediction_q10[idx * 2 + 1]) * _UF
                 x_q90 = float(prediction_q90[idx * 2])     * _UF
@@ -709,10 +777,11 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                     "origin_lat": _safe_float(obj.get("lat", 0.0)),
                     "origin_lon": _safe_float(obj.get("lon", 0.0)),
                     "forecast_mode": "ml",
+                    "radar_age_min": round(_radar_age_min, 1),
+                    "effective_lead_min": round(_eff_lead, 1),
+                    "stale": _stale,
                     **(
                         {
-                            # Fix #7: _UF wie bei x_pred/y_pred — kmz_export.py
-                            # erwartet skalierte Pixelkoordinaten für pixel_to_geo()
                             "x_q10": float(prediction_q10[idx * 2])     * _UF,
                             "y_q10": float(prediction_q10[idx * 2 + 1]) * _UF,
                             "x_q90": float(prediction_q90[idx * 2])     * _UF,
@@ -723,6 +792,8 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                     ),
                 }
             )
+        # P-T08: obj-Level forecast_mode = "ml" nur wenn ≥1 Horizont ML war.
+        obj["forecast_mode"] = "ml" if _ml_horizon_count > 0 else "kinematic"
 
     # B108: B95-Pfad-Wetter-Berechnung wurde in den Objekt-Loop VORGEZOGEN
     # (Kinematic-First vor _build_sequence). Hier kein zweiter Durchlauf nötig.

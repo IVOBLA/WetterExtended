@@ -147,7 +147,12 @@ DRIFT_ALERT_COOLDOWN_H: int = 6      # 6 Stunden
 # Werte entsprechen den Schwellen in model_training.py (train_lstm/train_lgbm).
 # Werden auch vom /api/training_readiness-Endpoint und der Training-Seite genutzt.
 MIN_SEQUENCES_LSTM: int = 50    # LSTM benötigt mind. 50 Sequenzen
-MIN_SEQUENCES_LGBM: int = 30    # LightGBM benötigt mind. 30 Sequenzen
+MIN_SEQUENCES_LGBM: int = 30    # LightGBM benötigt mind. 30 Sequenzen (gesamt)
+# P-T08: Mindestanzahl gültiger (nicht-maskierter) Samples PRO Horizont, ab der
+# für diesen Horizont ein LightGBM-Modell trainiert wird. Kürzere Horizonte
+# (+10/+20) erreichen die Schwelle früher → partielle Horizont-Abdeckung.
+# Runtime-überschreibbar via runtime_overrides.json.
+MIN_SEQUENCES_LGBM_PER_HORIZON: int = 15
 
 # Minimale Zell-Geschwindigkeit für Pfeil-Darstellung in der Karte (km/h).
 # Zellen langsamer als dieser Wert erhalten KEINEN Bewegungspfeil.

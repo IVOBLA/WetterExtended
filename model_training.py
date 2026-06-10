@@ -179,23 +179,46 @@ def evaluate_on_recent(model_dir, hours=24):
     scaler_y = joblib.load(scaler_y_path)
     y_pred_scaled = np.zeros_like(y_recent, dtype=float)
 
+    _avail_cols = set()
     for h_idx, horizon in enumerate(ML_FORECAST_HORIZONS_MIN):
         for axis_idx, axis in enumerate(["x", "y"]):
             col = h_idx * 2 + axis_idx
             model_path = os.path.join(model_dir, f"lgbm_h{horizon}_{axis}.txt")
             if not os.path.exists(model_path):
-                return {"mae_total": float("inf"), "mae_by_horizon": {}, "samples": len(idx)}
+                continue  # P-T08: fehlende Horizonte überspringen (partielle Abdeckung)
             booster = lgb.Booster(model_file=model_path)
             y_pred_scaled[:, col] = booster.predict(X_recent)
+            _avail_cols.add(col)
+
+    if not _avail_cols:
+        return {"mae_total": float("inf"), "mae_by_horizon": {}, "samples": len(idx)}
 
     y_pred = scaler_y.inverse_transform(y_pred_scaled)
     mae_by_horizon = {}
     _eval_horizons = _get_training_horizons()  # P29: runtime-fähig
+    _valid_h_maes = []
     for h_idx, horizon in enumerate(_eval_horizons):
-        sl = slice(h_idx * 2, h_idx * 2 + 2)
-        mae_by_horizon[str(horizon)] = float(np.mean(np.abs(y_pred[:, sl] - y_recent[:, sl])))
-    mae_total = float(np.mean([mae_by_horizon[str(h)] for h in _eval_horizons]))
+        c0, c1 = h_idx * 2, h_idx * 2 + 1
+        if c0 not in _avail_cols or c1 not in _avail_cols:
+            continue
+        _diff = np.abs(y_pred[:, c0:c1 + 1] - y_recent[:, c0:c1 + 1])
+        if np.all(np.isnan(_diff)):
+            continue
+        _h_mae = float(np.nanmean(_diff))
+        mae_by_horizon[str(horizon)] = _h_mae
+        _valid_h_maes.append(_h_mae)
+    mae_total = float(np.mean(_valid_h_maes)) if _valid_h_maes else float("inf")
     return {"mae_total": mae_total, "mae_by_horizon": mae_by_horizon, "samples": len(idx)}
+
+def _masked_mse(y_true, y_pred):
+    """P-T08: MSE-Loss der maskierte Ziele (NaN) ignoriert.
+    Maskierte Horizonte tragen 0 zu Loss/Gradient bei."""
+    import tensorflow as _tf
+    mask = _tf.cast(~_tf.math.is_nan(y_true), _tf.float32)
+    y_true_safe = _tf.where(_tf.math.is_nan(y_true), _tf.zeros_like(y_true), y_true)
+    sq = _tf.square(y_pred - y_true_safe) * mask
+    return _tf.reduce_sum(sq) / (_tf.reduce_sum(mask) + 1e-6)
+
 
 def _build_lstm(n_horizons: int = 0):
     """P0-2: n_horizons aus _get_training_horizons() — NICHT aus compile-time Import.
@@ -249,7 +272,7 @@ def _build_lstm(n_horizons: int = 0):
         Dense(32, activation="relu"),
         Dense(_n * 2),
     ])
-    model.compile(optimizer=Adam(1e-3), loss="mse")
+    model.compile(optimizer=Adam(1e-3), loss=_masked_mse)  # P-T08: maskierter Loss
     return model
 
 
@@ -318,15 +341,35 @@ def train_lgbm(X, y, model_dir):
     if len(X) < 100:
         debug_log(f"[LGBM] Wenig Samples ({len(X)} < 100): trainiere nur Median-Quantil (q50)")
     _train_horizons = _get_training_horizons()  # P29: runtime-fähig
+    # P-T08: Per-Horizont-Mindestanzahl gültiger (nicht-NaN) Ziele.
+    try:
+        from config import MIN_SEQUENCES_LGBM_PER_HORIZON as _LGBM_MIN_H
+    except ImportError:
+        _LGBM_MIN_H = 15
     models, best_scores, quantile_scores = {}, {}, {}
+    skipped_horizons = []
     for h_idx, h in enumerate(_train_horizons):
         for axis_idx, axis in enumerate(["x", "y"]):
             target_idx = h_idx * 2 + axis_idx
+            # P-T08: nur Zeilen mit gültigem Ziel für DIESE Spalte verwenden
+            _tr_mask = ~np.isnan(y_train[:, target_idx])
+            _va_mask = ~np.isnan(y_val[:, target_idx])
+            _n_valid = int(_tr_mask.sum())
+            if _n_valid < _LGBM_MIN_H:
+                skipped_horizons.append(f"h{h}_{axis}({_n_valid})")
+                continue
+            _Xtr = X_train[_tr_mask]
+            _ytr = y_train[_tr_mask, target_idx]
+            if int(_va_mask.sum()) > 0:
+                _Xva = X_val[_va_mask]
+                _yva = y_val[_va_mask, target_idx]
+            else:
+                _Xva, _yva = _Xtr, _ytr  # leeres Val nach Maskierung → Train als Val
             booster = lgb.train(
                 point_params,
-                lgb.Dataset(X_train, label=y_train[:, target_idx]),
+                lgb.Dataset(_Xtr, label=_ytr),
                 num_boost_round=500,
-                valid_sets=[lgb.Dataset(X_val, label=y_val[:, target_idx])],
+                valid_sets=[lgb.Dataset(_Xva, label=_yva)],
                 callbacks=[lgb.early_stopping(20, verbose=False)],
             )
             name = f"lgbm_h{h}_{axis}"
@@ -340,9 +383,9 @@ def train_lgbm(X, y, model_dir):
                 quantile_params = {**base_params, "objective": "quantile", "alpha": quantile, "metric": "quantile"}
                 q_booster = lgb.train(
                     quantile_params,
-                    lgb.Dataset(X_train, label=y_train[:, target_idx]),
+                    lgb.Dataset(_Xtr, label=_ytr),
                     num_boost_round=500,
-                    valid_sets=[lgb.Dataset(X_val, label=y_val[:, target_idx])],
+                    valid_sets=[lgb.Dataset(_Xva, label=_yva)],
                     callbacks=[lgb.early_stopping(20, verbose=False)],
                 )
                 q_model_name = f"lgbm_h{h}_{axis}_{q_name}"
@@ -350,6 +393,8 @@ def train_lgbm(X, y, model_dir):
                 q_booster.save_model(q_path)
                 models[q_model_name] = q_path
                 quantile_scores[q_model_name] = float(q_booster.best_score.get("valid_0", {}).get("quantile", float("nan")))
+    if skipped_horizons:
+        debug_log(f"[LGBM] Übersprungene Horizonte (zu wenig Daten): {skipped_horizons}")
     return {"trained": True, "models": models, "best_scores": best_scores, "quantile_scores": quantile_scores, "samples": len(X)}
 
 
@@ -418,7 +463,9 @@ def load_lstm(model_dir=None):
         )
         return None
     try:
-        return load_model(model_path)
+        # P-T08: compile=False — der maskierte Trainings-Loss wird zur Inferenz
+        # nicht gebraucht und wäre sonst nicht deserialisierbar.
+        return load_model(model_path, compile=False)
     except Exception as exc:
         debug_log(f"[MODEL] load_lstm Fehler: {exc}")
         return None
@@ -528,16 +575,19 @@ def _compute_holdout_metrics(X_h, y_h, model_dir: str) -> dict:
             result["note"] = "Modelle nicht geladen"
             return result
 
-        _lstm = load_model(lstm_path)
+        _lstm = load_model(lstm_path, compile=False)  # P-T08: maskierter Loss nicht nötig
         _scaler_y = joblib.load(scaler_y_path)
         preds_scaled = _lstm.predict(X_h, verbose=0)
         preds = _scaler_y.inverse_transform(preds_scaled)
-        errs = np.abs(preds - y_h)
-        mae_total = float(np.mean(errs))
+        errs = np.abs(preds - y_h)  # y_h kann NaN enthalten (maskierte Horizonte)
+        mae_total = float(np.nanmean(errs))
         result["mae_px"] = round(mae_total, 3)
         for i, h in enumerate(ML_FORECAST_HORIZONS_MIN):
             h_errs = errs[:, i * 2:(i + 1) * 2]
-            result["mae_by_horizon"][str(h)] = round(float(np.mean(h_errs)), 3)
+            if np.all(np.isnan(h_errs)):
+                result["mae_by_horizon"][str(h)] = None
+            else:
+                result["mae_by_horizon"][str(h)] = round(float(np.nanmean(h_errs)), 3)
         result["note"] = "OK"
     except Exception as exc:
         result["note"] = f"Fehler: {exc}"
