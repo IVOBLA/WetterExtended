@@ -1871,3 +1871,15 @@ Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sow
   api_health_check + B88-Test angepasst.
 - **Test:** test_b116_no_ffx_parameter, test_b116_bulk_url_has_no_ffx,
   test_b116_gust_kmh_ignores_nowcast_ffx_field.
+
+### B117 – Track-Kontinuität: Merge-ID-Stabilität + akkumulierter Zustand ✅
+- **Symptom:** history/active_frames immer 1, first_seen jeden Frame neu,
+  gemergte Zellen erhalten jeden Frame neue ID → KEINE Trainings-Sequenzen.
+- **Ursache A:** akkumulierte Felder wurden nur auf obj_clean (Kopie) gesetzt,
+  nicht in tracking_memory zurückgeschrieben.
+- **Ursache B:** Merge mintete bedingungslos generate_id() → endlose Neuvergabe.
+- **Fix A:** history/first_seen/active_frames/total_active_frames werden in
+  tracking_memory[obj_id] persistiert.
+- **Fix B:** Merge-Zelle erbt ID des dominanten Parents (größter Overlap) und
+  führt dessen Kalman/History fort; übrige Parents werden korrekt beendet.
+- **Test:** tests/test_b117_track_continuity.py.

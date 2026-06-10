@@ -588,10 +588,21 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
         obj_id = None
 
         if len(overlaps) >= 2:
-            obj_id = generate_id()
             lineage = "merged"
             parents = [oid for oid, _ in overlaps]
+            # B117: Merge-Zelle ERBT die ID des dominanten Parents (groesster
+            # Overlap = overlaps[0]), sofern noch frei. Erhaelt Track-Kontinuitaet
+            # (Kalman/History/first_seen werden im Enrichment uebernommen).
+            # Nur wenn kein Parent mehr frei ist -> neue ID (echtes Novum).
+            _dominant = next((oid for oid, _ in overlaps if oid not in used_ids), None)
+            if _dominant is not None and _dominant in previous_snapshot:
+                obj_id = _dominant
+                best_id = _dominant      # ermoeglicht Trend-Carry-over
+            else:
+                obj_id = generate_id()
             for merged_old_id in parents:
+                if merged_old_id == obj_id:
+                    continue              # dominanter Parent lebt als obj_id weiter
                 old_obj = previous_snapshot.get(merged_old_id, {})
                 old_obj["children"] = [obj_id]
                 old_obj["lineage_end"] = f"merged_into:{obj_id}"
@@ -810,6 +821,14 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             # total_active_frames: unbegrenzter Zähler seit first_seen (history_len gekappt)
             _prev_total = previous_snapshot.get(obj_id, {}).get("total_active_frames", 0)
             obj_clean["total_active_frames"] = _prev_total + 1
+            # B117: Akkumulierte Track-Felder ZURUECK in tracking_memory schreiben
+            # (obj == new_memory[obj_id] == tracking_memory[obj_id]). Ohne dies
+            # blieben history/first_seen/active_frames jeden Frame = 1 -> keine
+            # Trainings-Sequenzen (ML_SEQUENCE_LENGTH=6 nie erreicht).
+            obj["history"]             = updated_history
+            obj["first_seen"]          = obj_clean["first_seen"]
+            obj["active_frames"]       = obj_clean["active_frames"]
+            obj["total_active_frames"] = obj_clean["total_active_frames"]
             # P17: Lineage-Features als normalisierte Floats für ML_CELL_FEATURES.
             # Normierung: active_frames / 20 (gekappt) → 0..1;
             #             total_active_frames / 100 (gekappt) → 0..1
