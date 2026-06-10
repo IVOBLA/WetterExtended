@@ -133,6 +133,8 @@ ENABLE_SERVICES=false
 ENABLE_DEBUG_EXPORT_GIT=true
 DEBUG_EXPORT_BRANCH="debug-export-latest"
 DEBUG_EXPORT_TARGET_PATH="debug_exports/wetterextended_debug_latest_last24h.zip"
+DEBUG_EXPORT_MAX_SOURCE_TOTAL_MB=512
+DEBUG_EXPORT_MAX_ZIP_MB=90
 LOCAL_TRAINING_FLAG=true          # --no-training setzt auf false (Phase B)
 BRANCH="$DEFAULT_BRANCH"
 GIT_TAG="$DEFAULT_VERSION"
@@ -1692,6 +1694,8 @@ if [[ "$MODE" == "full" && "$ENABLE_DEBUG_EXPORT_GIT" == true ]]; then
                 -e "s|^WorkingDirectory=.*|WorkingDirectory=$TARGET|g" \
                 -e "s|^Environment=WETTER_DEBUG_EXPORT_BRANCH=.*|Environment=WETTER_DEBUG_EXPORT_BRANCH=$DEBUG_EXPORT_BRANCH|g" \
                 -e "s|^Environment=WETTER_DEBUG_EXPORT_TARGET_PATH=.*|Environment=WETTER_DEBUG_EXPORT_TARGET_PATH=$DEBUG_EXPORT_TARGET_PATH|g" \
+                -e "s|^Environment=WETTER_DEBUG_EXPORT_MAX_SOURCE_TOTAL_MB=.*|Environment=WETTER_DEBUG_EXPORT_MAX_SOURCE_TOTAL_MB=$DEBUG_EXPORT_MAX_SOURCE_TOTAL_MB|g" \
+                -e "s|^Environment=WETTER_DEBUG_EXPORT_MAX_ZIP_MB=.*|Environment=WETTER_DEBUG_EXPORT_MAX_ZIP_MB=$DEBUG_EXPORT_MAX_ZIP_MB|g" \
                 -e "s|/home/ki-pi/wetterprojekt|$TARGET|g" \
                 "$DEBUG_EXPORT_SERVICE_SRC" > "$DEBUG_EXPORT_SERVICE_GEN"
             sudo cp "$DEBUG_EXPORT_SERVICE_GEN" "/etc/systemd/system/$DEBUG_EXPORT_SERVICE"
@@ -1724,7 +1728,8 @@ if [[ "$MODE" == "full" && "$ENABLE_DEBUG_EXPORT_GIT" == true ]]; then
                     check_warn "GitHub-Schreibtest fehlgeschlagen — Debug-Export-Timer wird nicht aktiviert"
                     note_manual "GitHub-Schreibtest fehlgeschlagen. Bitte SSH Deploy Key oder PAT mit Write-Zugriff einrichten."
                     note_manual "Danach aktivieren: sudo systemctl enable --now wetterprojekt-debug-export-branch.timer"
-                    note_manual "Test: cd $TARGET && $VENV/bin/python3 $DEBUG_EXPORT_SCRIPT --repo-dir $TARGET --check-only"
+                    note_manual "Test Schreibrecht: cd $TARGET && $VENV/bin/python3 $DEBUG_EXPORT_SCRIPT --repo-dir $TARGET --check-only"
+                    note_manual "Test Export-Limits: cd $TARGET && $VENV/bin/python3 $DEBUG_EXPORT_SCRIPT --repo-dir $TARGET --dry-run --max-source-total-mb $DEBUG_EXPORT_MAX_SOURCE_TOTAL_MB --max-zip-mb $DEBUG_EXPORT_MAX_ZIP_MB"
                     note_manual "Details: cat $DEBUG_EXPORT_CHECK_LOG"
                 fi
             fi
