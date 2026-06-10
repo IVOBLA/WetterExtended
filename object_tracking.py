@@ -582,6 +582,60 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
                     continue
             overlaps.sort(key=lambda t: t[1], reverse=True)
 
+        # === Merge-Fallback: Abdeckung der ALTEN Parent-Fläche ===============
+        # Große Merge-Konturen verwässern IoU und inter/area_new: ein alter
+        # Parent kann fast vollständig in der neuen Kontur liegen, aber wegen
+        # der großen neuen Fläche trotzdem unter den bisherigen Schwellen bleiben.
+        # Deshalb prüfen wir nach Stage 1/2/3 alle vorherigen Konturen und
+        # bewerten zusätzlich inter/old_area. Ab 30% alter Abdeckung zählt die
+        # Zelle als Merge-Parent; bei >=2 Parents wird unten lineage="merged".
+        _overlap_by_id = {oid: score for oid, score in overlaps}
+        _old_area_by_id = {}
+        for _oid_m, _opoly_m in prev_polys:
+            if _oid_m in used_ids or _oid_m not in previous_snapshot:
+                continue
+            try:
+                _old_area_m = max(float(_opoly_m.area), 1e-6)
+                _inter_m = current_poly.intersection(_opoly_m).area
+                _old_coverage_m = _inter_m / _old_area_m
+            except Exception:
+                continue
+            _old_area_by_id[_oid_m] = _old_area_m
+            if _old_coverage_m >= 0.30:
+                # Score > 1 markiert bewusst die old-coverage-Semantik und
+                # hält solche Parents in der Merge-Erkennung vor schwachen
+                # Distanz-/IoU-Treffern, ohne die Continued-Logik zu ändern.
+                _overlap_by_id[_oid_m] = max(
+                    _overlap_by_id.get(_oid_m, 0.0),
+                    1.0 + _old_coverage_m,
+                )
+
+        if _overlap_by_id:
+            def _merge_sort_key(_item):
+                _oid_s, _score_s = _item
+                _old_area_s = _old_area_by_id.get(_oid_s)
+                if _old_area_s is None:
+                    _prev_poly_s = next(
+                        (p for oid, p in prev_polys if oid == _oid_s),
+                        None,
+                    )
+                    _old_area_s = (
+                        float(_prev_poly_s.area)
+                        if _prev_poly_s is not None
+                        else 0.0
+                    )
+                if len(_overlap_by_id) >= 2:
+                    _primary_s = _old_area_s
+                else:
+                    _primary_s = _score_s
+                return (_primary_s, _score_s)
+
+            overlaps = sorted(
+                _overlap_by_id.items(),
+                key=_merge_sort_key,
+                reverse=True,
+            )
+
         lineage = "new"
         parents = []
         best_id = None
@@ -591,7 +645,8 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             lineage = "merged"
             parents = [oid for oid, _ in overlaps]
             # B117: Merge-Zelle ERBT die ID des dominanten Parents (groesster
-            # Overlap = overlaps[0]), sofern noch frei. Erhaelt Track-Kontinuitaet
+            # Parent nach alter Konturflaeche = overlaps[0]), sofern noch frei.
+            # Erhaelt Track-Kontinuitaet
             # (Kalman/History/first_seen werden im Enrichment uebernommen).
             # Nur wenn kein Parent mehr frei ist -> neue ID (echtes Novum).
             _dominant = next((oid for oid, _ in overlaps if oid not in used_ids), None)
