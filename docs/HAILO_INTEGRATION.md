@@ -1907,3 +1907,13 @@ Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sow
   Echte Secrets (GITHUB_TOKEN, token, UPSCALE_FACTOR) weiterhin korrekt gesperrt.
   Kein benutzersichtbares Feature → kein Handbuch-Update.
   Test: 4 neue B119-Tests in `tests/test_config_override_guard.py`.
+
+- **B120 — Korrektur `test_b117_track_continuity.py`** (`tests/test_b117_track_continuity.py`):
+  Testfehler durch falsche Return-Type-Annahme: `update_tracking_memory()` gibt eine
+  einfache `list` zurück (nicht 2-Tuple). Das 2-Tuple-Entpacken `objs, _ = ...` brach
+  bei 0 oder 1 erkannten Zellen. Zusätzlich fehlten alle nötigen Mocks (`pixel_to_geo`,
+  `calculate_core_ratio`, `get_dem_features`, `get_valley_features`,
+  `compute_stratiform_environment`) — ohne diese filterte der Bbox-Check alle
+  Testzellen heraus. Testfile vollständig neu erstellt nach dem Muster aus
+  `test_object_tracking_regression.py`. Die B117-Logik in `object_tracking.py`
+  war korrekt und bleibt unverändert. Kein Benutzerhandbuch-Update.
