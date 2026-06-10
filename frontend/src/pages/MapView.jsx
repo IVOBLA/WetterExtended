@@ -77,6 +77,17 @@ const lineageColor = {
   new: 'green', continued: 'blue', merged: 'orange', split: 'magenta',
 }
 
+// B118: Merged-Zellen deutlich hervorheben. Bisher hatten alle Zellen weight:2
+// und nur unterschiedliche Randfarben — gemergte Zellen waren kaum erkennbar.
+// merged → dicker (4) + auffällig gestrichelt; split → 3 + fein gestrichelt;
+// new/continued → unverändert durchgezogen (2).
+function cellStroke(lineage) {
+  const color = lineageColor[lineage] || '#888'
+  if (lineage === 'merged') return { color, weight: 4, dashArray: '10,6' }
+  if (lineage === 'split')  return { color, weight: 3, dashArray: '4,4' }
+  return { color, weight: 2, dashArray: undefined }
+}
+
 // FlyToCell: Liest URL-Parameter lat/lon/zoom aus und zentriert die Karte.
 // Muss als Kind-Komponente innerhalb von <MapContainer> eingebunden werden
 // (benötigt den Leaflet-Karten-Context via useMap()).
@@ -256,6 +267,25 @@ function Legend({ horizons, colors }) {
       <span style={{display:'flex',alignItems:'center',gap:3}}>
         <span style={{width:12,height:12,borderRadius:'50%',border:'2px dashed #a855f7',display:'inline-block'}}/>
         <span style={{fontSize:10}}>CB / IR-Vorläufer</span>
+      </span>
+      <span className="border-l pl-3 flex items-center gap-2 text-xs text-gray-500">
+        <strong>Zelltyp:</strong>
+        <span className="flex items-center gap-1">
+          <span style={{ display:'inline-block', width:18, height:0, borderTop:'4px dashed orange' }}/>
+          merged
+        </span>
+        <span className="flex items-center gap-1">
+          <span style={{ display:'inline-block', width:18, height:0, borderTop:'3px dashed magenta' }}/>
+          split
+        </span>
+        <span className="flex items-center gap-1">
+          <span style={{ display:'inline-block', width:18, height:0, borderTop:'2px solid blue' }}/>
+          fortgeführt
+        </span>
+        <span className="flex items-center gap-1">
+          <span style={{ display:'inline-block', width:18, height:0, borderTop:'2px solid green' }}/>
+          neu
+        </span>
       </span>
     </div>
   )
@@ -902,12 +932,13 @@ export default function MapView() {
         {objects.map(o => {
           if (!o.contour_geo || o.contour_geo.length < 3) return null
           const outerPos    = o.contour_geo.map(p => [p[1], p[0]])
-          const borderColor = lineageColor[o.lineage] || '#888'
+          const stroke      = cellStroke(o.lineage)
+          const borderColor = stroke.color
           return (
             <React.Fragment key={'cell_' + o.id}>
               <Polygon
                 positions={outerPos}
-                pathOptions={{ color:borderColor, weight:2, fillColor:'#ff8800', fillOpacity:0.25, interactive:true }}
+                pathOptions={{ color:stroke.color, weight:stroke.weight, dashArray:stroke.dashArray, fillColor:'#ff8800', fillOpacity:0.25, interactive:true }}
                 eventHandlers={{ click: (e) => { e.target.openPopup(e.latlng) } }}
                 pane="tooltipPane"
               >
