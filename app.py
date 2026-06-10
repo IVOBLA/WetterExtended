@@ -438,12 +438,21 @@ _REDACT_KEYS = frozenset({
     "TOKEN", "KEY", "PASS", "PASSWORD", "SECRET",
     "AUTH", "CREDENTIAL", "PRIVATE", "API_KEY",
 })
+# B119: Numerische Limits mit zufälligem Redact-Substring.
+# Ohne Ausnahme sieht der Admin max_tokens als "***REDACTED***" — beim Speichern
+# würde der String "***REDACTED***" statt des numerischen Werts zurückgeschrieben
+# und AI_ANALYSIS_CONFIG.max_tokens korrumpiert.
+_REDACT_KEYS_EXCEPTIONS = frozenset({
+    "MAX_TOKENS",
+    "MAX_TOKENS_PER_CHUNK",
+})
 
 
 def _redact_secrets(obj, depth: int = 0):
     """
     Entfernt rekursiv alle Secret-Werte aus einem Config-Dict.
     Keys die einen der _REDACT_KEYS-Begriffe enthalten → '***REDACTED***'.
+    B119: _REDACT_KEYS_EXCEPTIONS schützt numerische Limits vor False Positives.
     depth-Limit verhindert endlose Rekursion.
     """
     if depth > 8:
@@ -451,7 +460,8 @@ def _redact_secrets(obj, depth: int = 0):
     if isinstance(obj, dict):
         out = {}
         for k, v in obj.items():
-            if any(s in str(k).upper() for s in _REDACT_KEYS):
+            ku = str(k).upper()
+            if ku not in _REDACT_KEYS_EXCEPTIONS and any(s in ku for s in _REDACT_KEYS):
                 out[k] = "***REDACTED***"
             else:
                 out[k] = _redact_secrets(v, depth + 1)

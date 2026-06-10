@@ -109,3 +109,72 @@ def test_find_forbidden_paths_mixed():
     assert any("api_key" in p for p in result)
     assert all("SLOW_CELL_MAX_KMH" not in p for p in result)
 
+
+
+# ---------------------------------------------------------------------------
+# B119: max_tokens-Allowlist — numerische Limits dürfen nie als Secret gelten
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("key", [
+    "max_tokens", "MAX_TOKENS",
+    "max_tokens_per_chunk", "MAX_TOKENS_PER_CHUNK",
+])
+def test_b119_max_tokens_not_forbidden(key):
+    """B119: max_tokens enthält 'TOKEN' als Substring, ist aber kein Secret."""
+    rc = _rc()
+    assert not rc.is_forbidden_override_key(key), (
+        f"{key!r} fälschlich als verboten eingestuft — "
+        "_FORBIDDEN_KEY_ALLOWLIST fehlt oder unvollständig (B119)"
+    )
+
+
+def test_b119_ai_analysis_config_with_max_tokens_saveable(monkeypatch):
+    """B119: AI_ANALYSIS_CONFIG inkl. max_tokens muss vollständig durch patch() gehen."""
+    rc = _rc()
+    written = {}
+    monkeypatch.setattr(rc, "save", lambda merged: written.update({"m": dict(merged)}))
+    monkeypatch.setattr(rc, "_OVERRIDES", {}, raising=False)
+    payload = {
+        "AI_ANALYSIS_CONFIG": {
+            "enabled": True,
+            "max_tokens": 3000,
+            "cron_hour": 6,
+            "since_hours": 24,
+        }
+    }
+    rc.patch(payload)
+    assert "AI_ANALYSIS_CONFIG" in written.get("m", {}), (
+        "AI_ANALYSIS_CONFIG wurde von patch() still entfernt — B119 nicht angewandt"
+    )
+    assert written["m"]["AI_ANALYSIS_CONFIG"]["max_tokens"] == 3000, (
+        "max_tokens-Wert wurde nicht korrekt persistiert"
+    )
+
+
+def test_b119_real_secrets_still_blocked():
+    """B119: Allowlist darf echte Secrets nicht freistellen."""
+    rc = _rc()
+    assert rc.is_forbidden_override_key("GITHUB_TOKEN")
+    assert rc.is_forbidden_override_key("ANTHROPIC_API_KEY")
+    assert rc.is_forbidden_override_key("MY_SECRET")
+    assert rc.is_forbidden_override_key("token")
+    assert rc.is_forbidden_override_key("UPSCALE_FACTOR")
+
+
+def test_b119_forbidden_keys_in_ai_analysis_config_no_false_positive():
+    """B119: AI_ANALYSIS_CONFIG ohne echte Secrets → keine verbotenen Pfade."""
+    rc = _rc()
+    result = rc.forbidden_keys_in({
+        "AI_ANALYSIS_CONFIG": {
+            "enabled": True,
+            "max_tokens": 3000,
+            "cron_hour": 6,
+            "cron_minute": 0,
+            "since_hours": 24,
+            "model": "claude-sonnet-4-6",
+            "report_email": "",
+        }
+    })
+    assert result == [], (
+        f"Falsch-positive verbotene Pfade in AI_ANALYSIS_CONFIG: {result}"
+    )
