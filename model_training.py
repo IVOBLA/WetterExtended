@@ -54,6 +54,7 @@ if (
 ):
     Sequential = getattr(keras_models, "Sequential", None)
     load_model = getattr(keras_models, "load_model", None)
+    Input = getattr(keras_layers, "Input", None)
     LSTM = getattr(keras_layers, "LSTM", None)
     Dense = getattr(keras_layers, "Dense", None)
     Dropout = getattr(keras_layers, "Dropout", None)
@@ -61,7 +62,7 @@ if (
     ModelCheckpoint = getattr(keras_callbacks, "ModelCheckpoint", None)
     Adam = getattr(keras_optimizers, "Adam", None)
 else:
-    Sequential = load_model = LSTM = Dense = Dropout = EarlyStopping = ModelCheckpoint = Adam = None
+    Sequential = load_model = Input = LSTM = Dense = Dropout = EarlyStopping = ModelCheckpoint = Adam = None
 
 from config import ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, SAVE_PATHS
 
@@ -205,9 +206,10 @@ def _build_lstm(n_horizons: int = 0):
     kryptischem TypeError wenn TF wirklich fehlt.
     """
     # B101/B110: Lazy-Re-Import — damit pytest.importorskip("tensorflow") greift
-    global Sequential, LSTM, Dense, Dropout, Adam, EarlyStopping, ModelCheckpoint  # noqa: PLW0603
+    global Sequential, Input, LSTM, Dense, Dropout, Adam, EarlyStopping, ModelCheckpoint  # noqa: PLW0603
     if (
         Sequential is None
+        or Input is None
         or LSTM is None
         or Dense is None
         or Dropout is None
@@ -221,6 +223,7 @@ def _build_lstm(n_horizons: int = 0):
         _kc = _optional_import("tensorflow.keras.callbacks")
         if _km is not None and _kl is not None and _ko is not None:
             Sequential = getattr(_km, "Sequential", None)
+            Input = getattr(_kl, "Input", None)
             LSTM = getattr(_kl, "LSTM", None)
             Dense = getattr(_kl, "Dense", None)
             Dropout = getattr(_kl, "Dropout", None)
@@ -229,16 +232,17 @@ def _build_lstm(n_horizons: int = 0):
             EarlyStopping = getattr(_kc, "EarlyStopping", None)
             ModelCheckpoint = getattr(_kc, "ModelCheckpoint", None)
 
-    if Sequential is None or LSTM is None or Dense is None or Dropout is None or Adam is None:
+    if Sequential is None or Input is None or LSTM is None or Dense is None or Dropout is None or Adam is None:
         raise RuntimeError(
             "[_build_lstm] TensorFlow/Keras nicht verfügbar — "
-            "Sequential/LSTM/Dense/Dropout/Adam sind None. "
+            "Sequential/Input/LSTM/Dense/Dropout/Adam sind None. "
             "Bitte tensorflow installieren: pip install tensorflow"
         )
 
     _n = n_horizons if n_horizons > 0 else len(_get_training_horizons())
     model = Sequential([
-        LSTM(64, return_sequences=True, input_shape=(ML_SEQUENCE_LENGTH, ML_NUM_FEATURES)),
+        Input(shape=(ML_SEQUENCE_LENGTH, ML_NUM_FEATURES)),
+        LSTM(64, return_sequences=True),
         Dropout(0.2),
         LSTM(32),
         Dropout(0.2),
