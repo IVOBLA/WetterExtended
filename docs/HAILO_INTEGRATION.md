@@ -1939,3 +1939,26 @@ Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sow
   Testzellen heraus. Testfile vollständig neu erstellt nach dem Muster aus
   `test_object_tracking_regression.py`. Die B117-Logik in `object_tracking.py`
   war korrekt und bleibt unverändert. Kein Benutzerhandbuch-Update.
+
+### P-T08 – Per-Horizont-Maskierung, partielle Abdeckung & Radaralter ✅
+- **Problem:** `build_dataset()` verlangte, dass eine Zelle bei ALLEN Horizonten
+  (+10…+60) existiert (`if any(oid not in fmap ...): continue`). Zellen die < ~80 min
+  leben lieferten 0 Samples. Forecast verlangte ebenfalls alle LGBM-Modelle
+  (`has_lgbm = all(...)`).
+- **Fix Dataset:** Per-Horizont-Maskierung mit `NaN`. Sample gültig sobald ≥1
+  Horizont vorhanden. `scaler_y` NaN-bewusst gefittet (`np.nanmean/nanstd`).
+  `validate_sample` NaN-tolerant; Jump-Check übersprungen wenn +30 maskiert.
+- **Fix Training:** `train_lgbm` filtert pro (Horizont,Achse) die NaN-Zeilen und
+  trainiert nur ab `MIN_SEQUENCES_LGBM_PER_HORIZON` (=15) gültigen Samples →
+  +10/+20 zuerst. LSTM nutzt `_masked_mse` (ignoriert NaN-Ziele); `load_lstm` und
+  Holdout-Eval laden mit `compile=False`. Holdout-MAE auf `np.nanmean`.
+- **Fix Forecast:** `has_lgbm` all→any; `_predict_lgbm_vector` liefert NaN für
+  fehlende Horizonte; Forecast mischt pro Horizont ML (Modell vorhanden) und
+  kinematischen Fallback (aus `_temp_fc`). Jeder Forecast wird mit `radar_age_min`,
+  `effective_lead_min` (= Horizont − Radaralter) und `stale` annotiert.
+- **Priorität:** präzise +10/+20-Vorhersage (kürzeste Horizonte erreichen die
+  Datenmenge zuerst). Erfüllt `zieldefinition.txt` Z.5/6 (ML wenn vorhanden,
+  sonst kinematisch).
+- **Dateien:** `config.py`, `dataset_builder.py`, `data_quality.py`,
+  `model_training.py`, `prediction.py`, `tests/test_pt08_partial_horizon.py`
+- **Hinweis:** Neutraining erforderlich (Dataset-Format/Scaler geändert).

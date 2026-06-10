@@ -39,9 +39,16 @@ def _iter_values(value):
 
 
 def validate_sample(seq, target, seq_context=None) -> Tuple[bool, Optional[str]]:
-    if not all(_is_finite_number(v) for v in _iter_values(seq)) or not all(
-        _is_finite_number(v) for v in _iter_values(target)
-    ):
+    # Sequenz-Features müssen vollständig endlich sein.
+    if not all(_is_finite_number(v) for v in _iter_values(seq)):
+        return False, "non-finite values"
+    # P-T08: Ziele dürfen NaN enthalten (maskierte/nicht verfügbare Horizonte).
+    # Geprüft: alle NICHT-NaN-Ziele endlich UND mindestens ein gültiges Ziel.
+    _target_vals = list(_iter_values(target))
+    _valid_targets = [v for v in _target_vals if not (isinstance(v, float) and math.isnan(v))]
+    if not _valid_targets:
+        return False, "no valid target horizon"
+    if not all(_is_finite_number(v) for v in _valid_targets):
         return False, "non-finite values"
 
     if not seq:
@@ -78,10 +85,15 @@ def validate_sample(seq, target, seq_context=None) -> Tuple[bool, Optional[str]]
     current_x = float(current_obj.get("x", 0.0))
     current_y = float(current_obj.get("y", 0.0))
 
-    target_x_30 = float(target[4]) if len(target) >= 6 else float(target[0])
-    target_y_30 = float(target[5]) if len(target) >= 6 else float(target[1])
-    jump = math.hypot(target_x_30 - current_x, target_y_30 - current_y)
-    if jump > MAX_TARGET_JUMP_PX:
-        return False, "target jump too large"
+    # P-T08: Jump-Check nur wenn das +30-Zielpaar (Index 4/5) verfügbar UND
+    # nicht maskiert ist. Bei maskiertem +30 wird der Check übersprungen — die
+    # übrigen Plausibilitätsprüfungen greifen weiterhin.
+    if len(target) >= 6:
+        target_x_30 = float(target[4])
+        target_y_30 = float(target[5])
+        if not (math.isnan(target_x_30) or math.isnan(target_y_30)):
+            jump = math.hypot(target_x_30 - current_x, target_y_30 - current_y)
+            if jump > MAX_TARGET_JUMP_PX:
+                return False, "target jump too large"
 
     return True, None

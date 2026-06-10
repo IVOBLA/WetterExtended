@@ -2331,3 +2331,20 @@ oder Abschwächung folgt, lernt das Modell aus Trainingsdaten ähnlicher Lagen.
 Es werden ausschließlich bereits vorhandene Daten genutzt — **kein zusätzlicher
 Abruf von Fremdsystemen.**
 
+
+## Vorhersage bei kurzlebigen Zellen und veralteten Radardaten
+
+Die Bewegungsvorhersage arbeitet jetzt **pro Vorhersagezeitraum unabhängig**.
+Für jeden Zeitraum (+10/+20/+30/+40/+60 min) nutzt das System ein ML-Modell,
+sobald dafür genügend Trainingsdaten vorliegen. Da kurze Zeiträume schneller
+ausreichend Daten sammeln, sind präzise **+10- und +20-Minuten-Vorhersagen**
+zuerst verfügbar. Für Zeiträume ohne Modell wird automatisch die kinematische
+Vorhersage (aus den letzten Bewegungen) verwendet — die Karte und der KMZ-Export
+bleiben dadurch immer vollständig.
+
+Zusätzlich berücksichtigt die Vorhersage das **Alter des letzten Radarbildes**.
+Liefert ARSO vorübergehend kein neues Bild, wird jeder Vorhersagepunkt mit der
+effektiven Vorlaufzeit (Vorhersagezeitraum minus Radaralter) versehen. Liegt der
+Zielzeitpunkt durch ein veraltetes Radarbild bereits in der Vergangenheit, wird
+der Punkt als „veraltet" markiert, damit er nicht als echte Zukunftsvorhersage
+fehlinterpretiert wird.
