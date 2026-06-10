@@ -151,11 +151,24 @@ _FORBIDDEN_OVERRIDE_KEYS = frozenset({
 _FORBIDDEN_KEY_SUBSTRINGS = (
     "TOKEN", "SECRET", "PASSWORD", "PASSWD", "APIKEY", "API_KEY", "PRIVATE_KEY",
 )
+# B119: Schlüssel die einen verbotenen Substring enthalten, aber KEINE Secrets sind.
+# max_tokens / max_tokens_per_chunk sind numerische API-Limits, keine Auth-Token.
+# Ohne Allowlist streicht patch() AI_ANALYSIS_CONFIG still (200 OK, nichts gespeichert).
+_FORBIDDEN_KEY_ALLOWLIST = frozenset({
+    "MAX_TOKENS",
+    "MAX_TOKENS_PER_CHUNK",
+})
 
 
 def is_forbidden_override_key(key) -> bool:
-    """True wenn key nicht als Runtime-Override zulässig ist (P1-4)."""
+    """True wenn key nicht als Runtime-Override zulässig ist (P1-4).
+
+    B119: _FORBIDDEN_KEY_ALLOWLIST schützt numerische Limits vor False Positives.
+    Erlaubte Keys werden VOR der Substring-Prüfung freigestellt.
+    """
     ku = str(key).upper()
+    if ku in _FORBIDDEN_KEY_ALLOWLIST:
+        return False          # B119: numerisches Limit — nie blockieren
     if ku in _FORBIDDEN_OVERRIDE_KEYS:
         return True
     return any(tok in ku for tok in _FORBIDDEN_KEY_SUBSTRINGS)

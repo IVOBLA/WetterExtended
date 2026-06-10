@@ -1892,3 +1892,18 @@ Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sow
   new/continued → weight 2 durchgezogen. MapView erhält zusätzlich eine
   Zelltyp-Legende. MapFullscreen nur visuelle Differenzierung (kein Inline-Legenden-Balken).
   Benutzersichtbares Feature → Benutzerhandbuch v2.5 aktualisiert.
+
+- **B119 — `max_tokens` False Positive: KI-Analyse-Einstellungen still verworfen**
+  (`runtime_config.py`, `app.py`, `daily_analyzer.py`, `export_security.py`,
+  `tests/test_config_override_guard.py`):
+  `max_tokens` enthält den Substring `TOKEN` → wurde an 4 Stellen fälschlich als
+  Secret eingestuft. Kritischste Folge: `patch({"AI_ANALYSIS_CONFIG": {…}})` erkannte
+  `AI_ANALYSIS_CONFIG.max_tokens` als verbotenen Pfad, strich das gesamte Dict still
+  aus `partial` und speicherte nichts — Endpoint gab trotzdem `200 OK` zurück.
+  Admin sah nach Reload die alten Werte. Nebeneffekt: Admin-Konfigurationsseite und
+  KI-Analyse-Report zeigten `max_tokens: "***REDACTED***"`.
+  Fix: `_FORBIDDEN_KEY_ALLOWLIST` / `_REDACT_KEYS_EXCEPTIONS` / `_SECRET_KEY_EXCEPTIONS` /
+  `_SENSITIVE_KEY_ALLOWLIST` mit `MAX_TOKENS` + `MAX_TOKENS_PER_CHUNK`.
+  Echte Secrets (GITHUB_TOKEN, token, UPSCALE_FACTOR) weiterhin korrekt gesperrt.
+  Kein benutzersichtbares Feature → kein Handbuch-Update.
+  Test: 4 neue B119-Tests in `tests/test_config_override_guard.py`.

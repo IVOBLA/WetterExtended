@@ -583,11 +583,20 @@ _SECRET_KEY_PARTS = frozenset({
     "TOKEN", "KEY", "PASS", "PASSWORD", "SECRET",
     "AUTH", "CREDENTIAL", "PRIVATE", "API_KEY",
 })
+# B119: Numerische Limits mit zufälligem Secret-Substring.
+# Die KI soll max_tokens als numerischen Wert sehen — Konfigurationsparameter,
+# kein Secret. Ohne Ausnahme erhält die KI "***REDACTED***" und meldet
+# fälschlich einen fehlenden/ungültigen Wert.
+_SECRET_KEY_EXCEPTIONS = frozenset({
+    "MAX_TOKENS",
+    "MAX_TOKENS_PER_CHUNK",
+})
 
 
 def _sanitize_config(obj, depth=0):
     """
     Entfernt rekursiv alle Secret-Keys aus einem Config-Dict.
+    B119: _SECRET_KEY_EXCEPTIONS verhindert False Positives für numerische Limits.
     depth-Limit verhindert endlose Rekursion bei zirkulären Strukturen.
     """
     if depth > 5:
@@ -596,7 +605,7 @@ def _sanitize_config(obj, depth=0):
         out = {}
         for k, v in obj.items():
             key_upper = str(k).upper()
-            if any(s in key_upper for s in _SECRET_KEY_PARTS):
+            if key_upper not in _SECRET_KEY_EXCEPTIONS and any(s in key_upper for s in _SECRET_KEY_PARTS):
                 out[k] = "***REDACTED***"
             else:
                 out[k] = _sanitize_config(v, depth + 1)

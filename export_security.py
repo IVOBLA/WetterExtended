@@ -34,8 +34,17 @@ _BEARER_RE = re.compile(r"(?i)(\bBearer\s+)([A-Za-z0-9._~+/=-]+)")
 _URL_QUERY_RE = re.compile(r"https?://[^\s'\"<>]+")
 
 
+# B119: Schlüssel die einen SENSITIVE_KEY_PARTS-Substring enthalten, aber keine Secrets sind.
+_SENSITIVE_KEY_ALLOWLIST: frozenset = frozenset({
+    "MAX_TOKENS",
+    "MAX_TOKENS_PER_CHUNK",
+})
+
+
 def is_sensitive_key(key: object) -> bool:
     upper = str(key).upper()
+    if upper in _SENSITIVE_KEY_ALLOWLIST:
+        return False   # B119: numerische Limits sind keine Secrets
     return any(part in upper for part in SENSITIVE_KEY_PARTS)
 
 
