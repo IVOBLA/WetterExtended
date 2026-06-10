@@ -76,6 +76,16 @@ const lineageColor = {
   new: 'green', continued: 'blue', merged: 'orange', split: 'magenta'
 }
 
+// B118: Merged-Zellen deutlich hervorheben (identisch zu MapView.cellStroke).
+// merged → dicker (4) + auffällig gestrichelt; split → 3 + fein gestrichelt;
+// new/continued → unverändert durchgezogen (2).
+function cellStroke(lineage) {
+  const color = lineageColor[lineage] || '#888'
+  if (lineage === 'merged') return { color, weight: 4, dashArray: '10,6' }
+  if (lineage === 'split')  return { color, weight: 3, dashArray: '4,4' }
+  return { color, weight: 2, dashArray: undefined }
+}
+
 function TBtn({ onClick, active, children, style = {} }) {
   return (
     <button onClick={onClick} style={{
@@ -550,12 +560,13 @@ export default function MapFullscreen() {
         {(currentIdx === frames.length - 1 || frames.length === 0) && objects.map(o => {
           if (!o.contour_geo || o.contour_geo.length < 3) return null
           const outerPos    = o.contour_geo.map(p => [p[1], p[0]])
-          const borderColor = lineageColor[o.lineage] || '#888'
+          const stroke      = cellStroke(o.lineage)
+          const borderColor = stroke.color
           return (
             <React.Fragment key={'cell_' + o.id}>
               <Polygon
                 positions={outerPos}
-                pathOptions={{ color: borderColor, weight: 2, fillColor: '#ff8800', fillOpacity: 0.25, interactive:true }}
+                pathOptions={{ color: stroke.color, weight: stroke.weight, dashArray: stroke.dashArray, fillColor: '#ff8800', fillOpacity: 0.25, interactive:true }}
                 eventHandlers={{ click: (e) => { e.target.openPopup(e.latlng) } }}
                 pane="tooltipPane"
               >

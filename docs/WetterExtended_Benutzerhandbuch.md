@@ -1209,6 +1209,20 @@ Beispiel: Zelle dehnt sich nach E aus (+0.12 km/min) und zieht sich N-S
 zusammen (−0.08 km/min). Bei +30 min: E-W +3.6 km breiter, N-S −2.4 km
 schmaler. Diese asymmetrische Form wird für die Treffererkennung genutzt.
 
+### Zelltyp-Kennzeichnung am Polygon-Rand
+
+Der Rand jedes Zell-Polygons kodiert den Verlaufstyp (Lineage):
+
+| Rand | Zelltyp | Bedeutung |
+|---|---|---|
+| dicker, gestrichelt (orange) | merged | aus zwei oder mehr Zellen zusammengeführt |
+| gestrichelt (magenta) | split | aus einer Zelle aufgeteilt |
+| durchgezogen (blau) | fortgeführt | dieselbe Zelle wie im Vorframe |
+| durchgezogen (grün) | neu | erstmals erkannt |
+
+Gemergte Zellen sind dadurch auf einen Blick von gewöhnlichen Zellen
+unterscheidbar.
+
 ## 23.7 Mobile-Optimierung der Karte (/karte)
 
 Die Vollbild-Karte (`/karte`) wurde für Mobilgeräte optimiert:
@@ -1724,6 +1738,7 @@ erst bei Erweiterung. Rückwärtskompatibel.
 
 | Version | Datum | Änderungen |
 |---|---|---|
+| v2.5 | Juni 2026 | **Zelltyp-Hervorhebung auf der Karte:** Gemergte (zusammengeführte) Zellen werden jetzt mit dickerem, auffällig gestricheltem orangem Rand dargestellt; geteilte Zellen (split) mit feiner gestricheltem magenta Rand. Neue und fortgeführte Zellen bleiben durchgezogen. Die Live-Karte (`/karte`) zeigt dazu eine neue „Zelltyp"-Legende. |
 | v2.4 | Juni 2026 | **Bild-Upload-Formatfilter:** Der KI-Bild-Upload akzeptiert nur noch JPEG, PNG, GIF und WebP. Nicht unterstützte Formate wie SVG, HEIC, BMP oder TIFF werden übersprungen und mit Dateinamen gemeldet. |
 | v2.3 | Juni 2026 | **IR-Layer-Label präzisiert:** Legende und Checkbox verwenden jetzt „CB / IR-Vorläufer" statt „CB > 10.000". Der Tooltip stellt klar, dass BT < 230 K eine Erkennungsschwelle (typisch > 10.000 m MSL) ist und angezeigte Wolkentop-Höhen einzelner Zellen abweichen können. |
 | v2.2 | Mai 2026 | **Atmosphärisches Raster verdichtet (24 → 36 Punkte):** `ATM_SNAPSHOT_LOCATIONS` auf 9×4-Gitter erweitert (~24 km O-W / ~28 km N-S). Deckt jetzt den vollständigen `BBOX_KAERNTEN_EXTENDED` inkl. Karawanken-Südrand und Nockberge-Nordrand lückenlos ab — Worst-Case-Distanz 18,4 km ≤ ATM_RANGE 20 km. 5 Batches, 720 Req/Tag (7,2 % Limit). |

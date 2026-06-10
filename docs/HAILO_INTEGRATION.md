@@ -1883,3 +1883,12 @@ Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sow
 - **Fix B:** Merge-Zelle erbt ID des dominanten Parents (größter Overlap) und
   führt dessen Kalman/History fort; übrige Parents werden korrekt beendet.
 - **Test:** tests/test_b117_track_continuity.py.
+
+- **B118 — Merged-Zellen auf der Karte hervorgehoben** (`MapView.jsx`, `MapFullscreen.jsx`):
+  Neue Helfer-Funktion `cellStroke(lineage)` differenziert die Rand-Strichstärke
+  je Lineage. Bisher hatten alle Zellen `weight: 2` und nur eine andere Randfarbe,
+  wodurch gemergte Zellen kaum erkennbar waren. Jetzt: merged → weight 4 +
+  dashArray '10,6' (auffällig gestrichelt), split → weight 3 + '4,4',
+  new/continued → weight 2 durchgezogen. MapView erhält zusätzlich eine
+  Zelltyp-Legende. MapFullscreen nur visuelle Differenzierung (kein Inline-Legenden-Balken).
+  Benutzersichtbares Feature → Benutzerhandbuch v2.5 aktualisiert.
