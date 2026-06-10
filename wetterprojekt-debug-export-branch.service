@@ -1,0 +1,15 @@
+[Unit]
+Description=WetterExtended Debug-Export ZIP in separaten GitHub-Branch veröffentlichen
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ki-pi
+WorkingDirectory=/home/ki-pi/wetterprojekt
+Environment=PYTHONUNBUFFERED=1
+Environment=WETTER_DEBUG_EXPORT_BRANCH=debug-export-latest
+Environment=WETTER_DEBUG_EXPORT_TARGET_PATH=debug_exports/wetterextended_debug_latest_last24h.zip
+Environment=WETTER_DEBUG_EXPORT_HOURS=24
+Environment=WETTER_DEBUG_EXPORT_MAX_TOTAL_MB=90
+ExecStart=/home/ki-pi/wetterprojekt/venv/bin/python3 /home/ki-pi/wetterprojekt/tools/publish_latest_debug_export_branch.py --repo-dir /home/ki-pi/wetterprojekt

@@ -130,6 +130,9 @@ INSTALL_HAILO=true
 INSTALL_NODE=true
 SYSTEM_DEPS_ENABLED=true
 ENABLE_SERVICES=false
+ENABLE_DEBUG_EXPORT_GIT=true
+DEBUG_EXPORT_BRANCH="debug-export-latest"
+DEBUG_EXPORT_TARGET_PATH="debug_exports/wetterextended_debug_latest_last24h.zip"
 LOCAL_TRAINING_FLAG=true          # --no-training setzt auf false (Phase B)
 BRANCH="$DEFAULT_BRANCH"
 GIT_TAG="$DEFAULT_VERSION"
@@ -169,6 +172,8 @@ Verwendung: $0 [OPTIONEN]
   --no-hailo            Hailo-8-Setup überspringen
   --no-node             Node.js/Frontend-Build überspringen
   --no-training         LOCAL_TRAINING=False setzen (Phase B: Training auf Linux-Rechner)
+  --no-debug-export-git
+                       Automatischen GitHub-Debug-Export im separaten Branch nicht einrichten
   --local               Installiert aus dem lokalen Verzeichnis (ZIP-Modus).
                         Kein git clone nötig. Dateien werden nach --target kopiert.
   --help                Diese Hilfe
@@ -207,6 +212,7 @@ while [[ $# -gt 0 ]]; do
         --no-hailo)       INSTALL_HAILO=false; NO_HAILO=1; shift ;;
         --no-node)        INSTALL_NODE=false; NO_NODE=1; shift ;;
         --no-training)    LOCAL_TRAINING_FLAG=false; shift ;;
+        --no-debug-export-git) ENABLE_DEBUG_EXPORT_GIT=false; shift ;;
         --local)
             LOCAL_INSTALL=true
             LOCAL_SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -237,6 +243,7 @@ while [[ $# -gt 0 ]]; do
                           echo ""
                           echo "  --no-hailo       Hailo-apt-Pakete nicht installieren"
                           echo "  --no-node        Node.js/npm nicht installieren (kein Frontend-Build)"
+                          echo "  --no-debug-export-git  Automatischen GitHub-Debug-Export nicht einrichten"
                           echo "  --help           Diese Hilfe anzeigen"
                           echo ""
                           exit 0 ;;
@@ -681,7 +688,7 @@ if [[ "$SYSTEM_DEPS_ENABLED" == true && ( "$MODE" == "full" || "${UPDATE_DEPS:-f
 
     APT_PKGS=(
         python3-venv python3-dev python3-pip
-        git curl wget build-essential
+        git curl wget openssh-client build-essential
         libgdal-dev gdal-bin           # für rasterio
         libatlas-base-dev              # NumPy BLAS auf Pi
         libopencv-dev                  # OpenCV system-libs
@@ -1662,6 +1669,77 @@ with open(p, 'w') as f:
 fi
 
 # ==============================================================================
+# PHASE 7f — Debug-Export-Branch-Timer
+# ==============================================================================
+CURRENT_PHASE="Phase 7f — Debug-Export-Branch"
+log_step "Phase 7f — Debug-Export-Branch"
+
+DEBUG_EXPORT_TIMER="wetterprojekt-debug-export-branch.timer"
+DEBUG_EXPORT_SERVICE="wetterprojekt-debug-export-branch.service"
+DEBUG_EXPORT_STATUS="deaktiviert"
+
+if [[ "$MODE" == "full" && "$ENABLE_DEBUG_EXPORT_GIT" == true ]]; then
+    DEBUG_EXPORT_SCRIPT="$TARGET/tools/publish_latest_debug_export_branch.py"
+    if [[ ! -f "$DEBUG_EXPORT_SCRIPT" ]]; then
+        check_warn "Debug-Export-Publisher fehlt: $DEBUG_EXPORT_SCRIPT"
+        note_manual "Debug-Export-Publisher fehlt. Source aktualisieren und erneut ausführen: $0 --mode full"
+    else
+        DEBUG_EXPORT_SERVICE_SRC="$TARGET/$DEBUG_EXPORT_SERVICE"
+        DEBUG_EXPORT_TIMER_SRC="$TARGET/$DEBUG_EXPORT_TIMER"
+        if [[ -f "$DEBUG_EXPORT_SERVICE_SRC" && -f "$DEBUG_EXPORT_TIMER_SRC" ]]; then
+            DEBUG_EXPORT_SERVICE_GEN="$TARGET/.generated-$DEBUG_EXPORT_SERVICE"
+            sed -e "s|^User=.*|User=$SERVICE_USER|g" \
+                -e "s|^WorkingDirectory=.*|WorkingDirectory=$TARGET|g" \
+                -e "s|^Environment=WETTER_DEBUG_EXPORT_BRANCH=.*|Environment=WETTER_DEBUG_EXPORT_BRANCH=$DEBUG_EXPORT_BRANCH|g" \
+                -e "s|^Environment=WETTER_DEBUG_EXPORT_TARGET_PATH=.*|Environment=WETTER_DEBUG_EXPORT_TARGET_PATH=$DEBUG_EXPORT_TARGET_PATH|g" \
+                -e "s|/home/ki-pi/wetterprojekt|$TARGET|g" \
+                "$DEBUG_EXPORT_SERVICE_SRC" > "$DEBUG_EXPORT_SERVICE_GEN"
+            sudo cp "$DEBUG_EXPORT_SERVICE_GEN" "/etc/systemd/system/$DEBUG_EXPORT_SERVICE"
+            sudo cp "$DEBUG_EXPORT_TIMER_SRC" "/etc/systemd/system/$DEBUG_EXPORT_TIMER"
+            sudo systemctl daemon-reload
+            check_ok "Debug-Export-Service/Timer installiert"
+
+            if [[ ! -d "$TARGET/.git" ]]; then
+                check_warn "Debug-Export: kein Git-Checkout ($TARGET/.git fehlt) — Timer wird nicht aktiviert"
+                note_manual "Für automatischen GitHub-Debug-Export Projekt per Git mit origin-Remote installieren: git clone $REPO $TARGET"
+            else
+                DEBUG_EXPORT_CHECK_LOG="$TARGET/train_data/evaluation/debug_export_branch_check.log"
+                mkdir -p "$(dirname "$DEBUG_EXPORT_CHECK_LOG")"
+                log_info "Prüfe GitHub-Write-Zugriff für Debug-Export-Branch..."
+                set +e
+                trap '' ERR
+                "$VENV/bin/python3" "$DEBUG_EXPORT_SCRIPT" \
+                    --repo-dir "$TARGET" \
+                    --branch "$DEBUG_EXPORT_BRANCH" \
+                    --target-path "$DEBUG_EXPORT_TARGET_PATH" \
+                    --check-only 2>&1 | tee "$DEBUG_EXPORT_CHECK_LOG"
+                DEBUG_EXPORT_CHECK_RC=${PIPESTATUS[0]}
+                trap on_error ERR
+                set -e
+
+                if [[ "$DEBUG_EXPORT_CHECK_RC" -eq 0 ]]; then
+                    sudo systemctl enable --now wetterprojekt-debug-export-branch.timer
+                    check_ok "Debug-Export-Timer aktiviert → $DEBUG_EXPORT_BRANCH"
+                else
+                    check_warn "GitHub-Schreibtest fehlgeschlagen — Debug-Export-Timer wird nicht aktiviert"
+                    note_manual "GitHub-Schreibtest fehlgeschlagen. Bitte SSH Deploy Key oder PAT mit Write-Zugriff einrichten."
+                    note_manual "Danach aktivieren: sudo systemctl enable --now wetterprojekt-debug-export-branch.timer"
+                    note_manual "Test: cd $TARGET && $VENV/bin/python3 $DEBUG_EXPORT_SCRIPT --repo-dir $TARGET --check-only"
+                    note_manual "Details: cat $DEBUG_EXPORT_CHECK_LOG"
+                fi
+            fi
+        else
+            check_warn "Debug-Export-systemd-Templates fehlen: $DEBUG_EXPORT_SERVICE_SRC / $DEBUG_EXPORT_TIMER_SRC"
+            note_manual "Debug-Export-Templates fehlen. Source aktualisieren und erneut ausführen: $0 --mode full"
+        fi
+    fi
+elif [[ "$ENABLE_DEBUG_EXPORT_GIT" == false ]]; then
+    log_info "Debug-Export-Git-Timer übersprungen (--no-debug-export-git)."
+else
+    log_info "Debug-Export-Git-Timer wird nur im full-Modus automatisch eingerichtet."
+fi
+
+# ==============================================================================
 # PHASE 7f — Code-Fix-Verifikation
 # ==============================================================================
 CURRENT_PHASE="Phase 7f — Fix-Verifikation"
@@ -1729,6 +1807,7 @@ PYTHON_STATUS="nicht verfügbar"
 NODE_STATUS="$(node --version 2>/dev/null || echo 'nicht installiert')"
 HAILO_STATUS="$(command -v hailortcli &>/dev/null && hailortcli --version 2>/dev/null | head -1 || echo 'nicht installiert')"
 NGINX_STATUS="$(systemctl is-active nginx 2>/dev/null || echo 'nicht aktiv')"
+DEBUG_EXPORT_STATUS="$(systemctl is-enabled wetterprojekt-debug-export-branch.timer 2>/dev/null || echo 'disabled') → ${DEBUG_EXPORT_BRANCH}"
 
 echo ""
 echo "════════════════════════════════════════════"
@@ -1742,6 +1821,7 @@ printf "  ${GREEN}%-20s${NC} %s\n" "Frontend:"    "$FRONTEND_STATUS"
 printf "  ${GREEN}%-20s${NC} %s\n" "Hailo:"       "$HAILO_STATUS"
 printf "  ${GREEN}%-20s${NC} %s\n" "nginx:"       "$NGINX_STATUS"
 printf "  ${GREEN}%-20s${NC} %s\n" ".env:"        "$ENV_STATUS"
+printf "  ${GREEN}%-20s${NC} %s\n" "Debug-Export:" "$DEBUG_EXPORT_STATUS"
 echo "════════════════════════════════════════════"
 
 # Manuelle Schritte ausgeben
@@ -1846,6 +1926,10 @@ Nächste Schritte nach Abschluss:
      Direktzugriff Flask (ohne nginx):
        http://<pi-ip>:5000/
 
-  5. Logs live:
+  5. Debug-Export-Timer prüfen:
+       systemctl list-timers | grep wetterprojekt-debug-export-branch
+       journalctl -u wetterprojekt-debug-export-branch.service -n 100 --no-pager
+
+  6. Logs live:
        journalctl -fu wetterprojekt
 NEXTSTEPS
