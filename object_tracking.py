@@ -743,11 +743,11 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
                 upscale=_UPSCALE_FACTOR_NEIGHBOR,
             ))
     except Exception as _e:
-        try:
-            from debug_utils import debug_log
-            debug_log(f"[B94] Weggefährten-Features übersprungen: {_e}")
-        except Exception:
-            pass
+        # B115: KEIN funktionslokaler debug_log-Import mehr.
+        # Der lokale Import machte debug_log für die GESAMTE Funktion lokal und
+        # führte zu UnboundLocalError bei früheren debug_log-Aufrufen (Crash).
+        # debug_log ist bereits am Modulkopf global importiert.
+        debug_log(f"[B94] Weggefährten-Features übersprungen: {_e}")
 
     # Orographische Scores werden in main.py nach assign_cape gesetzt
     # (brauchen CAPE-Werte die hier noch nicht verfügbar sind).

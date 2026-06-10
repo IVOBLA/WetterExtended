@@ -1825,6 +1825,14 @@ Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sow
 | B110 | LSTM-Trainingsdatei | Keras-Callbacks beim Lazy-Reimport (PR #558). `_build_lstm()` importierte `tensorflow.keras.callbacks` nicht neu → `EarlyStopping`/`ModelCheckpoint` blieben `None` nach fehlgeschlagenem ersten Import. Fix: `_kc = _optional_import("tensorflow.keras.callbacks")` in `_build_lstm()`, Guards in `train_lstm()`. | ✅ erledigt |
 | P0-2 | **ML-Horizont-Konsistenz End-to-End.** `_build_lstm()` nutzte `len(ML_FORECAST_HORIZONS_MIN)` (compile-time) statt `_get_training_horizons()` (runtime) → LSTM-Output-Dim passte bei Horizon-Override nicht zu LightGBM. `meta["horizons_trained"]`/`meta["horizons"]` speicherte ebenfalls compile-time-Wert → `_check_model_compatibility()` erkannte Runtime-Divergenz nicht. Fix: `_build_lstm(n_horizons)` parametrisch; `train_lstm()` übergibt Runtime-Anzahl; Meta nutzt `_get_training_horizons()`. Wirkt erst beim nächsten Training. | `model_training.py`, `tests/test_p0_2_horizons_consistency.py` | ✅ erledigt |
 
+### B115 – Service-Crash: UnboundLocalError debug_log in update_tracking_memory ✅
+- **Symptom:** wetterprojekt.service stürzt im Merge-Pfad ab (≥7×/24h im Export 2026-06-10).
+- **Ursache:** funktionslokaler `from debug_utils import debug_log` im B94-except machte
+  debug_log für die gesamte Funktion lokal → UnboundLocalError bei früheren Aufrufen.
+- **Fix:** lokalen Import entfernt; globaler Modul-Import wird verwendet.
+- **Folge:** behebt Mit-Ursache der leeren Karte/Dashboard nach Crash-Neustart.
+- **Test:** tests/test_b115_debug_log_scope.py (AST-Scope-Check).
+
 ### B101 – `_build_lstm` TypeError bei None-Keras-Klassen (behoben)
 - **Datei:** `model_training.py`
 - **Problem:** `_build_lstm()` rief `LSTM(64, ...)` auf ohne zu prüfen ob
