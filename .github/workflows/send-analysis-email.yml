@@ -2,7 +2,7 @@ name: Analyse-Mail versenden
 
 on:
   schedule:
-    - cron: '0 6 * * *'   # täglich 06:00 UTC (08:00 CEST) – nach KI-Analyse-Lauf
+    - cron: '0 2 * * *'   # täglich 02:00 UTC (08:00 CEST) – nach KI-Analyse-Lauf
   workflow_dispatch:       # manueller Trigger für Tests
 
 jobs:
