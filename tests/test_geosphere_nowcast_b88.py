@@ -64,8 +64,37 @@ def test_b104_url_keeps_literal_lat_lon_comma():
 
 def test_b104_params_repeated_not_comma():
     url = nowcast._build_nowcast_url(46.62, 14.31)
-    assert "parameters=rr&parameters=ff&parameters=ffx" in url
-    assert "parameters=rr,ff,ffx" not in url
+    assert "parameters=rr&parameters=ff" in url
+    assert "parameters=rr,ff" not in url
+
+
+def test_b116_no_ffx_parameter():
+    # B116: ffx darf NICHT mehr angefragt werden (GeoSphere HTTP 400).
+    url = nowcast._build_nowcast_url(46.62, 14.31)
+    assert "ffx" not in url
+
+
+def test_b116_bulk_url_has_no_ffx(monkeypatch):
+    captured = {}
+
+    class _R:
+        status_code = 200
+        text = "{}"
+        headers = {"content-type": "application/json"}
+        def raise_for_status(self): pass
+        def json(self):
+            return {"features": [
+                {"properties": {"parameters": {
+                    "rr": {"data": [0.5]}, "ff": {"data": [5.0]}}}},
+            ]}
+
+    monkeypatch.setattr(nowcast.requests, "get",
+                        lambda url, *a, **k: (captured.update(url=url) or _R()),
+                        raising=False)
+    out = nowcast.assign_nowcast_to_objects([{"id": "a", "lat": 47.147, "lon": 14.632}])
+    assert "ffx" not in captured["url"]
+    assert out[0]["nowcast_ffx_kmh"] == 0.0
+    assert out[0]["nowcast_rr_mm15"] == 0.5
 
 
 def test_b104_no_objects_does_not_call_api(monkeypatch):
@@ -87,9 +116,9 @@ def test_b104_bulk_keeps_repeated_lat_lon_and_forecast_offset(monkeypatch):
         captured["url"] = url
         return _Resp({"features": [
             {"properties": {"parameters": {
-                "rr": {"data": [0.5]}, "ff": {"data": [5.0]}, "ffx": {"data": [20.0]}}}},
+                "rr": {"data": [0.5]}, "ff": {"data": [5.0]}}}},
             {"properties": {"parameters": {
-                "rr": {"data": [0.0]}, "ff": {"data": [0.0]}, "ffx": {"data": [0.0]}}}},
+                "rr": {"data": [0.0]}, "ff": {"data": [0.0]}}}},
         ]})
 
     monkeypatch.setattr(nowcast.requests, "get", _fake_get, raising=False)
@@ -104,7 +133,7 @@ def test_b104_bulk_keeps_repeated_lat_lon_and_forecast_offset(monkeypatch):
     assert "start=" not in url and "end=" not in url
     # Feature-Reihenfolge -> Objekt-Reihenfolge
     assert out[0]["nowcast_rr_mm15"] == 0.5
-    assert out[0]["nowcast_ffx_kmh"] == round(20.0 * 3.6, 1)
+    assert out[0]["nowcast_ffx_kmh"] == 0.0
     assert out[1]["nowcast_rr_mm15"] == 0.0
 
 

@@ -6,7 +6,7 @@ Targets sind ZUKUENFTIG BEOBACHTETE Werte (+SEVERITY_HORIZON_MIN) an der Zellpos
 gewonnen per Timestamp-Suche (analog dataset_builder.build_classification_dataset):
 
   rain_mm_h : max(nowcast_rain_rate_1h, nowcast_rr_mm15*4, station RR-Rate)  [mm/h]
-  gust_kmh  : max(nowcast_ffx_kmh, station FFX, wind_gust_10m_kmh)           [km/h]
+  gust_kmh  : max(station FFX, wind_gust_10m_kmh)                            [km/h]
 
 Features = letzter Frame-Vektor (identisch zu dataset_builder._frame_features):
   ML_CELL_FEATURES + ML_STATION_FEATURES + [hour_sin, hour_cos, month_sin, month_cos]
@@ -51,9 +51,9 @@ def _rain_mm_h(obj):
 
 def _gust_kmh(obj):
     # B89: arome_ff10m ist mittlerer Hintergrundwind, kein Böenwert — entfernt.
-    # Böenquellen in Priorität: Nowcast-Böe → TAWES-FFX → Open-Meteo-Böe
+    # B116: nowcast_ffx_kmh bleibt nur als ML-Feld erhalten (konstant 0.0),
+    # ist aber keine Nowcast-Quelle mehr. Böenquellen: TAWES-FFX + AROME/Open-Meteo-Böe.
     cands = [
-        _safe_float(obj.get("nowcast_ffx_kmh")),
         _safe_float(obj.get("FFX")),
         _safe_float(obj.get("wind_gust_10m_kmh")),
     ]

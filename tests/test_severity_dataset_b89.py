@@ -37,3 +37,13 @@ def test_b89_gust_kmh_keeps_real_gust_source_maximum():
     }
 
     assert _gust_kmh(obj) == 32.0
+
+
+def test_b116_gust_kmh_ignores_nowcast_ffx_field():
+    obj = {
+        "nowcast_ffx_kmh": 99.0,
+        "FFX": 12.0,
+        "wind_gust_10m_kmh": 18.0,
+    }
+
+    assert _gust_kmh(obj) == 18.0
