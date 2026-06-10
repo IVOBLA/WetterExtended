@@ -142,6 +142,114 @@ except Exception:
 
 tracking_memory = {}
 
+# B121: Snapshot-Pfad — wird beim Service-Start via load_tracking_snapshot() geladen.
+# Kein Import von SAVE_PATHS auf Modulebene um zirkuläre Imports zu vermeiden.
+_SNAPSHOT_FILENAME = "tracking_memory_snapshot.json"
+
+
+def _snapshot_path() -> str:
+    """Gibt den vollständigen Pfad der Snapshot-Datei zurück."""
+    try:
+        from config import SAVE_PATHS as _SP
+        return os.path.join(
+            _SP.get("evaluation", "train_data/evaluation"),
+            _SNAPSHOT_FILENAME,
+        )
+    except Exception:
+        return os.path.join("train_data", "evaluation", _SNAPSHOT_FILENAME)
+
+
+def _json_safe(obj):
+    """JSON-Serialisierer für numpy-Arrays und ähnliche Typen."""
+    if hasattr(obj, "tolist"):
+        return obj.tolist()
+    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+
+def save_tracking_snapshot() -> None:
+    """B121: Persistiert tracking_memory als JSON-Snapshot auf Disk.
+
+    Wird am Ende jedes update_tracking_memory()-Aufrufs aufgerufen.
+    Speichert alle Zellen ohne den nicht-serialisierbaren KalmanFilter (kf).
+    Numpy-Arrays (contour) werden via _json_safe in Python-Listen konvertiert.
+    Schreibt atomar via .tmp-Datei.
+    """
+    global tracking_memory
+    snap_path = _snapshot_path()
+    try:
+        os.makedirs(os.path.dirname(snap_path), exist_ok=True)
+        snapshot = {}
+        for obj_id, obj in tracking_memory.items():
+            snapshot[obj_id] = {k: v for k, v in obj.items() if k != "kf"}
+        tmp_path = snap_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as _f:
+            import json as _json_snap
+            _json_snap.dump(snapshot, _f, default=_json_safe, ensure_ascii=False)
+        os.replace(tmp_path, snap_path)
+    except Exception as _exc:
+        debug_log(f"[SNAPSHOT] Speicherfehler: {_exc}")
+
+
+def load_tracking_snapshot() -> float:
+    """B121: Lädt tracking_memory aus dem letzten Snapshot (falls vorhanden und aktuell).
+
+    Rückgabe: Alter der Snapshot-Datei in Sekunden, oder float('inf') wenn
+    kein Snapshot geladen wurde. Wird von main.py für _last_cells_active_ts genutzt.
+
+    Snapshot wird nur geladen wenn sein Alter < INACTIVE_CELL_TRACK_DURATION_S
+    (Standard 20 min). Ältere Snapshots werden ignoriert — die enthaltenen Zellen
+    wären ohnehin aus tracking_memory gefallen.
+
+    Zellen werden OHNE KalmanFilter-Zustand geladen. Der Filter wird im nächsten
+    Zyklus durch das 3-Stage-Matching neu aufgebaut (Stage-2/3 genügen).
+    """
+    global tracking_memory
+    import time as _t_snap
+    import json as _json_load
+
+    snap_path = _snapshot_path()
+    if not os.path.exists(snap_path):
+        return float("inf")
+
+    try:
+        from config import INACTIVE_CELL_TRACK_DURATION_S as _ICTD
+        import runtime_config as _rc_snap
+        max_age_s = float(_rc_snap.get("INACTIVE_CELL_TRACK_DURATION_S", _ICTD))
+    except Exception:
+        max_age_s = 1200.0  # 20 min Fallback
+
+    try:
+        snap_age_s = _t_snap.time() - os.path.getmtime(snap_path)
+    except Exception:
+        return float("inf")
+
+    if snap_age_s > max_age_s:
+        debug_log(
+            f"[SNAPSHOT] Zu alt ({snap_age_s:.0f}s > {max_age_s:.0f}s) — ignoriert"
+        )
+        return float("inf")
+
+    try:
+        with open(snap_path, "r", encoding="utf-8") as _f:
+            snapshot = _json_load.load(_f)
+        if not isinstance(snapshot, dict):
+            return float("inf")
+
+        loaded = 0
+        for obj_id, obj in snapshot.items():
+            if isinstance(obj, dict):
+                tracking_memory[obj_id] = obj
+                loaded += 1
+
+        debug_log(
+            f"[SNAPSHOT] {loaded} Zellen geladen "
+            f"(Snapshot-Alter: {snap_age_s:.0f}s)"
+        )
+        return snap_age_s
+    except Exception as _exc:
+        debug_log(f"[SNAPSHOT] Ladefehler: {_exc}")
+        return float("inf")
+
 # ---------------------------------------------------------------------------
 # Statische Ausschlusszonen (False-Positive-Filter)
 # ---------------------------------------------------------------------------
@@ -818,6 +926,9 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
     # Orographische Scores werden in main.py nach assign_cape gesetzt
     # (brauchen CAPE-Werte die hier noch nicht verfügbar sind).
     tracking_memory = new_memory
+    # B121: Nach jedem Tracking-Zyklus Snapshot persistieren.
+    # Wird beim nächsten Service-Start via load_tracking_snapshot() geladen.
+    save_tracking_snapshot()
     for obj_id, obj in new_memory.items():
         if obj.get("missing", 0) == 0:
             obj.pop("missing_since", None)  # Zelle wieder sichtbar → Timer zurücksetzen
