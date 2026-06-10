@@ -86,8 +86,9 @@ def _check_geosphere() -> dict:
     GeoSphere Nowcast v1: JSON mit features-Array.
     URL nutzt lat_lon=46.62,14.31 mit literalem Komma.
     WICHTIG: Parameter müssen EINZELN wiederholt werden, NICHT kommasepariert.
-    ?parameters=rr&parameters=ff&parameters=ffx → OK
-    ?parameters=rr,ff,ffx                       → HTTP 422
+    ?parameters=rr&parameters=ff → OK
+    ?parameters=rr,ff            → HTTP 422 (kommasepariert)
+    Hinweis B116: ffx ist im Nowcast NICHT verfuegbar (HTTP 400).
     B104: Forecast-Endpunkt mit forecast_offset=0, kein start/end.
     """
     # B104: Forecast-Endpunkt — forecast_offset=0, KEIN start/end (sonst HTTP 400).
@@ -97,7 +98,7 @@ def _check_geosphere() -> dict:
     _base = "https://dataset.api.hub.geosphere.at/v1/timeseries/forecast/nowcast-v1-15min-1km"
     url = (
         f"{_base}?lat_lon=46.62,14.31"
-        f"&parameters=rr&parameters=ff&parameters=ffx"
+        f"&parameters=rr&parameters=ff"   # B116: kein ffx (HTTP 400)
         f"&forecast_offset=0"
     )
     t0 = time.monotonic()

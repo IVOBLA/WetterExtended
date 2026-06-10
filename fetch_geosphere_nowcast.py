@@ -5,7 +5,9 @@ from debug_utils import debug_log, log_api_failure, log_http_response, log_api_c
 from api_cache import cache_key, cache_get, cache_set
 
 _BASE_URL = "https://dataset.api.hub.geosphere.at/v1/timeseries/forecast/nowcast-v1-15min-1km"
-_PARAMS = "rr,ff,ffx"
+# B116: 'ffx' existiert im Nowcast-Datensatz NICHT (GeoSphere HTTP 400
+# "Parameters {'ffx'} do not exist"). Böen kommen aus TAWES/AROME.
+_PARAMS = "rr,ff"
 _TIMEOUT = 12
 _TTL = 720
 _DEFAULT = {
@@ -41,7 +43,8 @@ def _in_nowcast_bbox(lat: float, lon: float) -> bool:
 
 def _params_suffix() -> str:
     # Parameter MUESSEN einzeln wiederholt werden (kommasepariert -> HTTP 422).
-    return f"parameters=rr&parameters=ff&parameters=ffx&forecast_offset={_FORECAST_OFFSET}"
+    # B116: KEIN ffx mehr (nicht im nowcast-v1-15min-1km verfuegbar -> HTTP 400).
+    return f"parameters=rr&parameters=ff&forecast_offset={_FORECAST_OFFSET}"
 
 
 def _build_nowcast_url(lat: float, lon: float) -> str:
@@ -220,16 +223,17 @@ def _parse_nowcast(feature: dict, url: str = "") -> dict:
 
         rr = _first("rr")
         ff = _first("ff")
-        ffx = _first("ffx")
         ff_kmh = round(ff * 3.6, 1)
-        ffx_kmh = round(ffx * 3.6, 1)
         rate_1h = round(rr * 4, 2)
+        # B116: nowcast_ffx_kmh bleibt als Feld erhalten (ML-Feature-Konsistenz),
+        # wird vom Nowcast aber nicht mehr geliefert -> 0.0. Boeenwarnung kommt
+        # in main.py aus TAWES (tawes_max_gust_kmh) bzw. AROME (wind_gust_10m_kmh).
         result.update({
             "nowcast_rr_mm15": round(rr, 3),
             "nowcast_ff_kmh": ff_kmh,
-            "nowcast_ffx_kmh": ffx_kmh,
+            "nowcast_ffx_kmh": 0.0,
             "nowcast_rain_rate_1h": rate_1h,
-            "gust_warning": ffx_kmh >= GUST_WARN_KMH,
+            "gust_warning": False,
             "heavy_rain_warning": rate_1h >= HEAVY_RAIN_MM_PER_H,
         })
     except Exception as exc:

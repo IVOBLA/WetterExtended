@@ -1861,3 +1861,13 @@ Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sow
 
 | B113 | `MapView.jsx`, `MapFullscreen.jsx` | IR-Tooltip-Label (PR #375). `CB > 10.000` nur wenn `cloud_height_m >= 10000`, sonst `IR-Vorläufer`. Fix in MapView und MapFullscreen. | ✅ erledigt |
 | B114 | AI-Report-E-Mail-Datei | HTML-Escaping im AI-Report (PR #182). LLM-generierte Felder (title, description, action, priority) werden mit `html.escape()` bereinigt bevor HTML-Einbettung. | ✅ erledigt |
+
+### B116 – GeoSphere-Nowcast HTTP 400: Parameter 'ffx' entfernt ✅
+- **Symptom:** 93/95 API-Fehler im Export 2026-06-10 = geosphere_nowcast HTTP 400.
+- **Ursache:** nowcast-v1-15min-1km liefert kein 'ffx'. 400-Body:
+  {"detail":"Parameters {'ffx'} do not exist or access is denied"}.
+- **Fix:** Nowcast-Request nur noch rr+ff. nowcast_ffx_kmh=0.0 (Feld bleibt).
+  Böen weiterhin aus TAWES/AROME; Severity-Dataset ignoriert nowcast_ffx_kmh als Böenquelle.
+  api_health_check + B88-Test angepasst.
+- **Test:** test_b116_no_ffx_parameter, test_b116_bulk_url_has_no_ffx,
+  test_b116_gust_kmh_ignores_nowcast_ffx_field.
