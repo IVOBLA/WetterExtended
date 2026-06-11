@@ -12,6 +12,7 @@ Jobs die immer aktiv sind:
   outlook_series     — 12-h-Ausblick-Zeitreihe (alle 30 min, mit Frische-Guard)
   outlook_compute    — 12-h-Risiko-Raster berechnen (alle 30 min, lokal)
   cpu_monitor        — CPU-Monitoring (alle 5 min)
+  stats_aggregate    — Langzeitstatistik-Aggregation (nächtlich)
 
 Jobs nur wenn LOCAL_TRAINING=True:
   rebuild_dataset    — Datensatz-Rebuild (Intervall konfigurierbar)
@@ -437,6 +438,20 @@ def run_cpu_monitor_job():
         debug_log(f"[SCHEDULER] Job cpu_monitor Fehler: {exc}")
 
 
+
+def run_stats_aggregate_job():
+    """P-S02: Nächtliche Langzeitstatistik-Aggregation (immer aktiv)."""
+    from stats_aggregator import aggregate
+
+    runtime_config.reload_overrides()
+    debug_log("[SCHEDULER] Job stats_aggregate gestartet")
+    try:
+        result = aggregate()
+        debug_log(f"[SCHEDULER] stats_aggregate abgeschlossen: {result}")
+    except Exception as exc:
+        debug_log(f"[SCHEDULER] stats_aggregate Fehler: {exc}")
+
+
 # ---------------------------------------------------------------------------
 # Scheduler erstellen
 # ---------------------------------------------------------------------------
@@ -536,6 +551,18 @@ def create_scheduler() -> BlockingScheduler:
         run_cpu_monitor_job,
         trigger=IntervalTrigger(minutes=5),
         id="cpu_monitor", max_instances=1, coalesce=True,
+    )
+
+    # --- immer aktiv: Langzeitstatistik-Aggregation (nächtlich) ---
+    from config import STATS_AGGREGATE_CRON_HOUR, STATS_AGGREGATE_CRON_MINUTE
+    sched.add_job(
+        run_stats_aggregate_job,
+        trigger=CronTrigger(
+            hour=runtime_config.get("STATS_AGGREGATE_CRON_HOUR", STATS_AGGREGATE_CRON_HOUR),
+            minute=runtime_config.get("STATS_AGGREGATE_CRON_MINUTE", STATS_AGGREGATE_CRON_MINUTE),
+            timezone="Europe/Vienna",
+        ),
+        id="stats_aggregate", max_instances=1, coalesce=True,
     )
     for _svc in ("open_meteo_outlook", "open_meteo_atmosphere"):
         debug_log(f"[SCHEDULER] Circuit-Status {_svc}: {api_circuit_breaker.get_status(_svc)}")

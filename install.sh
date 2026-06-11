@@ -524,6 +524,7 @@ if [[ "$MODE" == "full" ]]; then
     echo ""
     echo "NICHT geloescht werden:"
     echo "  train_data/dem/         (Copernicus DEM — grosser Einmal-Download)"
+    echo "  train_data/statistics/  (Langzeitstatistik und Klimatologie-Raster)"
     echo "  .env                    (Zugangsdaten: FTP, Blitzortung, Twilio)"
     echo "  runtime_overrides.json  (Admin-Panel-Einstellungen)"
     echo "  users.db                (Benutzerkonten und Passwörter — bleiben immer erhalten)"
@@ -634,6 +635,10 @@ log_info "Stelle HitL-Verzeichnisse sicher (bestehende Daten bleiben unberührt)
 mkdir -p "${TARGET}/train_data/cell_filters/polygons"
 chown -R "${SERVICE_USER}:${SERVICE_USER}" "${TARGET}/train_data/cell_filters" 2>/dev/null || true
 chmod 755 "${TARGET}/train_data/cell_filters" "${TARGET}/train_data/cell_filters/polygons" 2>/dev/null || true
+
+# P-S02: Langzeitstatistik-Verzeichnis anlegen (beide Modi, idempotent).
+mkdir -p "${TARGET}/train_data/statistics"
+chown -R "${SERVICE_USER}:${SERVICE_USER}" "${TARGET}/train_data/statistics" 2>/dev/null || true
 
 # Status loggen
 if [[ -f "${TARGET}/train_data/cell_filters/cell_filters.json" ]]; then
@@ -1857,6 +1862,14 @@ fi
 # ==============================================================================
 CURRENT_PHASE="Phase 9 — Tests"
 log_step "Phase 9 — Tests ausführen"
+
+# P-S02: Langzeitstatistik initialisieren (nur wenn noch keine Aggregate vorhanden).
+if [ ! -f "${TARGET}/train_data/statistics/climatology_grid.json" ]; then
+  log_info "P-S02 Backfill der Langzeitstatistik..."
+  ( cd "${TARGET}" && python3 backfill_track_ends.py ) || log_warn "Backfill fehlgeschlagen (nicht kritisch)"
+  ( cd "${TARGET}" && python3 -c "from stats_aggregator import aggregate; print(aggregate(reset=True))" ) \
+    || log_warn "Erst-Aggregation fehlgeschlagen (nicht kritisch)"
+fi
 
 # Vorgabe Zieldefinition: Fehlgeschlagene Tests erzeugen AUSSCHLIESSLICH
 # Warnungen und brechen die Installation NIEMALS ab. Es gibt bewusst keine

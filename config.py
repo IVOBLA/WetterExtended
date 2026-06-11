@@ -103,6 +103,26 @@ UPSCALE_FACTOR = 3.0  # optionaler Resize-Faktor
 # --------------------------------------
 
 # --------------------------------------
+# P-S02: Langzeitstatistik-Aggregation
+# --------------------------------------
+# Nächtlicher Aggregationslauf (Europe/Vienna). Immer aktiv (kein LOCAL_TRAINING nötig).
+STATS_AGGREGATE_CRON_HOUR: int = 3
+STATS_AGGREGATE_CRON_MINUTE: int = 20
+# Ausgabeverzeichnis der Jahres-Aggregate und des Klimatologie-Rasters.
+STATS_DIR: str = "train_data/statistics"
+# Klimatologie-Raster: Kantenlänge der Gitterzelle in Grad (~0.1° ≈ 8–11 km in Kärnten).
+CLIM_GRID_DEG: float = 0.1
+# BBOX Kärnten (lat_min, lat_max, lon_min, lon_max) zum Begrenzen des Rasters.
+CLIM_BBOX = (46.30, 47.20, 12.55, 15.10)
+# Mindestanzahl Tracks je (Gitterzelle, Monat), ab der ein Klimatologie-Wert als
+# belastbar gilt. Darunter liefert der spätere ML-Lookup (P-S05) 0.0 (Modell lernt
+# "fehlend", B95-Pattern) — verhindert verrauschte Pseudo-Klimatologie bei wenig Daten.
+CLIM_MIN_SAMPLES: int = 5
+# Histogramm-Ränder.
+STATS_LIFETIME_BINS_MIN = [0, 15, 30, 45, 60, 90, 120, 180, 240, 100000]
+STATS_SPEED_BINS_KMH = [0, 10, 20, 30, 40, 50, 70, 100, 100000]
+
+# --------------------------------------
 # P-S01: Track-Lifecycle-Statistik
 # --------------------------------------
 # Mindest-Segmentlänge (km) damit ein Frame-zu-Frame-Schritt in die
@@ -702,6 +722,7 @@ SAVE_PATHS = {
     "dem": "train_data/dem/",
     "arome": "train_data/arome/",
     "ir_cells": "train_data/ir_cells/",
+    "statistics": "train_data/statistics/",
     "cell_filters": "train_data/cell_filters/",   # HitL: Filter + Polygon-PNGs
     "system": "train_data/system/",               # CPU/System-Monitoring
 }
