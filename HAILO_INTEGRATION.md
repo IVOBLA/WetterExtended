@@ -4,6 +4,7 @@
 | --- | --- | --- |
 | B115 | ✅ Erledigt | Drift-Ursache: Zeitbasis 2 min statt realer 5 min (ARSO INCA, per Debug-Daten Median 5,0 min belegt). PX_TO_KMH 10.0→4.0, FRAME_INTERVAL_MIN 2.0→5.0 (Geometrie-Invariante exakt erhalten). speed_kmh wird zusätzlich mit echtem dt aus History-Timestamps skaliert (robust gegen fehlende Frames). Kinematischer Fallback nutzt `_actual_frame_min()`; Primärpfad gegen doppelte KML-Timestamps gehärtet. +30-Min-Drift von ~13 km auf <1 km reduziert. |
 | B116 | ✅ Erledigt | ML-Forecast lief dauerhaft kinematisch: aktive Modelle inkompatibel (LSTM 23-Feat, LGBM 114-Feat) vs. aktuell 119; Retrain blockiert (44<50 Samples). Inkompatibler `current`-Stand wird jetzt quarantänisiert (umbenannt, nicht gelöscht) → sauberer Cold-Start beim nächsten Retrain. Ungeschützte LGBM-Inferenz (intensification/Regressoren) erhält Feature-Count-Gate → kein `[Fatal]`-Logspam. `/api/forecast_stats` liefert `ml_blocked_reason`. Keine Senkung der Trainings-Mindestsamples. |
+| B117 | ✅ Erledigt | Geo-only Forecast-Fallback (`prediction._append_kinematic`, Pfad x==0/y==0) nutzte `PX_TO_KMH/60` als km/px → nach B115 (PX_TO_KMH 10→4) 5× zu kurz projiziert (vorher 2×). Ersetzt durch Geometrie-Konstante `1/UPSCALE_FACTOR`. Löst offenen Codex-Inline-Kommentar aus PR #601. Regressionstest `tests/test_b117_geo_only_scaling.py`. |
 
 
 ## B115 – Admin-Export 502 / Prozessabbruch (2026-06-11)

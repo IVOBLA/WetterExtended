@@ -42,7 +42,6 @@ from config import (
     ML_NUM_FEATURES,
     ML_SEQUENCE_LENGTH,
     ML_STATION_FEATURES as STATION_KEYS,
-    PX_TO_KMH,
     TENDENCY_AREA_PCT_STABLE as _TENDENCY_AREA_TH,
     TENDENCY_CORE_DELTA_STABLE as _TENDENCY_CORE_TH,
     SAVE_PATHS,
@@ -299,11 +298,15 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
             if base_lat == 0.0 and base_lon == 0.0:
                 lat, lon = 0.0, 0.0
             else:
-                # avg_vx/vy in px/min; horizon in min → px Versatz = avg_vx * horizon
-                # KM_PER_PX_PER_MIN = PX_TO_KMH / 60  (km/h pro (px/Frame)) / (60 min/h)
-                _KM_PER_PX_MIN = PX_TO_KMH / 60.0   # km pro (px·min)
-                _dlat = -(avg_vy * float(horizon) * _KM_PER_PX_MIN) / 111.0
-                _dlon = (avg_vx * float(horizon) * _KM_PER_PX_MIN) / (
+                # B117: avg_vx/vy sind ORIGINAL-px/min (history x = original_cx),
+                # horizon in min → (avg_vx * horizon) = Pixelversatz in Original-px.
+                # Umrechnung in km über die GEOMETRIE-Auflösung km/px = 1/UPSCALE_FACTOR,
+                # NICHT über PX_TO_KMH/60 (PX_TO_KMH ist km/h pro px/Frame — eine
+                # Geschwindigkeit, keine Längenauflösung). Konsistent mit dem
+                # Normalpfad pixel_to_geo() (1 Original-px ≙ 1/UPSCALE_FACTOR km).
+                _KM_PER_PX = 1.0 / float(_UF or 1.0)
+                _dlat = -(avg_vy * float(horizon) * _KM_PER_PX) / 111.0
+                _dlon = (avg_vx * float(horizon) * _KM_PER_PX) / (
                     111.0 * cos(radians(max(abs(base_lat), 0.001)))
                 )
                 lat = base_lat + _dlat
