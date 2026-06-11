@@ -1122,7 +1122,7 @@ def detect_and_track_objects(image_path=None, weather_data=None):
         if _acq:
             timestamp = _acq
             ts_dt = datetime.strptime(_acq, "%Y-%m-%d_%H-%M-%S")
-            debug_log(f"[INFO] Live-Modus: Aufnahme-Timestamp aus KMZ (Last-Modified): {timestamp}")
+            debug_log(f"[INFO] Live-Modus: Aufnahme-Timestamp aus KMZ (KML-TimeStamp/PNG/Last-Modified): {timestamp}")
         else:
             ts_dt = datetime.now()
             timestamp = ts_dt.strftime("%Y-%m-%d_%H-%M-%S")
