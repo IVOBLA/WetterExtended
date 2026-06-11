@@ -11,8 +11,14 @@ import debug_export
 
 
 def _auth(monkeypatch, role="admin"):
+    # B123: before_request ruft auth.get_current_user() über Modul-Dict auf (B107).
+    # app.get_current_user muss ZUSÄTZLICH gepatcht werden, damit die Route-Funktion
+    # selbst den richtigen User sieht.
     import app as app_module
-    monkeypatch.setattr(app_module, "get_current_user", lambda: {"role": role, "sub": "1"})
+    import auth as auth_module
+    user = {"role": role, "sub": "1"}
+    monkeypatch.setattr(app_module, "get_current_user", lambda: user)
+    monkeypatch.setattr(auth_module, "get_current_user", lambda: user)
 
 
 @pytest.fixture()
@@ -64,8 +70,11 @@ def test_export_does_not_crash_process(client, monkeypatch):
 
 
 def test_export_requires_admin_returns_401_for_unauthenticated(client, monkeypatch):
+    # B123: before_request prüft auth.get_current_user() — beide Pfade auf None setzen.
     import app as app_module
+    import auth as auth_module
     monkeypatch.setattr(app_module, "get_current_user", lambda: None)
+    monkeypatch.setattr(auth_module, "get_current_user", lambda: None)
     assert client.get("/api/admin/export/last-24h.zip").status_code == 401
 
 
