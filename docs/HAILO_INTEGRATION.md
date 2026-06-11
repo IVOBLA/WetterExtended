@@ -2020,3 +2020,16 @@ fälschlicherweise in `AI_ANALYSIS_CONFIG` — Ausführung war nicht unabhängig
 `frontend/src/pages/AiSuggestions.jsx`, `tests/test_claude_code_report_mail.py`
 
 **Testen:** `python3 -m pytest tests/test_claude_code_report_mail.py -v`
+
+## Langzeitstatistik (P-S-Serie)
+
+Jahresstatistik erkannter Zellen (Häufigkeit, Lebensdauer, zirkuläre Zugrichtung,
+Intensität) inkl. ML-Klimatologie-Features. Datenbasis: train_data/evaluation/track_ends.jsonl.
+
+| # | Task | Datei(en) | Status |
+|---|------|-----------|--------|
+| P-S01 | Track-Lifecycle-Log: write_track_end an 3 Todespfaden (dissolved/left_bbox/merge/service_restart), inkrementelle zirkuläre Richtungs-/Pfad-/Speed-Akkumulation am Track, Schwere-Maxima-Write-back aus main.py | `track_statistics.py` (neu), `object_tracking.py`, `main.py`, `config.py` | ✅ erledigt |
+| P-S02 | Nächtlicher Statistik-Aggregator + Backfill aus cells_log.jsonl + Klimatologie-Raster | `stats_aggregator.py` (neu), `backfill_track_ends.py` (neu), `scheduler.py`, `config.py`, `init_runtime_overrides.py` | ⏳ offen |
+| P-S03 | Statistik-API (`/api/statistics/*`) | `app.py` | ⏳ offen |
+| P-S04 | Frontend-Seite „Statistik" (Pflichtdiagramme, Vorjahresvergleich, Windrose) | `frontend/` | ⏳ offen |
+| P-S05 | ML-Klimatologie-Features (`cell_age_min`, `clim_*`) mit Mindest-Sample-Schwelle | `config.py`, `climatology_features.py` (neu), `main.py` | ⏳ offen |

@@ -511,6 +511,13 @@ def main_loop():
                     _obj["tawes_max_gust_kmh"] = _measured_gust
                     _obj["gust_warning"] = float(_obj.get("nowcast_ffx_kmh",0.0)) >= GUST_WARN_KMH or _measured_gust >= GUST_WARN_KMH
                     _obj["heavy_rain_warning"] = float(_obj.get("nowcast_rain_rate_1h",0.0)) >= HEAVY_RAIN_WARN_MM_PER_H
+            # P-S01: Schwere-/Hagel-/Blitz-Maxima in tracking_memory akkumulieren
+            # (severity_level etc. existieren erst nach assign_severity, daher hier).
+            try:
+                from track_statistics import accumulate_severity_maxima
+                accumulate_severity_maxima(objects)
+            except Exception as _e_sevacc:
+                debug_log(f"[P-S01] accumulate_severity_maxima Fehler: {_e_sevacc}")
             debug_log(f"Gefundene Objekte: {len(objects)}")
             # ── Strukturiertes Cell-Log (JSONL) ──────────────────────────
             _cell_log_path = os.path.join(
