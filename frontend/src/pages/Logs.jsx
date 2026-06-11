@@ -326,6 +326,12 @@ function Logs() {
         </div>
       )}
 
+      {/* P47: Manueller Abruf externer Dienste */}
+      <div className="card mt-4">
+        <h2 className="text-base font-semibold mb-3">🔄 Externe Dienste manuell auslösen</h2>
+        <ManualFetchPanel />
+      </div>
+
       {/* Cache-Status */}
       <div className="card mt-4">
         <h2 className="text-base font-semibold mb-3">🗄️ API-Cache Status</h2>
@@ -396,6 +402,85 @@ function CacheStatusTable() {
         ))}
       </tbody>
     </table>
+  )
+}
+
+function ManualFetchPanel() {
+  const [available, setAvailable] = useState([])
+  const [runs, setRuns] = useState({})
+  const [error, setError] = useState(null)
+
+  const load = () => api.get('/api/system/job_status?nocache=true')
+    .then((d) => { setAvailable(d.available || []); setRuns(d.runs || {}) })
+    .catch(() => {})
+
+  useEffect(() => {
+    load()
+    const anyRunning = Object.values(runs).some((r) => r.state === 'running')
+    const iv = setInterval(load, anyRunning ? 2000 : 8000)
+    return () => clearInterval(iv)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(Object.values(runs).map((r) => r.state))])
+
+  const trigger = (jobId) => {
+    setError(null)
+    api.post(`/api/system/run_job/${jobId}`)
+      .then(() => setTimeout(load, 300))
+      .catch((e) => {
+        const msg = String(e?.message || e)
+        setError(
+          msg.includes('403') || msg.includes('Admin-Berechtigung') ? 'Nur für Admins.' :
+          msg.includes('409') || msg.includes('Job läuft bereits') ? 'Job läuft bereits.' : msg
+        )
+      })
+  }
+
+  return (
+    <div>
+      {error && <div className="text-sm text-red-600 mb-2">{error}</div>}
+      <div className="flex flex-wrap gap-2">
+        {available.map((j) => {
+          const r = runs[j.job_id]
+          const running = r && r.state === 'running'
+          return (
+            <button
+              key={j.job_id}
+              onClick={() => trigger(j.job_id)}
+              disabled={running}
+              className={`px-3 py-1.5 rounded text-sm border transition
+                ${running ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                          : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+            >
+              {running ? '⏳ ' : '▶ '}{j.label}
+            </button>
+          )
+        })}
+      </div>
+      <div className="mt-3 space-y-1 text-xs text-gray-600">
+        {available.map((j) => {
+          const r = runs[j.job_id]
+          if (!r) return null
+          const color = r.state === 'ok' ? 'text-green-700'
+                       : r.state === 'error' ? 'text-red-600' : 'text-blue-700'
+          const when = r.finished_utc || r.started_utc
+          const clock = when ? new Date(when).toLocaleTimeString('de-AT', {
+            hour: '2-digit', minute: '2-digit', second: '2-digit'
+          }) : ''
+          return (
+            <div key={j.job_id} className={color}>
+              <span className="font-mono">{j.label}</span>: {r.state}
+              {r.message ? ` — ${r.message}` : ''}
+              {r.duration_s != null ? ` (${r.duration_s}s)` : ''} {clock && `· ${clock}`}
+            </div>
+          )
+        })}
+      </div>
+      <p className="text-xs text-gray-400 mt-2">
+        Läuft im Admin-Dienst und aktualisiert die gemeinsamen Cache-Dateien. „Alle Dienste
+        testen" pingt jeden externen Endpunkt einmal an. TAWES/CAPE/Nowcast/Radar werden
+        sonst laufend im Hauptdienst geholt.
+      </p>
+    </div>
   )
 }
 

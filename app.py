@@ -1916,6 +1916,120 @@ def api_cache_status():
     return jsonify({"services": results, "cache_dir": _CACHE_DIR})
 
 
+# ---------------------------------------------------------------------------
+# P47: Manuelles Auslösen externer Service-Aufrufe (admin, /api/system/-gegated)
+# ---------------------------------------------------------------------------
+import threading as _p47_threading
+
+# job_id -> (Anzeigename, lazy-callable). Callables importieren erst beim Aufruf,
+# um schwere Importe (und Zirkularität) beim App-Start zu vermeiden.
+def _p47_job_map():
+    def _atmospheric():
+        from fetch_atmospheric_snapshot import fetch_atmospheric_snapshot
+        r = fetch_atmospheric_snapshot()
+        return f"{len(r.get('locations', []))} Orte"
+
+    def _outlook_series():
+        from fetch_outlook_series import fetch_outlook_series
+        r = fetch_outlook_series(force=True)
+        return f"{len(r.get('points', []))} Punkte"
+
+    def _outlook_compute():
+        from convective_outlook import compute_outlook
+        r = compute_outlook()
+        return f"{len(r.get('hours', []))} Stunden"
+
+    def _api_health():
+        from api_health_check import check_all_apis
+        r = check_all_apis()
+        return "alle OK" if r.get("all_ok") else "Probleme erkannt"
+
+    def _stats():
+        from stats_aggregator import aggregate
+        r = aggregate()
+        return f"{r.get('processed', 0)} neue Tracks"
+
+    return {
+        "atmospheric_snapshot": ("Atmosphären-Snapshot", _atmospheric),
+        "outlook_series": ("Ausblick-Zeitreihe", _outlook_series),
+        "outlook_compute": ("Ausblick-Raster", _outlook_compute),
+        "api_health": ("Alle Dienste testen (API-Health)", _api_health),
+        "stats_aggregate": ("Langzeitstatistik aggregieren", _stats),
+    }
+
+
+_P47_RUNS: dict = {}
+_P47_LOCK = _p47_threading.Lock()
+
+
+def _p47_run(job_id, label, fn):
+    import time as _t
+    started = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    with _P47_LOCK:
+        _P47_RUNS[job_id] = {
+            "job_id": job_id,
+            "label": label,
+            "state": "running",
+            "started_utc": started,
+            "finished_utc": None,
+            "message": None,
+        }
+    debug_log(f"[P47] Job '{job_id}' manuell gestartet")
+    t0 = _t.monotonic()
+    try:
+        msg = fn() or "OK"
+        state, message = "ok", str(msg)
+    except Exception as exc:
+        state, message = "error", str(exc)
+        debug_log(f"[P47] Job '{job_id}' Fehler: {exc}")
+    dur = round(_t.monotonic() - t0, 1)
+    with _P47_LOCK:
+        _P47_RUNS[job_id].update(
+            state=state,
+            message=message,
+            finished_utc=datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            duration_s=dur,
+        )
+    debug_log(f"[P47] Job '{job_id}' beendet ({state}, {dur}s)")
+
+
+@app.route("/api/system/run_job/<job_id>", methods=["POST"])
+def api_system_run_job(job_id):
+    jobs = _p47_job_map()
+    if job_id not in jobs:
+        return jsonify({
+            "ok": False,
+            "error": f"Unbekannter Job: {job_id}",
+            "available": sorted(jobs.keys()),
+        }), 400
+    label, fn = jobs[job_id]
+    started = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    with _P47_LOCK:
+        cur = _P47_RUNS.get(job_id)
+        if cur and cur.get("state") == "running":
+            return jsonify({"ok": False, "error": "Job läuft bereits", "status": cur}), 409
+        _P47_RUNS[job_id] = {
+            "job_id": job_id,
+            "label": label,
+            "state": "running",
+            "started_utc": started,
+            "finished_utc": None,
+            "message": None,
+        }
+    th = _p47_threading.Thread(target=_p47_run, args=(job_id, label, fn), daemon=True)
+    th.start()
+    return jsonify({"ok": True, "started": True, "job_id": job_id, "label": label}), 202
+
+
+@app.route("/api/system/job_status")
+def api_system_job_status():
+    jobs = _p47_job_map()
+    with _P47_LOCK:
+        runs = dict(_P47_RUNS)
+    available = [{"job_id": jid, "label": lbl} for jid, (lbl, _) in jobs.items()]
+    return jsonify({"available": available, "runs": runs})
+
+
 @app.route("/api/forecast_stats")
 def api_forecast_stats():
     """

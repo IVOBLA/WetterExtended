@@ -2046,3 +2046,11 @@ Fix: /api/cache_status liefert next_fetch_ts (letzter Abruf + TTL, UTC-ISO). Log
 Dateien: app.py, frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx,
          tests/test_cache_status_next_fetch.py (neu)
 
+
+## P47 – Externe Service-Aufrufe manuell auslösen
+Status: ERLEDIGT
+Neu: POST /api/system/run_job/<job_id> (admin) startet Fetch/Job im Hintergrund-Thread;
+     GET /api/system/job_status liefert Lauf-Status. Jobs: atmospheric_snapshot,
+     outlook_series(force), outlook_compute, api_health (alle Dienste testen),
+     stats_aggregate. Frontend: Karte „Externe Dienste manuell auslösen" auf der Logs-Seite.
+Dateien: app.py, frontend/src/pages/Logs.jsx, tests/test_manual_job_trigger.py (neu)
