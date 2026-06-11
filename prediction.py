@@ -283,14 +283,18 @@ def _predict_lgbm_vector(models, frame, suffix=""):
     # P-T08: Voll-Länge-Vektor über ALLE konfigurierten Horizonte. Horizonte ohne
     # Modell → NaN (Layout passt zu scaler_y). Der Aufrufer ersetzt NaN-Horizonte
     # durch den kinematischen Forecast.
+    if np is None:
+        raise RuntimeError("numpy is required for LightGBM vector prediction")
+
     preds = []
     for h in _get_horizons():
-        for axis in ["x", "y"]:
+        for axis in ("x", "y"):
             key = f"lgbm_h{h}_{axis}{suffix}"
-            if key in models:
-                preds.append(float(models[key].predict(frame)[0]))
-            else:
+            model = models.get(key)
+            if model is None:
                 preds.append(float("nan"))
+            else:
+                preds.append(float(model.predict(frame)[0]))
     return np.asarray(preds, dtype=float)
 
 
