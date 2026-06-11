@@ -33,6 +33,7 @@ from compute_convective_indices import assign_convective_indices
 from fetch_tawes_gust import fetch_tawes_stations, max_gust_near
 from ir_cell_detection import detect_ir_cells
 from ir_cell_tracking import mark_radar_matched_tracks, update_ir_tracking
+from climatology_features import enrich_objects as _clim_enrich
 import math as _math_main
 import runtime_config
 from locations_check import annotate_locations
@@ -615,6 +616,14 @@ def main_loop():
         if radar_ok and image is not None and objects:
             if not weather_data:
                 debug_log("[WARN] Keine Wetterdaten — Forecast läuft mit Defaults.")
+
+            # ── P-S05: Zellalter + Klimatologie-Prior VOR ML-Forecast ─────────────
+            # cell_age_min, clim_* sind ML_CELL_FEATURES → müssen vor dem Sequenz-
+            # bau UND vor dem JSON-Save gesetzt sein (Train/Inference-Konsistenz).
+            try:
+                _clim_enrich(objects, timestamp)
+            except Exception as _e_clim:
+                debug_log(f"[P-S05] Klimatologie-Anreicherung übersprungen: {_e_clim}")
 
             # ── Finding #1 Fix: Windscherung + Hagel VOR ML-Forecast ──────────────
             # wind_shear_speed, hail_prob sind ML_CELL_FEATURES → müssen gesetzt
