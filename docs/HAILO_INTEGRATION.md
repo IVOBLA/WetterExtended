@@ -1981,3 +1981,19 @@ Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sow
   und P-T09-Radaralter. Erfüllt `zieldefinition.txt` (Erfassungszeitpunkt) präziser.
 - **Dateien:** `radar_download.py`, `object_tracking.py` (Log-Text),
   `tests/test_b122_kml_valid_time.py`
+
+### P-T09 – Veraltete Radardaten in der Warnlogik ✅
+- **Problem:** P-T08 berechnete `stale`/`effective_lead_min` pro Forecast, die
+  Warnlogik (`main.py`/`locations_check.py`) nutzte sie nicht. Forecast-Warnungen
+  aus veralteten Radarbildern (ARSO-Lücken) wurden wie frische behandelt.
+- **Schwelle (Betreiber-Wahl, Option 1):** Forecast gilt als veraltet sobald
+  `radar_age_min ≥ horizon` (`effective_lead_min ≤ 0`).
+- **Fix:** `main.py` schreibt `radar_age_min` auf ALLE Objekte (unabhängig vom
+  ML-Status → wirkt auch im kinematischen Betrieb). `annotate_locations` annotiert
+  jeden Forecast-/Slow-Treffer mit `radar_age_min`, `effective_lead_min`, `stale`.
+  Stale-Treffer umgehen die 2-Frame-Verzögerung (`_hit_is_kinematic` → wie current).
+  E-Mail und WhatsApp erhalten den Hinweis „Radardaten N min alt — Position unsicher".
+- **Bewusst:** Warnung wird NICHT unterdrückt (veraltetes Bild ≠ keine Gefahr),
+  nur gekennzeichnet. P-T06-Überlebensprüfung bleibt unverändert.
+- **Dateien:** `main.py`, `locations_check.py`, `email_notifier.py`,
+  `whatsapp_notifier.py`, `tests/test_pt09_stale_warning.py`

@@ -171,6 +171,17 @@ def send_warning_email(loc_name: str, hits: dict, email_str: str,
         _eta_text  = "trifft den Bereich voraussichtlich"
         _eta_sub   = ""
 
+    # P-T09: Hinweis bei veralteten Radardaten (Radarbild älter als Horizont).
+    _radar_age = _earliest.get("radar_age_min")
+    if _earliest.get("stale") and _radar_age is not None:
+        _stale_note = (
+            '<p style="margin:8px 0 0;font-size:13px;color:#fbbf24">'
+            f'&#9888; Radardaten {_radar_age:.0f} min alt &mdash; '
+            'Position unsicher (Nowcast).</p>'
+        )
+    else:
+        _stale_note = ""
+
     ts_display = timestamp or _now_str()
     html = f"""<!DOCTYPE html>
 <html lang="de"><head><meta charset="utf-8"></head>
@@ -206,6 +217,7 @@ def send_warning_email(loc_name: str, hits: dict, email_str: str,
         Distanz: <b>{_dist} km</b> &nbsp;&middot;&nbsp;
         Geschwindigkeit: <b>{_speed} km/h</b>
       </p>
+      {_stale_note}
     </div>
 
     <div style="text-align:center;margin-bottom:16px">
