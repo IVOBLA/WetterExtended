@@ -4,6 +4,8 @@ import os
 import subprocess
 import time
 import traceback
+import tempfile
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -21,6 +23,8 @@ import debug_export
 app = Flask(__name__, static_folder="frontend/dist", static_url_path="")
 app.register_blueprint(auth_bp)
 init_db()
+
+_export_lock = threading.Lock()
 
 
 def _project_timestamp_to_utc(ts: str):
@@ -792,79 +796,81 @@ def api_git():
 
 
 @app.route("/api/admin/export/last-24h.zip")
-@require_role("admin")
 def api_admin_export_last_24h_zip():
     """Geschützter ZIP-Export aller relevanten Debug-Daten der letzten 24 Stunden."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "unauthorized"}), 401
+    if ROLE_LEVEL.get(user.get("role", "viewer"), 0) < ROLE_LEVEL.get("admin", 99):
+        return jsonify({"error": "forbidden"}), 403
+    if not _export_lock.acquire(blocking=False):
+        return jsonify({"error": "export_already_running"}), 409
+
     hours = 24
     export_base_dir = _resolve_debug_export_base_dir(SAVE_PATHS)
     started = time.perf_counter()
     zip_path = None
+    tmp_path = None
     app.logger.info("[ADMIN-EXPORT] start hours=%s base_dir=%s", hours, export_base_dir)
-    print(f"[ADMIN-EXPORT] start hours={hours} base_dir={export_base_dir}", flush=True)
     try:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+        tmp_path = Path(tmp.name)
+        tmp.close()
         zip_path, filename, manifest = debug_export.create_debug_export_zip(
             base_dir=export_base_dir,
             save_paths=SAVE_PATHS,
             hours=hours,
+            tmp_path=tmp_path,
         )
-
         zip_path = Path(zip_path)
         size_bytes = zip_path.stat().st_size
         duration_s = time.perf_counter() - started
         manifest_total_files = manifest.get("total_files", "unknown") if isinstance(manifest, dict) else "unknown"
         app.logger.info(
             "[ADMIN-EXPORT] zip_created file=%s bytes=%s duration_s=%.3f manifest_total_files=%s",
-            zip_path,
-            size_bytes,
-            duration_s,
-            manifest_total_files,
-        )
-        print(
-            f"[ADMIN-EXPORT] zip_created file={zip_path} bytes={size_bytes} "
-            f"duration_s={duration_s:.3f} manifest_total_files={manifest_total_files}",
-            flush=True,
+            zip_path, size_bytes, duration_s, manifest_total_files,
         )
         response = send_file(
-            zip_path,
-            mimetype="application/zip",
-            as_attachment=True,
-            download_name=filename,
-            max_age=0,
+            zip_path, mimetype="application/zip", as_attachment=True,
+            download_name=filename, max_age=0,
         )
-        app.logger.info("[ADMIN-EXPORT] response_ready filename=%s", filename)
-        print(f"[ADMIN-EXPORT] response_ready filename={filename}", flush=True)
 
         cleanup_done = False
-
         def _cleanup_export_zip(path=zip_path):
             nonlocal cleanup_done
             if cleanup_done:
                 return
             cleanup_done = True
-            print(f"[ADMIN-EXPORT] cleanup zip_path={path}", flush=True)
-            app.logger.info("[ADMIN-EXPORT] cleanup zip_path=%s", path)
-            Path(path).unlink(missing_ok=True)
+            try:
+                Path(path).unlink(missing_ok=True)
+            except Exception:
+                app.logger.exception("[ADMIN-EXPORT] cleanup failed path=%s", path)
 
         response.call_on_close(_cleanup_export_zip)
         response.response = ClosingIterator(response.response, _cleanup_export_zip)
         return response
+    except debug_export.ExportLimitExceeded as exc:
+        app.logger.exception("[ADMIN-EXPORT] export too large: %s", exc)
+        if zip_path is not None or tmp_path is not None:
+            try:
+                Path(zip_path or tmp_path).unlink(missing_ok=True)
+            except Exception:
+                app.logger.exception("[ADMIN-EXPORT] cleanup after limit failed")
+        return jsonify({"error": "export_too_large", "detail": str(exc)}), 413
     except Exception as exc:
         duration_s = time.perf_counter() - started
         app.logger.exception(
-            "[ADMIN-EXPORT] failed hours=%s base_dir=%s duration_s=%.3f error=%s",
-            hours,
-            export_base_dir,
-            duration_s,
-            exc,
+            "[ADMIN-EXPORT] failed hours=%s base_dir=%s duration_s=%.3f",
+            hours, export_base_dir, duration_s,
         )
-        print(
-            f"[ADMIN-EXPORT] failed hours={hours} base_dir={export_base_dir} "
-            f"duration_s={duration_s:.3f} error={exc}\n{traceback.format_exc()}",
-            flush=True,
-        )
-        if zip_path is not None:
-            Path(zip_path).unlink(missing_ok=True)
-        return jsonify({"error": f"Debug-Export konnte nicht erstellt werden: {exc}", "type": type(exc).__name__}), 500
+        if zip_path is not None or tmp_path is not None:
+            try:
+                Path(zip_path or tmp_path).unlink(missing_ok=True)
+            except Exception:
+                app.logger.exception("[ADMIN-EXPORT] cleanup after error failed")
+        return jsonify({"error": "export_failed", "detail": str(exc)}), 500
+    finally:
+        _export_lock.release()
 
 
 @app.route("/api/download/logs")

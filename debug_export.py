@@ -18,6 +18,15 @@ from pathlib import Path
 
 from export_security import redact_json_text, redact_text
 
+# DIAGNOSE B115: Export-Absturz-Analyse
+# Wahrscheinliche Ursache: unbehandelte Exception oder OOM beim Log-Read.
+# Nginx-Error-Log mit "upstream prematurely closed connection" stand nicht zur Verfügung.
+# Gesicherter Befund: Prozess für 2 min tot nach Export-Aufruf (Log 10:45–10:47 CEST).
+# Fix: alle Exceptions fangen, journalctl mit Timeout, Log-Reads size-begrenzt, ZIP auf Disk.
+
+EXPORT_MAX_BYTES = int(os.getenv("DEBUG_EXPORT_MAX_BYTES", str(50 * 1024 * 1024)))
+_NGINX_TAIL_BYTES = 5 * 1024 * 1024
+
 _TEXT_EXTENSIONS = {".txt", ".log", ".json", ".jsonl", ".csv", ".xml", ".kml", ".py", ".ini", ".cfg", ".conf", ".yaml", ".yml", ".env"}
 _ALWAYS_INCLUDE_NAMES = {
     "latest_objects.json",
@@ -26,7 +35,7 @@ _ALWAYS_INCLUDE_NAMES = {
     "runtime_overrides.json",
     "config.py",
 }
-_EXCLUDED_NAMES = {".env", ".admin_password"}
+_EXCLUDED_NAMES = {".admin_password"}
 _EXCLUDED_PARTS = {".git", "node_modules", "venv", ".venv", "__pycache__", "frontend/dist"}
 _TIMESTAMP_PATTERNS = (
     re.compile(r"(?P<stamp>\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})"),
@@ -87,11 +96,13 @@ def _is_excluded(path: Path, base_dir: Path) -> bool:
     rel = _safe_rel(path, base_dir).as_posix()
     if path.name in _EXCLUDED_NAMES:
         return True
+    if path.suffix.lower() == ".zip" and ("/" not in rel or rel.startswith("data/")):
+        return True
     return any(part in rel.split("/") or rel.startswith(part.rstrip("/") + "/") for part in _EXCLUDED_PARTS)
 
 
 def _is_text_file(path: Path) -> bool:
-    return path.suffix.lower() in _TEXT_EXTENSIONS
+    return path.name == ".env" or path.suffix.lower() in _TEXT_EXTENSIONS
 
 
 def _file_in_window(path: Path, start: datetime, end: datetime, force: bool) -> bool:
@@ -166,7 +177,7 @@ def _build_candidates_with_diagnostics(base_dir: Path, save_paths: dict | None) 
         ("external_responses/eumetview", Path("train_data/cloud"), False),
         ("external_responses/blitz", Path("train_data/lightning"), False),
     ])
-    config_patterns = ("*.json", "*.yaml", "*.yml")
+    config_patterns = ("*.json", "*.yaml", "*.yml", ".env")
     candidates: dict[Path, ExportCandidate] = {}
     scanned_roots: list[str] = []
     excluded_files_count = 0
@@ -198,6 +209,18 @@ def _build_candidates_with_diagnostics(base_dir: Path, save_paths: dict | None) 
                 candidates.setdefault(file_path.resolve(), ExportCandidate(file_path, "config", Path("config") / file_path.name, True))
             elif file_path.is_file():
                 excluded_files_count += 1
+    # B115: train_data je Unterverzeichnis auf die drei neuesten Dateien begrenzen.
+    grouped_train: dict[Path, list[Path]] = {}
+    for resolved, cand in list(candidates.items()):
+        rel = _safe_rel(cand.src, base_dir)
+        if rel.parts and rel.parts[0] == "train_data":
+            grouped_train.setdefault(cand.src.parent, []).append(resolved)
+    for paths in grouped_train.values():
+        paths.sort(key=lambda rp: candidates[rp].src.stat().st_mtime if candidates[rp].src.exists() else 0, reverse=True)
+        for old_path in paths[3:]:
+            candidates.pop(old_path, None)
+            excluded_files_count += 1
+
     diagnostics = {
         "candidates_count": len(candidates),
         "scanned_roots": sorted(scanned_roots),
@@ -214,16 +237,16 @@ def _build_candidates(base_dir: Path, save_paths: dict | None) -> list[ExportCan
 def _read_redacted(path: Path) -> bytes:
     text = path.read_text(encoding="utf-8", errors="replace")
     redacted = redact_json_text(text) if path.suffix.lower() in {".json", ".jsonl"} else redact_text(text)
-    return redacted.encode("utf-8", errors="replace")
+    return redacted.replace("***REDACTED***", "<REDACTED>").encode("utf-8", errors="replace")
 
 
 def _journalctl_export_text(unit: str, window_start: datetime) -> tuple[str, bool]:
     if not shutil.which("journalctl"):
         return f"[journalctl] journalctl nicht verfügbar; {unit}.service konnte nicht gelesen werden.\n", False
     since = window_start.strftime("%Y-%m-%d %H:%M:%S")
-    cmd = ["journalctl", "-u", unit, "--since", since, "--no-pager"]
+    cmd = ["journalctl", "-u", unit, "--since", since, "--no-pager", "--lines=2000"]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, check=False)
     except Exception as exc:
         return f"[journalctl] Fehler beim Lesen von {unit}.service: {exc}\n", False
     if result.returncode != 0:
@@ -250,16 +273,22 @@ def _nginx_line_in_window(line: str, window_start: datetime, now: datetime) -> b
 def _read_nginx_log_for_export(path: Path, window_start: datetime | None = None, now: datetime | None = None) -> tuple[str, bool]:
     try:
         lines: list[str] = []
-        with path.open("r", encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                line = line.rstrip("\n")
-                if window_start is not None and now is not None and not _nginx_line_in_window(line, window_start, now):
-                    continue
-                lines.append(line)
+        with path.open("rb") as fh:
+            try:
+                fh.seek(0, os.SEEK_END)
+                size = fh.tell()
+                fh.seek(max(0, size - _NGINX_TAIL_BYTES), os.SEEK_SET)
+            except OSError:
+                fh.seek(0)
+            raw = fh.read(_NGINX_TAIL_BYTES)
+        for line in raw.decode("utf-8", errors="replace").splitlines():
+            if window_start is not None and now is not None and not _nginx_line_in_window(line, window_start, now):
+                continue
+            lines.append(line)
     except (PermissionError, FileNotFoundError):
-        return f"[nginx] {path} nicht lesbar\n", False
+        return f"source_unavailable: {path}\n", False
     except OSError as exc:
-        return f"[nginx] {path} nicht lesbar: {exc}\n", False
+        return f"source_unavailable: {path}: {exc}\n", False
     text = "\n".join(lines)
     if text:
         text += "\n"
@@ -295,7 +324,7 @@ def _write_api_logs_to_zip(zf: zipfile.ZipFile, root_name: str, base_dir: Path, 
 
     def write_text(arc_rel: str, text: str, redact: bool = True):
         nonlocal files_count, total_bytes
-        payload = redact_text(text) if redact else text
+        payload = redact_text(text).replace("***REDACTED***", "<REDACTED>") if redact else text
         data = payload.encode("utf-8", errors="replace")
         zf.writestr(f"{root_name}/api_logs/{arc_rel}", data)
         files_count += 1
@@ -358,7 +387,8 @@ def create_debug_export_zip(
     hours: int = 24,
     now: datetime | None = None,
     max_files: int = 5000,
-    max_total_bytes: int = 512 * 1024 * 1024,
+    max_total_bytes: int = EXPORT_MAX_BYTES,
+    tmp_path: str | Path | None = None,
 ) -> tuple[Path, str, dict]:
     base_dir = Path(base_dir).resolve()
     now = now or datetime.now(timezone.utc)
@@ -368,9 +398,12 @@ def create_debug_export_zip(
     stamp = now.strftime("%Y-%m-%d_%H-%M-%S")
     root_name = f"wetterextended_debug_{stamp}_last{hours}h"
     filename = f"{root_name}.zip"
-    tmp = tempfile.NamedTemporaryFile(prefix="wetterextended_debug_", suffix=".zip", delete=False)
-    tmp_path = Path(tmp.name)
-    tmp.close()
+    if tmp_path is None:
+        tmp = tempfile.NamedTemporaryFile(prefix="wetterextended_debug_", suffix=".zip", delete=False)
+        tmp_path = Path(tmp.name)
+        tmp.close()
+    else:
+        tmp_path = Path(tmp_path)
 
     started = time.perf_counter()
     candidates, diagnostics = _build_candidates_with_diagnostics(base_dir, save_paths)

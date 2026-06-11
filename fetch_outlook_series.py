@@ -17,22 +17,25 @@ from datetime import datetime, timezone
 
 import requests
 
+import api_circuit_breaker
 from config import ATM_SNAPSHOT_LOCATIONS, SAVE_PATHS
 from debug_utils import debug_log, log_api_failure, log_http_response
 import runtime_config
 
 _URL          = "https://api.open-meteo.com/v1/forecast"
 _TZ           = "Europe/Vienna"
-_TIMEOUT      = 25
-_BATCH_SIZE   = 8
+_TIMEOUT      = (5, 15)
+_BATCH_SIZE   = 4
 _FORECAST_H   = 13          # +0..+12 h => 13 Stundenwerte
-_DEFAULT_TTL  = 30          # Minuten
+_DEFAULT_TTL  = 60          # Minuten
 
 _OUT_DIR = os.path.join(
     os.path.dirname(SAVE_PATHS.get("evaluation", "train_data/evaluation/").rstrip("/")),
     "forecast",
 )
 _OUT_FILE = os.path.join(_OUT_DIR, "atmosphere_timeseries.json")
+OUTLOOK_SERVICE = "open_meteo_outlook"
+MAX_REQUESTS_PER_RUN = int(os.getenv("OUTLOOK_SERIES_MAX_REQUESTS_PER_RUN", "9"))
 
 # Vollsatz und Minimalsatz (Fallback). Reihenfolge unwichtig.
 # convective_inhibition und precipitable_water sind für ICON (Default-Modell für AT)
@@ -48,6 +51,26 @@ _HOURLY_FULL = ",".join([
 _HOURLY_MIN = ",".join([
     "cape", "lifted_index", "wind_speed_10m", "wind_direction_10m", "freezing_level_height",
 ])
+
+
+def _load_fallback(status="circuit_open_no_fallback"):
+    try:
+        with open(_OUT_FILE, encoding="utf-8") as f:
+            payload = json.load(f)
+        if isinstance(payload, dict):
+            payload.setdefault("status", "stale_fallback")
+            return payload
+    except Exception:
+        pass
+    return {"points": [], "status": status}
+
+
+def _retry_after_from(exc):
+    try:
+        value = exc.response.headers.get("Retry-After")
+        return int(value) if value else None
+    except Exception:
+        return None
 
 
 def _ttl_min():
@@ -109,6 +132,9 @@ def _now_hour_iso():
 
 
 def fetch_outlook_series(force=False):
+    if api_circuit_breaker.is_open(OUTLOOK_SERVICE):
+        debug_log("[OUTLOOK-SERIES] Circuit offen — Fallback wird genutzt")
+        return _load_fallback()
     if not force and _is_fresh():
         debug_log("[OUTLOOK-SERIES] Cache frisch — kein Request")
         try:
@@ -120,14 +146,22 @@ def fetch_outlook_series(force=False):
     os.makedirs(_OUT_DIR, exist_ok=True)
     locs = list(ATM_SNAPSHOT_LOCATIONS)
     all_points = []
+    requests_used = 0
     for batch in _batches(locs, _BATCH_SIZE):
+        if api_circuit_breaker.is_open(OUTLOOK_SERVICE):
+            return _load_fallback()
+        if requests_used >= MAX_REQUESTS_PER_RUN:
+            log_api_failure("Open-Meteo-Outlook", _URL, "request-budget-exceeded", fallback_used=True)
+            break
         lats = [float(l["lat"]) for l in batch]
         lons = [float(l["lon"]) for l in batch]
         names = [l.get("name", "") for l in batch]
         data = None
         for hourly in (_HOURLY_FULL, _HOURLY_MIN):
             try:
+                requests_used += 1
                 data = _request(lats, lons, hourly)
+                api_circuit_breaker.record_success(OUTLOOK_SERVICE)
                 break
             except requests.exceptions.HTTPError as exc:
                 _status = getattr(exc.response, "status_code", None)
@@ -136,9 +170,21 @@ def fetch_outlook_series(force=False):
                     f"http-{_status} (params: {hourly[:40]}...)",
                     fallback_used=True, http_status=_status,
                 )
+                if _status == 429:
+                    api_circuit_breaker.open_circuit(OUTLOOK_SERVICE, _retry_after_from(exc) or api_circuit_breaker.CIRCUIT_COOLDOWN_429, "http-429")
+                    return _load_fallback("http_429_fallback")
+                api_circuit_breaker.record_failure(OUTLOOK_SERVICE, f"http-{_status}", http_status=_status)
             except requests.exceptions.Timeout:
+                api_circuit_breaker.record_failure(OUTLOOK_SERVICE, "Timeout")
                 log_api_failure("Open-Meteo-Outlook", _URL,
                                 "timeout", fallback_used=True)
+            except (requests.exceptions.SSLError, requests.exceptions.ConnectionError) as exc:
+                api_circuit_breaker.record_failure(OUTLOOK_SERVICE, type(exc).__name__)
+                log_api_failure(
+                    "Open-Meteo-Outlook", _URL,
+                    f"{type(exc).__name__}: {str(exc)[:80]}",
+                    fallback_used=True,
+                )
             except Exception as exc:
                 log_api_failure(
                     "Open-Meteo-Outlook", _URL,
@@ -158,6 +204,8 @@ def fetch_outlook_series(force=False):
                 "series": _series_from_point(point, start_idx),
             })
 
+    if not all_points:
+        return _load_fallback("all_param_sets_failed_fallback")
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "horizon_h": _FORECAST_H - 1,
