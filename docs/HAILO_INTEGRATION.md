@@ -1962,3 +1962,22 @@ Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sow
 - **Dateien:** `config.py`, `dataset_builder.py`, `data_quality.py`,
   `model_training.py`, `prediction.py`, `tests/test_pt08_partial_horizon.py`
 - **Hinweis:** Neutraining erforderlich (Dataset-Format/Scaler geändert).
+
+### B122 – Echte Radar-Valid-Time aus KML `<TimeStamp>` ✅
+- **Problem:** `get_acquisition_timestamp()` nutzte HTTP `Last-Modified`
+  (Publikationszeit auf dem ARSO-Server) als Aufnahmezeit (B40/B41). Diese läuft
+  der echten Radar-Messung um Minuten nach → leicht verschobene Sequenz-Zeitabstände
+  (ML/Kinematik) und überschätztes P-T09-Radaralter.
+- **Quelle verifiziert** an echter `latest.kml`: `<TimeStamp><when>2026-06-11T05:15:00Z`
+  und PNG-Name `inca_si0zm_20260611-0515+0000.png` → beide = `2026-06-11_07-15-00`
+  (07:15 CEST).
+- **Fix:** Neue Quellen-Priorität in `get_acquisition_timestamp()`:
+  (1) KML `<TimeStamp><when>` (ISO-UTC, Primärquelle),
+  (2) PNG-Dateiname-Pattern (Fallback),
+  (3) HTTP Last-Modified (bisheriges Verhalten, letzter Fallback).
+  Neue Helfer `_acq_from_kml_timestamp`, `_acq_from_kml_pngname`,
+  `_acq_from_last_modified`; Konstante `_LATEST_KML_FILE`.
+- **Wirkung:** genauere Zeitbasis für ML-Sequenzen, Kinematik-Δt, Objekt-Dateinamen
+  und P-T09-Radaralter. Erfüllt `zieldefinition.txt` (Erfassungszeitpunkt) präziser.
+- **Dateien:** `radar_download.py`, `object_tracking.py` (Log-Text),
+  `tests/test_b122_kml_valid_time.py`

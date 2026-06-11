@@ -8,6 +8,7 @@ import os
 import time
 import requests
 import zipfile
+from datetime import datetime
 from email.utils import formatdate, parsedate_to_datetime
 from debug_utils import debug_log, log_api_failure, log_api_call, log_http_response
 
@@ -15,6 +16,7 @@ KMZ_URL  = "https://meteo.arso.gov.si/uploads/probase/www/nowcast/inca/inca_si0z
 KMZ_PATH = "weather_data.kmz"
 _LAST_MODIFIED_FILE  = "data/.kmz_last_modified"
 _CONTENT_HASH_FILE   = "data/.kmz_content_sha256"
+_LATEST_KML_FILE     = "data/latest.kml"   # B122: Quelle für echte Valid-Time
 
 
 def _read_content_hash() -> str | None:
@@ -68,16 +70,54 @@ def _write_last_modified(value: str) -> None:
         pass
 
 
-def get_acquisition_timestamp() -> str | None:
-    """
-    Gibt den Aufnahme-Zeitstempel des zuletzt heruntergeladenen ARSO-KMZ zurück.
+def _acq_from_kml_timestamp() -> str | None:
+    """B122: Liest die echte Valid-Time aus dem KML <TimeStamp><when>-Element.
 
-    Quelle: HTTP Last-Modified-Header aus data/.kmz_last_modified (RFC 2822).
-    parsedate_to_datetime ist bereits im Modul importiert (email.utils).
+    ARSO INCA si0zm liefert die Aufnahmezeit als ISO-8601 UTC, z.B.
+    <TimeStamp><when>2026-06-11T05:15:00Z</when></TimeStamp>.
 
-    Rückgabe: 'YYYY-MM-DD_HH-MM-SS' in Europe/Vienna-Lokalzeit.
-             None wenn keine gespeicherte Zeit verfügbar oder Parse fehlschlägt.
+    Rückgabe: 'YYYY-MM-DD_HH-MM-SS' in Europe/Vienna-Lokalzeit oder None.
     """
+    try:
+        if not os.path.exists(_LATEST_KML_FILE):
+            return None
+        import re
+        from zoneinfo import ZoneInfo
+        with open(_LATEST_KML_FILE, "r", encoding="utf-8") as _f:
+            kml = _f.read()
+        m = re.search(r"<when>\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})Z\s*</when>", kml)
+        if not m:
+            return None
+        dt_utc = datetime.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S").replace(tzinfo=ZoneInfo("UTC"))
+        return dt_utc.astimezone(ZoneInfo("Europe/Vienna")).strftime("%Y-%m-%d_%H-%M-%S")
+    except Exception:
+        return None
+
+
+def _acq_from_kml_pngname() -> str | None:
+    """B122: Fallback — liest die Valid-Time aus dem PNG-Dateinamen in der KML.
+
+    Pattern: inca_si0zm_YYYYMMDD-HHMM+0000.png (UTC).
+    Rückgabe: 'YYYY-MM-DD_HH-MM-SS' in Europe/Vienna-Lokalzeit oder None.
+    """
+    try:
+        if not os.path.exists(_LATEST_KML_FILE):
+            return None
+        import re
+        from zoneinfo import ZoneInfo
+        with open(_LATEST_KML_FILE, "r", encoding="utf-8") as _f:
+            kml = _f.read()
+        m = re.search(r"inca_si0zm_(\d{8})-(\d{4})\+0000", kml)
+        if not m:
+            return None
+        dt_utc = datetime.strptime(m.group(1) + m.group(2), "%Y%m%d%H%M").replace(tzinfo=ZoneInfo("UTC"))
+        return dt_utc.astimezone(ZoneInfo("Europe/Vienna")).strftime("%Y-%m-%d_%H-%M-%S")
+    except Exception:
+        return None
+
+
+def _acq_from_last_modified() -> str | None:
+    """Aufnahmezeit aus dem HTTP Last-Modified-Header (B40, jetzt Fallback)."""
     raw = _read_last_modified()
     if not raw:
         return None
@@ -88,6 +128,24 @@ def get_acquisition_timestamp() -> str | None:
         return dt_vienna.strftime("%Y-%m-%d_%H-%M-%S")
     except Exception:
         return None
+
+
+def get_acquisition_timestamp() -> str | None:
+    """
+    Gibt den Aufnahme-Zeitstempel des zuletzt heruntergeladenen ARSO-KMZ zurück.
+
+    B122: Quellen-Priorität (genaueste zuerst):
+      1. KML <TimeStamp><when>  — echte Radar-Valid-Time (ISO-8601 UTC)
+      2. PNG-Dateiname in der KML (inca_si0zm_YYYYMMDD-HHMM+0000)
+      3. HTTP Last-Modified (data/.kmz_last_modified, RFC 2822) — Publikationszeit
+
+    Rückgabe: 'YYYY-MM-DD_HH-MM-SS' in Europe/Vienna-Lokalzeit, oder None.
+    """
+    for _src in (_acq_from_kml_timestamp, _acq_from_kml_pngname, _acq_from_last_modified):
+        _ts = _src()
+        if _ts:
+            return _ts
+    return None
 
 
 # Maximale erlaubte Einzeldatei-Größe nach Extract (50 MB).
