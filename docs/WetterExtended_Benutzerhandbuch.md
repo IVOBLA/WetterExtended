@@ -1063,6 +1063,10 @@ Das Dashboard zeigt eine kompakte Statistiktabelle aller externen Schnittstellen
 > Fehler werden in Rot dargestellt. Eine Fehlerrate > 0 % ist kein Alarm, solange
 > der Fallback greift (erkennbar an den API-Gesundheits-Meldungen oben im Dashboard).
 
+> Die Tabelle listet jetzt **alle bekannten externen Dienste**, auch solche ohne Aufruf in den
+> letzten 24 h (dann mit 0 Anfragen). So ist auf einen Blick sichtbar, welche Schnittstellen
+> aktiv waren und welche (noch) nicht abgerufen wurden.
+
 ## 22.2 Detail-Panel — Letzter API-Request / Response
 
 Unterhalb der Statistiktabelle befindet sich ein separater Card „🔍 Letzter API-Request / Response".

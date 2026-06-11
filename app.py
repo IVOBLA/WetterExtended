@@ -1573,6 +1573,28 @@ _API_PUBLIC_URLS: dict = {
     "anthropic_api":          "https://console.anthropic.com/",
 }
 
+# B128: Kanonische Liste aller externen Dienste. Quelle: cache_status _DEFAULT_TTLS.
+# Diese Namen werden im Dashboard auch ohne Aufruf in 24h mit 0 angezeigt.
+# WICHTIG: Bei neuen Diensten hier UND in _DEFAULT_TTLS (cache_status) ergänzen.
+_KNOWN_EXTERNAL_SERVICES = [
+    "arso_radar",
+    "blitzortung_last_strikes",
+    "eumetview_capabilities",
+    "geosphere_cape",
+    "geosphere_nowcast",
+    "geosphere_tawes_all",
+    "openmeteo_extended_15min",
+    "openmeteo_extended_gfs_conv",
+    "openmeteo_extended_lpi",
+    "openmeteo_extended_pressure",
+    "openmeteo_icon_d2",
+    "openmeteo_icon_eu_li",
+    "openmeteo_icon_global",
+    "openmeteo_synoptic_500",
+    "open_meteo_outlook",
+    "open_meteo_atmosphere",
+]
+
 
 @app.route("/api/api_calls")
 def api_api_calls():
@@ -1580,8 +1602,16 @@ def api_api_calls():
     from debug_utils import api_call_summary
     hours = int(request.args.get("hours", "24"))
     data = api_call_summary(since_hours=hours)
+    bs = data.setdefault("by_service", {})
+    # B128: Alle bekannten externen Dienste sichtbar machen — auch ohne Aufruf in 24h.
+    for _svc in _KNOWN_EXTERNAL_SERVICES:
+        if _svc not in bs:
+            bs[_svc] = {
+                "calls": 0, "errors": 0,
+                "last_ts": None, "last_url": None, "last_status": None,
+            }
     # public_url je Service ergänzen (für Dashboard-Link-Anzeige)
-    for svc, info in data.get("by_service", {}).items():
+    for svc, info in bs.items():
         pub = _API_PUBLIC_URLS.get(svc)
         if pub:
             info["public_url"] = pub
