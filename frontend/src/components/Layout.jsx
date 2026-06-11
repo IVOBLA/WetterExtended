@@ -18,6 +18,7 @@ const NAV = [
   { to: '/config',       label: 'Konfiguration' },
   { to: '/progress',     label: 'Lernfortschritt' },
   { to: '/accuracy',     label: 'Genauigkeit' },
+  { to: '/statistik',    label: '📊 Langzeitstatistik' },
   { to: '/logs',         label: 'Logs' },
   { to: '/ai-analysis',  label: 'KI-Analyse' },
 ]

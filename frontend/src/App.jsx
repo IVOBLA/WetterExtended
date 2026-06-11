@@ -15,6 +15,7 @@ import Horizons from './pages/Horizons.jsx';
 import Configuration from './pages/Configuration.jsx';
 import Progress from './pages/Progress.jsx';
 import Accuracy from './pages/Accuracy.jsx';
+import Statistik from './pages/Statistik.jsx';
 import Logs from './pages/Logs.jsx';
 import AiSuggestions from './pages/AiSuggestions.jsx';
 import Datensatz from './pages/Datensatz.jsx';
@@ -79,6 +80,7 @@ export default function App() {
             <Route path="/config"        element={<Configuration />} />
             <Route path="/progress"      element={<Progress />} />
             <Route path="/accuracy"      element={<Accuracy />} />
+            <Route path="/statistik"     element={<Statistik />} />
             <Route path="/logs"          element={<Logs />} />
             <Route path="/ai-analysis"   element={<AiSuggestions />} />
 

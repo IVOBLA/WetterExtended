@@ -1117,6 +1117,34 @@ Unter **Logs → API-Requests** können die letzten Requests gefiltert nach Serv
 und Zeitraum eingesehen werden (bis zu 200 Einträge). Diese Ansicht enthält auch
 ältere Requests, die im Dashboard-Panel nicht mehr sichtbar sind.
 
+
+## Langzeitstatistik
+
+Die Seite **📊 Langzeitstatistik** zeigt die über Monate und Jahre gesammelte Auswertung
+aller erkannten Sturmzellen. Oben wählen Sie das Jahr; rechts daneben erscheinen Kennzahlen
+(Anzahl Zellen, vorwiegende Zugrichtung, mittlere Lebensdauer).
+
+**Diagramme**
+
+- **Monatsverlauf:** Anzahl erkannter Zellen je Monat (Januar–Dezember), mit grauem
+  Vorjahresbalken zum direkten Vergleich.
+- **Tagesverlauf im Jahr:** Zellen pro Tag über das gesamte Jahr, überlagert vom roten
+  7-Tage-Gleitmittel zur Glättung kurzfristiger Schwankungen.
+- **Intensitätsverlauf pro Monat:** gestapelte Balken nach Stärke
+  (schwach / mittel / stark / hagelverdächtig).
+- **Kumulierte Jahreskurve:** aufsummierte Zellzahl im Jahresverlauf.
+- **Windrose:** vorwiegende Zugrichtung der Zellen über 16 Himmelsrichtungen. Die
+  angegebene mittlere Zugrichtung wird **zirkulär** berechnet, sodass Richtungen um
+  Nord (z. B. 350° und 10°) korrekt zu Nord gemittelt werden. Der Konsistenzwert
+  (0–1) gibt an, wie geradlinig die Zellen ziehen.
+- **Lebensdauer-Verteilung:** wie lange Zellen typischerweise existieren, samt Mittelwert.
+- **Tagesgang:** Verteilung der Zellentstehung über die Tagesstunden.
+- **Mehrjahres-Trend:** Entwicklung von Häufigkeit, mittlerer Lebensdauer und Zugrichtung
+  über mehrere Jahre.
+
+Die Daten werden einmal pro Nacht automatisch aktualisiert. Frisch installierte Systeme
+zeigen Werte, sobald genügend Zellen erkannt und aggregiert wurden.
+
 ---
 
 # 23 NEU: KI-Analyse Chat (`daily_analyzer.py`)
