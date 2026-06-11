@@ -1996,7 +1996,7 @@ Zeigt für alle externen Schnittstellen:
 | Status | FRESH (TTL nicht abgelaufen), STALE (abgelaufen), MISSING (noch kein Request) |
 | Alter | Wie alt ist der Cache-Eintrag |
 | TTL | Konfiguriertes Ablaufintervall |
-| Nächster Abruf in | Verbleibende Zeit bis nächster HTTP-Request nötig |
+| Frühester nächster Abruf | Absolute Uhrzeit, ab der der nächste echte HTTP-Request erlaubt ist (letzter Abruf + TTL). Überfällige Einträge sind orange mit „(fällig)" markiert. |
 | Letzter Abruf | UTC-Zeitstempel des letzten echten HTTP-Requests |
 
 Damit ist laut Zieldefinition erfüllt: unnötige Fremdrequests werden sichtbar

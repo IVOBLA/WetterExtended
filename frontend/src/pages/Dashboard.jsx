@@ -478,7 +478,7 @@ export default function Dashboard() {
                 <th className="p-1 text-right">Anfragen</th>
                 <th className="p-1 text-right">Fehler</th>
                 <th className="p-1 text-right">Fehlerrate</th>
-                <th className="p-1 text-right">NÄCHSTE ABFRAGE</th>
+                <th className="p-1 text-right">FRÜHESTER NÄCHSTER ABRUF</th>
               </tr>
             </thead>
             <tbody>
@@ -529,15 +529,15 @@ export default function Dashboard() {
                       <td className="p-1 text-right text-xs">
                         {(() => {
                           const cs = cacheStatus.find(c => c.namespace === svc)
-                          if (!cs) return <span className="text-gray-300">—</span>
-                          if (cs.status === 'MISSING') return <span className="text-gray-400">—</span>
-                          if (cs.status === 'STALE')   return <span className="text-orange-500 font-semibold">jetzt</span>
-                          const s = cs.next_allowed_in_s || 0
-                          const m = Math.floor(s / 60)
-                          const sec = s % 60
+                          if (!cs || !cs.next_fetch_ts) return <span className="text-gray-300">—</span>
+                          const t = new Date(cs.next_fetch_ts)
+                          const clock = t.toLocaleTimeString('de-AT', {
+                            hour: '2-digit', minute: '2-digit', second: '2-digit'
+                          })
+                          const overdue = t.getTime() <= Date.now()
                           return (
-                            <span className="text-green-700">
-                              {m > 0 ? `${m}m ` : ''}{sec}s
+                            <span className={overdue ? 'text-orange-500 font-semibold' : 'text-green-700'}>
+                              {clock}{overdue ? ' (fällig)' : ''}
                             </span>
                           )
                         })()}
