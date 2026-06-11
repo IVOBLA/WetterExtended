@@ -102,6 +102,16 @@ UPSCALE_FACTOR = 3.0  # optionaler Resize-Faktor
 # Tracking-Parameter
 # --------------------------------------
 
+# --------------------------------------
+# P-S01: Track-Lifecycle-Statistik
+# --------------------------------------
+# Mindest-Segmentlänge (km) damit ein Frame-zu-Frame-Schritt in die
+# Richtungsstatistik einfließt (filtert Positionsrauschen quasi-stationärer Zellen).
+TRACK_SEG_MIN_KM: float = 0.5
+# Obergrenzen der am Track akkumulierten Listen (Speicherschutz auf dem Pi).
+TRACK_SEG_DIRS_MAX: int = 500
+TRACK_PATH_POINTS_MAX: int = 500
+
 MAX_CONTOUR_DISTANCE = 30  # Maximaler Abstand für Zusammenführen von Konturen (px)
 MAX_STATION_DISTANCE_KM = 20  # Wetterstations-Zuordnung
 WIND_RASTER_RESOLUTION_KM = 10  # Rasterweite für Höhenwind

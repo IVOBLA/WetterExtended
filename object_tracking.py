@@ -227,6 +227,20 @@ def load_tracking_snapshot() -> float:
         debug_log(
             f"[SNAPSHOT] Zu alt ({snap_age_s:.0f}s > {max_age_s:.0f}s) — ignoriert"
         )
+        # P-S01: Die Zellen im verworfenen Snapshot sind endgültig tot —
+        # Lifecycle-Datensätze nachtragen, damit kein Track unprotokolliert endet.
+        try:
+            from datetime import datetime as _dt_ps01
+            from track_statistics import write_track_end as _wte_snap
+            with open(snap_path, "r", encoding="utf-8") as _f_snap:
+                _old_snap = _json_load.load(_f_snap)
+            if isinstance(_old_snap, dict):
+                _end_ts = _dt_ps01.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
+                for _oid, _oobj in _old_snap.items():
+                    if isinstance(_oobj, dict):
+                        _wte_snap(_oobj, "service_restart", _end_ts)
+        except Exception as _e_te4:
+            debug_log(f"[P-S01] track_end service_restart Fehler: {_e_te4}")
         return float("inf")
 
     try:
@@ -769,6 +783,14 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
                 old_obj = previous_snapshot.get(merged_old_id, {})
                 old_obj["children"] = [obj_id]
                 old_obj["lineage_end"] = f"merged_into:{obj_id}"
+                # P-S01: Merge-Parent endet hier — Lifecycle-Datensatz schreiben.
+                # write_track_end ist idempotent (_track_end_written), dadurch kein
+                # Doppel-Log falls der Parent später auch die Missing-Schleife trifft.
+                try:
+                    from track_statistics import write_track_end as _wte_merge
+                    _wte_merge(old_obj, f"merged_into:{obj_id}", timestamp)
+                except Exception as _e_te3:
+                    debug_log(f"[P-S01] track_end merge Fehler ({merged_old_id}): {_e_te3}")
                 previous_snapshot[merged_old_id] = old_obj
                 used_ids.add(merged_old_id)
         elif len(overlaps) == 1:
@@ -893,6 +915,20 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
                 _elapsed = _time_mod.time() - float(obj["missing_since"])
                 if _elapsed <= _track_duration_s:
                     new_memory[obj_id] = obj
+                else:
+                    # P-S01: Track endgültig tot (Missing-Limit überschritten)
+                    try:
+                        from track_statistics import write_track_end as _wte_ps01
+                        _wte_ps01(obj, "dissolved", timestamp)
+                    except Exception as _e_te1:
+                        debug_log(f"[P-S01] track_end dissolved Fehler ({obj_id}): {_e_te1}")
+            else:
+                # P-S01: Zelle hat die Live-BBOX verlassen → Track endet hier
+                try:
+                    from track_statistics import write_track_end as _wte_ps01b
+                    _wte_ps01b(obj, "left_bbox", timestamp)
+                except Exception as _e_te2:
+                    debug_log(f"[P-S01] track_end left_bbox Fehler ({obj_id}): {_e_te2}")
 
     if len(set(new_memory.keys())) != len(new_memory):
         debug_log("[TRACKING] WARN: Doppelte IDs in new_memory erkannt")
@@ -987,6 +1023,79 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             # total_active_frames: unbegrenzter Zähler seit first_seen (history_len gekappt)
             _prev_total = previous_snapshot.get(obj_id, {}).get("total_active_frames", 0)
             obj_clean["total_active_frames"] = _prev_total + 1
+            # ── P-S01: Lifecycle-Akkumulatoren (zirkuläre Richtung, Pfad, Speed) ──
+            # Carry-over aus Vorperiode (B117-Pattern), dann mit aktuellem Frame
+            # fortschreiben. Richtungsgewichtung = Segmentlänge in km.
+            try:
+                from config import (
+                    TRACK_SEG_MIN_KM as _seg_min_km,
+                    TRACK_SEG_DIRS_MAX as _seg_dirs_max,
+                    TRACK_PATH_POINTS_MAX as _path_pts_max,
+                    MIN_MOVEMENT_FOR_ARROW_KMH as _stat_min_kmh,
+                    PX_TO_KMH as _px_to_kmh_ps01,
+                )
+                from track_statistics import bearing_deg as _bearing_ps01
+                from track_statistics import haversine_km as _hav_ps01
+                import math as _math_ps01
+                _prev_t = previous_snapshot.get(obj_id, {})
+                obj_clean["dir_sum_sin"]      = float(_prev_t.get("dir_sum_sin", 0.0) or 0.0)
+                obj_clean["dir_sum_cos"]      = float(_prev_t.get("dir_sum_cos", 0.0) or 0.0)
+                obj_clean["dir_km_sum"]       = float(_prev_t.get("dir_km_sum", 0.0) or 0.0)
+                obj_clean["seg_dirs_deg"]     = list(_prev_t.get("seg_dirs_deg") or [])
+                obj_clean["path_points"]      = list(_prev_t.get("path_points") or [])
+                obj_clean["path_length_km"]   = float(_prev_t.get("path_length_km", 0.0) or 0.0)
+                obj_clean["speed_sum_kmh"]    = float(_prev_t.get("speed_sum_kmh", 0.0) or 0.0)
+                obj_clean["speed_n"]          = float(_prev_t.get("speed_n", 0.0) or 0.0)
+                obj_clean["stationary_frames"] = int(_prev_t.get("stationary_frames", 0) or 0)
+                obj_clean["max_core_ratio"]   = max(
+                    float(_prev_t.get("max_core_ratio", 0.0) or 0.0),
+                    float(obj_clean.get("core_ratio", 0.0) or 0.0),
+                )
+                # Schwere-Maxima carry-over (Werte selbst setzt main.py via
+                # track_statistics.accumulate_severity_maxima)
+                for _mx in ("max_severity_level", "max_hail_cat",
+                            "max_hail_prob", "max_lightning_10km"):
+                    if _mx in _prev_t:
+                        obj_clean[_mx] = _prev_t[_mx]
+                # Pfadpunkt anhängen (gekappt)
+                obj_clean["path_points"].append([float(obj_clean["lat"]), float(obj_clean["lon"])])
+                if len(obj_clean["path_points"]) > _path_pts_max:
+                    obj_clean["path_points"] = obj_clean["path_points"][-_path_pts_max:]
+                # Segmentrichtung aus letztem History-Punkt der VORPERIODE
+                if previous_history and isinstance(previous_history[-1], dict):
+                    _pl = previous_history[-1].get("lat")
+                    _po = previous_history[-1].get("lon")
+                    if _pl is not None and _po is not None:
+                        _seg_km = _hav_ps01(float(_pl), float(_po),
+                                            float(obj_clean["lat"]), float(obj_clean["lon"]))
+                        obj_clean["path_length_km"] = round(
+                            obj_clean["path_length_km"] + _seg_km, 3
+                        )
+                        if _seg_km >= _seg_min_km:
+                            _b = _bearing_ps01(float(_pl), float(_po),
+                                               float(obj_clean["lat"]), float(obj_clean["lon"]))
+                            obj_clean["dir_sum_sin"] += _seg_km * _math_ps01.sin(_math_ps01.radians(_b))
+                            obj_clean["dir_sum_cos"] += _seg_km * _math_ps01.cos(_math_ps01.radians(_b))
+                            obj_clean["dir_km_sum"]  += _seg_km
+                            obj_clean["seg_dirs_deg"].append(round(_b, 1))
+                            if len(obj_clean["seg_dirs_deg"]) > _seg_dirs_max:
+                                obj_clean["seg_dirs_deg"] = obj_clean["seg_dirs_deg"][-_seg_dirs_max:]
+                # Frame-Geschwindigkeit (km/h) aus Kalman-Velocity
+                try:
+                    from config import speed_kmh_from_px as _spd_fn_ps01
+                    _spd = _spd_fn_ps01(float(obj_clean.get("vx", 0.0) or 0.0),
+                                        float(obj_clean.get("vy", 0.0) or 0.0))
+                except ImportError:
+                    _spd = _math_ps01.hypot(
+                        float(obj_clean.get("vx", 0.0) or 0.0),
+                        float(obj_clean.get("vy", 0.0) or 0.0),
+                    ) * _px_to_kmh_ps01
+                obj_clean["speed_sum_kmh"] += float(_spd)
+                obj_clean["speed_n"]       += 1.0
+                if float(_spd) < float(_stat_min_kmh):
+                    obj_clean["stationary_frames"] += 1
+            except Exception as _e_ps01:
+                debug_log(f"[P-S01] Akkumulation übersprungen ({obj_id}): {_e_ps01}")
             # B117: Akkumulierte Track-Felder ZURUECK in tracking_memory schreiben
             # (obj == new_memory[obj_id] == tracking_memory[obj_id]). Ohne dies
             # blieben history/first_seen/active_frames jeden Frame = 1 -> keine
@@ -995,6 +1104,16 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             obj["first_seen"]          = obj_clean["first_seen"]
             obj["active_frames"]       = obj_clean["active_frames"]
             obj["total_active_frames"] = obj_clean["total_active_frames"]
+            # P-S01: Lifecycle-Akkumulatoren ebenfalls persistieren, damit sie im
+            # nächsten Frame als previous_snapshot[obj_id] verfügbar sind und beim
+            # Track-Tod von write_track_end gelesen werden können.
+            for _ps01_key in (
+                "dir_sum_sin", "dir_sum_cos", "dir_km_sum", "seg_dirs_deg",
+                "path_points", "path_length_km", "speed_sum_kmh", "speed_n",
+                "stationary_frames", "max_core_ratio",
+            ):
+                if _ps01_key in obj_clean:
+                    obj[_ps01_key] = obj_clean[_ps01_key]
             # P17: Lineage-Features als normalisierte Floats für ML_CELL_FEATURES.
             # Normierung: active_frames / 20 (gekappt) → 0..1;
             #             total_active_frames / 100 (gekappt) → 0..1
