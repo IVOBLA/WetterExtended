@@ -121,6 +121,9 @@ CLIM_MIN_SAMPLES: int = 5
 # Histogramm-Ränder.
 STATS_LIFETIME_BINS_MIN = [0, 15, 30, 45, 60, 90, 120, 180, 240, 100000]
 STATS_SPEED_BINS_KMH = [0, 10, 20, 30, 40, 50, 70, 100, 100000]
+# P-S05: Klimatologie-ML-Features. cell_age_min ist davon unabhängig (immer aktiv).
+# Bei False liefern clim_*-Features konstant 0.0 (Feature-Anzahl bleibt gleich).
+CLIM_FEATURES_ENABLED: bool = True
 
 # --------------------------------------
 # P-S01: Track-Lifecycle-Statistik
@@ -479,6 +482,12 @@ ML_CELL_FEATURES = [
     "cape_trend_30min",     # ΔCAPE ueber ~30 min [J/kg]
     "li_trend_30min",       # ΔLifted-Index ueber ~30 min [Grad C]
     "vil_proxy",            # VIL-Proxy (core_ratio x Flaeche) [dimensionslos]
+    # ── P-S05: Zellalter + Klimatologie-Prior (Langzeitstatistik) ──────────────
+    "cell_age_min",            # physisches Alter der Zelle seit first_seen (min)
+    "clim_cell_freq",          # normierte Zellhäufigkeit Gitterzelle×Monat (0..1)
+    "clim_dir_cos",            # cos der klimatolog. Vorzugs-Zugrichtung (0 wenn unzuverlässig)
+    "clim_dir_sin",            # sin der klimatolog. Vorzugs-Zugrichtung
+    "clim_mean_lifetime_min",  # mittlere Lebensdauer in Gitterzelle×Monat (0 wenn unzuverlässig)
 ]
 
 ML_STATION_FEATURES = [
