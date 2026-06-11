@@ -29,9 +29,9 @@ except ImportError:
 
 from debug_utils import debug_log, log_api_failure, log_api_call
 
-_DEFAULT_BACKOFF = [2, 5, 10]
-_DEFAULT_CONNECT_TIMEOUT = 8  # TLS-Handshake darf bis 8 s dauern
-_DEFAULT_READ_TIMEOUT = 30  # AROME-Bulk kann lang antworten
+_DEFAULT_BACKOFF = [2]
+_DEFAULT_CONNECT_TIMEOUT = 5
+_DEFAULT_READ_TIMEOUT = 15
 
 
 def _build_session() -> requests.Session:
@@ -44,12 +44,12 @@ def _build_session() -> requests.Session:
     try:
         # urllib3 v2.x: 'allowed_methods'
         retry = Retry(
-            total=3,
-            connect=3,
-            read=3,
-            status=3,
+            total=1,
+            connect=1,
+            read=0,
+            status=1,
             backoff_factor=1.0,  # 1 s, 2 s, 4 s (urllib3-intern)
-            status_forcelist=(429, 500, 502, 503, 504),
+            status_forcelist=(500, 502, 503, 504),
             allowed_methods=frozenset(["GET", "HEAD"]),
             respect_retry_after_header=True,
             raise_on_status=False,  # 5xx wird dem Caller als raise_for_status() überlassen
@@ -57,12 +57,12 @@ def _build_session() -> requests.Session:
     except TypeError:
         # urllib3 v1.x Fallback
         retry = Retry(
-            total=3,
-            connect=3,
-            read=3,
-            status=3,
+            total=1,
+            connect=1,
+            read=0,
+            status=1,
             backoff_factor=1.0,
-            status_forcelist=(429, 500, 502, 503, 504),
+            status_forcelist=(500, 502, 503, 504),
             method_whitelist=frozenset(["GET", "HEAD"]),
         )
     adapter = HTTPAdapter(
@@ -100,7 +100,7 @@ def retry_get(
     url: str,
     *,
     service: str = "HTTP",
-    max_retries: int = 3,
+    max_retries: int = 2,
     backoff: list | None = None,
     timeout=15,
     abort_on_4xx: bool = True,
@@ -129,6 +129,10 @@ def retry_get(
             status = getattr(exc.response, "status_code", None)
             debug_log(f"[{service}] HTTP {status} (Versuch {attempt + 1}/{max_retries})")
             if abort_on_4xx and status and 400 <= status < 500:
+                try:
+                    exc.retry_after = int(exc.response.headers.get("Retry-After")) if exc.response and exc.response.headers.get("Retry-After") else None
+                except Exception:
+                    exc.retry_after = None
                 log_api_failure(
                     service,
                     url,
@@ -154,6 +158,7 @@ def retry_get(
                 f"[{service}] SSL-Fehler (Versuch {attempt + 1}/{max_retries}): "
                 f"{type(exc).__name__}: {str(exc)}"
             )
+            raise
         except requests.exceptions.ConnectionError as exc:
             last_exc = exc
             debug_log(

@@ -39,6 +39,7 @@ from dataset_builder import build_dataset
 from debug_utils import debug_log
 from model_training import retrain_all
 import runtime_config
+import api_circuit_breaker
 import size_regressor as _size_reg_mod
 from accuracy_tracker import evaluate_all, append_history_point
 from radar_convlstm import train_convlstm
@@ -350,6 +351,9 @@ def run_api_cache_cleanup_job():
 def run_atmospheric_snapshot_job():
     """Atmosphärischer Zustand für Kärnten-Referenzpunkte — unabhängig von Zellen."""
     runtime_config.reload_overrides()
+    if api_circuit_breaker.is_open("open_meteo_atmosphere"):
+        debug_log("[SCHEDULER] atmospheric_snapshot übersprungen: Circuit offen")
+        return
     debug_log("[SCHEDULER] Job atmospheric_snapshot gestartet")
     try:
         from fetch_atmospheric_snapshot import fetch_atmospheric_snapshot
@@ -375,6 +379,8 @@ def run_outlook_series_job():
 def run_outlook_compute_job():
     """Berechnet die 12 Stunden-Raster aus der Zeitreihe."""
     runtime_config.reload_overrides()
+    if api_circuit_breaker.is_open("open_meteo_outlook"):
+        debug_log("[SCHEDULER] outlook_compute: Outlook-Circuit offen, nutze lokale Zeitreihe falls vorhanden")
     debug_log("[SCHEDULER] Job outlook_compute gestartet")
     try:
         from convective_outlook import compute_outlook
@@ -531,13 +537,17 @@ def create_scheduler() -> BlockingScheduler:
         trigger=IntervalTrigger(minutes=5),
         id="cpu_monitor", max_instances=1, coalesce=True,
     )
+    for _svc in ("open_meteo_outlook", "open_meteo_atmosphere"):
+        debug_log(f"[SCHEDULER] Circuit-Status {_svc}: {api_circuit_breaker.get_status(_svc)}")
+
     # --- immer aktiv: Atmosphären-Snapshot ---
     sched.add_job(
         run_atmospheric_snapshot_job,
         trigger=IntervalTrigger(
             minutes=runtime_config.get(
                 "ATMOSPHERIC_SNAPSHOT_INTERVAL_MIN", ATMOSPHERIC_SNAPSHOT_INTERVAL_MIN
-            )
+            ),
+            seconds=60,
         ),
         id="atmospheric_snapshot", max_instances=1, coalesce=True,
     )

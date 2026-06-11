@@ -43,6 +43,8 @@ except Exception:
 # In-Memory-LRU für schnelle wiederholte Zugriffe innerhalb eines Prozesses
 _MEM_CACHE: dict[str, tuple[float, Any]] = {}
 _MEM_CACHE_MAX = 64
+OPEN_METEO_OUTLOOK_TTL_SECONDS = 3600
+OPEN_METEO_ATMOSPHERE_TTL_SECONDS = 1800
 
 
 def _ensure_dir() -> None:
@@ -111,6 +113,12 @@ def cache_get(key: str, ttl_seconds: int) -> Any | None:
         age = time.time() - st.st_mtime
         if age > ttl_seconds:
             debug_log(f"[API-CACHE] EXPIRED {key} age={int(age)}s ttl={ttl_seconds}s")
+            stale = cache_get_stale(key)
+            if stale is not None:
+                if isinstance(stale, dict):
+                    stale = dict(stale)
+                    stale["stale_fallback"] = True
+                return stale
             return None
         with open(path, "r", encoding="utf-8") as f:
             value = json.load(f)
@@ -209,10 +217,15 @@ def cache_cleanup(max_age_seconds: int = 7 * 24 * 3600) -> int:
 
 def get_ttl(name: str, default: int) -> int:
     """Liest TTL aus runtime_config mit Fallback auf config.API_CACHE_TTL_SECONDS."""
+    lname = str(name).lower()
+    if "open" in lname and "meteo" in lname and "outlook" in lname:
+        default = max(default, OPEN_METEO_OUTLOOK_TTL_SECONDS)
+    if "open" in lname and "meteo" in lname and "atmosphere" in lname:
+        default = max(default, OPEN_METEO_ATMOSPHERE_TTL_SECONDS)
     try:
         import runtime_config
         from config import API_CACHE_TTL_SECONDS
         ttls = runtime_config.get("API_CACHE_TTL_SECONDS", API_CACHE_TTL_SECONDS)
-        return int(ttls.get(name, default))
+        return max(int(ttls.get(name, default)), default)
     except Exception:
         return default

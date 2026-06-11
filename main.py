@@ -554,6 +554,7 @@ def main_loop():
 
         # P22/P28: No-cell-Frame — alle Downstream-States bereinigen damit
         # API/KMZ/Karte/Location-Warnungen nicht veraltet weiterleuchten.
+        no_cells_handled = False
         if radar_ok and image is not None and not objects:
             # 1. Leeres Object-File (P22)
             _empty_obj_path = os.path.join(SAVE_PATHS["objects"], f"{timestamp}.json")
@@ -598,6 +599,11 @@ def main_loop():
                 )
                 # _prev_location_hit_names wird in der nächsten Iteration
                 # durch das Fehlen aktueller Hits automatisch gecleart.
+            no_cells_handled = True
+            try:
+                _latest_objects = []
+            except Exception:
+                pass
 
         if radar_ok and image is not None and objects:
             if not weather_data:
@@ -963,9 +969,8 @@ def main_loop():
 
             _prev_location_hit_names = _current_hit_names
 
-        else:
+        elif not no_cells_handled:
             debug_log("Keine vollständigen Daten → Keine Speicherung")
-            save_forecast_as_kmz({}, {})
 
         create_movement_gif("movement.gif")
         create_visualized_radar()

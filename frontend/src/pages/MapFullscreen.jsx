@@ -12,7 +12,7 @@ import {
   MAP_TILE_URL,
   MAP_TILE_ATTRIBUTION,
 } from '../constants/mapDefaults.js'
-import api from '../api.js'
+import api, { abortApiRequests } from '../api.js'
 
 /**
  * B112: first_seen-Timestamps kommen als Europe/Vienna-Lokalzeit, NICHT UTC.
@@ -201,6 +201,7 @@ export default function MapFullscreen() {
 
   const timerRef       = useRef(null)
   const pollRef        = useRef(null)
+  const isLoadingRef   = useRef(false)
   const lastImgRef     = useRef(null)
   const frameLoadTimer = useRef(null)
   const frameDataCache = useRef({})
@@ -212,8 +213,12 @@ export default function MapFullscreen() {
     : `/api/radar_image?t=${radarTs}`
 
   useEffect(() => {
-    frames.forEach(f => { const img = new window.Image(); img.src = `/api/radar_image?ts=${f.ts}` })
-  }, [frames])
+    if (!frames.length) return
+    const center = currentIdx >= 0 ? currentIdx : (frames.length - 1)
+    const subset = frames.slice(Math.max(0, center - 3), Math.min(frames.length, center + 4))
+    const imgs = subset.map(f => { const img = new window.Image(); img.src = `/api/radar_image?ts=${f.ts}`; return img })
+    return () => { imgs.forEach(img => { img.src = '' }) }
+  }, [frames, currentIdx])
 
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current)
@@ -241,12 +246,13 @@ export default function MapFullscreen() {
       }
     }
     pollRef.current = setTimeout(() => load(), delayMs)
-  }, [showIrCells])
+  }, [])
 
   const loadRef = useRef(null)
 
   async function load() {
-    if (!playingRef.current) frameDataCache.current = {}
+    if (isLoadingRef.current) return
+    isLoadingRef.current = true
     setLoading(true)
     try {
       // Schritt 1: Metadaten + Frames parallel laden
@@ -291,10 +297,11 @@ export default function MapFullscreen() {
       }
       setLastTs(new Date().toLocaleTimeString('de-AT'))
     } catch (e) {
-      console.error(e)
+      if (e?.name !== 'AbortError') console.error(e)
       schedulePoll(null)
     } finally {
       setLoading(false)
+      isLoadingRef.current = false
     }
   }
 
@@ -305,8 +312,9 @@ export default function MapFullscreen() {
     return () => {
       if (pollRef.current)  clearTimeout(pollRef.current)
       if (timerRef.current) clearInterval(timerRef.current)
+      abortApiRequests()
     }
-  }, [showIrCells])
+  }, [])
 
   // Frame-Sync für Animation: bei Scrubbing objects/forecast für den
   // angezeigten Frame laden.

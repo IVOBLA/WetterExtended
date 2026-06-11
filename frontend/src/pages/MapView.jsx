@@ -5,7 +5,7 @@ import {
   Polygon, Circle, Popup, ImageOverlay, Tooltip,
   useMapEvents, Rectangle, useMap,
 } from 'react-leaflet'
-import api from '../api.js'
+import api, { abortApiRequests } from '../api.js'
 import {
   MAP_CENTER_KAERNTEN,
   MAP_ZOOM_DEFAULT,
@@ -564,6 +564,7 @@ export default function MapView() {
   const frameDataCache  = useRef({})
   const playingRef      = useRef(false)
   const pollRef         = useRef(null)   // B90: schedulePoll-Timer
+  const isLoadingRef    = useRef(false)
   const lastImgRef      = useRef(null)   // B90: letzter Radar-Timestamp
 
   // ── Manuelles Zell-Markieren ──────────────────────────────────────────────
@@ -577,13 +578,18 @@ export default function MapView() {
     ? `/api/radar_image?ts=${currentFrame.ts}`
     : `/api/radar_image?t=${radarTs}`
 
-  // Frames vorausladen
+  // Frames begrenzt vorausladen: aktueller Frame ±3, nicht alle Frames parallel.
   useEffect(() => {
-    frames.forEach(f => {
+    if (!frames.length) return
+    const center = currentIdx >= 0 ? currentIdx : (frames.length - 1)
+    const subset = frames.slice(Math.max(0, center - 3), Math.min(frames.length, center + 4))
+    const imgs = subset.map(f => {
       const img = new window.Image()
       img.src = `/api/radar_image?ts=${f.ts}`
+      return img
     })
-  }, [frames])
+    return () => { imgs.forEach(img => { img.src = '' }) }
+  }, [frames, currentIdx])
 
   // Auto-Play
   useEffect(() => {
@@ -609,10 +615,11 @@ export default function MapView() {
       delayMs = msUntil <= 0 ? 22000 : Math.min(msUntil + 5000, 90000)
     }
     pollRef.current = setTimeout(() => load(), delayMs)
-  }, [showIrCells])
+  }, [])
 
   async function load() {
-    if (!playingRef.current) frameDataCache.current = {}
+    if (isLoadingRef.current) return
+    isLoadingRef.current = true
     try {
       // Schritt 1: Metadaten + Frames parallel laden
       const [c, d, timing, bounds, framesData, lightningData] = await Promise.all([
@@ -658,7 +665,11 @@ export default function MapView() {
         setForecast(fc)
       }
       setRadarTs(Date.now())
-    } catch (e) { console.error(e) }
+    } catch (e) {
+      if (e?.name !== 'AbortError') console.error(e)
+    } finally {
+      isLoadingRef.current = false
+    }
   }
 
   // B90: kein starres Intervall mehr — schedulePoll übernimmt das Timing
@@ -666,8 +677,9 @@ export default function MapView() {
     load()
     return () => {
       if (pollRef.current) clearTimeout(pollRef.current)
+      abortApiRequests()
     }
-  }, [showIrCells])
+  }, [])
 
   // Frame-Sync für Animation: bei Scrubbing objects/forecast für den
   // angezeigten Frame laden.
