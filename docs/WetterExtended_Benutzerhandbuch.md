@@ -2413,3 +2413,12 @@ Vorhersagezeitraum**, wird der Treffer als unsicher eingestuft. Die Warnung wird
 weiterhin sofort versendet (eine reale Zelle bleibt eine reale Zelle), trägt aber
 in E-Mail und WhatsApp den Hinweis **„Radardaten N min alt — Position unsicher"**.
 So lässt sich die Lage richtig einordnen, ohne dass eine Warnung verloren geht.
+
+## Externe Dienste manuell auslösen
+
+Auf der **Logs**-Seite gibt es die Karte **🔄 Externe Dienste manuell auslösen** (nur für
+Admins). Per Klick lassen sich sofort anstoßen: Atmosphären-Snapshot, Ausblick-Zeitreihe,
+Ausblick-Raster, Langzeitstatistik-Aggregation sowie **„Alle Dienste testen"** (pingt jeden
+externen Endpunkt einmal an). Der Status (läuft/ok/Fehler, Dauer, Uhrzeit) wird unter den
+Schaltflächen angezeigt. Die laufenden zellbezogenen Abrufe (TAWES, CAPE, Nowcast, Radar)
+erfolgen weiterhin automatisch im Hauptdienst.
