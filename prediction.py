@@ -114,6 +114,32 @@ def _lstm_feature_dimensions_ok(lstm_model, seq_scaled):
     actual_feats = int(seq_scaled.shape[-1])
     return expected_feats is None or expected_feats == actual_feats, expected_feats, actual_feats
 
+def _actual_frame_min(history: list, default: float) -> float:
+    """
+    B115: Mittleres echtes Frame-Intervall (min) aus den History-Timestamps.
+    Ersetzt die nominale FRAME_INTERVAL_MIN-Annahme in den Fallback-Pfaden, damit
+    der reale ARSO-Takt (~5 min, mit Lücken variabel) zugrunde liegt.
+    Nutzt nur Paare mit 1 min <= dt <= 30 min. Fällt auf `default` zurück.
+    """
+    dts = []
+    for i in range(1, len(history)):
+        t0_raw = history[i - 1].get("timestamp")
+        t1_raw = history[i].get("timestamp")
+        if not t0_raw or not t1_raw:
+            continue
+        try:
+            t0 = datetime.strptime(t0_raw, "%Y-%m-%d_%H-%M-%S")
+            t1 = datetime.strptime(t1_raw, "%Y-%m-%d_%H-%M-%S")
+            dt = (t1 - t0).total_seconds() / 60.0
+            if 1.0 <= dt <= 30.0:
+                dts.append(dt)
+        except Exception:
+            continue
+    if dts:
+        return sum(dts) / len(dts)
+    return default
+
+
 def _safe_float(value):
     try:
         return float(value)
@@ -166,12 +192,17 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
         if _has_xy_ts:
             # Echte px/min aus Timestamp-Differenzen + EWMA-Gewichtung
             try:
+                # B115: mittleres echtes Intervall als Ersatz für dt=0-Paare
+                # (doppelte KML-Timestamps). Verhindert Kippen in den Fallback.
+                _fm_recon = _actual_frame_min(history, float(_FRAME_MIN) if _FRAME_MIN else 5.0)
                 _vx_list, _vy_list = [], []
                 for _i in range(1, n):
                     _h0, _h1 = history[_i - 1], history[_i]
                     _t0 = datetime.strptime(_h0["timestamp"], "%Y-%m-%d_%H-%M-%S")
                     _t1 = datetime.strptime(_h1["timestamp"], "%Y-%m-%d_%H-%M-%S")
                     _dt_min = (_t1 - _t0).total_seconds() / 60.0
+                    if _dt_min < 0.5:
+                        _dt_min = _fm_recon   # B115: doppelter Timestamp → echtes Mittel
                     if _dt_min >= 0.5:   # Mindestintervall 30 s — robuster gegen gleiche Timestamps
                         _vx_list.append((_h1["x"] - _h0["x"]) / _dt_min)
                         _vy_list.append((_h1["y"] - _h0["y"]) / _dt_min)
@@ -190,14 +221,15 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
                 else:
                     raise ValueError("keine gültigen Intervalle")
             except Exception:
-                # Fallback: einfaches Mittel vx/vy (px/Frame) → px/min
-                _frame_min_fb = float(_FRAME_MIN) if _FRAME_MIN else 2.0
+                # B115: Fallback mit ECHTEM Frame-Intervall (statt nominalem 2.0).
+                _frame_min_fb = _actual_frame_min(history, float(_FRAME_MIN) if _FRAME_MIN else 5.0)
                 avg_vx = (sum(float(h.get("vx", 0.0)) for h in history) / n) / _frame_min_fb
                 avg_vy = (sum(float(h.get("vy", 0.0)) for h in history) / n) / _frame_min_fb
-                src = f"history_{n}_fallback"
+                src = f"history_{n}_fallback_fm{round(_frame_min_fb, 1)}"
         else:
             # History ohne x/y-Timestamps: EWMA auf gespeicherte vx/vy-Werte
-            _frame_min_fb = float(_FRAME_MIN) if _FRAME_MIN else 2.0
+            # B115: echtes Frame-Intervall statt nominalem 2.0.
+            _frame_min_fb = _actual_frame_min(history, float(_FRAME_MIN) if _FRAME_MIN else 5.0)
             _vx_vals = [float(h.get("vx", 0.0)) for h in history]
             _vy_vals = [float(h.get("vy", 0.0)) for h in history]
             _n_v = len(_vx_vals)
@@ -211,8 +243,10 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
             avg_vy = sum(_w * _v for _w, _v in zip(_weights, _vy_vals)) / _frame_min_fb
             src = f"ewma_novts_{n}f"
     else:
-        # < 2 History-Einträge: Kalman-Werte (px/Frame) → px/min
-        _frame_min_fb = float(_FRAME_MIN) if _FRAME_MIN else 2.0
+        # < 2 History-Einträge: Kalman-Werte (px/Frame) → px/min.
+        # B115: keine History für _actual_frame_min → nominales FRAME_INTERVAL_MIN
+        # (jetzt 5.0) ist der korrekte Default; Zelle ohnehin zu jung für robuste v.
+        _frame_min_fb = float(_FRAME_MIN) if _FRAME_MIN else 5.0
         avg_vx = _safe_float(obj.get("vx", 0.0)) / _frame_min_fb
         avg_vy = _safe_float(obj.get("vy", 0.0)) / _frame_min_fb
         src = "kalman_only"

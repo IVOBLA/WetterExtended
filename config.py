@@ -211,19 +211,22 @@ NEIGHBOR_MIN_SPEED_KMH    = 5.0    # darunter keine Richtung → Feature neutral
 # Snapshot-Raster hat ~24-28 km Abstand → 30 km deckt jeden Pfadpunkt ab.
 PATH_ATM_MAX_DIST_KM = 30.0
 
-# px/Frame → km/h (UPSCALE=3, ~2 km/px orig., Zyklus 120 s).
-# Einzelne Quelle der Wahrheit — wird von app.py, locations_check.py,
-# object_tracking.py (_clamp_kalman_velocity) und LiveDaten.jsx verwendet.
-# Empirisch kalibriert auf Kärnten-Gitter.
-PX_TO_KMH: float = 10.0
+# px/Frame → km/h. ARSO INCA si0zm liefert alle 5 min ein neues Bild; der
+# Kalman-Filter wird nur bei echten neuen Bildern aktualisiert → 1 Frame = 5 min.
+# Geometrie-Invariante: PX_TO_KMH == (1/UPSCALE_FACTOR) / (FRAME_INTERVAL_MIN/60)
+#   (1/3 km/px) / (5 min / 60) = 4.0 km/h pro Original-px/Frame.
+# B115: von 10.0 (2-min-Annahme) auf 4.0 korrigiert — reale Messung Median 5,0 min
+# (PF-3 lokal nicht erneut messbar: keine data/radar/radar_*.png im Checkout).
+# Einzige Quelle der Wahrheit — app.py, locations_check.py, object_tracking.py
+# (_clamp_kalman_velocity), LiveDaten.jsx.
+PX_TO_KMH: float = 4.0
 
-# Nominales Radar-Frame-Intervall in Minuten.
-# Wird vom Forecast (prediction.py) benötigt, um px/Frame korrekt mit
-# Horizon-in-Minuten zu kombinieren. Entspricht LOOP_INTERVAL_CELLS_S=120 s.
-# Bei abweichenden Intervallen (z. B. NO_CELLS_SLOW_INTERVAL=900 s)
-# rechnet der Forecast mit diesem nominalen Wert — die tatsächliche
-# Frame-Differenz wird in einer späteren Phase aus Timestamps abgeleitet.
-FRAME_INTERVAL_MIN: float = 2.0
+# Nominales ARSO-INCA-Scan-Intervall in Minuten (= Kalman-Step-Dauer).
+# Fallback-Zeitbasis, wenn die timestamp-basierte Velocity nicht greift.
+# B115: von 2.0 auf 5.0 korrigiert (gemessener Median-Abstand 5,0 min).
+# Fehlende Frames (Lücken 10–20 min) werden über die echten History-Timestamps
+# korrigiert (object_tracking.py speed_kmh, prediction.py _actual_frame_min).
+FRAME_INTERVAL_MIN: float = 5.0
 
 # ── Kinematisches Tracking / EWMA (P27) ──────────────────────────────────────
 TRACK_HISTORY_LEN: int = 6          # History-Buffer pro Zelle in Frames (min. 2, empfohlen 4–8)
