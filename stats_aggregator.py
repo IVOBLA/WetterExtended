@@ -102,6 +102,9 @@ def _empty_year():
         "merges": 0,
         "splits": 0,
         "stationary_tracks": 0,
+        # P-S06: [summe_lebensdauer_min, n] je Intensitätsklasse
+        # Index 0=schwach, 1=mittel, 2=stark, 3=hagelverdächtig
+        "lifetime_by_intensity": [[0.0, 0] for _ in range(4)],
     }
 
 
@@ -148,13 +151,16 @@ def _accumulate_record(rec, years, grid):
         return False
     yr = str(first.year)
     y = years.setdefault(yr, _empty_year())
+    # P-S06: bestehende State-Jahre (vor P-S06) haben den Key noch nicht.
+    y.setdefault("lifetime_by_intensity", [[0.0, 0] for _ in range(4)])
 
     y["cells_total"] += 1
     y["by_month"][first.month - 1] += 1
     y["by_hour"][first.hour] += 1
     day = first.strftime("%Y-%m-%d")
     y["by_day"][day] = y["by_day"].get(day, 0) + 1
-    y["intensity_by_month"][first.month - 1][_intensity_bucket(rec)] += 1
+    _intensity_b = _intensity_bucket(rec)
+    y["intensity_by_month"][first.month - 1][_intensity_b] += 1
 
     md = rec.get("mean_dir_deg")
     w = float(rec.get("track_length_km") or 0.0)
@@ -170,6 +176,9 @@ def _accumulate_record(rec, years, grid):
         y["lifetime_bins"][_bin_index(float(lt), STATS_LIFETIME_BINS_MIN)] += 1
         y["lifetime_sum"] += float(lt)
         y["lifetime_n"] += 1
+        # P-S06: Lebensdauer je Intensitätsklasse (Stärke <-> Lebensdauer-Korrelation)
+        y["lifetime_by_intensity"][_intensity_b][0] += float(lt)
+        y["lifetime_by_intensity"][_intensity_b][1] += 1
 
     sp = rec.get("mean_speed_kmh")
     if sp is not None:
@@ -226,6 +235,10 @@ def _finalize_year(yr, y):
         "merges": y["merges"],
         "splits": y["splits"],
         "stationary_tracks": y["stationary_tracks"],
+        "mean_lifetime_by_intensity": [
+            (round(s / n, 1) if n else None)
+            for s, n in y.get("lifetime_by_intensity", [[0.0, 0] for _ in range(4)])
+        ],
         "generated_utc": datetime.utcnow().isoformat(timespec="seconds"),
     }
 

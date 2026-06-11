@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
+  BarChart, Bar, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer, RadarChart, PolarGrid,
   PolarAngleAxis, PolarRadiusAxis, Radar,
 } from 'recharts'
@@ -127,6 +127,25 @@ export default function Statistik() {
   const hourData = useMemo(() => {
     if (!data || !data.by_hour) return []
     return data.by_hour.map((c, h) => ({ hour: `${h}h`, count: c }))
+  }, [data])
+
+  const speedData = useMemo(() => {
+    if (!data || !data.speed_bins) return []
+    const edges = data.speed_bin_edges || []
+    return data.speed_bins.map((c, i) => {
+      const lo = edges[i] ?? i
+      const hi = edges[i + 1]
+      const label = hi == null ? `${lo}+ km/h` : (hi >= 100000 ? `${lo}+ km/h` : `${lo}–${hi}`)
+      return { bin: label, count: c }
+    })
+  }, [data])
+
+  const lifeIntData = useMemo(() => {
+    if (!data || !data.mean_lifetime_by_intensity) return []
+    return INTENSITY_LABELS.map((label, i) => ({
+      klasse: label,
+      minuten: data.mean_lifetime_by_intensity[i] ?? 0,
+    }))
   }, [data])
 
   if (loading) return <div className="p-6 text-gray-500 animate-pulse">Statistik wird geladen…</div>
@@ -263,6 +282,68 @@ export default function Statistik() {
                 <Bar dataKey="count" name="Zellen" fill="#0891b2" />
               </BarChart>
             </ResponsiveContainer>
+          </section>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Geschwindigkeitsverteilung */}
+            <section>
+              <h2 className="font-semibold mb-2">Geschwindigkeitsverteilung</h2>
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={speedData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="bin" tick={{ fontSize: 11 }} /><YAxis allowDecimals={false} />
+                  <Tooltip />
+                  <Bar dataKey="count" name="Zellen" fill="#0d9488" />
+                </BarChart>
+              </ResponsiveContainer>
+              <p className="text-sm text-gray-500 mt-1">
+                Mittlere Zuggeschwindigkeit: <b>{data.mean_speed_kmh ?? '—'} km/h</b>
+              </p>
+            </section>
+
+            {/* Lebensdauer nach Intensität */}
+            <section>
+              <h2 className="font-semibold mb-2">Lebensdauer nach Intensität</h2>
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={lifeIntData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="klasse" tick={{ fontSize: 11 }} /><YAxis />
+                  <Tooltip />
+                  <Bar dataKey="minuten" name="⌀ Lebensdauer (min)">
+                    {lifeIntData.map((_, i) => (
+                      <Cell key={i} fill={INTENSITY_COLORS[i]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <p className="text-sm text-gray-500 mt-1">
+                Mittlere Lebensdauer je Stärkeklasse — höhere Werte bei stärkeren Zellen
+                deuten auf längere Lebensdauer hin.
+              </p>
+            </section>
+          </div>
+
+          {/* Tracking-Kennzahlen */}
+          <section>
+            <h2 className="font-semibold mb-2">Tracking-Kennzahlen ({year})</h2>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="rounded-lg border p-4">
+                <div className="text-2xl font-bold">{data.cells_total ?? 0}</div>
+                <div className="text-sm text-gray-500">Zellen gesamt</div>
+              </div>
+              <div className="rounded-lg border p-4">
+                <div className="text-2xl font-bold">{data.merges ?? 0}</div>
+                <div className="text-sm text-gray-500">Zusammenschlüsse (Merges)</div>
+              </div>
+              <div className="rounded-lg border p-4">
+                <div className="text-2xl font-bold">{data.splits ?? 0}</div>
+                <div className="text-sm text-gray-500">Aufspaltungen (Splits)</div>
+              </div>
+              <div className="rounded-lg border p-4">
+                <div className="text-2xl font-bold">{data.stationary_tracks ?? 0}</div>
+                <div className="text-sm text-gray-500">stationäre Zellen</div>
+              </div>
+            </div>
           </section>
 
           {/* Mehrjahres-Trend */}
