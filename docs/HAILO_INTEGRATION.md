@@ -1983,6 +1983,7 @@ Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sow
   `tests/test_b122_kml_valid_time.py`
 
 | B123 | **`test_debug_export.py`: Auth-Mock patcht nur `app.get_current_user` — 8 Tests scheitern mit 401.** `_auth(monkeypatch)` setzte nur `app.get_current_user`; der `before_request`-Hook prüft jedoch `auth.get_current_user()` (B107-Modul-Referenz). Da `/api/admin/` in `_SENSITIVE_READ_PREFIXES` liegt, liefert `before_request` 401 bevor die Route erreicht wird. Fix: `_auth()` patcht zusätzlich `auth.get_current_user`; `test_export_requires_admin_returns_401_for_unauthenticated` desgleichen mit `None`. Produktionscode unverändert. | `tests/test_debug_export.py` | ✅ erledigt |
+| B124 | **`fetch_outlook_series.py`: Budget-Guard nur im äußeren Batch-Loop → 4 statt 3 Requests bei `MAX_REQUESTS_PER_RUN=3`.** Innerer `for hourly in (_HOURLY_FULL, _HOURLY_MIN):`-Loop prüfte Budget nicht vor dem zweiten Fallback-Versuch. Batch 2 konnte beide Versuche (FULL+MIN) machen, auch wenn das Budget nach Versuch 1 erschöpft war. Fix: `if requests_used >= MAX_REQUESTS_PER_RUN: break` am Anfang des inneren Loops. | `fetch_outlook_series.py` | ✅ erledigt |
 
 ### P-T09 – Veraltete Radardaten in der Warnlogik ✅
 - **Problem:** P-T08 berechnete `stale`/`effective_lead_min` pro Forecast, die

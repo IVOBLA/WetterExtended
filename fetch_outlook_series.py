@@ -158,6 +158,12 @@ def fetch_outlook_series(force=False):
         names = [l.get("name", "") for l in batch]
         data = None
         for hourly in (_HOURLY_FULL, _HOURLY_MIN):
+            # B124: Budget vor jedem Einzelrequest prüfen — nicht nur am Batch-Anfang.
+            # Ohne diesen Guard würden bei MAX_REQUESTS_PER_RUN=N beide hourly-Varianten
+            # des letzten erlaubten Batches gemacht, auch wenn nach dem ersten Versuch
+            # das Budget bereits erschöpft ist.
+            if requests_used >= MAX_REQUESTS_PER_RUN:
+                break
             try:
                 requests_used += 1
                 data = _request(lats, lons, hourly)
