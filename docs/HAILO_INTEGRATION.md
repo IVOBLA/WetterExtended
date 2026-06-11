@@ -2064,3 +2064,12 @@ Fix: Timeout/SSL/Conn brechen den Variant-Loop ab (kein MIN-Retry); danach Circu
      und bei offenem Circuit sofort Fallback. "all-param-sets-failed" nur noch bei echten
      HTTP-/Parameterfehlern. Optional CIRCUIT_THRESHOLD_CONN via Env senkbar.
 Dateien: fetch_outlook_series.py, tests/test_outlook_conn_break.py (neu)
+
+## B128 – Dashboard API-Requests zeigt alle externen Dienste
+Status: ERLEDIGT
+Ursache: /api/api_calls lieferte nur Dienste mit Log-Einträgen → Dashboard zeigte nur die
+         zufällig aufgerufenen (z.B. arso_radar, geosphere_nowcast).
+Fix: Modul-Konstante _KNOWN_EXTERNAL_SERVICES (= cache_status _DEFAULT_TTLS-Namen);
+     api_api_calls ergänzt fehlende Dienste mit Null-Werten. Frontend unverändert.
+Dateien: app.py, tests/test_api_calls_all_services.py (neu)
+
