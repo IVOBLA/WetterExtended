@@ -1890,11 +1890,18 @@ def api_cache_status():
             last_ts = _dt_c.datetime.utcfromtimestamp(info["mtime"]).isoformat(timespec="seconds") + "Z"
             next_allowed_s = max(0, ttl - age_s)
             status = "FRESH" if age_s <= ttl else "STALE"
+            # B125: Frühester nächster erlaubter Abruf als absolute UTC-Zeit
+            # (= letzter Abruf + TTL). Nur sinnvoll wenn ein TTL definiert ist.
+            next_fetch_ts = (
+                _dt_c.datetime.utcfromtimestamp(info["mtime"] + ttl).isoformat(timespec="seconds") + "Z"
+                if ttl else None
+            )
         else:
             age_s = None
             last_ts = None
             next_allowed_s = 0
             status = "MISSING"
+            next_fetch_ts = None
 
         results.append({
             "namespace": ns,
@@ -1902,6 +1909,7 @@ def api_cache_status():
             "age_s": age_s,
             "ttl_s": ttl if ttl else None,
             "next_allowed_in_s": next_allowed_s,
+            "next_fetch_ts": next_fetch_ts,
             "status": status,
         })
 

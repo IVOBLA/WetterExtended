@@ -355,7 +355,7 @@ function CacheStatusTable() {
           <th className="p-1 text-right">Status</th>
           <th className="p-1 text-right">Alter</th>
           <th className="p-1 text-right">TTL</th>
-          <th className="p-1 text-right">Nächster Abruf in</th>
+          <th className="p-1 text-right">Frühester nächster Abruf</th>
           <th className="p-1 text-left">Letzter Abruf</th>
         </tr>
       </thead>
@@ -370,10 +370,19 @@ function CacheStatusTable() {
             <td className="p-1 text-right">
               {s.ttl_s != null ? `${Math.floor(s.ttl_s / 60)}m` : '—'}
             </td>
-            <td className="p-1 text-right">
-              {s.status === 'FRESH' && s.next_allowed_in_s > 0
-                ? `${Math.floor(s.next_allowed_in_s / 60)}m ${s.next_allowed_in_s % 60}s`
-                : s.status === 'STALE' ? 'jetzt' : '—'}
+            <td className="p-1 text-right whitespace-nowrap">
+              {s.next_fetch_ts ? (() => {
+                const t = new Date(s.next_fetch_ts)
+                const clock = t.toLocaleTimeString('de-AT', {
+                  hour: '2-digit', minute: '2-digit', second: '2-digit'
+                })
+                const overdue = t.getTime() <= Date.now()
+                return (
+                  <span className={overdue ? 'text-orange-500 font-semibold' : 'text-green-700'}>
+                    {clock}{overdue ? ' (fällig)' : ''}
+                  </span>
+                )
+              })() : '—'}
             </td>
             <td className="p-1 text-gray-500">
               {s.last_fetch_ts

@@ -2037,3 +2037,12 @@ Intensität) inkl. ML-Klimatologie-Features. Datenbasis: train_data/evaluation/t
 | P-S04 | Frontend-Seite Statistik.jsx (Route /statistik, Menü 📊 Langzeitstatistik): Monats-/Tages-/Intensitätsverlauf, 7-Tage-Mittel, Vorjahresvergleich, kumulierte Kurve, Windrose, Lebensdauer-Histogramm, Tagesgang, Mehrjahres-Trend | `frontend/src/pages/Statistik.jsx` (neu), `frontend/src/App.jsx`, `frontend/src/components/Layout.jsx` | ✅ erledigt |
 | P-S05 | ML-Features cell_age_min (physisches Alter) + Klimatologie-Prior (clim_cell_freq/dir_cos/dir_sin/mean_lifetime_min) aus climatology_grid.json. CLIM_MIN_SAMPLES-Gate (unzuverlässig→0.0, B95-Pattern), CLIM_FEATURES_ENABLED-Toggle. Anreicherung in main.py vor predict_positions (B108-Konsistenz). B100-Guard deckt Retrain-Übergang ab. Erfordert Dataset-Rebuild + Retrain auf Maschine mit LOCAL_TRAINING=True (derzeit Pi; externer Trainer noch nicht vorhanden). | `config.py`, `climatology_features.py` (neu), `main.py` | ✅ erledigt |
 | P-S06 | Zusatzstatistik: mean_lifetime_by_intensity (Backend), Frontend-Anzeige von Geschwindigkeitsverteilung, Lebensdauer nach Intensität und Tracking-Kennzahlen (Merges/Splits/stationäre Zellen). Keine Gebiets-Karten. | `stats_aggregator.py`, `frontend/src/pages/Statistik.jsx`, `tests/test_stats_lifetime_intensity.py` (neu) | ✅ erledigt |
+
+## B125 – Cache-Status: exakte nächste Abrufzeit statt „jetzt"
+Status: ERLEDIGT
+Ursache: Spalte „Nächster Abruf in" zeigte bei STALE hartkodiert „jetzt" — keine konkrete Zeit.
+Fix: /api/cache_status liefert next_fetch_ts (letzter Abruf + TTL, UTC-ISO). Logs.jsx und
+     Dashboard.jsx zeigen absolute lokale Uhrzeit; überfällige Einträge als „(fällig)".
+Dateien: app.py, frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx,
+         tests/test_cache_status_next_fetch.py (neu)
+
