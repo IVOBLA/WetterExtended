@@ -2060,6 +2060,22 @@ def api_system_job_status():
     return jsonify({"available": available, "runs": runs})
 
 
+def _ml_block_reason():
+    """B116: Liefert Klartext, wenn ML wegen Modellstatus inaktiv ist, sonst None."""
+    try:
+        from model_training import _check_model_compatibility, _current_models_dir
+        import os as _os_mb
+        _cur = _current_models_dir()
+        if not _cur or not _os_mb.isdir(_cur):
+            return "kein trainiertes Modell (current fehlt) — kinematischer Fallback"
+        _c = _check_model_compatibility(_cur)
+        if not _c.get("compatible", True):
+            return f"inkompatibel: {_c.get('reason')}"
+    except Exception as _exc:
+        return f"status-check fehlgeschlagen: {_exc}"
+    return None
+
+
 @app.route("/api/forecast_stats")
 def api_forecast_stats():
     """
@@ -2118,7 +2134,7 @@ def api_forecast_stats():
         return jsonify({"error": str(exc), "ml_count": 0, "kinematic_count": 0})
 
     total_with_mode = ml_count + kinematic_count
-    return jsonify({
+    _resp = {
         "hours":            hours,
         "total_objects":    total_objects,
         "ml_count":         ml_count,
@@ -2128,7 +2144,10 @@ def api_forecast_stats():
         "last_mode":        last_mode,
         "last_ts":          last_ts,
         "active_mode":      last_mode or "unbekannt",
-    })
+    }
+    # B116: ML-Block-Grund mitliefern (None = ML aktiv).
+    _resp["ml_blocked_reason"] = _ml_block_reason()
+    return jsonify(_resp)
 
 
 @app.route("/api/api_health_raw")
