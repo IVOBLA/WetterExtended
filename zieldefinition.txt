@@ -1,0 +1,152 @@
+Alle Projekte
+Wetter
+Ziel ist es den Verlauf von regen/Gewitterzellen zu verfolgen und die Zugrichtung vorherzusagen und zu visualisieren. Das system soll aus bereits aufgezeichneten Daten lernen und dadurch die Vorhersage laufend verbessern. Das system muss auf einem Raspberry mit KI Erweiterung laufen. Für einene (odere mehrere) definierte Orte muss es möglich sein eine Warnung auszugeben wenn eine Zelle darauf zuzieht. Hardware: Raspberry Pi 5 B, Hailo-8 AI, 16GB, 26 TOPS Hailo muss maximal und sinnvoll genutzt werden.
+
+
+Wie kann ich dir heute helfen?
+Dir stehen keine Nutzungsguthaben mehr zur Verfügung. Kaufe jetzt mehr, um weiterzumachen, oder warte bis 11:40, wenn sich dein Nutzungskontingent zurückgesetzt.
+
+    Langzeitstatistik und Analyse für Zellenerkennung
+    Letzte Nachricht vor 58 Minuten
+    Automatischer E-Mail-Versand von Analyseergebnissen
+    Letzte Nachricht vor 2 Stunden
+    Live-Daten mit inaktiven Zellen und Frame-Anzahl
+    Letzte Nachricht vor 3 Stunden
+    Auslöser für die Datei, die de...
+    Letzte Nachricht vor 18 Stunden
+    E-Mail aus Claude-Routine versenden
+    Letzte Nachricht vor 19 Stunden
+    Analyse von API-Fehlern und Darstellungsproblemen
+    Letzte Nachricht gestern
+    HTTP error handling in requests module
+    Letzte Nachricht vorgestern
+    GitHub-Dateien für Prompt-Erstellung abrufen
+    Letzte Nachricht vorgestern
+    LSTM and radar hash test failures
+    Letzte Nachricht vorgestern
+    Repository-Synchronisierung und Test-Validierung
+    Letzte Nachricht vorgestern
+    Zellengröße und Orttreffer berechnen
+    Letzte Nachricht vorgestern
+    Kartenupdates und Radarbildanzeige
+    Letzte Nachricht vorgestern
+    Maximale wolkenhöhe anzeigen
+    Letzte Nachricht vor 3 Tagen
+    Datenvorfilterung für KI-Analyse optimieren
+    Letzte Nachricht vor 3 Tagen
+    Lernfortschritt-Anzeige fehlerhaft
+    Letzte Nachricht vor 3 Tagen
+    Fehlende Python-Abhängigkeiten im Wetterprojekt
+    Letzte Nachricht vor 3 Tagen
+    Fehlende Python-Abhängigkeiten installieren
+    Letzte Nachricht vor 3 Tagen
+    Fehlende Python-Abhängigkeiten installieren
+    Letzte Nachricht vor 3 Tagen
+    Unbenannt
+    Letzte Nachricht vor 3 Tagen
+    Frameanzahl bei kinematischer Wegberechnung
+    Letzte Nachricht vor 3 Tagen
+    Je
+    Letzte Nachricht vor 4 Tagen
+    WhatsApp per CallMeBot
+    Letzte Nachricht vor 4 Tagen
+    Codex-Inline-Review-Kommentare überprüfen
+    Letzte Nachricht vor 5 Tagen
+    Unbenannt
+    Letzte Nachricht 4. Juni
+    Phase B Size-Regresser und API-Fehler
+    Letzte Nachricht 2. Juni
+    Intervall-Problem bei aktiven Zellen
+    Letzte Nachricht 2. Juni
+    Fehleranalyse
+    Letzte Nachricht 31. Mai
+    12-Stunden-Unwettervorhersage mit Risikozonen
+    Letzte Nachricht 29. Mai
+    Risikobereich-Anzeige und Rasterberechnung
+    Letzte Nachricht 29. Mai
+    Benutzermanagement mit differenzierten Rechten
+    Letzte Nachricht 29. Mai
+
+Speicher
+Nur du
+
+Purpose & context Horst is the sole developer and operator of WetterExtended (GitHub: IVOBLA/WetterExtended, private), a sophisticated storm cell detection, tracking, and warning system for Kärnten (Carinthia), Austria. The system runs on a Raspberry Pi 5 + Hailo-8 accelerator at /home/ki-pi/wetterprojekt, with a Lenovo ThinkCentre M910q (Ubuntu x86) as a separate trainer machine for ML model training and Hailo DFC compilation. Stack: Python/Flask backend, React/Vite/Tailwind/Leaflet frontend, three systemd services (wetterprojekt, wetterprojekt-scheduler, wetterprojekt-admin), nginx reverse proxy, LightGBM/LSTM/ConvLSTM models, APScheduler. Data sources: ARSO INCA radar (KMZ), GeoSphere Austria (AROME, TAWES, Nowcast), Open-Meteo (icond2, iconglobal), EUMETView/MSG IR108 satellite, Blitzortung lightning, Copernicus DEM 30m. Notification channels: Email (SMTP, HTML, per-location recipients) and WhatsApp (CallMeBot). WhatsApp sends warnings only — never all-clear notifications (explicit architectural decision). Working language: German throughout (code comments, logs, documentation, Claude responses). Key people/docs: HAILOINTEGRATION.md is the canonical bug/feature tracking document (B-series numbered entries). WetterExtendedBenutzerhandbuch.md is updated only for new user-facing features, never for bug fixes. zieldefinition.txt codifies permanent architectural rules. --- Current state The project is deep in active Phase A stabilization and feature extension. A large number of bugs (B58–B114+) and features (P-series, P-T-series) have been systematically diagnosed and addressed via structured Codex-compatible prompt files. Recent focus areas (most recent sessions): B104–B114 covering GeoSphere Nowcast API fixes (bulk requests, correct slot timing, parameter naming), ML pipeline integrity (Kinematic-First pattern for path features to eliminate train/inference skew — B108 was explicitly corrected from a workaround to a proper architectural fix), IR cell tracking state management, runtime config security (SENSITIVEREADPREFIXES allowlist, forbidden key overrides), frontend log visibility, and timestamp parsing. P-T06: New feature suppressing forecast/slow-approach warnings for cells predicted to dissolve before reaching a location (exponential decay model, configurable half-life). P0-2: Parametric LSTM buildlstm(nhorizons) to fix compile-time horizon dimension hardcoding. P2-1: SHA256 content hash as second radar dedup signal alongside Last-Modified. P27: EWMA kinematic tracking (TRACKHISTORYLEN=6, KINEMATICEWMAALPHA=0.6) replacing simple 3-frame average. Confirmed live system behaviors: GeoSphere Nowcast persistent HTTP 400 in Styria/Carinthian western border region (active diagnostic area). TAWES timeouts are self-recovering (expected). Missing ML model/scaler warnings are expected on fresh installs. --- On the horizon Phase B (pending): U-Net radar nowcasting model development, Hailo DFC compilation on the Ubuntu trainer machine, and deployment of compiled HEF inference files to the Pi. The Hailo-8 is currently a stub. Hailo sync scripts: rsync-based pipeline between Pi and trainer machine, already documented in HAILOINTEGRATION.md. Deferred tasks: E6 and E8 from Phase E (IR-Sat tracking) require the Linux trainer. B12 (Blitzortung parsing verification) deferred. Accuracy.jsx severity MAE charts explicitly deferred. Pending config action: Email addresses and WhatsApp fields must be entered per location in the admin panel for notifications to function. Hailo Basic-Auth curl calls in the sync script need JWT migration (explicitly deferred to Phase B). --- Key learnings & principles Correct solutions over workarounds: When B108 was initially implemented as a temporary workaround (removing path features), Horst explicitly rejected it. The proper architectural fix (Kinematic-First pattern: compute kinematic position estimates before building the ML sequence) was required. This is a firm principle. False findings are costly: KI analysis API budget is wasted on false bug reports. Every finding must be cross-referenced against the actual synced repo before any prompt is written. Confirmed bugs are far more valuable than speculative ones. Verify before prompting: Standard workflow is always to re-sync the repo to project knowledge, verify current state, then create prompts. Claude must fetch raw file content from GitHub rather than relying solely on cached project knowledge when precision matters. Full implementations only: Stubs and deferred implementations are unacceptable. B52 (size regressor) was explicitly corrected from a stub to a full LightGBM implementation. Features must be complete when prompted. Test files must be created by prompts: Test files (tests/test*.py) must be created via explicit "Erstelle diese Datei vollständig neu" instructions within the prompt markdown — not as separate downloadable .py files. This is codified in zieldefinition.txt. install.sh Phase 9 must never abort on test failures — only warn. No TESTFAILUREMODE=fail escape hatch. UPSCALEFACTOR must never be runtime-overridable: It defines the coordinate system for stored JSON data. Making it a runtime override would corrupt all stored object positions. GITHUBTOKEN exclusively via .env: Never in runtimeoverrides.json or any runtime-configurable path. cellfilters/ directory is never deleted during install.sh --mode=full — treated like .env and DEM tiles (user-generated learning data). ATM hard gate: Grid points with no local atmospheric instability measurement within ATMRANGE must not appear as risk zones. No global LI fallback. IR precursor cells do not bypass this gate. WhatsApp architecture: Best-effort, no influence on locationwarned state. 5-second delay between multiple recipients (CallMeBot rate limit). Benutzerhandbuch: Updated only for new user-facing features, never for bug fixes. Risk alert cooldown: Epoch-based timestamps (not calendar day strings) for backward compatibility. --- Approach & patterns Prompt file conventions (strict): Named B{number}{description}.md or P-T{number}{description}.md Structure: pre-flight bash verification (grep with ABORT-on-mismatch) → SEARCH/REPLACE blocks with surrounding context → post-change validation commands → HAILOINTEGRATION.md B-number changelog entry → Codex-Review-Note All prompts saved to /home/claude/prompts/ (or session-specific subdirectories) HAILOINTEGRATION.md updated with every bug/feature entry WetterExtendedBenutzerhandbuch.md updated only for user-facing features Workflow pattern: Person uploads log files / objects JSON / screenshots Claude performs proactive analysis before writing any prompt Repo re-synced → Claude verifies implementation status New prompts created only for confirmed, unresolved issues Configuration architecture: config.py → static defaults runtimeoverrides.json (at traindata/runtimeoverrides.json) → live overrides without service restart runtimeconfig.get() used throughout for overridable parameters All cooldowns (warning, all-clear, drift, risk alert) must be configurable via config.py and runtime-overridable MLCELLFEATURES list in config.py with MLNUMFEATURES derived automatically Key architectural constants: UPSCALEFACTOR=3 (coordinate system — immutable at runtime) PXTOKMH=10.0 (original pixel/frame → km/h) TRACKHISTORYLEN=6, KINEMATICEWMAALPHA=0.6 (post-P27) dominant field values: "atm", "cell", "track", "lightning", "ircell" tendencysource field distinguishes ML predictions from kinematic fallback forecastmode: "ml" vs kinematic; locations only annotated when at least one "ml" forecast exists Deployment: Always restart services after code changes (wetterprojekt, wetterprojekt-scheduler, wetterprojekt-admin) git reset --hard origin/main fallback when git pull --ff-only fails Services must be systemctl enabled to survive reboots --- Tools & resources Hardware: Raspberry Pi 5 + Hailo-8 (26 TOPS), Lenovo ThinkCentre M910q (Ubuntu x86, trainer) ML: LightGBM, LSTM, ConvLSTM, size regressor (LightGBM), accuracytracker with Haversine NN-matching Frontend: React/Vite, Tailwind CSS, Leaflet, Recharts, react-router-dom Notifications: CallMeBot (WhatsApp), SMTP (email) External APIs: ARSO INCA radar, GeoSphere (AROME/TAWES/Nowcast), Open-Meteo (icond2/iconglobal), EUMETView WMS (MSG IR108), Blitzortung, Copernicus DEM 30m AI analysis: Anthropic Claude API via dailyanalyzer.py (default disabled, manageable from admin panel) Auth: JWT (access tokens in React memory, HttpOnly refresh cookies), four roles (superadmin/admin/operator/viewer) Version control: GitHub (IVOBLA/WetterExtended), branch main
+
+Zuletzt aktualisiert gestern
+Anweisungen
+
+BEachte binaries können nicht automatisch gepushed werden und dürfen nicht in den Prompts sein Sie mussen wenn nötig als dowloadbare Files zur verfügung gestellt werden. Hardware: Raspberry Pi 5 B, Hailo-8 AI, 16GB, 26 TOPS. Bei install.sh muss angegeben werden können ob komplette neuinstallation (alte daten/modelle löschen) oder upgrade (nur source tauschen). Analysiere auch immer ob die internetservices (zum holen der Daten) auch korrekt aufgrufen werden (API spec. usw) beachte bei analysen auch immer zieldefinition.txt Betriebssystem in der Zielumgebung : Raspian. Ergänze WetterExtended_Benutzerhandbuch.md (integriere in claude code prompts) in wetterprojekt/docs immer um die änderungen die mit dem letzen fix eingespielt wurden. (wichtig! nur neue Fach-Features und keine bugs!!!) Aktualisiere HAILO_INTEGRATION.md immer mit den details der geplanten phasen und markiere auch was schon erledigt ist (integriere in claude code prompts) Alle prompts immer ohne interpretationsspielraum und als .md download (1 file pro prompt) Codex-Inline-Review-Kommentare/Review-Threads immer überprüfen. Alle vorgeschlagenen Tests müssen als von install.sh ausführbare Skripte (tests/test_*.py) erstellt werden. Estelle immer nur saubere Lösungen und keine zwischenlösungen.
+Dateien
+35% der Projektkapazität verwendet
+Suchmodus
+
+zieldefinition.txt
+Vor dem erstellen eines prompt, prüfe immer ob sich das Knowledge geändert hat und analysiere das verküpfte repo
+
+Zieldefinition:
+
+Das Projekt muss auf radarbildern Regen/Gewitterzellen erkennen und klassififzieren.
+
+Die Schwellwerte (farben) dafür müssen in einem Admin Panel wartbar sein.
+
+Die Zugrichtung der Zellen die über dem Schwellwert liegen muss vorrausberechnet werden. Dazu muss Maschinelles lernen verwendet werden (sofern vorhanden)
+
+Wenn keine Modeldaten vorhanden sind, so muss der Pfad alternativ aus den letzen Bewegungen errechnet werden.
+
+Beim Maschinellen Lernen müssen folgende Faktoren berücksichtigt werden:
+
+Wetterdaten die über internet zur verfügung stehen (wind, Temperatur, wolkenhöhe usw...)
+
+Position der Zelle (aufgrund der Geographie ziehen zellen an einen bestimmten Punkt oft auch eine bestimmte Richtung)
+
+Jahreszeit (datum +  uhrzeit)
+
+Über ein Admin Panel muss der benutzer sämtlich konfigurationen vornehmen können.
+
+Der Lernfortschritt und die Qualität aller Modelle muss graphisch dargestellt werden.
+
+Die vorhersage muss mit den realen Werten verglichen werden.(bei erreichen des jeweilegen vorhersagezeitraum)
+
+Die durchnittliche abweichung muss im adminpanel graphisch (über einen einstellbaren Zeitraum) dargestellt werden
+
+Es muss für den benutzer eine leaflet karte geben wo er die Zellen verfolgen und die aktuellen sowie vorhersagewerte (zB Pfeile) angezeigt bekommt.
+
+Im Admin Panel muss es möglich sein, mehrere orte (und einen umkreis um die orte) defninieren zu können.
+
+Durchquert, steift oder berührt eine Zelle im vorhsagezeitraum den Umkreis eines ortes so ist dieser in der farbe des Vorhersagepfeiles zu markieren.
+
+Im Admin panel müssen 5 vorhersagezeiträume + plus deren Pfeilfarben definiert werden können (default 10,20,30,40,60 Minuten). 
+
+Es muss auf der Seite mit der Karte eine Farblegende geben
+
+Alle GUI Themen müssen mit node.js (react) umgesetzt werden.
+
+install.sh muss allen notwendigen dinge installieren/konfigurieren bezw. prüfen ob nicht schon konfiguriert/installiert (wenn vollinstallation)
+
+kann install.sh das nicht automatisch machen, so muss im terminal angezeigt werden, was der benutzer machen muss.
+
+Das trainieren der modelle muss zu einem definierbaren Zeitpunkt durchgeführt werden können.
+
+Zielhardware: Raspberry Pi 5 B, Hailo-8 AI, 16GB, 26 TOPS
+
+Die aktuellen positionen und die verhergesagten positionen (+ pfeile) müssen als KMZ (für import in eine andere Karte) exportiert werden können.
+
+Die errechneten daten (aus python teil) müssen als Json objekte an den GUI teil übergeben werden. (Api?)
+
+Das System muss immer State of the Art und Produktiv einsetzbar sein.
+
+Wichtig, alle unnötigen Requests an Fremdsysteme müssen vermieden werden.
+
+Die Fremdsysteme haben unterschiedliche aktualisierungsintervalle, berücksichtige diese.
+
+Gewitter bleiben oft an Bergen hängen oder folgen tälern -> die bevorzugte bewegungsrichtungen muss das modell aber aus Trainingsdaten aus ähnlichen Situationen lernen. 
+
+Geländeinformationen müssen für ganz Kärnten vorhanden sein und auch die Großwetterlage muss berücksichtigt werden
+
+im admin panel muss sichtbar sein, wieviele requests pro tag an jede externe schnittstelle gesndet wurde
+
+beachte immer HAILO_INTEGRATION.md
+
+install.sh muss auch alle für hailo notwendigen schritte am raspi durchführen (HAILO_INSTALL.md)
+
+Install.sh muss den zustand am raspberry prüfen und alle notwendigen dinge selbständig incl. HAILO installieren (wenn vollinstallation)
