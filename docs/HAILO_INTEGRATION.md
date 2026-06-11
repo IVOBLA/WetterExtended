@@ -2030,6 +2030,6 @@ Intensität) inkl. ML-Klimatologie-Features. Datenbasis: train_data/evaluation/t
 |---|------|-----------|--------|
 | P-S01 | Track-Lifecycle-Log: write_track_end an 3 Todespfaden (dissolved/left_bbox/merge/service_restart), inkrementelle zirkuläre Richtungs-/Pfad-/Speed-Akkumulation am Track, Schwere-Maxima-Write-back aus main.py | `track_statistics.py` (neu), `object_tracking.py`, `main.py`, `config.py` | ✅ erledigt |
 | P-S02 | stats_aggregator.py (Jahres-Aggregate + zirkuläre Jahresrichtung + 16-Sektor-Windrose + Lebensdauer-/Speed-Histogramme), climatology_grid.json (Gitterzelle×Monat, CLIM_MIN_SAMPLES-Gate), backfill_track_ends.py (Rekonstruktion aus cells_log.jsonl), Scheduler-Job stats_aggregate (nächtlich), install.sh Full/Upgrade-Schutz + Phase-9-Backfill | `stats_aggregator.py` (neu), `backfill_track_ends.py` (neu), `scheduler.py`, `config.py`, `install.sh` | ✅ erledigt |
-| P-S03 | Statistik-API (`/api/statistics/*`) | `app.py` | ⏳ offen |
+| P-S03 | Statistik-API: GET /api/statistics/years, /api/statistics/<year>, /api/statistics/climatology (öffentlich/viewer, reines Datei-Lesen, kein externer Call) | `app.py` | ✅ erledigt |
 | P-S04 | Frontend-Seite „Statistik" (Pflichtdiagramme, Vorjahresvergleich, Windrose) | `frontend/` | ⏳ offen |
 | P-S05 | ML-Klimatologie-Features (`cell_age_min`, `clim_*`) mit Mindest-Sample-Schwelle | `config.py`, `climatology_features.py` (neu), `main.py` | ⏳ offen |
