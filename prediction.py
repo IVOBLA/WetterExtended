@@ -55,6 +55,31 @@ except Exception:
     _runtime_cfg = None
 
 
+def _lgbm_feat_ok(model, frame) -> bool:
+    """B116: Prüft LightGBM-Featurebreite vor predict(), um Fatal-Logspam zu vermeiden."""
+    try:
+        expected = None
+        num_feature = getattr(model, "num_feature", None)
+        if callable(num_feature):
+            expected = num_feature()
+        elif hasattr(model, "n_features_"):
+            expected = getattr(model, "n_features_", None)
+        elif hasattr(model, "n_features_in_"):
+            expected = getattr(model, "n_features_in_", None)
+        if expected is None:
+            return True
+        actual = frame.shape[-1]
+        if int(expected) != int(actual):
+            _prediction_debug_log(
+                f"[LightGBM] B116: Feature-Mismatch — Modell erwartet {expected}, "
+                f"Frame hat {actual}. Inferenz übersprungen."
+            )
+            return False
+        return True
+    except Exception:
+        return True
+
+
 def _get_horizons() -> list:
     """Gibt die aktuell konfigurierten Forecast-Horizonte zurück.
     Priorisiert runtime_config (Admin-Panel), Fallback: config.py."""
@@ -657,7 +682,7 @@ def predict_positions(objects: list, timestamp: str, stations: list):
         seq_scaled = scaler_X.transform(seq).reshape(1, ML_SEQUENCE_LENGTH, ML_NUM_FEATURES)
         last_frame = seq_scaled[:, -1, :]
 
-        if intensification_model is not None:
+        if intensification_model is not None and _lgbm_feat_ok(intensification_model, last_frame):
             try:
                 obj["intensification_prob"] = float(intensification_model.predict(last_frame)[0])
             except Exception:
@@ -666,25 +691,29 @@ def predict_positions(objects: list, timestamp: str, stations: list):
             obj["intensification_prob"] = 0.0
 
         core_key = "delta_core_ratio_pred"
-        if reg_core is not None:
+        reg_core_ok = reg_core is not None and _lgbm_feat_ok(reg_core, last_frame)
+        if reg_core_ok:
             try:
                 obj["delta_core_ratio_pred"] = float(reg_core.predict(last_frame)[0])
             except Exception:
                 obj[core_key] = 0.0
+                reg_core_ok = False
         else:
             obj[core_key] = 0.0
 
-        if reg_area is not None:
+        reg_area_ok = reg_area is not None and _lgbm_feat_ok(reg_area, last_frame)
+        if reg_area_ok:
             try:
                 obj["delta_area_pred"] = float(reg_area.predict(last_frame)[0])
             except Exception:
                 obj["delta_area_pred"] = 0.0
+                reg_area_ok = False
         else:
             obj["delta_area_pred"] = 0.0
 
         # B92: Tendenz aus ML-Deltas wenn beide Regressoren vorhanden,
         # sonst kinematischer Fallback (trend/size_trend).
-        _classify_tendency(obj, has_ml=(reg_core is not None and reg_area is not None))
+        _classify_tendency(obj, has_ml=(reg_core_ok and reg_area_ok))
 
         prediction_scaled = None
         prediction_q10_scaled = None

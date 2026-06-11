@@ -447,6 +447,29 @@ def _check_model_compatibility(model_dir: str) -> dict:
     return {"compatible": True, "reason": "OK"}
 
 
+def _quarantine_incompatible_current(reason: str) -> None:
+    """
+    B116: Benennt einen dauerhaft inkompatiblen `current`-Modellstand um
+    (current -> current_incompatible_<ts>), damit load_* sauber 'kein Modell'
+    liefert statt einen veralteten Feature-Stand zu behalten. Kein Löschen
+    (Modelle sind user-generierte Lerndaten). Idempotent: läuft nur, wenn ein
+    realer current-Pfad existiert.
+    """
+    try:
+        cur = _current_models_dir()
+        if not cur or not os.path.isdir(cur):
+            return
+        _stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        _dest = f"{cur.rstrip('/')}_incompatible_{_stamp}"
+        os.rename(cur, _dest)
+        debug_log(
+            f"[MODEL] B116: inkompatibler current-Stand quarantänisiert "
+            f"({reason}) → {_dest}. System läuft kinematisch bis Retrain."
+        )
+    except Exception as exc:
+        debug_log(f"[MODEL] B116: Quarantäne fehlgeschlagen: {exc}")
+
+
 def load_lstm(model_dir=None):
     if load_model is None:
         return None
@@ -461,6 +484,9 @@ def load_lstm(model_dir=None):
             f"[MODEL] load_lstm: Modell inkompatibel — {compat['reason']}. "
             f"Kinematischer Fallback aktiv."
         )
+        # B116: dauerhaft inkompatiblen current beiseiteräumen, damit der nächste
+        # erfolgreiche Retrain einen sauberen Cold-Start machen kann.
+        _quarantine_incompatible_current(compat["reason"])
         return None
     try:
         # P-T08: compile=False — der maskierte Trainings-Loss wird zur Inferenz
@@ -483,6 +509,8 @@ def load_lgbm_models():
             f"[MODEL] load_lgbm_models: Modell inkompatibel — {compat['reason']}. "
             f"Kinematischer Fallback aktiv."
         )
+        # B116: auch ein reiner LGBM-Ladepfad darf keinen stale current behalten.
+        _quarantine_incompatible_current(compat["reason"])
         return models  # leer → kinematischer Fallback in prediction.py
     _load_horizons = _get_training_horizons()  # P29: runtime-fähig
     for h in _load_horizons:
@@ -720,6 +748,9 @@ def retrain_all():
         )
     elif not has_current:
         # P24: Cold-Start nur mit ausreichend Validierungssamples.
+        # B116: _MIN_SAMPLES_FOR_PROMOTION bleibt unverändert und schützt die
+        # Promotion; wenn kein kompatibles current existiert, sammelt der Retrain
+        # sichtbar weiter, bis ein valider Cold-Start möglich ist.
         if _new_samples >= _MIN_SAMPLES_FOR_PROMOTION:
             status = "promoted"
             _atomic_switch_current(timestamp)
@@ -732,7 +763,7 @@ def retrain_all():
             debug_log(
                 f"[TRAINING] Cold-Start-Promotion ABGELEHNT: "
                 f"samples={_new_samples} < {_MIN_SAMPLES_FOR_PROMOTION}. "
-                f"Kinematischer Fallback bleibt aktiv."
+                f"Kinematischer Fallback bleibt aktiv (B116: Retrain sammelt weiter)."
             )
     elif getattr(X, "size", 0) == 0:
         status = "no_data"
