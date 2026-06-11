@@ -2348,3 +2348,15 @@ effektiven Vorlaufzeit (Vorhersagezeitraum minus Radaralter) versehen. Liegt der
 Zielzeitpunkt durch ein veraltetes Radarbild bereits in der Vergangenheit, wird
 der Punkt als „veraltet" markiert, damit er nicht als echte Zukunftsvorhersage
 fehlinterpretiert wird.
+
+## Warnungen bei veralteten Radardaten
+
+Liefert ARSO vorübergehend kein neues Radarbild, kann eine Vorhersage „für die
+nächsten 20 Minuten" in Wirklichkeit auf einem bereits 20+ Minuten alten Bild
+beruhen — der Zielzeitpunkt liegt dann faktisch in der Gegenwart oder Vergangenheit.
+
+Das System erkennt das jetzt: Ist das letzte Radarbild **älter als der jeweilige
+Vorhersagezeitraum**, wird der Treffer als unsicher eingestuft. Die Warnung wird
+weiterhin sofort versendet (eine reale Zelle bleibt eine reale Zelle), trägt aber
+in E-Mail und WhatsApp den Hinweis **„Radardaten N min alt — Position unsicher"**.
+So lässt sich die Lage richtig einordnen, ohne dass eine Warnung verloren geht.

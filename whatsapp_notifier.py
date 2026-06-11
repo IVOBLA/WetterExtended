@@ -160,12 +160,20 @@ def send_warning_wa(loc_name: str, hits: dict, wa_str: str,
     else:
         eta_text = "trifft den Bereich voraussichtlich"
 
+    # P-T09: Hinweis bei veralteten Radardaten (Radarbild älter als Horizont).
+    _wa_radar_age = earliest.get("radar_age_min")
+    if earliest.get("stale") and _wa_radar_age is not None:
+        _wa_stale = f"\n! Radardaten {_wa_radar_age:.0f} min alt - Position unsicher"
+    else:
+        _wa_stale = ""
+
     ts_display = timestamp or _now_display()
     message = (
         f"GEWITTERWARNUNG {loc_name}\n"
         f"{ts_display}\n\n"
         f"Zelle {cell_id} {eta_text}\n"
-        f"Distanz: {dist} km  |  {speed} km/h\n\n"
+        f"Distanz: {dist} km  |  {speed} km/h"
+        f"{_wa_stale}\n\n"
         f"WetterExtended Kaernten"
     )
 

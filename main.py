@@ -667,6 +667,18 @@ def main_loop():
             _min_speed   = runtime_config.get("MIN_MOVEMENT_FOR_ARROW_KMH", _MIN_ARROW_KMH)
             _slow_max    = runtime_config.get("SLOW_CELL_MAX_KMH",          _SLOW_MAX_KMH)
             _slow_factor = runtime_config.get("SLOW_CELL_RADIUS_FACTOR",    _SLOW_FACTOR)
+            # P-T09: Radarbild-Alter (min) auf ALLE Objekte schreiben, damit
+            # annotate_locations stale-Forecasts erkennt — unabhängig vom ML-Status.
+            try:
+                from datetime import datetime as _dt_ra
+                _radar_age_min = max(
+                    0.0,
+                    (_dt_ra.now() - _dt_ra.strptime(timestamp, "%Y-%m-%d_%H-%M-%S")).total_seconds() / 60.0,
+                )
+            except Exception:
+                _radar_age_min = 0.0
+            for _o in objects:
+                _o["radar_age_min"] = round(_radar_age_min, 1)
             location_hits = annotate_locations(
                 objects, locations, horizons, colors,
                 min_speed_kmh=_min_speed,
@@ -760,6 +772,12 @@ def main_loop():
                 # Current-Hit vorhanden (Horizont-Key 0) → nie verzögern
                 if _has_current_horizon(loc_hit):
                     return False
+                # P-T09: Stale-Forecast (Radarbild älter als Horizont) → wie current
+                # behandeln, nicht verzögern. Die Eingabedaten sind bereits alt; ein
+                # weiterer Frame würde sie nur älter machen.
+                for _h_info in loc_hit.get("hits", {}).values():
+                    if _h_info.get("stale"):
+                        return False
                 hit_cell_ids = {
                     h.get("cell_id")
                     for h in loc_hit.get("hits", {}).values()

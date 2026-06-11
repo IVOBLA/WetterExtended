@@ -336,6 +336,8 @@ def annotate_locations(
             o_lon = float(o_lon)
 
             cell_id   = obj.get("id")
+            # P-T09: Radarbild-Alter (min) vom Objekt (von main.py gesetzt).
+            _radar_age = float(obj.get("radar_age_min") or 0.0)
             # B78-FIX: speed_kmh aus obj übernehmen — bereits korrekt mit
             # UPSCALE_FACTOR skaliert von object_tracking.py.
             # Fallback: vx/vy-Betrag mit Skalierungsfaktor umrechnen.
@@ -433,6 +435,10 @@ def annotate_locations(
                                 "survival_frac": round(_surv, 2),
                                 "intensity_tendency": obj.get("intensity_tendency", "stabil"),
                                 "size_tendency": obj.get("size_tendency", "stabil"),
+                                # P-T09: Radaralter-Annotation
+                                "radar_age_min": round(_radar_age, 1),
+                                "effective_lead_min": round(float(h) - _radar_age, 1),
+                                "stale": _radar_age >= float(h),
                             }
                         else:
                             try:
@@ -506,6 +512,10 @@ def annotate_locations(
                                 "survival_frac": round(_surv, 2),
                                 "intensity_tendency": obj.get("intensity_tendency", "stabil"),
                                 "size_tendency": obj.get("size_tendency", "stabil"),
+                                # P-T09: Radaralter-Annotation
+                                "radar_age_min": round(_radar_age, 1),
+                                "effective_lead_min": round(float(h) - _radar_age, 1),
+                                "stale": _radar_age >= float(h),
                             }
                         else:
                             try:
