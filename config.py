@@ -612,6 +612,19 @@ AI_ANALYSIS_CONFIG = {
 }
 AI_SUGGESTIONS_DIR = "train_data/evaluation/ai_suggestions"
 
+# ---------------------------------------------------------------------------
+# Claude-Code-Analyse-Report (vollständig unabhängig von AI_ANALYSIS_CONFIG)
+# ---------------------------------------------------------------------------
+# Versendet täglich analysis_result.json vom Branch debug-export-latest per E-Mail.
+# Runtime-overridable: runtime_config.patch({"CLAUDE_CODE_REPORT_CONFIG": {...}})
+CLAUDE_CODE_REPORT_CONFIG: dict = {
+    "enabled":     True,   # Master-Schalter
+    "cron_hour":   4,      # Versand-Uhrzeit (Europe/Vienna)
+    "cron_minute": 0,
+    "branch":      "debug-export-latest",  # GitHub-Branch mit analysis_result.json
+    "report_email": "",    # Empfänger (leer = kein Versand)
+}
+
 # Trainings-Schedule (Cron-Stil). Wird vom Scheduler gelesen, kann per
 # Adminpanel über runtime_overrides.json überschrieben werden.
 TRAINING_SCHEDULE = {

@@ -627,6 +627,105 @@ def send_filter_suggestion_email(
     return _send_smtp(recipients, subject, html)
 
 
+def send_claude_code_report_email(result: dict, email_str: str) -> bool:
+    """
+    Sendet das tägliche Claude-Code-Analyse-Ergebnis per E-Mail.
+
+    Erwartet das Format aus analysis_result.json (Branch debug-export-latest):
+        fehler        : list[str]
+        loesungen     : list[str]
+        verbesserungen: list[str]
+        prompts       : list[str]
+        zusammenfassung: str
+
+    Wird ausschließlich vom Scheduler-Job claude_code_report aufgerufen.
+    Kein Cooldown — läuft maximal einmal täglich.
+    """
+    if not _is_configured():
+        debug_log("[EMAIL] SMTP nicht konfiguriert — Claude-Code-Report nicht gesendet.")
+        return False
+
+    recipients = _parse_recipients(email_str)
+    if not recipients:
+        return False
+
+    if not isinstance(result, dict) or not result:
+        debug_log("[EMAIL] send_claude_code_report_email: result leer — übersprungen.")
+        return False
+
+    ts_date = _now_str()[:10]
+    zusammenfassung = _html_escape(str(result.get("zusammenfassung", "–")))
+    fehler = result.get("fehler", [])
+    loesungen = result.get("loesungen", [])
+    verbesserungen = result.get("verbesserungen", [])
+    prompts = result.get("prompts", [])
+
+    n_fehler = len(fehler)
+    hdr_color = "#dc2626" if n_fehler > 3 else "#ca8a04" if n_fehler > 0 else "#16a34a"
+    status_label = (
+        f"🔴 {n_fehler} Fehler" if n_fehler > 3
+        else f"⚠ {n_fehler} Fehler" if n_fehler > 0
+        else "✅ Keine Fehler"
+    )
+
+    def _ul(items: list, bg: str, border: str) -> str:
+        if not items:
+            return '<p style="color:#6b7280;font-size:13px;margin:4px 0">–</p>'
+        lis = "".join(
+            f'<li style="margin-bottom:5px;font-size:13px;line-height:1.5">'
+            f'{_html_escape(str(i))}</li>'
+            for i in items
+        )
+        return (
+            f'<ul style="background:{bg};border-left:4px solid {border};'
+            f'border-radius:0 4px 4px 0;padding:8px 8px 8px 26px;margin:0 0 4px">'
+            f'{lis}</ul>'
+        )
+
+    def _sec(titel: str, farbe: str, bg: str, items: list) -> str:
+        if not items:
+            return ""
+        return (
+            f'<h3 style="color:{farbe};font-size:14px;font-weight:bold;'
+            f'margin:18px 0 5px">{titel} ({len(items)})</h3>'
+            + _ul(items, bg, farbe)
+        )
+
+    sections = (
+        _sec("🔴 Fehler", "#dc2626", "#fef2f2", fehler)
+        + _sec("✅ Lösungen", "#16a34a", "#f0fdf4", loesungen)
+        + _sec("💡 Verbesserungen", "#2563eb", "#eff6ff", verbesserungen)
+        + _sec("📝 Generierte Prompts", "#7c3aed", "#faf5ff", prompts)
+    )
+
+    html = (
+        '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"></head>'
+        '<body style="font-family:Arial,sans-serif;max-width:800px;margin:0 auto;'
+        'padding:16px;background:#f5f5f5">'
+        f'<div style="background:{hdr_color};color:white;padding:18px 22px;'
+        'border-radius:8px 8px 0 0">'
+        '<h2 style="margin:0;font-size:18px">📊 WetterExtended — Code-Analyse-Report</h2>'
+        f'<p style="margin:4px 0 0;opacity:.9;font-size:13px">'
+        f'{ts_date} &bull; {status_label}</p>'
+        '</div>'
+        '<div style="background:#fff;padding:20px 22px;border:1px solid #ddd;'
+        'border-radius:0 0 8px 8px">'
+        '<h3 style="font-size:14px;font-weight:bold;color:#374151;margin:0 0 5px">'
+        '📋 Zusammenfassung</h3>'
+        f'<div style="background:#f8fafc;border-radius:6px;padding:11px 15px;'
+        f'font-size:13px;line-height:1.6;margin-bottom:2px">{zusammenfassung}</div>'
+        + sections +
+        '<hr style="border:none;border-top:1px solid #eee;margin:18px 0">'
+        '<p style="font-size:11px;color:#aaa;margin:0">'
+        'WetterExtended &bull; K&auml;rnten Radar-Tracking &bull; '
+        'Automatischer Code-Analyse-Report</p>'
+        '</div></body></html>'
+    )
+
+    subject = f"📊 WetterExtended Code-Analyse {ts_date} — {status_label}"
+    return _send_smtp(recipients, subject, html)
+
+
 def send_drift_alert(status: dict) -> None:
     """
     Sendet eine E-Mail-Warnung bei erkanntem Model-Drift.

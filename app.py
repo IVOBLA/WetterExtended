@@ -98,6 +98,7 @@ _SENSITIVE_READ_PREFIXES = (
     "/api/system_consistency",
     "/api/drift/",
     "/api/ai_analysis",
+    "/api/claude_code_report",
     "/api/email_config",
     "/api/sms_config",
     "/api/notification",
@@ -2110,6 +2111,50 @@ def api_ai_analysis_config_save():
     merged.update(runtime_config.get("AI_ANALYSIS_CONFIG", {}))
     merged.update(data)
     runtime_config.patch({"AI_ANALYSIS_CONFIG": merged})
+    return jsonify({"ok": True})
+
+
+# ---------- Claude-Code-Analyse-Report-Konfiguration ----------
+
+@app.route("/api/claude_code_report/config")
+def api_claude_code_report_config_get():
+    """Gibt die aktive CLAUDE_CODE_REPORT_CONFIG zurück."""
+    from config import CLAUDE_CODE_REPORT_CONFIG as _default
+    effective = dict(_default)
+    effective.update(runtime_config.get("CLAUDE_CODE_REPORT_CONFIG", {}))
+    return jsonify(effective)
+
+
+@app.route("/api/claude_code_report/config", methods=["POST"])
+def api_claude_code_report_config_save():
+    """Speichert CLAUDE_CODE_REPORT_CONFIG in runtime_overrides.json."""
+    try:
+        data = request.get_json(force=True)
+        if not isinstance(data, dict):
+            raise ValueError("Payload muss JSON-Objekt sein")
+        if "enabled" in data:
+            data["enabled"] = bool(data["enabled"])
+        if "cron_hour" in data:
+            v = int(data["cron_hour"])
+            if not (0 <= v <= 23):
+                raise ValueError("cron_hour muss 0–23 sein")
+            data["cron_hour"] = v
+        if "cron_minute" in data:
+            v = int(data["cron_minute"])
+            if not (0 <= v <= 59):
+                raise ValueError("cron_minute muss 0–59 sein")
+            data["cron_minute"] = v
+        if "branch" in data:
+            data["branch"] = str(data["branch"]).strip()
+        if "report_email" in data:
+            data["report_email"] = str(data["report_email"]).strip()
+    except (ValueError, TypeError) as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    from config import CLAUDE_CODE_REPORT_CONFIG as _default
+    merged = dict(_default)
+    merged.update(runtime_config.get("CLAUDE_CODE_REPORT_CONFIG", {}))
+    merged.update(data)
+    runtime_config.patch({"CLAUDE_CODE_REPORT_CONFIG": merged})
     return jsonify({"ok": True})
 
 

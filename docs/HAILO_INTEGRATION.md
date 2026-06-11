@@ -1997,3 +1997,26 @@ Reihenfolge E4 → E1 → … → E10 ist bewusst: 300-hPa-Wind zuerst, weil sow
   nur gekennzeichnet. P-T06-Überlebensprüfung bleibt unverändert.
 - **Dateien:** `main.py`, `locations_check.py`, `email_notifier.py`,
   `whatsapp_notifier.py`, `tests/test_pt09_stale_warning.py`
+
+### B115 — Claude-Code-Report-Mail: Eigene Config + Admin-Panel + git fetch (2026-06-11) ✅
+
+**Problem:** `analysis_result.json` (Claude-Code-Routine, Branch `debug-export-latest`)
+wurde nie per E-Mail versendet. Früherer Ansatz (B115/B115b) integrierte das Feature
+fälschlicherweise in `AI_ANALYSIS_CONFIG` — Ausführung war nicht unabhängig.
+
+**Lösung:**
+- Eigene `CLAUDE_CODE_REPORT_CONFIG` Dict in `config.py` (enabled, cron_hour/minute,
+  branch, report_email) — vollständig unabhängig von `AI_ANALYSIS_CONFIG`
+- Eigene API-Endpoints `GET/POST /api/claude_code_report/config` in `app.py`
+- APScheduler-Job `claude_code_report` liest ausschließlich `CLAUDE_CODE_REPORT_CONFIG`
+- Abruf via `git fetch` + `git show origin/branch:file` (SSH, kein extra Token,
+  kein Branch-Wechsel im Arbeitsverzeichnis)
+- Neue `send_claude_code_report_email()` in `email_notifier.py` für das
+  Claude-Code-Format (fehler/loesungen/verbesserungen/prompts/zusammenfassung)
+- Eigene Konfigurationskarte in `AiSuggestions.jsx` mit eigenem State + Save-Button
+- Guards: enabled=False / email leer / fetch-Fehler / Datei >26h → nur Log
+
+**Berührte Dateien:** `config.py`, `email_notifier.py`, `app.py`, `scheduler.py`,
+`frontend/src/pages/AiSuggestions.jsx`, `tests/test_claude_code_report_mail.py`
+
+**Testen:** `python3 -m pytest tests/test_claude_code_report_mail.py -v`

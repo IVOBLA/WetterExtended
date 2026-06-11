@@ -1180,6 +1180,25 @@ automatisch übersprungen; eine Hinweismeldung nennt die abgelehnten Dateien.
 >
 > Die KI-Analyse verursacht API-Kosten pro Request.
 
+## 23.4 Code-Analyse-Report per E-Mail
+
+WetterExtended kann täglich das Ergebnis der nächtlichen Claude-Code-Routine
+automatisch per E-Mail versenden. Diese Funktion ist **vollständig unabhängig**
+von der KI-Analyse-Pipeline und hat eine eigene Konfiguration.
+
+**Konfiguration:** Admin-Panel → KI-Analyse → Abschnitt „Code-Analyse-Report"
+
+| Einstellung | Beschreibung |
+|---|---|
+| Aktiviert-Toggle | Versand ein-/ausschalten |
+| Versand-Stunde/Minute | Uhrzeit (Europe/Vienna), Standard: 04:00 |
+| Report-E-Mail | Empfänger (unabhängig von der KI-Analyse-E-Mail) |
+
+**Inhalt:** Zusammenfassung, gefundene Fehler, Lösungsvorschläge,
+Verbesserungsempfehlungen und generierte Codex-Prompts.
+
+**Voraussetzungen:** SMTP in `.env` konfiguriert, GitHub SSH eingerichtet.
+
 ## 23.9 Tendenz-Anzeige im Zell-Popup (Intensität & Größe)
 
 Jede erkannte Gewitterzelle wird hinsichtlich ihrer erwarteten Entwicklung
