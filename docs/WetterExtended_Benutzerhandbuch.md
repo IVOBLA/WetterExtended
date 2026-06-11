@@ -1139,6 +1139,12 @@ aller erkannten Sturmzellen. Oben wählen Sie das Jahr; rechts daneben erscheine
   (0–1) gibt an, wie geradlinig die Zellen ziehen.
 - **Lebensdauer-Verteilung:** wie lange Zellen typischerweise existieren, samt Mittelwert.
 - **Tagesgang:** Verteilung der Zellentstehung über die Tagesstunden.
+- **Geschwindigkeitsverteilung:** wie schnell die Zellen typischerweise ziehen, samt
+  mittlerer Zuggeschwindigkeit.
+- **Lebensdauer nach Intensität:** mittlere Lebensdauer je Stärkeklasse — zeigt, ob
+  stärkere Zellen länger leben.
+- **Tracking-Kennzahlen:** Gesamtzahl der Zellen sowie Anzahl der Zusammenschlüsse
+  (Merges), Aufspaltungen (Splits) und stationären Zellen im gewählten Jahr.
 - **Mehrjahres-Trend:** Entwicklung von Häufigkeit, mittlerer Lebensdauer und Zugrichtung
   über mehrere Jahre.
 
