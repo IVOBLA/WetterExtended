@@ -1511,6 +1511,55 @@ def api_accuracy():
     })
 
 
+# ---------------------------------------------------------------------------
+# P-S03: Langzeitstatistik (liest nur P-S02-Aggregate, keine Berechnung/API-Calls)
+# ---------------------------------------------------------------------------
+def _statistics_dir() -> str:
+    return SAVE_PATHS.get("statistics", "train_data/statistics/")
+
+
+@app.route("/api/statistics/years")
+def api_statistics_years():
+    import re
+    years = []
+    for p in glob.glob(os.path.join(_statistics_dir(), "stats_*.json")):
+        m = re.search(r"stats_(\d{4})\.json$", os.path.basename(p))
+        if m:
+            years.append(int(m.group(1)))
+    return jsonify({"years": sorted(years)})
+
+
+@app.route("/api/statistics/climatology")
+def api_statistics_climatology():
+    path = os.path.join(_statistics_dir(), "climatology_grid.json")
+    if not os.path.exists(path):
+        return jsonify({"cells": {}, "available": False}), 200
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        data["available"] = True
+        return jsonify(data)
+    except Exception as exc:
+        debug_log(f"[API] /api/statistics/climatology Fehler: {exc}")
+        return jsonify({"cells": {}, "available": False, "error": str(exc)}), 200
+
+
+@app.route("/api/statistics/<int:year>")
+def api_statistics_year(year):
+    # Pfad-Whitelisting: nur 4-stellige Jahreszahl, kein Traversal möglich
+    path = os.path.join(_statistics_dir(), f"stats_{int(year)}.json")
+    if not os.path.exists(path):
+        return jsonify({"year": int(year), "available": False, "cells_total": 0}), 200
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        data["available"] = True
+        return jsonify(data)
+    except Exception as exc:
+        debug_log(f"[API] /api/statistics/{year} Fehler: {exc}")
+        return jsonify({"year": int(year), "available": False, "error": str(exc)}), 200
+
+
 # Öffentliche Browser-URLs pro externer Schnittstelle (konfigurierbar)
 _API_PUBLIC_URLS: dict = {
     "geosphere_tawes":        "https://tawes.at/#knt",
