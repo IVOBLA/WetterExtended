@@ -28,6 +28,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from config import (
     AI_ANALYSIS_CONFIG,
     ATMOSPHERIC_SNAPSHOT_INTERVAL_MIN,
+    CLAUDE_CODE_REPORT_CONFIG,
     DATA_CLEANUP_CRON_HOUR,
     DATA_CLEANUP_CRON_MINUTE,
     DATASET_REBUILD_INTERVAL_MIN,
@@ -220,6 +221,105 @@ def run_accuracy_eval_job():
         debug_log(f"[SCHEDULER] accuracy_eval Fehler: {exc}")
 
 
+def run_claude_code_report_job():
+    """
+    Sendet analysis_result.json vom Branch debug-export-latest per E-Mail.
+    Konfiguration: CLAUDE_CODE_REPORT_CONFIG (unabhängig von AI_ANALYSIS_CONFIG).
+    Strategie: git fetch + git show (SSH, kein extra Token, kein Branch-Wechsel).
+    """
+    runtime_config.reload_overrides()
+    debug_log("[SCHEDULER] Job claude_code_report gestartet")
+
+    import json as _json
+    import subprocess as _sub
+    from datetime import datetime as _dt, timezone as _tz
+    from pathlib import Path as _Path
+
+    try:
+        from config import CLAUDE_CODE_REPORT_CONFIG as _default
+        _cfg = dict(_default)
+        _cfg.update(runtime_config.get("CLAUDE_CODE_REPORT_CONFIG", {}))
+
+        if not _cfg.get("enabled", True):
+            debug_log("[SCHEDULER] claude_code_report: deaktiviert (enabled=False)")
+            return
+
+        report_email = _cfg.get("report_email", "").strip()
+        if not report_email:
+            debug_log(
+                "[SCHEDULER] claude_code_report: report_email leer — "
+                "im Admin-Panel unter 'Code-Analyse-Report' eintragen."
+            )
+            return
+
+        branch = _cfg.get("branch", "debug-export-latest")
+        project_dir = str(_Path(__file__).resolve().parent)
+
+        fetch = _sub.run(
+            ["git", "fetch", "origin", branch],
+            cwd=project_dir, capture_output=True, text=True,
+        )
+        if fetch.returncode != 0:
+            debug_log(
+                f"[SCHEDULER] claude_code_report: git fetch fehlgeschlagen "
+                f"(rc={fetch.returncode}): {fetch.stderr.strip()}"
+            )
+            return
+
+        log_out = _sub.run(
+            ["git", "log", f"origin/{branch}", "--format=%cI", "-1",
+             "--", "analysis_result.json"],
+            cwd=project_dir, capture_output=True, text=True,
+        )
+        commit_ts_raw = log_out.stdout.strip()
+        if not commit_ts_raw:
+            debug_log(
+                f"[SCHEDULER] claude_code_report: analysis_result.json nicht auf "
+                f"origin/{branch} — noch kein Analyse-Lauf?"
+            )
+            return
+
+        try:
+            commit_ts = _dt.fromisoformat(commit_ts_raw)
+            if commit_ts.tzinfo is None:
+                commit_ts = commit_ts.replace(tzinfo=_tz.utc)
+            age_h = (_dt.now(_tz.utc) - commit_ts).total_seconds() / 3600
+        except Exception as _te:
+            debug_log(f"[SCHEDULER] claude_code_report: Timestamp-Parse Fehler: {_te}")
+            age_h = 0.0
+
+        if age_h > 26:
+            debug_log(
+                f"[SCHEDULER] claude_code_report: Datei ist {age_h:.1f}h alt (>26h) "
+                "— übersprungen."
+            )
+            return
+
+        show = _sub.run(
+            ["git", "show", f"origin/{branch}:analysis_result.json"],
+            cwd=project_dir, capture_output=True, text=True,
+        )
+        if show.returncode != 0:
+            debug_log(
+                f"[SCHEDULER] claude_code_report: git show fehlgeschlagen: "
+                f"{show.stderr.strip()}"
+            )
+            return
+
+        result = _json.loads(show.stdout)
+
+        from email_notifier import send_claude_code_report_email
+        ok = send_claude_code_report_email(result, report_email)
+        debug_log(
+            f"[SCHEDULER] claude_code_report: "
+            f"{'gesendet' if ok else 'FEHLER'} → {report_email} "
+            f"(Branch: {branch}, Alter: {age_h:.1f}h)"
+        )
+
+    except Exception as exc:
+        debug_log(f"[SCHEDULER] claude_code_report Fehler: {exc}")
+
+
 def run_cleanup_job():
     """Tägliche Daten-Rotation — löscht Dateien älter als DATA_RETENTION_DAYS."""
     runtime_config.reload_overrides()
@@ -371,6 +471,20 @@ def create_scheduler() -> BlockingScheduler:
         run_accuracy_eval_job,
         trigger=IntervalTrigger(hours=1),
         id="accuracy_eval", max_instances=1, coalesce=True,
+    )
+
+    # --- immer aktiv: Claude-Code-Report-Mail (unabhängig von AI_ANALYSIS_CONFIG) ---
+    _cc_cfg = runtime_config.get("CLAUDE_CODE_REPORT_CONFIG", CLAUDE_CODE_REPORT_CONFIG)
+    _cc_h = int(_cc_cfg.get("cron_hour", CLAUDE_CODE_REPORT_CONFIG["cron_hour"]))
+    _cc_m = int(_cc_cfg.get("cron_minute", CLAUDE_CODE_REPORT_CONFIG["cron_minute"]))
+    sched.add_job(
+        run_claude_code_report_job,
+        trigger=CronTrigger(hour=_cc_h, minute=_cc_m, timezone="Europe/Vienna"),
+        id="claude_code_report", max_instances=1, coalesce=True,
+    )
+    debug_log(
+        f"[SCHEDULER] Claude-Code-Report-Mail: täglich {_cc_h:02d}:{_cc_m:02d} "
+        f"Europe/Vienna (Branch: {_cc_cfg.get('branch', 'debug-export-latest')})"
     )
 
     # --- immer aktiv: Daten-Cleanup ---

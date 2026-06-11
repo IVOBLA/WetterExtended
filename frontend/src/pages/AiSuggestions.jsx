@@ -57,6 +57,14 @@ export default function AiSuggestions() {
     only_if_cells: false,
     full_source_mode: false,
   })
+  // --- Claude-Code-Report (unabhängig von KI-Analyse) ---
+  const [ccCfg, setCcCfg] = useState({
+    enabled: true, cron_hour: 4, cron_minute: 0,
+    branch: 'debug-export-latest', report_email: '',
+  })
+  const [ccSaved, setCcSaved] = useState(false)
+  const [ccMsg, setCcMsg] = useState('')
+
   const [testEmailStatus, setTestEmailStatus] = useState(null)  // null | 'sending' | 'ok' | 'error'
   const [testEmailMsg,    setTestEmailMsg]    = useState('')
   const [suggestions, setSuggestions] = useState([])
@@ -84,6 +92,9 @@ export default function AiSuggestions() {
     }).catch(() => {})
     api.get('/api/ai_analysis/models')
       .then(d => setModels(d.models || []))
+      .catch(() => {})
+    api.get('/api/claude_code_report/config')
+      .then(d => setCcCfg(prev => ({ ...prev, ...d })))
       .catch(() => {})
   }, [])
 
@@ -556,6 +567,112 @@ export default function AiSuggestions() {
         )}
       </div>
 
+
+      {/* ═══════════════════════════════════════════════════════════════════
+          Claude-Code-Analyse-Report  –  vollständig unabhängige Konfiguration
+          ═════════════════════════════════════════════════════════════════ */}
+      <div className="card mt-8 border-t-4 border-purple-500">
+        <h2 className="text-lg font-semibold mb-1">
+          📊 Code-Analyse-Report (Claude Code)
+        </h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Versendet täglich das Ergebnis der nächtlichen Claude-Code-Routine
+          (<code className="text-xs bg-gray-100 px-1 rounded">analysis_result.json</code>,
+          Branch{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">
+            {ccCfg.branch || 'debug-export-latest'}
+          </code>)
+          per E-Mail. Unabhängig von der KI-Analyse-Pipeline.
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="md:col-span-2">
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <div
+                onClick={() => setCcCfg({ ...ccCfg, enabled: !ccCfg.enabled })}
+                className={`w-11 h-6 rounded-full transition-colors flex items-center px-0.5
+                  ${ccCfg.enabled ? 'bg-purple-600' : 'bg-gray-300'}`}
+              >
+                <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform
+                  ${ccCfg.enabled ? 'translate-x-5' : 'translate-x-0'}`} />
+              </div>
+              <div>
+                <span className="font-medium text-sm">
+                  Code-Analyse-Report aktiviert
+                </span>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Täglich um {String(ccCfg.cron_hour).padStart(2, '0')}:
+                  {String(ccCfg.cron_minute).padStart(2, '0')} Uhr (Europe/Vienna)
+                </p>
+              </div>
+            </label>
+          </div>
+
+          <div>
+            <label className="label">Versand-Stunde (0–23)</label>
+            <input
+              className="input"
+              type="number" min="0" max="23"
+              value={ccCfg.cron_hour}
+              onChange={e => {
+                const value = parseInt(e.target.value, 10)
+                setCcCfg({ ...ccCfg, cron_hour: Number.isNaN(value) ? 4 : value })
+              }}
+            />
+          </div>
+          <div>
+            <label className="label">Versand-Minute (0–59)</label>
+            <input
+              className="input"
+              type="number" min="0" max="59"
+              value={ccCfg.cron_minute}
+              onChange={e => {
+                const value = parseInt(e.target.value, 10)
+                setCcCfg({ ...ccCfg, cron_minute: Number.isNaN(value) ? 0 : value })
+              }}
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <label className="label">Report-E-Mail</label>
+            <input
+              className="input"
+              type="email"
+              placeholder="analyse@example.com (leer = kein Versand)"
+              value={ccCfg.report_email || ''}
+              onChange={e => setCcCfg({ ...ccCfg, report_email: e.target.value })}
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              Unabhängig von der Report-E-Mail der KI-Analyse.
+              SMTP-Konfiguration wird geteilt (.env).
+            </p>
+          </div>
+        </div>
+
+        <div className="flex gap-3 mt-4">
+          <button
+            className="btn-primary"
+            onClick={async () => {
+              setCcMsg('')
+              try {
+                await api.post('/api/claude_code_report/config', ccCfg)
+                setCcSaved(true)
+                setTimeout(() => setCcSaved(false), 3000)
+              } catch (e) {
+                setCcMsg('Fehler: ' + e.message)
+              }
+            }}
+          >
+            Speichern
+          </button>
+          {ccSaved && (
+            <span className="text-green-700 text-sm self-center">✓ Gespeichert</span>
+          )}
+          {ccMsg && (
+            <span className="text-red-600 text-sm self-center">{ccMsg}</span>
+          )}
+        </div>
+      </div>
 
     </div>
   )
