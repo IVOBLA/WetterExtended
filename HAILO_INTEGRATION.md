@@ -1,3 +1,9 @@
+## Phase A — Stabilisierung (aktiv)
+
+| ID | Status | Beschreibung |
+| --- | --- | --- |
+| B115 | ✅ Erledigt | Drift-Ursache: Zeitbasis 2 min statt realer 5 min (ARSO INCA, per Debug-Daten Median 5,0 min belegt). PX_TO_KMH 10.0→4.0, FRAME_INTERVAL_MIN 2.0→5.0 (Geometrie-Invariante exakt erhalten). speed_kmh wird zusätzlich mit echtem dt aus History-Timestamps skaliert (robust gegen fehlende Frames). Kinematischer Fallback nutzt `_actual_frame_min()`; Primärpfad gegen doppelte KML-Timestamps gehärtet. +30-Min-Drift von ~13 km auf <1 km reduziert. |
+
 
 ## B115 – Admin-Export 502 / Prozessabbruch (2026-06-11)
 Status: ERLEDIGT

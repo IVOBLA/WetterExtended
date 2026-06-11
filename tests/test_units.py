@@ -22,11 +22,13 @@ def test_config_scaling_constants():
     assert UPSCALE_FACTOR > 0, "UPSCALE_FACTOR muss positiv sein"
     assert PX_TO_KMH > 0, "PX_TO_KMH muss positiv sein"
     assert FRAME_INTERVAL_MIN > 0, "FRAME_INTERVAL_MIN muss positiv sein"
-    # Plausibilitätsprüfung: 1 px/Frame bei 2 min/Frame ≈ 0.3 km/h pro px
+    # B115: ARSO INCA 5-min-Takt. km_per_px = PX_TO_KMH × FRAME_INTERVAL_MIN / 60
+    # = 4.0 × 5/60 = 0.333 km/px (= 1/UPSCALE_FACTOR), physikalisch korrekt.
     km_per_px_per_frame = PX_TO_KMH * FRAME_INTERVAL_MIN / 60.0
-    assert 0.01 < km_per_px_per_frame < 10.0, (
-        f"Unplausible km/px/Frame: {km_per_px_per_frame:.3f}. "
-        f"PX_TO_KMH={PX_TO_KMH}, FRAME_INTERVAL_MIN={FRAME_INTERVAL_MIN}"
+    assert 0.1 < km_per_px_per_frame < 1.0, (
+        f"Unplausible km/px: {km_per_px_per_frame:.3f} "
+        f"(PX_TO_KMH={PX_TO_KMH}, FRAME_INTERVAL_MIN={FRAME_INTERVAL_MIN}). "
+        f"Erwartung ~0.333 km/px bei UPSCALE=3."
     )
 
 

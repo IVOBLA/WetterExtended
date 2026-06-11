@@ -1134,7 +1134,22 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
                 from config import speed_kmh_from_px as _spd_fn
                 _spd_vx = float(obj_clean.get("vx", 0.0))
                 _spd_vy = float(obj_clean.get("vy", 0.0))
-                _raw_speed = _spd_fn(_spd_vx, _spd_vy)
+                _raw_speed = _spd_fn(_spd_vx, _spd_vy)  # nominal: FRAME_INTERVAL_MIN-Basis
+                # B115: auf ECHTES Frame-Intervall skalieren (robust gegen fehlende
+                # Frames). vx ist px pro real-Step; _spd_fn nimmt den Nominal-Step an.
+                # true = nominal × (FRAME_INTERVAL_MIN / real_dt_min).
+                _hist_spd = obj_clean.get("history", [])
+                if len(_hist_spd) >= 2:
+                    try:
+                        from datetime import datetime as _dt_spd
+                        from config import FRAME_INTERVAL_MIN as _FIM_spd
+                        _t_a = _dt_spd.strptime(_hist_spd[-2]["timestamp"], "%Y-%m-%d_%H-%M-%S")
+                        _t_b = _dt_spd.strptime(_hist_spd[-1]["timestamp"], "%Y-%m-%d_%H-%M-%S")
+                        _real_dt = (_t_b - _t_a).total_seconds() / 60.0
+                        if 1.0 <= _real_dt <= 30.0:
+                            _raw_speed = _raw_speed * (float(_FIM_spd) / _real_dt)
+                    except Exception:
+                        pass
                 # Sicherheitsclamp: max. MAX_CELL_SPEED_KMH (Konsistenz mit Kalman-Clamp)
                 try:
                     import runtime_config as _rc_spd
@@ -1186,7 +1201,7 @@ def _clamp_kalman_velocity(kf, prev_vx: float, prev_vy: float) -> None:
     except ImportError:
         MAX_CELL_SPEED_KMH = 150.0
         MAX_SPEED_CHANGE_PER_CYCLE_KMH = 60.0
-        PX_TO_KMH = 10.0
+        PX_TO_KMH = 4.0
 
     # B105/P0-1: vx/vy sind ORIGINAL-px/Frame → direkt PX_TO_KMH, kein /UF.
     PIXEL_TO_KMH = float(PX_TO_KMH)  # km/h pro ORIGINAL-px/Frame
