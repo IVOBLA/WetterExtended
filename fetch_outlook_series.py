@@ -157,6 +157,7 @@ def fetch_outlook_series(force=False):
         lons = [float(l["lon"]) for l in batch]
         names = [l.get("name", "") for l in batch]
         data = None
+        _conn_fail = False   # B127: True bei Verbindungsfehler (Host-weit)
         for hourly in (_HOURLY_FULL, _HOURLY_MIN):
             # B124: Budget vor jedem Einzelrequest prüfen — nicht nur am Batch-Anfang.
             # Ohne diesen Guard würden bei MAX_REQUESTS_PER_RUN=N beide hourly-Varianten
@@ -180,26 +181,38 @@ def fetch_outlook_series(force=False):
                     api_circuit_breaker.open_circuit(OUTLOOK_SERVICE, _retry_after_from(exc) or api_circuit_breaker.CIRCUIT_COOLDOWN_429, "http-429")
                     return _load_fallback("http_429_fallback")
                 api_circuit_breaker.record_failure(OUTLOOK_SERVICE, f"http-{_status}", http_status=_status)
-            except requests.exceptions.Timeout:
-                api_circuit_breaker.record_failure(OUTLOOK_SERVICE, "Timeout")
-                log_api_failure("Open-Meteo-Outlook", _URL,
-                                "timeout", fallback_used=True)
-            except (requests.exceptions.SSLError, requests.exceptions.ConnectionError) as exc:
+            except (requests.exceptions.Timeout,
+                    requests.exceptions.SSLError,
+                    requests.exceptions.ConnectionError) as exc:
+                # B127: Verbindungsproblem betrifft den gesamten Host — die zweite
+                # hourly-Variante (MIN) würde identisch scheitern. Inneren Loop
+                # abbrechen statt sinnlos erneut gegen einen toten Host zu rufen.
                 api_circuit_breaker.record_failure(OUTLOOK_SERVICE, type(exc).__name__)
                 log_api_failure(
                     "Open-Meteo-Outlook", _URL,
                     f"{type(exc).__name__}: {str(exc)[:80]}",
                     fallback_used=True,
                 )
+                _conn_fail = True
+                break
             except Exception as exc:
                 log_api_failure(
                     "Open-Meteo-Outlook", _URL,
                     f"{type(exc).__name__}: {str(exc)[:80]}",
                     fallback_used=True,
                 )
+                _conn_fail = True
+                break
+        # B127: Nach einem Verbindungsfehler Circuit prüfen — offen → sofort Fallback,
+        # nicht weitere Orte/Batches gegen einen nicht erreichbaren Host feuern.
+        if _conn_fail and api_circuit_breaker.is_open(OUTLOOK_SERVICE):
+            return _load_fallback()
         if data is None:
-            log_api_failure("Open-Meteo-Outlook", _URL,
-                            "all-param-sets-failed", fallback_used=True)
+            # "all-param-sets-failed" nur bei echten Parameter-/HTTP-Fehlern loggen,
+            # nicht bei reinen Verbindungsproblemen (B127).
+            if not _conn_fail:
+                log_api_failure("Open-Meteo-Outlook", _URL,
+                                "all-param-sets-failed", fallback_used=True)
             continue
         target_hour = _now_hour_iso()
         for name, lat, lon, point in zip(names, lats, lons, data):

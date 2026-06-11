@@ -2054,3 +2054,13 @@ Neu: POST /api/system/run_job/<job_id> (admin) startet Fetch/Job im Hintergrund-
      outlook_series(force), outlook_compute, api_health (alle Dienste testen),
      stats_aggregate. Frontend: Karte „Externe Dienste manuell auslösen" auf der Logs-Seite.
 Dateien: app.py, frontend/src/pages/Logs.jsx, tests/test_manual_job_trigger.py (neu)
+
+## B127 – Open-Meteo-Outlook: kein MIN-Retry bei Verbindungsfehler, früher Circuit-Stopp
+Status: ERLEDIGT
+Ursache: Bei ConnectionError/SSLError/Timeout probierte der innere Loop zusätzlich die
+         MIN-hourly-Variante (sinnvoll nur bei HTTP-400) und der Circuit wurde nur am
+         Batch-Anfang geprüft → bis ~27 Fehlerereignisse gegen einen toten Host.
+Fix: Timeout/SSL/Conn brechen den Variant-Loop ab (kein MIN-Retry); danach Circuit prüfen
+     und bei offenem Circuit sofort Fallback. "all-param-sets-failed" nur noch bei echten
+     HTTP-/Parameterfehlern. Optional CIRCUIT_THRESHOLD_CONN via Env senkbar.
+Dateien: fetch_outlook_series.py, tests/test_outlook_conn_break.py (neu)
