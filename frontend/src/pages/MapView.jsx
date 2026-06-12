@@ -1082,7 +1082,11 @@ export default function MapView() {
                 cell_id: p.cell_id ?? p.id, pts: [],
               })
               const h = Number(p.horizon)
-              if (Number.isFinite(h)) g.pts.push({ h, ll: [b[1], b[0]], speed: p.speed_kmh })
+              const q10 = (p.forecast_lat_q10 != null && p.forecast_lon_q10 != null)
+                ? [p.forecast_lat_q10, p.forecast_lon_q10] : null
+              const q90 = (p.forecast_lat_q90 != null && p.forecast_lon_q90 != null)
+                ? [p.forecast_lat_q90, p.forecast_lon_q90] : null
+              if (Number.isFinite(h)) g.pts.push({ h, ll: [b[1], b[0]], speed: p.speed_kmh, q10, q90 })
               if (p.forecast_mode !== 'kinematic') { g.isKin = false; g.color = p.color || g.color }
             })
           return Object.values(_groups).map((g, gi) => {
@@ -1093,8 +1097,19 @@ export default function MapView() {
               ? { color: '#888888', weight: 2, dashArray: '6,5', opacity: 0.8 }
               : { color: g.color, weight: 2.5, opacity: 0.9 }
             const last = sorted[sorted.length - 1]
+            // B130: Unsicherheitskorridor (q10/q90) als EIN sich verbreiterndes Polygon.
+            const _qpts = sorted.filter(s => s.q10 && s.q90)
+            const corridor = (!g.isKin && _qpts.length >= 1)
+              ? [g.origin, ..._qpts.map(s => s.q10), ..._qpts.slice().reverse().map(s => s.q90)]
+              : null
             return (
               <React.Fragment key={'track_' + gi}>
+                {corridor && (
+                  <Polygon positions={corridor} pathOptions={{
+                    color: opts.color, weight: 0.5, dashArray: '2,4',
+                    fillColor: opts.color, fillOpacity: 0.10, interactive: false,
+                  }} />
+                )}
                 <Polyline positions={line} pathOptions={opts}>
                   <Popup>
                     <div>Zelle: <strong>{g.cell_id}</strong></div>

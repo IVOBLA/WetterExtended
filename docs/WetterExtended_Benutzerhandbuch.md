@@ -238,6 +238,12 @@ kinematische Schaetzung (kein ML-Modell aktiv), eine **farbige** Linie eine
 KI-Vorhersage. Diese Darstellung ersetzt die frueheren einzelnen Pfeile je
 Horizont und macht Beschleunigung und Kruemmung der Zugbahn auf einen Blick lesbar.
 
+**Unsicherheitskorridor:** Bei KI-Vorhersagen wird um die Zugbahn ein
+halbtransparenter, sich nach vorn verbreiternder Korridor gezeichnet (gebildet aus
+den 10%- und 90%-Quantilen der Positionsvorhersage). Je weiter in die Zukunft,
+desto breiter der Korridor — er zeigt die wachsende Positionsunsicherheit. Bei
+kinematischen Schaetzungen (graue Zugbahn) wird kein Korridor angezeigt.
+
 
 ### IR-Vorläufer-Layer (🛰 IR-Vorläufer)
 
