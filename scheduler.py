@@ -193,28 +193,41 @@ def run_accuracy_eval_job():
         except Exception as _drift_exc:
             debug_log(f"[SCHEDULER] Drift-Check Fehler: {_drift_exc}")
 
-        # Health-Check: 0 Samples für ALLE Horizonte → Warning + JSONL
+        # B126: Health-Check differenzieren — Schönwetter (keine Zellen) ist
+        # KEIN Defekt. Nur "Zellen vorhanden, aber forecast_lat_* fehlt" warnen.
         all_zero = all(h.get("samples", 0) == 0 for h in result.get("horizons", []))
         if all_zero:
-            import os as _os, glob as _gl, json as _jh, datetime as _dt
-            obj_dir   = SAVE_PATHS.get("objects", "train_data/objects")
-            obj_count = len(_gl.glob(_os.path.join(obj_dir, "*.json")))
-            debug_log(
-                f"[ACCURACY][HEALTH-WARN] 0 verifizierbare Samples für alle Horizonte. "
-                f"Objekt-Dateien vorhanden: {obj_count}. "
-                f"Mögliche Ursachen: (1) forecast_lat_* fehlt in objects-JSON — "
-                f"predict_positions() lief noch nicht, "
-                f"(2) SAVE_PATHS['evaluation'] falsch konfiguriert, "
-                f"(3) Noch keine Zellen im Beobachtungszeitraum erkannt."
-            )
+            import os as _os, json as _jh, datetime as _dt
+            from accuracy_tracker import classify_zero_sample_health
             eval_dir = SAVE_PATHS.get("evaluation", "train_data/evaluation")
+            obj_dir  = SAVE_PATHS.get("objects", "train_data/objects")
+            _hc = classify_zero_sample_health(obj_dir, since_hours=24)
+            if _hc["severity"] == "info":
+                debug_log(
+                    f"[ACCURACY][INFO] Keine Zellen im Beobachtungszeitraum "
+                    f"({_hc['obj_files']} Objekt-Dateien, alle leer) — Ruhephase, kein Defekt."
+                )
+            elif _hc["event"] == "missing_forecast_fields":
+                debug_log(
+                    f"[ACCURACY][HEALTH-WARN] {_hc['total_cells']} Zellen vorhanden, aber KEINE mit "
+                    f"forecast_lat_* — predict_positions() lief nicht ({_hc['obj_files']} Objekt-Dateien)."
+                )
+            else:
+                debug_log(
+                    f"[ACCURACY][HEALTH-WARN] 0 verifizierbare Samples trotz "
+                    f"{_hc['cells_with_forecast']}/{_hc['total_cells']} Zellen mit Vorhersage — "
+                    f"Matching/Zeit-Toleranz prüfen."
+                )
             _os.makedirs(eval_dir, exist_ok=True)
             with open(_os.path.join(eval_dir, "accuracy_health.jsonl"), "a", encoding="utf-8") as _hf:
                 _jh.dump({
-                    "ts":       _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                    "event":    "zero_samples",
-                    "obj_files": obj_count,
-                    "horizons": horizons,
+                    "ts":        _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                    "event":     _hc["event"],
+                    "severity":  _hc["severity"],
+                    "obj_files": _hc["obj_files"],
+                    "total_cells": _hc["total_cells"],
+                    "cells_with_forecast": _hc["cells_with_forecast"],
+                    "horizons":  horizons,
                 }, _hf)
                 _hf.write("\n")
         else:

@@ -59,3 +59,15 @@ Dateien: main.py, tests/test_no_cells_path.py (neu)
 - Behebt: nach `--mode=full` erschienen alte Journal-/nginx-Zeilen weiterhin im
   Debug-Export und Adminpanel als vermeintlich aktuelle Fehler.
 - Test: `tests/test_b124_full_mode_log_clearing.py` (von install.sh Phase 9 ausführbar).
+
+
+### B126 — Accuracy-Health unterscheidet Schönwetter von Defekt ✅ erledigt
+- Ursache der Fehlalarme: `scheduler.py` warnte bei 0 verifizierbaren Samples pauschal,
+  ohne „keine Zellen im Zeitraum" (legitim) von „Zellen vorhanden, aber forecast_lat_*
+  fehlt" (Defekt) zu unterscheiden.
+- Fix: neue reine Helferfunktion `accuracy_tracker.classify_zero_sample_health()`
+  (wertet letzte 24 h `objects/*.json` aus) + differenziertes Logging/JSONL in `scheduler.py`:
+  `no_cells_quiet` (info) / `missing_forecast_fields` (warning) / `zero_samples_despite_forecast` (warning).
+- Test: `tests/test_b126_accuracy_health_quiet.py`.
+- **Phasenbezug:** wichtig für den wartungsarmen Dauerbetrieb auf Pi 5/Hailo-Zielhardware
+  (keine Fehlalarme in Ruhephasen).
