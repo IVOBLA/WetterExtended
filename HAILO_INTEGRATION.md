@@ -71,3 +71,13 @@ Dateien: main.py, tests/test_no_cells_path.py (neu)
 - Test: `tests/test_b126_accuracy_health_quiet.py`.
 - **Phasenbezug:** wichtig für den wartungsarmen Dauerbetrieb auf Pi 5/Hailo-Zielhardware
   (keine Fehlalarme in Ruhephasen).
+
+### B127 — Test-Isolation: numpy-Stub-Kontamination von prediction behoben ✅ erledigt
+- Ursache des roten `test_pt08…::test_predict_lgbm_vector_nan_for_missing`:
+  `test_lstm_feature_mismatch.py` importiert `prediction` mit numpy-Stub
+  (asarray = Identität) und stellt das gecachte Modul nicht wieder her →
+  Folgetest erbt `prediction.np` mit Listen-Rückgabe → `'list' has no shape`.
+- Fix in `tests/conftest.py`: autouse-Teardown `_drop_numpy_contaminated_modules()`
+  entfernt ein mit Stub-np kontaminiertes `prediction`/`model_training` nach jedem
+  Test (Erkennung: fehlendes `ndarray`). Produktionscode unverändert.
+- Test: `tests/test_b127_prediction_isolation.py`.
