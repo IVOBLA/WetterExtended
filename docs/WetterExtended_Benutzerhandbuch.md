@@ -53,6 +53,7 @@ Dieses Dokument ist das offizielle Benutzerhandbuch für das WetterExtended-Syst
 8. [KMZ-Export](#8-kmz-export)
 9. [NEU: Erweiterungen nach v1.0 — Übersicht](#9-neu-erweiterungen-nach-v10--übersicht)
 10. [NEU: Optical Flow (pysteps Lucas-Kanade)](#10-neu-optical-flow-pysteps-lucas-kanade)
+    - [Feldbasierte Zuggeschwindigkeit (optischer Fluss)](#feldbasierte-zuggeschwindigkeit-optischer-fluss)
 11. [NEU: AROME icon_d2 Gitterpunkt-Wetterdaten](#11-neu-arome-icon_d2-gitterpunkt-wetterdaten)
 12. [NEU: Erweiterte Geländemodell-Features (DEM)](#12-neu-erweiterte-geländemodell-features-dem)
 13. [NEU: Windscherung und Hagelindikator](#13-neu-windscherung-und-hagelindikator)
@@ -691,6 +692,21 @@ Zwischen zwei aufeinanderfolgenden Radarbildern wird mit dem Lucas-Kanade-Algori
 | `of_available` | 0/1 | Fallback-Flag: 0 = kein Flow verfügbar (fehlendes Bild) |
 
 > **Hinweis:** Fällt `pysteps` aus oder ein Bild fehlt, werden alle OF-Features auf 0 gesetzt (`of_available=0`). Das Modell lernt dies als „fehlend“ und verliert keine Trainingsdaten.
+
+## Feldbasierte Zuggeschwindigkeit (optischer Fluss)
+
+Die Bewegungsvorhersage einer Zelle stützt sich nun vorrangig auf das
+gemessene Bewegungsfeld des Niederschlags (Lucas-Kanade-Fluss, über die
+Zellfläche gemittelt) statt auf die Verschiebung des Zellschwerpunkts.
+
+Der Vorteil zeigt sich vor allem, wenn zwei Zellen **verschmelzen**: Der
+gemeinsame Schwerpunkt springt dabei, das gemessene Bewegungsfeld bleibt
+jedoch stabil. Die vorhergesagte Zugrichtung bleibt dadurch korrekt.
+
+Im Objekt-JSON ist die verwendete Quelle am Feld `kinematic_source`
+erkennbar (`optflow_fm5.0` = feldbasiert, Frame-Intervall 5 min). Ist kein
+gültiges Bewegungsfeld verfügbar, wird automatisch auf die bisherige
+Schätzung aus den letzten Bewegungen (EWMA) zurückgegriffen.
 
 ---
 

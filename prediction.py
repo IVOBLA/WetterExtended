@@ -275,6 +275,20 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
         avg_vy = _safe_float(obj.get("vy", 0.0)) / _frame_min_fb
         src = "kalman_only"
 
+    # ── P-M02: Feldbasierte Zuggeschwindigkeit (optischer Fluss) hat Vorrang ──
+    # of_vx/of_vy = flächengemittelter Lucas-Kanade-Flow (P-M01), ORIGINAL-px je
+    # FRAME. In px/min umrechnen über das ECHTE Frame-Intervall (gleiche Basis
+    # wie der EWMA-Pfad). TRT/ETITAN: Mittel des Bewegungsfeldes in der Zellfläche
+    # statt Centroid-Verschiebung → robust gegen Merge-Schwerpunktsprünge.
+    # Kalman/EWMA bleibt Fallback (of_available=0, z. B. historische JSONs ohne Flow).
+    if int(obj.get("of_available", 0)) == 1:
+        _fm_of = _actual_frame_min(history, float(_FRAME_MIN) if _FRAME_MIN else 5.0)
+        if not _fm_of or _fm_of <= 0.0:
+            _fm_of = 5.0
+        avg_vx = _safe_float(obj.get("of_vx", 0.0)) / _fm_of
+        avg_vy = _safe_float(obj.get("of_vy", 0.0)) / _fm_of
+        src = f"optflow_fm{round(_fm_of, 1)}"
+
     obj["forecast_mode"]      = "kinematic"
     obj["has_ml_forecast"]    = False
     obj["kinematic_source"]   = src
