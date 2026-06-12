@@ -39,3 +39,14 @@ Ursache: No-Cells-Pfad setzt no_cells_handled nicht, Code fällt in Else-Zweig �
          save_forecast_as_kmz() zweimal aufgerufen
 Fix: no_cells_handled = True im No-Cells-Pfad, Else-Zweig nur bei echtem Datenfehler
 Dateien: main.py, tests/test_no_cells_path.py (neu)
+
+### B123 — install.sh ML-Feature/Model-Kompatibilitäts-Gate ✅ erledigt
+- Neue Phase **8.9** in `install.sh` vor dem Testlauf (Phase 9), beide Modi.
+- Prüft `training_meta.json → feature_count` gegen `config.ML_NUM_FEATURES` über die
+  kanonische `model_training._check_model_compatibility()` (keine Logik-Duplikate).
+- `--mode=full`: inkompatible Modelle werden gelöscht (Neutraining).
+- `--mode=upgrade`: Quarantäne via `_quarantine_incompatible_current()`
+  (current → current_incompatible_<ts>), Runtime läuft kinematisch bis Retrain (B116-Pattern).
+- Test: `tests/test_b123_install_model_gate.py` (von install.sh Phase 9 ausführbar).
+- **Phasenbezug:** Bereitet Phase B (U-Net/Hailo-DFC) vor — verhindert, dass nach
+  einer Feature-Erweiterung veraltete Modelle still in den kinematischen Fallback rutschen.
