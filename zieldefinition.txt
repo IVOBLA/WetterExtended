@@ -71,5 +71,7 @@ Install.sh muss den zustand am raspberry prüfen und alle notwendigen dinge selb
 
 Trefferabweichung bei Vorhersage-Horizonten ≤30 Min muss <1 km betragen (Zielwert: 0 km Drift); Zeitbasis stets aus echten Frame-Timestamps, nie aus nominalen Frame-Annahmen. (ARSO KMZ)
 
+Standard Mailadresse bei KI Themen ist bla@uniquare.com
+
 
 
