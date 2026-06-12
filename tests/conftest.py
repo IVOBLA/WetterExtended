@@ -17,6 +17,8 @@ import sys
 import types
 import importlib
 
+import pytest
+
 
 def pytest_configure(config):
     """Lädt kritische Pakete frühzeitig — vor jeder Test-Datei-Sammlung."""
@@ -43,3 +45,27 @@ def _preload_critical_modules():
             importlib.import_module(name)
         except Exception:
             pass  # Nicht verfügbar/kaputt → pytest.importorskip bzw. Modul-Guards zuständig
+
+
+def _drop_numpy_contaminated_modules():
+    """
+    B127: Entfernt ein mit numpy-Stub kontaminiertes `prediction`/`model_training`
+    aus sys.modules. Tests wie test_lstm_feature_mismatch.py importieren `prediction`
+    mit einem numpy-Stub (asarray liefert die Eingabe unverändert) und stellen das
+    gecachte Modul nicht wieder her. Erkennung: echtes numpy hat `ndarray`, die
+    Stubs nicht. So importiert der nächste Test das Modul wieder mit echtem numpy.
+    """
+    for _name in ("prediction", "model_training"):
+        _mod = sys.modules.get(_name)
+        if _mod is None:
+            continue
+        _np = getattr(_mod, "np", None)
+        if _np is not None and not hasattr(_np, "ndarray"):
+            del sys.modules[_name]
+
+
+@pytest.fixture(autouse=True)
+def _restore_numpy_dependent_modules():
+    """B127: nach jedem Test kontaminierte numpy-abhängige Module bereinigen."""
+    yield
+    _drop_numpy_contaminated_modules()
