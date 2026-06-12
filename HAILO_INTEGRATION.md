@@ -1,3 +1,9 @@
+## P-M — Forecast-Fachfeatures
+
+| ID | Änderung | Datei(en) | Status |
+| --- | --- | --- | --- |
+| P-M02 | **Feldbasierte Zuggeschwindigkeit im Forecast.** `prediction.py` `_append_kinematic`: bei gültigem optischen Fluss (of_available=1) wird die kinematische Vorhersage aus `of_vx/of_vy` (→ px/min über echtes Frame-Intervall) extrapoliert statt aus der centroid-/Kalman-EWMA; `kinematic_source=optflow_fm<n>`. Behebt falsche Richtungsvorhersage beim Zell-Merge an der Wurzel. Kalman/EWMA bleibt Fallback; Train=Inference gewahrt (gleiche Quelle in path_*-Vorbelegung). | `prediction.py`, `tests/test_forecast_uses_optflow.py` | ✅ erledigt |
+
 ## Phase A — Stabilisierung (aktiv)
 
 | ID | Status | Beschreibung |
