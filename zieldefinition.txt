@@ -68,4 +68,8 @@ beachte immer HAILO_INTEGRATION.md
 install.sh muss auch alle für hailo notwendigen schritte am raspi durchführen (HAILO_INSTALL.md)
 
 Install.sh muss den zustand am raspberry prüfen und alle notwendigen dinge selbständig incl. HAILO installieren (wenn vollinstallation)
-Trefferabweichung bei Vorhersage-Horizonten ≤30 Min muss <1 km betragen (Zielwert: 0 km Drift); Zeitbasis stets aus echten Frame-Timestamps, nie aus nominalen Frame-Annahmen.
+
+Trefferabweichung bei Vorhersage-Horizonten ≤30 Min muss <1 km betragen (Zielwert: 0 km Drift); Zeitbasis stets aus echten Frame-Timestamps, nie aus nominalen Frame-Annahmen. (ARSO KMZ)
+
+
+
