@@ -321,6 +321,19 @@ def build_dataset(model_save_dir=None):
     return {"X": X_scaled, "y": y_scaled, "y_raw": y_raw, "ids": ids, "timestamps": _ts_list, "rejected_samples": n_rejected, "rejection_reasons": rejection_reasons}
 
 
+def _merge_contaminated(o_now, o_fut):
+    """P-M04: True, wenn Jetzt- ODER Ziel-Frame eine Merge-Diskontinuität trägt.
+    Schließt das Sample vom intensified-Label-Training aus (Merge-Artefakt)."""
+    try:
+        if int(o_now.get("merge_discontinuity", 0)) == 1:
+            return True
+        if int(o_fut.get("merge_discontinuity", 0)) == 1:
+            return True
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return False
+
+
 def build_classification_dataset():
     missing_deps = _dependencies_available()
     if missing_deps:
@@ -396,6 +409,9 @@ def build_classification_dataset():
 
             obj_now = now_map[oid]
             obj_fut = fut_map[oid]
+            # P-M04: Merge-kontaminierte Frames ausschließen (künstlicher Sprung).
+            if _merge_contaminated(obj_now, obj_fut):
+                continue
             core_now = _safe_float(obj_now.get("core_ratio", 0.0))
             core_fut = _safe_float(obj_fut.get("core_ratio", 0.0))
             size_now = max(_safe_float(obj_now.get("size", 0.0)), 1e-6)
