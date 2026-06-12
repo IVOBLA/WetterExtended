@@ -61,6 +61,20 @@ def _safe_float(v):
     except: return 0.0
 
 
+def _merge_contaminated(o_now, o_fut):
+    """P-M04: True, wenn Jetzt- ODER Ziel-Frame eine Merge-Diskontinuität trägt.
+    An solchen Frames ist der Flächen-/Kern-Sprung ein Tracking-Artefakt, kein
+    physikalischer Trend → Sample für Δ-Label-Training ausschließen."""
+    try:
+        if int(o_now.get("merge_discontinuity", 0)) == 1:
+            return True
+        if int(o_fut.get("merge_discontinuity", 0)) == 1:
+            return True
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return False
+
+
 def _parse_ts(path):
     name = os.path.splitext(os.path.basename(path))[0]
     return datetime.strptime(name, "%Y-%m-%d_%H-%M-%S")
@@ -139,6 +153,7 @@ def build_regression_intensity_dataset():
             debug_log(f"[INTREG] Ladefehler {op}: {exc}")
 
     rows = []
+    _n_merge_skipped = 0
     for i in range(ML_SEQUENCE_LENGTH - 1, len(frames) - _HORIZON_STEP):
         ts_now, objs_now, stations_now = frames[i]
         _, objs_fut, _               = frames[i + _HORIZON_STEP]
@@ -150,6 +165,11 @@ def build_regression_intensity_dataset():
         for oid in common:
             o_now = now_map[oid]
             o_fut = fut_map[oid]
+
+            # P-M04: Merge-kontaminierte Frames ausschließen (künstlicher Sprung).
+            if _merge_contaminated(o_now, o_fut):
+                _n_merge_skipped += 1
+                continue
 
             feats = _frame_features(o_now, stations_now, ts_now)
             if len(feats) == 0:
@@ -179,7 +199,8 @@ def build_regression_intensity_dataset():
         return None
 
     df = pd.DataFrame(rows)
-    debug_log(f"[INTREG] Dataset: {len(df)} Samples gebaut")
+    debug_log(f"[INTREG] Dataset: {len(df)} Samples gebaut "
+              f"({_n_merge_skipped} Merge-kontaminierte Samples übersprungen, P-M04)")
     return df
 
 
