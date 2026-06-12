@@ -2,7 +2,9 @@
 
 | ID | Änderung | Datei(en) | Status |
 | --- | --- | --- | --- |
+| P-M03 | **Merge-bewusste Tendenz.** `object_tracking.py`: neue reine Helfer (`_merge_prev_area`, `_merge_prev_core`, `_intensity_trend_vs_baseline`, `_size_trend_vs_baseline`); `trend`/`size_trend` vergleichen beim Merge gegen Summe/flächengewichtetes Mittel der Parents statt gegen den dominanten Einzel-Parent → kein Scheinwachstum/Scheinverstärkung. `merge_discontinuity` (Metadatum, kein ML-Feature) wird ins Objekt-JSON geschrieben. `prediction.py` `_classify_tendency`: `of_divergence` als merge-robuster Intensitäts-Tie-Breaker bei neutraler Tracker-Tendenz. | `object_tracking.py`, `prediction.py`, `tests/test_merge_tendency.py` | ✅ erledigt |
 | P-M02 | **Feldbasierte Zuggeschwindigkeit im Forecast.** `prediction.py` `_append_kinematic`: bei gültigem optischen Fluss (of_available=1) wird die kinematische Vorhersage aus `of_vx/of_vy` (→ px/min über echtes Frame-Intervall) extrapoliert statt aus der centroid-/Kalman-EWMA; `kinematic_source=optflow_fm<n>`. Behebt falsche Richtungsvorhersage beim Zell-Merge an der Wurzel. Kalman/EWMA bleibt Fallback; Train=Inference gewahrt (gleiche Quelle in path_*-Vorbelegung). | `prediction.py`, `tests/test_forecast_uses_optflow.py` | ✅ erledigt |
+| P-M04 | **ML-Label-Masking am Merge-Frame.** `dataset_builder.py`: delta_area/delta_core_ratio-Labels an Frames mit merge_discontinuity=1 ausschließen/maskieren, damit die Regressoren nicht auf den künstlichen Merge-Sprung trainieren. Erfordert Verifikation der exakten Label-Berechnungsstelle. | `dataset_builder.py` | 🚧 geplant |
 
 ## Phase A — Stabilisierung (aktiv)
 

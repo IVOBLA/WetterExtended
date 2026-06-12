@@ -396,6 +396,17 @@ def _classify_tendency(obj: dict, has_ml: bool) -> None:
     else:
         t = int(obj.get("trend", 0) or 0)
         st = int(obj.get("size_trend", 0) or 0)
+        # P-M03: Feldbasierte Divergenz als merge-robustes Intensitätssignal.
+        # Konvergenz (negativ) → Intensivierung; Divergenz (positiv) → Abschwächung.
+        # Nur als Tie-Breaker bei neutraler Tracker-Tendenz (t == 0), damit
+        # eindeutige core_ratio-Trends Vorrang behalten.
+        _OF_DIV_TH = 0.02
+        if t == 0 and int(obj.get("of_available", 0)) == 1:
+            _div = _safe_float(obj.get("of_divergence", 0.0))
+            if _div < -_OF_DIV_TH:
+                t = 1
+            elif _div > _OF_DIV_TH:
+                t = -1
         obj["intensity_tendency"] = (
             "staerker" if t > 0 else "schwaecher" if t < 0 else "stabil"
         )

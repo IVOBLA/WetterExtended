@@ -538,6 +538,58 @@ def calculate_core_ratio(hsv, contour):
     total_pixels = cv2.countNonZero(mask)
     return core_pixels / total_pixels if total_pixels > 0 else 0
 
+
+# ── P-M03: Merge-bewusste Tendenz-Basislinien (rein, testbar) ───────────────
+def _merge_prev_area(parents, previous_snapshot):
+    """Summe der Flächen aller Parent-Zellen (Merge-Basislinie für size_trend).
+    None, wenn keine gültige Fläche vorliegt."""
+    total = 0.0
+    for pid in (parents or []):
+        p = previous_snapshot.get(pid)
+        if p:
+            total += float(p.get("area") or 0.0)
+    return total if total > 0.0 else None
+
+
+def _merge_prev_core(parents, previous_snapshot):
+    """Flächengewichtetes Mittel der core_ratio aller Parents (Merge-Basislinie
+    für trend). None, wenn keine gültige Fläche/core_ratio vorliegt."""
+    w_core = 0.0
+    w_sum = 0.0
+    for pid in (parents or []):
+        p = previous_snapshot.get(pid)
+        if not p:
+            continue
+        pa = float(p.get("area") or 0.0)
+        if pa > 0.0 and "core_ratio" in p:
+            w_core += float(p["core_ratio"]) * pa
+            w_sum += pa
+    return (w_core / w_sum) if w_sum > 0.0 else None
+
+
+def _intensity_trend_vs_baseline(core_ratio, prev_core, delta=0.05):
+    """+1 / -1 / 0 anhand core_ratio-Differenz zur Basislinie."""
+    if prev_core is None:
+        return 0
+    if core_ratio > prev_core + delta:
+        return 1
+    if core_ratio < prev_core - delta:
+        return -1
+    return 0
+
+
+def _size_trend_vs_baseline(area, prev_area, pct_stable):
+    """+1 / -1 / 0 anhand relativer Flächenänderung zur Basislinie."""
+    if not prev_area or prev_area <= 0.0:
+        return 0
+    pct = (float(area) - prev_area) / prev_area
+    if pct > pct_stable:
+        return 1
+    if pct < -pct_stable:
+        return -1
+    return 0
+
+
 def update_tracking_memory(hsv, contours, weather_data, timestamp):
     FILTER_CONFIG = _get_filter_config_live()
     # was_active-Schwellwert — runtime-überschreibbar über Admin-Panel
@@ -820,25 +872,26 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             kf.Q = np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0.5, 0], [0, 0, 0, 0.5]])
             vx, vy = 0.0, 0.0
 
-        trend = 0
-        if best_id and best_id in previous_snapshot and "core_ratio" in previous_snapshot[best_id]:
+        # P-M03: Beim Merge gegen das flächengewichtete Mittel ALLER Parent-Kerne
+        # vergleichen — nicht nur gegen den dominanten Parent (sonst Scheinverstärkung).
+        if lineage == "merged":
+            prev_core = _merge_prev_core(parents, previous_snapshot)
+        elif best_id and best_id in previous_snapshot and "core_ratio" in previous_snapshot[best_id]:
             prev_core = previous_snapshot[best_id]["core_ratio"]
-            if core_ratio > prev_core + 0.05:
-                trend = 1
-            elif core_ratio < prev_core - 0.05:
-                trend = -1
+        else:
+            prev_core = None
+        trend = _intensity_trend_vs_baseline(core_ratio, prev_core, delta=0.05)
 
         # ── B92: Größen-Tendenz aus core_ratio-/Flächen-Verlauf (Fallback) ──
         # area-Vergleich gegen vorigen Frame → relative Flächenänderung.
-        size_trend = 0
-        if best_id and best_id in previous_snapshot and "area" in previous_snapshot[best_id]:
-            prev_area = float(previous_snapshot[best_id].get("area") or 0.0)
-            if prev_area > 0.0:
-                _area_pct = (float(area) - prev_area) / prev_area
-                if _area_pct > TENDENCY_AREA_PCT_STABLE:
-                    size_trend = 1
-                elif _area_pct < -TENDENCY_AREA_PCT_STABLE:
-                    size_trend = -1
+        # P-M03: Beim Merge gegen die SUMME der Parent-Flächen vergleichen.
+        if lineage == "merged":
+            prev_area = _merge_prev_area(parents, previous_snapshot)
+        elif best_id and best_id in previous_snapshot and "area" in previous_snapshot[best_id]:
+            prev_area = float(previous_snapshot[best_id].get("area") or 0.0) or None
+        else:
+            prev_area = None
+        size_trend = _size_trend_vs_baseline(area, prev_area, TENDENCY_AREA_PCT_STABLE)
 
         dem    = get_dem_features(lat, lon, vx=float(vx), vy=float(vy))
         valley = get_valley_features(lat, lon, vx=float(vx), vy=float(vy))
@@ -850,6 +903,7 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             "size": int(np.sqrt(area)), "area": float(area), "eccentricity": float(eccentricity),
             "core_ratio": float(core_ratio), "trend": trend,
             "size_trend": size_trend,
+            "merge_discontinuity": 1 if lineage == "merged" else 0,
             "lat": lat, "lon": lon,
             "dem_elevation_m":        dem["dem_elevation_m"],
             "dem_slope_toward_cell":  dem["dem_slope_toward_cell"],
