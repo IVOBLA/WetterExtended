@@ -81,3 +81,11 @@ Dateien: main.py, tests/test_no_cells_path.py (neu)
   entfernt ein mit Stub-np kontaminiertes `prediction`/`model_training` nach jedem
   Test (Erkennung: fehlendes `ndarray`). Produktionscode unverändert.
 - Test: `tests/test_b127_prediction_isolation.py`.
+
+### B125 — EUMETView GetCapabilities robust gegen ParseError/Truncation (erledigt)
+- Ursache der IR108-Veraltung: abgeschnittene GetCapabilities-Antworten (Timeout 10 s)
+  -> ParseError/fehlender Layer -> get_latest_wms_time() lieferte None -> altes TIFF
+  wurde ~11 h still wiederverwendet.
+- Fix in cloud_height_from_eumetview.py: Timeout 10->30 s; Vollstaendigkeitspruefung
+  (schliessendes </WMS_Capabilities>/</WMT_MS_Capabilities>) + bis zu 3 Neuversuche.
+- Test: tests/test_b125_eumetview_caps_robust.py.

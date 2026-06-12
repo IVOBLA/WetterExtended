@@ -148,7 +148,9 @@ def get_latest_wms_time() -> str | None:
         import time as _t_wms_cap
         _t0_wms_cap = _t_wms_cap.monotonic()
         from http_retry import retry_get
-        r = retry_get(url, service="EUMETView-WMS-Caps", timeout=10)
+        # B125: GetCapabilities ist ein großes Dokument — 10 s führten zu
+        # abgeschnittenen Antworten (ParseError). Timeout erhöht.
+        r = retry_get(url, service="EUMETView-WMS-Caps", timeout=30)
         _dur_ms = (_t_wms_cap.monotonic() - _t0_wms_cap) * 1000
         log_http_response(
             service="eumetview_wms_caps",
@@ -158,7 +160,29 @@ def get_latest_wms_time() -> str | None:
         )
         if r.ok:
             _dbg("capabilities_response", reason=f"http-{r.status_code}")
-            root = ET.fromstring(r.content)
+            # B125: Robustes Parsing — abgeschnittene Capabilities (ParseError /
+            # fehlendes Schluss-Tag) bis zu 3x neu anfragen, bevor aufgegeben wird.
+            root = None
+            _caps_body = r.content
+            for _b125_att in range(3):
+                _tail = (_caps_body or b"")[-512:].lower()
+                _complete = (b"</wms_capabilities>" in _tail) or (b"</wmt_ms_capabilities>" in _tail)
+                if _complete:
+                    try:
+                        root = ET.fromstring(_caps_body)
+                        break
+                    except ET.ParseError:
+                        _dbg("capabilities_response", reason=f"exception-ParseError-retry{_b125_att}")
+                else:
+                    _dbg("capabilities_response", reason=f"incomplete-capabilities-retry{_b125_att}")
+                try:
+                    _rr = retry_get(url, service="EUMETView-WMS-Caps", timeout=30)
+                    _caps_body = _rr.content if getattr(_rr, "ok", False) else b""
+                except Exception:
+                    _caps_body = b""
+            if root is None:
+                _dbg("timestamp_missing", reason="parse-failed-after-retries")
+                return None
             target_layer = None
             for layer in root.iter():
                 if _norm_tag(layer.tag) != "Layer":
