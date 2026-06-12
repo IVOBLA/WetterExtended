@@ -98,3 +98,12 @@ Dateien: main.py, tests/test_no_cells_path.py (neu)
 - Fix in cloud_height_from_eumetview.py: Timeout 10->30 s; Vollstaendigkeitspruefung
   (schliessendes </WMS_Capabilities>/</WMT_MS_Capabilities>) + bis zu 3 Neuversuche.
 - Test: tests/test_b125_eumetview_caps_robust.py.
+
+### B129 — Test-Isolation des API-Fehler-Logs (erledigt)
+- Ursache der vielen Open-Meteo-"Fehler" im Dashboard: pytest-Tests (Outlook/
+  Circuit-Breaker) riefen log_api_failure() auf und schrieben synthetische
+  Eintraege ('RuntimeError: x', 'ConnectionError: down', ...) in die ECHTE
+  train_data/evaluation/api_health.jsonl (install.sh Phase 9).
+- Fix in tests/conftest.py: autouse-Fixture lenkt debug_utils._API_HEALTH_FILE
+  pro Test in ein tmp-Verzeichnis um. Produktionscode unveraendert.
+- Test: tests/test_b129_api_health_isolation.py.
