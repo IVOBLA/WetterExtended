@@ -50,3 +50,12 @@ Dateien: main.py, tests/test_no_cells_path.py (neu)
 - Test: `tests/test_b123_install_model_gate.py` (von install.sh Phase 9 ausführbar).
 - **Phasenbezug:** Bereitet Phase B (U-Net/Hailo-DFC) vor — verhindert, dass nach
   einer Feature-Erweiterung veraltete Modelle still in den kinematischen Fallback rutschen.
+
+### B124 — install.sh Full-Modus leert ALLE Logs vollständig ✅ erledigt
+- **Journal:** wirkungslose Per-Unit-`--vacuum-time --unit`-Schleife entfernt;
+  ersetzt durch korrektes globales `journalctl --rotate` + `--vacuum-time=1s`.
+- **nginx:** `/var/log/nginx/access.log` und `error.log` werden im Full-Modus
+  geleert (`truncate -s 0`) + `systemctl reload nginx`/`nginx -s reopen`.
+- Behebt: nach `--mode=full` erschienen alte Journal-/nginx-Zeilen weiterhin im
+  Debug-Export und Adminpanel als vermeintlich aktuelle Fehler.
+- Test: `tests/test_b124_full_mode_log_clearing.py` (von install.sh Phase 9 ausführbar).

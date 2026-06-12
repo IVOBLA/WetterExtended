@@ -653,14 +653,28 @@ fi
 # Bei full-Modus: Journal + Evaluation-Logs leeren (sonst sieht /logs nach
 # Neuinstallation noch alle Logs der alten Installation)
 if [[ "$MODE" == "full" ]]; then
-    log_info "Leere systemd Journal-Logs für Wetterprojekt-Services..."
+    # B124: journald unterstützt KEIN Per-Unit-Vacuum (--vacuum-* ignoriert --unit).
+    # Korrekt: aktives Journal per --rotate archivieren, dann ALLE Archive global
+    # per --vacuum-time=1s entfernen. Auf dem dedizierten Wetter-Pi ist das
+    # vollständige Leeren des Journals gewollt.
+    log_info "Leere systemd Journal-Logs (global rotate + vacuum)..."
     sudo journalctl --rotate 2>/dev/null || true
-    for _unit in wetterprojekt wetterprojekt-scheduler wetterprojekt-admin; do
-        sudo journalctl --vacuum-time=1s --unit="$_unit" 2>/dev/null || true
-    done
-    # Globaler Vacuum als Fallback (ältere systemd-Versionen)
-    sudo journalctl --vacuum-size=1K 2>/dev/null || true
+    sleep 1
+    sudo journalctl --vacuum-time=1s 2>/dev/null || true
     log_info "Journal geleert."
+
+    # B124: nginx-Zugriffs-/Fehler-Logs ebenfalls leeren — sonst zeigt der
+    # Debug-Export/das Adminpanel nach der Neuinstallation weiterhin alte
+    # nginx-Zeilen. truncate behält die Inode → nginx neu öffnen lassen.
+    for _nlog in /var/log/nginx/access.log /var/log/nginx/error.log; do
+        if [[ -f "$_nlog" ]]; then
+            sudo truncate -s 0 "$_nlog" 2>/dev/null \
+                || sudo sh -c ": > '$_nlog'" 2>/dev/null || true
+        fi
+    done
+    # nginx die Log-Handles neu öffnen lassen (sonst schreibt es an alte Offsets).
+    sudo systemctl reload nginx 2>/dev/null || sudo nginx -s reopen 2>/dev/null || true
+    log_info "nginx-Logs geleert."
 
     _eval_dir="$TARGET/train_data/evaluation"
     if [[ -d "$_eval_dir" ]]; then
