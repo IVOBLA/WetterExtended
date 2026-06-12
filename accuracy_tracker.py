@@ -261,6 +261,45 @@ def evaluate_all(horizons: List[int], since_hours: int = 24) -> dict:
             "horizons": [evaluate_for_horizon(h, since_hours) for h in horizons]}
 
 
+def classify_zero_sample_health(obj_dir: str, since_hours: int = 24) -> dict:
+    """
+    B126: Klassifiziert eine Null-Sample-Accuracy-Lage, um Schönwetter
+    (legitime Ruhephase) von einem echten Pipeline-Defekt zu unterscheiden.
+    Rein lesend, kein Logging.
+
+      total_cells == 0                       → 'no_cells_quiet'              (info)
+      total_cells > 0, keine forecast_lat_*  → 'missing_forecast_fields'     (warning)
+      sonst                                  → 'zero_samples_despite_forecast'(warning)
+    """
+    cutoff = datetime.utcnow() - timedelta(hours=since_hours)
+    files = glob.glob(os.path.join(obj_dir, "*.json"))
+    total_cells = 0
+    cells_with_forecast = 0
+    for p in files:
+        ts = _parse_ts(p)
+        if ts is None or ts < cutoff:
+            continue
+        for o in _load_objects(p):
+            if not isinstance(o, dict) or "id" not in o:
+                continue
+            total_cells += 1
+            if any(str(k).startswith("forecast_lat_") for k in o.keys()):
+                cells_with_forecast += 1
+    if total_cells == 0:
+        event, severity = "no_cells_quiet", "info"
+    elif cells_with_forecast == 0:
+        event, severity = "missing_forecast_fields", "warning"
+    else:
+        event, severity = "zero_samples_despite_forecast", "warning"
+    return {
+        "event": event,
+        "severity": severity,
+        "obj_files": len(files),
+        "total_cells": total_cells,
+        "cells_with_forecast": cells_with_forecast,
+    }
+
+
 def append_history_point(metric: dict) -> str:
     os.makedirs(EVAL_DIR, exist_ok=True)
     metric = dict(metric)
