@@ -25,6 +25,7 @@ Dieses Dokument ist das offizielle Benutzerhandbuch für das WetterExtended-Syst
 2. [Voraussetzungen und Installation](#2-voraussetzungen-und-installation)
    - [2.1 install.sh — Vollinstallation (--mode=full)](#21-installsh--vollinstallation---modefull)
    - [2.2 install.sh — Upgrade (--mode=upgrade)](#22-installsh--upgrade---modeupgrade)
+   - [2.4 Automatische ML-Kompatibilitätsprüfung (B123)](#24-automatische-ml-kompatibilitätsprüfung-b123)
    - [2.3 install.sh — Optionen](#23-installsh--optionen)
 3. [Betrieb und systemd-Services](#3-betrieb-und-systemd-services)
 4. [Admin-Panel — Seiten und Bedienung](#4-admin-panel--seiten-und-bedienung)
@@ -141,6 +142,22 @@ Beim Upgrade werden aktualisiert: Python-Pakete, Frontend-Build, systemd-Unit-Da
 Auch beim Upgrade wird als letzter Schritt die Test-Suite ausgeführt
 (Phase 9). Rote Tests führen ausschließlich zu einer Warnung und brechen die
 Installation niemals ab — das bereits aktualisierte System bleibt in Betrieb.
+
+## 2.4 Automatische ML-Kompatibilitätsprüfung (B123)
+
+Vor dem Testlauf prüft `install.sh` (Phase 8.9, beide Modi) automatisch, ob die
+Feature-Anzahl der vorhandenen ML-Modelle noch zur aktuellen Konfiguration
+(`ML_NUM_FEATURES`) passt. Wird nach einer Feature-Erweiterung ein veralteter
+Modellstand erkannt:
+
+- **`--mode=full`** löscht die inkompatiblen Modelle automatisch — sie werden beim
+  nächsten Training neu erstellt.
+- **`--mode=upgrade`** verschiebt sie schonend in die Quarantäne
+  (`current` → `current_incompatible_<Zeitstempel>`). Es gehen keine Lerndaten
+  verloren; bis zum nächsten Retraining arbeitet die Vorhersage rein kinematisch.
+
+So ist ausgeschlossen, dass die Vorhersage nach einer Code-Erweiterung unbemerkt
+in den kinematischen Fallback rutscht.
 
 ## 2.3 `install.sh` — Optionen
 

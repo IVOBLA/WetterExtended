@@ -1858,6 +1858,77 @@ else
 fi
 
 # ==============================================================================
+# PHASE 8.9 — ML-Modell/Feature-Kompatibilität (B123)
+# ==============================================================================
+# Prüft ob die Feature-Anzahl der vorhandenen Modelle (training_meta.json →
+# feature_count) zur aktuellen config.ML_NUM_FEATURES passt. Nutzt die
+# kanonischen Funktionen aus model_training.py (keine Logik-Duplikate).
+#   full    → inkompatible Modelle löschen (werden neu trainiert)
+#   upgrade → quarantänisieren (current → current_incompatible_<ts>), kein Löschen
+CURRENT_PHASE="Phase 8.9 — ML-Kompatibilität"
+log_step "Phase 8.9 — ML-Modell/Feature-Kompatibilität (B123)"
+
+if [[ -x "$VENV/bin/python3" ]]; then
+    # Im Projektverzeichnis ausführen, damit config.py/model_training importierbar sind.
+    _COMPAT_JSON="$( cd "$TARGET" && "$VENV/bin/python3" - <<'PYB123' 2>/dev/null
+import json, os
+try:
+    import model_training as mt
+    mdir = mt._current_models_dir()
+    real = os.path.realpath(mdir) if mdir else ""
+    res = mt._check_model_compatibility(mdir) if mdir else {"compatible": True, "reason": "kein current"}
+    print(json.dumps({
+        "dir": mdir or "",
+        "real": real,
+        "exists": bool(mdir and os.path.exists(mdir)),
+        "compatible": bool(res.get("compatible", True)),
+        "reason": res.get("reason", ""),
+    }))
+except Exception as exc:
+    print(json.dumps({"dir": "", "real": "", "exists": False,
+                      "compatible": True, "reason": f"check-skip: {exc}"}))
+PYB123
+)"
+    _COMPAT_OK="$(printf '%s' "$_COMPAT_JSON"   | "$VENV/bin/python3" -c "import json,sys; print(json.load(sys.stdin).get('compatible'))" 2>/dev/null || echo True)"
+    _COMPAT_DIR="$(printf '%s' "$_COMPAT_JSON"  | "$VENV/bin/python3" -c "import json,sys; print(json.load(sys.stdin).get('dir',''))" 2>/dev/null || echo '')"
+    _COMPAT_REAL="$(printf '%s' "$_COMPAT_JSON" | "$VENV/bin/python3" -c "import json,sys; print(json.load(sys.stdin).get('real',''))" 2>/dev/null || echo '')"
+    _COMPAT_EX="$(printf '%s' "$_COMPAT_JSON"   | "$VENV/bin/python3" -c "import json,sys; print(json.load(sys.stdin).get('exists'))" 2>/dev/null || echo False)"
+    _COMPAT_RE="$(printf '%s' "$_COMPAT_JSON"   | "$VENV/bin/python3" -c "import json,sys; print(json.load(sys.stdin).get('reason',''))" 2>/dev/null || echo '')"
+
+    if [[ "$_COMPAT_OK" == "True" ]]; then
+        check_ok "ML-Modelle kompatibel zu ML_NUM_FEATURES (${_COMPAT_RE:-keine Modelle vorhanden})"
+    else
+        check_warn "B123: ML-Feature-Mismatch erkannt — ${_COMPAT_RE}"
+        if [[ "$MODE" == "full" ]]; then
+            # Full-Modus: inkompatible Modelle löschen (werden neu trainiert).
+            # current ist i.d.R. ein Symlink auf v_<id> → realen Pfad löschen + Link entfernen.
+            if [[ "$_COMPAT_EX" == "True" ]]; then
+                if [[ -n "$_COMPAT_REAL" && -d "$_COMPAT_REAL" && "$_COMPAT_REAL" == "$TARGET"/train_data/models/* ]]; then
+                    log_warn "[B123] Full-Modus: lösche inkompatible Modelle in $_COMPAT_REAL"
+                    rm -rf "$_COMPAT_REAL"
+                fi
+                # Symlink/Verzeichnis 'current' entfernen
+                rm -rf "$_COMPAT_DIR" 2>/dev/null || true
+                check_ok "Inkompatible Modelle gelöscht — werden beim nächsten Training neu erstellt."
+            else
+                check_ok "Keine inkompatiblen Modelle vorhanden (Full-Modus hat sie bereits entfernt)."
+            fi
+        else
+            # Upgrade-Modus: quarantänisieren (kein Löschen — user-generierte Lerndaten).
+            log_warn "[B123] Upgrade-Modus: quarantänisiere inkompatiblen Modellstand (kein Löschen)."
+            if ( cd "$TARGET" && "$VENV/bin/python3" -c "import model_training as mt; mt._quarantine_incompatible_current('install.sh B123: feature mismatch')" ) 2>/dev/null; then
+                check_ok "Modelle quarantänisiert (current → current_incompatible_*). Runtime läuft kinematisch bis Retrain."
+            else
+                check_warn "B123: Quarantäne fehlgeschlagen — bitte manuell prüfen."
+            fi
+            note_manual "B123: ML-Feature-Mismatch — nach Datensammlung neu trainieren: cd $TARGET && source venv/bin/activate && python3 dataset_builder.py && python3 model_training.py"
+        fi
+    fi
+else
+    check_warn "B123: venv-Python fehlt — ML-Kompatibilitätsprüfung übersprungen."
+fi
+
+# ==============================================================================
 # PHASE 9 — Tests (letzter Schritt, beide Modi)
 # ==============================================================================
 CURRENT_PHASE="Phase 9 — Tests"
