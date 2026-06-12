@@ -682,52 +682,53 @@ export default function MapFullscreen() {
           )
         })}
 
-        {(currentIdx === frames.length - 1 || frames.length === 0) &&
-         (forecast.features || [])
-          .filter(f => f.properties?.has_arrow !== false)
-          .map((f, i) => {
-            const [a, b] = f.geometry.coordinates
-            const p = f.properties || {}
-            const isKinematic = p.forecast_mode === 'kinematic'
-            const style = horizons.styles[p.horizon] || horizons.styles[String(p.horizon)] || {}
-            const slowOpacity = p.is_slow_arrow ? 0.35 : undefined
-            const pathOpts = isKinematic
-              ? { color: '#888888', weight: 1.5, dashArray: '6,5', opacity: slowOpacity ?? 0.7 }
-              : { color: p.color || '#888', weight: style.weight || 2, dashArray: p.is_slow_arrow ? '2,6' : (style.dash || ''), opacity: slowOpacity ?? 1.0 }
-            const q10Lat = p.forecast_lat_q10
-            const q10Lon = p.forecast_lon_q10
-            const q90Lat = p.forecast_lat_q90
-            const q90Lon = p.forecast_lon_q90
-            const hasQ = q10Lat != null && q10Lon != null && q90Lat != null && q90Lon != null
-
+        {/* B128: Durchgehende Zugbahn statt radialem Pfaecher */}
+        {(currentIdx === frames.length - 1 || frames.length === 0) && (() => {
+          const _groups = {}
+          ;(forecast.features || [])
+            .filter(f => f?.properties?.has_arrow !== false)
+            .forEach(f => {
+              const c = f.geometry?.coordinates
+              const p = f.properties || {}
+              if (!c || c.length < 2) return
+              const a = c[0], b = c[1]
+              const key = String(p.cell_id ?? p.id ?? 'x')
+              const g = _groups[key] || (_groups[key] = {
+                origin: [a[1], a[0]], isKin: true, color: '#888888',
+                cell_id: p.cell_id ?? p.id, pts: [],
+              })
+              const h = Number(p.horizon)
+              if (Number.isFinite(h)) g.pts.push({ h, ll: [b[1], b[0]], speed: p.speed_kmh })
+              if (p.forecast_mode !== 'kinematic') { g.isKin = false; g.color = p.color || g.color }
+            })
+          return Object.values(_groups).map((g, gi) => {
+            const sorted = g.pts.slice().sort((x, y) => x.h - y.h)
+            if (sorted.length === 0) return null
+            const line = [g.origin, ...sorted.map(s => s.ll)]
+            const opts = g.isKin
+              ? { color: '#888888', weight: 2, dashArray: '6,5', opacity: 0.8 }
+              : { color: g.color, weight: 2.5, opacity: 0.9 }
+            const last = sorted[sorted.length - 1]
             return (
-              <React.Fragment key={'arrow_grp_' + i}>
-                <Polyline
-                  positions={[[a[1], a[0]], [b[1], b[0]]]}
-                  pathOptions={pathOpts}>
+              <React.Fragment key={'track_' + gi}>
+                <Polyline positions={line} pathOptions={opts}>
                   <Popup>
-                    <div>Zelle: <strong>{p.cell_id || p.id}</strong></div>
-                    <div>+{p.horizon} min {isKinematic ? '(Schätzung)' : '(KI)'}</div>
-                    {p.speed_kmh != null && <div>{p.speed_kmh} km/h</div>}
-                    {p.hail_warning && <div className="text-red-600 font-bold">🧊 Hagelwarnung</div>}
+                    <div>Zelle: <strong>{g.cell_id}</strong></div>
+                    <div>Zugbahn {g.isKin ? '(Schaetzung)' : '(KI)'} bis +{last.h} min</div>
+                    {last.speed != null && <div>{last.speed} km/h</div>}
                   </Popup>
                 </Polyline>
-
-                {hasQ && !isKinematic && (
-                  <>
-                    <Polyline positions={[[a[1],a[0]],[q10Lat,q10Lon]]} pathOptions={{ color: pathOpts.color, weight:1, dashArray:'3,5', opacity:0.45 }} />
-                    <Polyline positions={[[a[1],a[0]],[q90Lat,q90Lon]]} pathOptions={{ color: pathOpts.color, weight:1, dashArray:'3,5', opacity:0.45 }} />
-                  </>
-                )}
-
-                {hasQ && !isKinematic && (
-                  <Polygon positions={[[b[1],b[0]],[q10Lat,q10Lon],[q90Lat,q90Lon]]} pathOptions={{ color: pathOpts.color, weight:0.5, fillColor:pathOpts.color, fillOpacity:0.10, dashArray:'2,4' }} />
-                )}
+                {sorted.map((s, si) => (
+                  <CircleMarker key={'tp_' + gi + '_' + si} center={s.ll}
+                    radius={si === sorted.length - 1 ? 5 : 3}
+                    pathOptions={{ color: opts.color, fillColor: opts.color, fillOpacity: 1, weight: 1 }}>
+                    <Tooltip direction="top" offset={[0, -4]}>+{s.h} min</Tooltip>
+                  </CircleMarker>
+                ))}
               </React.Fragment>
             )
           })
-        }
-
+        })()}
         {(locations.watchlist || []).map((w, i) => (
           <Circle key={'w' + i}
             center={[w.lat, w.lon]}
