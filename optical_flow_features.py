@@ -96,37 +96,77 @@ def assign_optical_flow_to_objects(
         return _zero_flow(objects)
 
     from config import UPSCALE_FACTOR
+    import cv2
     h_flow, w_flow = U.shape
 
+    # P-M01: Divergenzfeld EINMALIG pro Frame (skalierte px-Einheiten).
+    # ETITAN/TRC: feldbasierte Bewegung statt Schwerpunktverschiebung.
+    with np.errstate(invalid="ignore"):
+        _U_filled = np.nan_to_num(U, nan=0.0)
+        _V_filled = np.nan_to_num(V, nan=0.0)
+        _dUdx = np.gradient(_U_filled, axis=1)
+        _dVdy = np.gradient(_V_filled, axis=0)
+    DIVF = _dUdx + _dVdy  # skaliert; /UPSCALE_FACTOR erst bei Auslesung
+
     for obj in objects:
-        # Objektzentrum in skaliertem Koordinatensystem
+        # Objektzentrum in skaliertem Koordinatensystem (nur Fallback)
         cx = int(obj.get("x", 0) * UPSCALE_FACTOR)
         cy = int(obj.get("y", 0) * UPSCALE_FACTOR)
-
-        # Clamp auf validen Bereich (mindestens 1 Pixel Rand für Divergenz)
         cx = max(1, min(cx, w_flow - 2))
         cy = max(1, min(cy, h_flow - 2))
 
-        vx_scaled = float(U[cy, cx])
-        vy_scaled = float(V[cy, cx])
+        vx_scaled = float("nan")
+        vy_scaled = float("nan")
+        div_scaled = float("nan")
+        _used_area = 0
 
-        # NaN-Absicherung (pysteps kann NaN zurückgeben)
-        if np.isnan(vx_scaled):
-            vx_scaled = 0.0
-        if np.isnan(vy_scaled):
-            vy_scaled = 0.0
+        # ── P-M01: Flächenmittel des Flussfeldes über die Zellkontur ──
+        # obj["contour"] liegt in SKALIERTEN Pixeln vor (= U/V-Koordinaten).
+        # Nur gültige (nicht-NaN) Flow-Pixel innerhalb des Polygons werden
+        # gemittelt → der Merge-Schwerpunkt (oft Reflektivitätslücke = NaN)
+        # verfälscht den Vektor nicht mehr.
+        _contour = obj.get("contour")
+        if _contour:
+            try:
+                _cnt = np.asarray(_contour, dtype=np.int32).reshape(-1, 1, 2)
+                _poly_mask = np.zeros((h_flow, w_flow), dtype=np.uint8)
+                cv2.fillPoly(_poly_mask, [_cnt], 1)
+                _sel = (_poly_mask > 0) & np.isfinite(U) & np.isfinite(V)
+                if int(np.count_nonzero(_sel)) > 0:
+                    vx_scaled = float(np.mean(U[_sel]))
+                    vy_scaled = float(np.mean(V[_sel]))
+                    div_scaled = float(np.mean(DIVF[_sel]))
+                    _used_area = 1
+            except Exception:
+                _used_area = 0
+
+        # Fallback: Punktabtastung am Zentrum (Altverhalten) NUR wenn das
+        # Polygon keine gültigen Flow-Pixel lieferte.
+        if _used_area == 0:
+            _pv = float(U[cy, cx])
+            _pw = float(V[cy, cx])
+            if np.isfinite(_pv) and np.isfinite(_pw):
+                vx_scaled = _pv
+                vy_scaled = _pw
+                _du_dx = (float(U[cy, cx + 1]) - float(U[cy, cx - 1])) / 2.0
+                _dv_dy = (float(V[cy + 1, cx]) - float(V[cy - 1, cx])) / 2.0
+                div_scaled = _du_dx + _dv_dy
+
+        # Kein gültiger Vektor (weder Fläche noch Zentrum) → als "fehlend"
+        # markieren (of_available=0). P-M02 nutzt of_available als Gate.
+        if not (np.isfinite(vx_scaled) and np.isfinite(vy_scaled)):
+            obj["of_vx"] = 0.0
+            obj["of_vy"] = 0.0
+            obj["of_speed"] = 0.0
+            obj["of_divergence"] = 0.0
+            obj["of_available"] = 0
+            continue
 
         # Auf original Pixeleinheiten umrechnen
         vx = vx_scaled / UPSCALE_FACTOR
         vy = vy_scaled / UPSCALE_FACTOR
         speed = float(np.hypot(vx, vy))
-
-        # Lokale Divergenz aus 3×3 Nachbarschaft (∂U/∂x + ∂V/∂y)
-        du_dx = (float(U[cy, cx + 1]) - float(U[cy, cx - 1])) / (2.0 * UPSCALE_FACTOR)
-        dv_dy = (float(V[cy + 1, cx]) - float(V[cy - 1, cx])) / (2.0 * UPSCALE_FACTOR)
-        divergence = du_dx + dv_dy
-        if np.isnan(divergence):
-            divergence = 0.0
+        divergence = (float(div_scaled) / UPSCALE_FACTOR) if np.isfinite(div_scaled) else 0.0
 
         obj["of_vx"] = round(vx, 4)
         obj["of_vy"] = round(vy, 4)
