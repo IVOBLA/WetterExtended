@@ -47,6 +47,29 @@ def _preload_critical_modules():
             pass  # Nicht verfügbar/kaputt → pytest.importorskip bzw. Modul-Guards zuständig
 
 
+@pytest.fixture(autouse=True)
+def _isolate_api_health_log(tmp_path, monkeypatch):
+    """
+    B129: Tests, die Fehlerpfade simulieren (Outlook/Circuit-Breaker), rufen
+    log_api_failure() auf. Bisher schrieben sie in die ECHTE
+    train_data/evaluation/api_health.jsonl -> synthetische Eintraege
+    ('RuntimeError: x', 'ConnectionError: down', ...) verschmutzten das
+    Admin-Dashboard nach jedem install.sh-Phase-9-Lauf. Diese Fixture lenkt den
+    Schreibpfad (Modul-Konstante debug_utils._API_HEALTH_FILE) pro Test in ein
+    tmp-Verzeichnis um.
+    """
+    try:
+        import debug_utils
+    except Exception:
+        yield
+        return
+    monkeypatch.setattr(
+        debug_utils, "_API_HEALTH_FILE",
+        str(tmp_path / "api_health.jsonl"), raising=False,
+    )
+    yield
+
+
 def _drop_numpy_contaminated_modules():
     """
     B127: Entfernt ein mit numpy-Stub kontaminiertes `prediction`/`model_training`
