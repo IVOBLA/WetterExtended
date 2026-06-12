@@ -107,3 +107,10 @@ Dateien: main.py, tests/test_no_cells_path.py (neu)
 - Fix in tests/conftest.py: autouse-Fixture lenkt debug_utils._API_HEALTH_FILE
   pro Test in ein tmp-Verzeichnis um. Produktionscode unveraendert.
 - Test: tests/test_b129_api_health_isolation.py.
+
+### B130 — Unsicherheitskorridor (q10/q90) als verbreiterndes Polygon (erledigt)
+- Frontend (MapView.jsx + MapFullscreen.jsx): erweitert den B128-Zugbahn-Block um
+  EIN sich nach vorn verbreiterndes Korridor-Polygon (Flanke q10 hin, q90 zurueck).
+  Nur bei KI-Vorhersagen mit Quantilen; kinematische Schaetzungen ohne Korridor.
+- Ersetzt die frueheren q10/q90-Einzel-Linien/-Dreiecke durch eine ruhige Cone-Form.
+- Test: tests/test_b130_uncertainty_corridor.py (+ test_frontend_build.py als Gate).
