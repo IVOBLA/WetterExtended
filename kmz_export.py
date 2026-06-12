@@ -30,6 +30,9 @@ except Exception:
         print(msg)
 
 
+CELL_POLYGON_COLOR = "#0b1f5e"
+
+
 def _hex_to_kml_color(hex_color: str, alpha: int = 255) -> str:
     h = (hex_color or "#888888").lstrip("#")
     if len(h) != 6:
@@ -109,7 +112,7 @@ def save_forecast_as_kmz(
                 "http://maps.google.com/mapfiles/kml/shapes/triangle.png"
             )
             pnt.style.iconstyle.scale = 0.7
-            pnt.style.iconstyle.color = _hex_to_kml_color("#dc2626")  # aktuell = rot
+            pnt.style.iconstyle.color = _hex_to_kml_color(CELL_POLYGON_COLOR)
 
             # Kontur (in SKALIERTEN Pixeln gespeichert).
             contour = obj.get("contour")
@@ -134,9 +137,9 @@ def save_forecast_as_kmz(
                             name=f"{cell_id}_contour",
                             outerboundaryis=poly_coords,
                         )
-                        poly.style.polystyle.color = _hex_to_kml_color("#dc2626", alpha=60)
+                        poly.style.polystyle.color = _hex_to_kml_color(CELL_POLYGON_COLOR, alpha=60)
                         poly.style.polystyle.fill = 1
-                        poly.style.linestyle.color = _hex_to_kml_color("#dc2626")
+                        poly.style.linestyle.color = _hex_to_kml_color(CELL_POLYGON_COLOR)
                         poly.style.linestyle.width = 2
                 except Exception as _exc:
                     debug_log(f"[KMZ] Kontur-Export für {cell_id} übersprungen: {_exc}")

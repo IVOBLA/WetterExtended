@@ -76,14 +76,18 @@ const lineageColor = {
   new: 'green', continued: 'blue', merged: 'orange', split: 'magenta'
 }
 
+const CELL_POLYGON_COLOR = '#0b1f5e'
+const CELL_POLYGON_FILL_OPACITY = 0.25
+
 // B118: Merged-Zellen deutlich hervorheben (identisch zu MapView.cellStroke).
+// Alle aktuellen Zellpolygone nutzen dieselbe dunkelblaue Farbe; lineage bleibt
+// nur über Strichstärke/-muster sichtbar.
 // merged → dicker (4) + auffällig gestrichelt; split → 3 + fein gestrichelt;
 // new/continued → unverändert durchgezogen (2).
 function cellStroke(lineage) {
-  const color = lineageColor[lineage] || '#888'
-  if (lineage === 'merged') return { color, weight: 4, dashArray: '10,6' }
-  if (lineage === 'split')  return { color, weight: 3, dashArray: '4,4' }
-  return { color, weight: 2, dashArray: undefined }
+  if (lineage === 'merged') return { color: CELL_POLYGON_COLOR, weight: 4, dashArray: '10,6' }
+  if (lineage === 'split')  return { color: CELL_POLYGON_COLOR, weight: 3, dashArray: '4,4' }
+  return { color: CELL_POLYGON_COLOR, weight: 2, dashArray: undefined }
 }
 
 function TBtn({ onClick, active, children, style = {} }) {
@@ -569,12 +573,12 @@ export default function MapFullscreen() {
           if (!o.contour_geo || o.contour_geo.length < 3) return null
           const outerPos    = o.contour_geo.map(p => [p[1], p[0]])
           const stroke      = cellStroke(o.lineage)
-          const borderColor = stroke.color
+          const borderColor = lineageColor[o.lineage] || '#888'
           return (
             <React.Fragment key={'cell_' + o.id}>
               <Polygon
                 positions={outerPos}
-                pathOptions={{ color: stroke.color, weight: stroke.weight, dashArray: stroke.dashArray, fillColor: '#ff8800', fillOpacity: 0.25, interactive:true }}
+                pathOptions={{ color: stroke.color, weight: stroke.weight, dashArray: stroke.dashArray, fillColor: CELL_POLYGON_COLOR, fillOpacity: CELL_POLYGON_FILL_OPACITY, interactive:true }}
                 eventHandlers={{ click: (e) => { e.target.openPopup(e.latlng) } }}
                 pane="tooltipPane"
               >
