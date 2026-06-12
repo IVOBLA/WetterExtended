@@ -511,11 +511,11 @@ ML_SEQUENCE_LENGTH = 6
 ML_FORECAST_HORIZONS_MIN = [10, 20, 30, 40, 60]
 # Pfeilfarben pro Forecast-Horizont (HEX inkl. #).
 FORECAST_ARROW_COLORS = {
-    10: "#00cc44",
-    20: "#3399ff",
+    10: "#ff00ff",
+    20: "#ff0000",
     30: "#ff9900",
-    40: "#cc00cc",
-    60: "#cc0000",
+    40: "#f9fd53",
+    60: "#00ff40",
 }
 
 # Linienstärke und Strichmuster pro Horizont (für Karte und KMZ).
@@ -534,7 +534,8 @@ LOCATIONS_WATCHLIST = [
     {"name": "Wolfsberg",  "lat": 46.8403, "lon": 14.8408, "radius_km": 5.0},
     {"name": "Spittal",    "lat": 46.7956, "lon": 13.4978, "radius_km": 5.0},
     {"name": "St. Veit",   "lat": 46.7700, "lon": 14.3614, "radius_km": 5.0},
-    {"name": "Feldkirchen", "lat": 46.7233, "lon": 14.0992, "radius_km": 5.0},
+    {"name": "Feldkirchen", "lat": 46.7233, "lon": 14.0992, "radius_km": 2.0},
+    {"name": "Poitschach", "lat": 46.75158, "lon": 14.09417, "radius_km": 2.0},
 ]
 
 # 9×4-Raster-Gitterpunkte für den atmosphärischen Snapshot.
@@ -650,7 +651,7 @@ AI_ANALYSIS_CONFIG = {
     "max_tokens": 3000,         # mind. 2500 fuer vollstaendiges JSON mit 8 Suggestions
     "since_hours": 24,          # Datenfenster für den Report
     "save_suggestions": True,   # Vorschläge als JSON persistieren
-    "report_email": "",         # E-Mail-Empfänger für täglichen KI-Report (leer = kein Versand)
+    "report_email": "bla@uniquare.com",         # E-Mail-Empfänger für täglichen KI-Report (leer = kein Versand)
 }
 AI_SUGGESTIONS_DIR = "train_data/evaluation/ai_suggestions"
 
@@ -664,7 +665,7 @@ CLAUDE_CODE_REPORT_CONFIG: dict = {
     "cron_hour":   4,      # Versand-Uhrzeit (Europe/Vienna)
     "cron_minute": 0,
     "branch":      "debug-export-latest",  # GitHub-Branch mit analysis_result.json
-    "report_email": "",    # Empfänger (leer = kein Versand)
+    "report_email": "bla@uniquare.com",    # Empfänger (leer = kein Versand)
 }
 
 # Trainings-Schedule (Cron-Stil). Wird vom Scheduler gelesen, kann per
