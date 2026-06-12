@@ -82,6 +82,15 @@ Dateien: main.py, tests/test_no_cells_path.py (neu)
   Test (Erkennung: fehlendes `ndarray`). Produktionscode unverändert.
 - Test: `tests/test_b127_prediction_isolation.py`.
 
+### B128 — Durchgehende Vorhersage-Zugbahn statt radialem Faecher (erledigt)
+- Frontend (MapView.jsx + MapFullscreen.jsx): die bis zu 5 radialen Vorhersage-
+  Speichen pro Zelle werden durch EINE durchgehende Polyline ersetzt
+  (Ursprung -> +10 -> ... -> +60), mit Stuetzpunkt-Markern (+H min) und groesserem
+  Endpunkt. Grau-gestrichelt = kinematische Schaetzung, farbig = KI.
+- q10/q90-Einzel-Linien/-Dreiecke entfallen (Reduktion der Linienflut);
+  Unsicherheitskorridor optional als Folge-Feature.
+- Test: tests/test_b128_forecast_track.py (+ test_frontend_build.py als Build-Gate).
+
 ### B125 — EUMETView GetCapabilities robust gegen ParseError/Truncation (erledigt)
 - Ursache der IR108-Veraltung: abgeschnittene GetCapabilities-Antworten (Timeout 10 s)
   -> ParseError/fehlender Layer -> get_latest_wms_time() lieferte None -> altes TIFF

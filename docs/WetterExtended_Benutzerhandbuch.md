@@ -226,7 +226,17 @@ den Einzelkern-Linien sichtbar.
 
 ## 4.2 Karte (`/map`)
 
-Interaktive Leaflet-Karte mit Sturmzellen (Kontur + ID-Label), Vorhersage-Pfeilen (farbcodiert nach Horizont), Ortsdurchquerungs-Markierungen, Bewegungspfad-Historie, Hagelwarnungs-Rahmen (rot) und Stationär-Marker (⊕ amber). Farblegende unten links.
+Interaktive Leaflet-Karte mit Sturmzellen (Kontur + ID-Label), Vorhersage-Zugbahnen, Ortsdurchquerungs-Markierungen, Bewegungspfad-Historie, Hagelwarnungs-Rahmen (rot) und Stationär-Marker (⊕ amber). Farblegende unten links.
+
+### Vorhersage-Zugbahn (durchgehende Linie)
+
+Die Vorhersage einer Zelle wird als **durchgehende Zugbahn** dargestellt: eine
+zusammenhaengende Linie vom aktuellen Zellort ueber die Prognosepunkte +10/+20/
++30/+40/+60 Minuten, mit kleinen Markern an jedem Punkt (Tooltip `+H min`) und
+einem groesseren Endpunkt. Eine **graue gestrichelte** Linie kennzeichnet eine
+kinematische Schaetzung (kein ML-Modell aktiv), eine **farbige** Linie eine
+KI-Vorhersage. Diese Darstellung ersetzt die frueheren einzelnen Pfeile je
+Horizont und macht Beschleunigung und Kruemmung der Zugbahn auf einen Blick lesbar.
 
 
 ### IR-Vorläufer-Layer (🛰 IR-Vorläufer)
