@@ -2075,6 +2075,21 @@ Fix: Modul-Konstante _KNOWN_EXTERNAL_SERVICES (= cache_status _DEFAULT_TTLS-Name
      api_api_calls ergänzt fehlende Dienste mit Null-Werten. Frontend unverändert.
 Dateien: app.py, tests/test_api_calls_all_services.py (neu)
 
+## B131 – GeoSphere-Nowcast: Out-of-Coverage-Gedächtnis + konsistente Fehler-Protokollierung
+Status: ERLEDIGT
+Ursache: Punkt 47.128,15.055 liegt innerhalb der groben B105-Bbox, aber außerhalb des
+         1km-INCA-Punktrasters → liefert jeden Zyklus HTTP 400 (unnötiger Request).
+         Zudem loggte der Einzel-Fallback einseitig → Dashboard (Zähler) zeigte einen
+         Fehler, „API-Fehler" (api_health.jsonl) blieb leer (Label-/Logpfad-Inkonsistenz).
+Fix: (1) Out-of-Coverage-Gedächtnis (train_data/evaluation/nowcast_out_of_coverage.json):
+     4xx-Koordinaten werden gemerkt und für 24 h nicht erneut angefragt (TTL-Re-Test;
+     erfolgreicher Abruf hebt die Markierung auf). (2) Einzel-Fallback ruft bei 4xx
+     log_api_failure UND log_api_call unter identischem Service-Namen → beide Sichten
+     stimmen überein. Nur echte HTTP-4xx markieren; Timeout/Connection/5xx bleiben transient.
+Dateien: fetch_geosphere_nowcast.py, tests/test_nowcast_out_of_coverage_b131.py (neu)
+Hinweis: Die produzierten 09:30-Logs stammten von einer älteren laufenden Prozessversion
+         (Fossil: ungenutzter log_http_response-Import). Nach Anwendung Services neu starten.
+
 
 ## LOGIC-01 – Verfahrensdokumentation mit Quellen
 
