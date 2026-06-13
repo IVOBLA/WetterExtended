@@ -74,6 +74,4 @@ Trefferabweichung bei Vorhersage-Horizonten ≤30 Min muss <1 km betragen (Zielw
 Standard Mailadresse bei KI Themen ist bla@uniquare.com
 
 Führe im repo ein logic.md File wo die eingesetzen Berechnungen, Kalman ,  TRT-Verfahren und alle andere dokumentiert werden
-
-
-
+Stationäre, wachsende Zellen müssen Orte auch durch reine Flächenausdehnung (ohne Zugbewegung) mit Vorwarnzeit melden (Treffertyp growth_approach).

@@ -362,6 +362,18 @@ CELL_DECAY_HALF_LIFE_MIN: float = 25.0
 CELL_SURVIVAL_MIN_FRAC: float = 0.35
 
 # --------------------------------------
+# P-M05: Stationäres Wachstum (Orts-Treffer durch Flächenausdehnung)
+# --------------------------------------
+# Eine stationäre Zelle (Geschwindigkeit < MIN_MOVEMENT_FOR_ARROW_KMH) kann einen
+# Ort durch reine Flächenausdehnung erreichen. Ist dies aktiviert, wird das
+# wachstums-projizierte Polygon (Zentrum ortsfest) gegen den Ortsradius geprüft
+# und als Treffertyp "growth_approach" gewarnt. Beide Werte runtime-überschreibbar.
+LOCATION_GROWTH_APPROACH_ENABLED: bool = True
+# Mindest-Wachstumsrate der HALBEN Ausdehnung (km/min), ab der eine stationäre
+# Zelle als wachsend gilt. 0.02 km/min ≈ +1,2 km Halbausdehnung über 60 min.
+LOCATION_GROWTH_MIN_RATE_KM_PER_MIN: float = 0.02
+
+# --------------------------------------
 # ML-Konfiguration (Single Source of Truth)
 # --------------------------------------
 

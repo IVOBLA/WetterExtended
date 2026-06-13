@@ -1333,6 +1333,28 @@ Vorhergesagtes Polygon bei +h min:
 `rate_NS` und `rate_EW` (km/min) werden per **linearer Regression** über
 die gemessenen N-S- und E-W-Ausdehnungen der letzten Radar-Frames bestimmt.
 
+### Stationäres Wachstum (`growth_approach`)
+
+Eine Zelle, die sich **kaum bewegt**, kann einen Ort trotzdem bedrohen, wenn
+sie **in der Lage anwächst** (typisch für orografisch verankerte oder
+„trainierende" Gewitter, die an einem Berg/Tal stationär aufblühen).
+
+Bisher löste eine solche Zelle erst dann eine Warnung aus, wenn ihr Rand den
+Ortsradius bereits physisch erreicht hatte (akuter Treffer, ohne Vorlauf).
+Jetzt wird für stationäre Zellen (Geschwindigkeit unter dem Pfeil-Schwellwert)
+das **wachstums-projizierte Polygon** je Vorhersagehorizont berechnet — das
+Zentrum bleibt ortsfest, die Ausdehnung wächst mit den gemessenen
+Wachstumsraten. Erreicht dieses wachsende Polygon den Ortsradius, wird der Ort
+als `growth_approach` markiert (Vorwarnung mit Horizont).
+
+Die Überlebensprüfung (P-T06) gilt auch hier: schrumpfende/abschwächende
+Zellen werden nicht gewarnt.
+
+Konfiguration (Admin-Panel /config, sofort wirksam):
+- LOCATION_GROWTH_APPROACH_ENABLED (Default: an) — Funktion ein/aus
+- LOCATION_GROWTH_MIN_RATE_KM_PER_MIN (Default: 0.02) — Mindest-Wachstumsrate
+  der halben Ausdehnung (km/min), ab der eine stationäre Zelle als wachsend gilt
+
 Beispiel: Zelle dehnt sich nach E aus (+0.12 km/min) und zieht sich N-S
 zusammen (−0.08 km/min). Bei +30 min: E-W +3.6 km breiter, N-S −2.4 km
 schmaler. Diese asymmetrische Form wird für die Treffererkennung genutzt.
