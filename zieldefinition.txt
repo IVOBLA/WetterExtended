@@ -75,3 +75,4 @@ Standard Mailadresse bei KI Themen ist bla@uniquare.com
 
 Führe im repo ein logic.md File wo die eingesetzen Berechnungen, Kalman ,  TRT-Verfahren und alle andere dokumentiert werden
 Stationäre, wachsende Zellen müssen Orte auch durch reine Flächenausdehnung (ohne Zugbewegung) mit Vorwarnzeit melden (Treffertyp growth_approach).
+Alle eingesetzten Techniken müssen State of the Art sein. keine veralteten Techniken. forsche dazu immer im internet
