@@ -2075,3 +2075,9 @@ Fix: Modul-Konstante _KNOWN_EXTERNAL_SERVICES (= cache_status _DEFAULT_TTLS-Name
      api_api_calls ergänzt fehlende Dienste mit Null-Werten. Frontend unverändert.
 Dateien: app.py, tests/test_api_calls_all_services.py (neu)
 
+
+## LOGIC-01 – Verfahrensdokumentation mit Quellen
+
+| # | Task | Datei(en) | Status |
+|---|------|-----------|--------|
+| LOGIC-01 | **`logic.md` mit Quellen angelegt.** Verfahrensdoku (Kalman, Tracking/Merge/Split, optischer Fluss/TRT/ETITAN, Forecast-Geschwindigkeitsquelle, Tendenz P-M03, Orts-Treffer inkl. P-M05, Survival/Stale, ML inkl. P-M04) jeweils mit Quell-Weblink (Originalpublikation/Doku) und Hinweis auf die operationell einsetzende Organisation (NCAR, MeteoSwiss, FMI, Hong Kong Observatory, DeepMind/Met Office, Microsoft). Kein Produktionscode. | `logic.md` | ✅ erledigt |
