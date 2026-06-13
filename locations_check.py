@@ -372,8 +372,58 @@ def annotate_locations(
                         "speed_kmh":   round(speed_kmh, 1),
                     }
 
-            # Zelle zu langsam für Pfeil → keine Forecast-Checks
+            # Zelle zu langsam für Pfeil → normale Forecast-Checks entfallen.
             if speed_kmh < min_speed_kmh:
+                # ── P-M05: Stationäres Wachstum ───────────────────────────
+                # Stationäre Zelle kann einen Ort durch reine Flächenausdehnung
+                # erreichen (orografisch verankerte/"trainierende" Zellen).
+                # Wachstums-projiziertes Polygon (Zentrum ortsfest) gegen den
+                # Ortsradius prüfen → echte Vorwarnung statt nur reaktivem
+                # current-Hit. Greift nur ohne bereits bestehenden current-Hit.
+                try:
+                    import runtime_config as _rc_g
+                    from config import (LOCATION_GROWTH_APPROACH_ENABLED as _GED,
+                                        LOCATION_GROWTH_MIN_RATE_KM_PER_MIN as _GRD)
+                    _g_enabled  = bool(_rc_g.get("LOCATION_GROWTH_APPROACH_ENABLED", _GED))
+                    _g_min_rate = float(_rc_g.get("LOCATION_GROWTH_MIN_RATE_KM_PER_MIN", _GRD))
+                except Exception:
+                    _g_enabled, _g_min_rate = True, 0.02
+
+                if (_g_enabled and 0 not in hits
+                        and obj.get("forecast_mode") in ("ml", "kinematic")):
+                    _rate_ns, _rate_ew = _directional_growth_rates(obj)
+                    if (_rate_ns > _g_min_rate) or (_rate_ew > _g_min_rate):
+                        for h in sorted(horizons):
+                            if h in hits:
+                                continue
+                            # Stationär: Zentrum bleibt (Fallback auf aktuelle
+                            # Position, falls kein forecast_lat_h gesetzt).
+                            _gy = obj.get(f"forecast_lat_{h}", o_lat)
+                            _gx = obj.get(f"forecast_lon_{h}", o_lon)
+                            try:
+                                _gy_f, _gx_f = float(_gy), float(_gx)
+                            except (TypeError, ValueError):
+                                _gy_f, _gx_f = o_lat, o_lon
+                            _gpoly = _forecast_polygon_at_h(obj, _gy_f, _gx_f, float(h))
+                            if not _gpoly:
+                                continue
+                            _d_g = _min_dist_to_polygon_km(loc_lat, loc_lon, _gpoly)
+                            if _d_g <= radius:
+                                _ok_g, _surv_g = _survival_allows(obj, float(h))
+                                if _ok_g:
+                                    hits[h] = {
+                                        "hit_type":    "growth_approach",
+                                        "color":       colors.get(h) or colors.get(str(h), "#a855f7"),
+                                        "cell_id":     cell_id,
+                                        "distance_km": round(_d_g, 3),
+                                        "speed_kmh":   round(speed_kmh, 1),
+                                        "survival_frac": round(_surv_g, 2),
+                                        "intensity_tendency": obj.get("intensity_tendency", "stabil"),
+                                        "size_tendency": obj.get("size_tendency", "stabil"),
+                                        "radar_age_min": round(_radar_age, 1),
+                                        "effective_lead_min": round(float(h) - _radar_age, 1),
+                                        "stale": _radar_age >= float(h),
+                                    }
                 continue
 
             # Kein Forecast-Mode → keine Forecast-Checks
