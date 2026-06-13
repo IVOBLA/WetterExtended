@@ -1,3 +1,6 @@
+import json
+import os
+import time
 import requests
 from datetime import datetime, timezone
 
@@ -60,6 +63,67 @@ def _cache_suffix(now: datetime) -> str:
     return _floor.strftime("%Y-%m-%dT%H:%M")
 
 
+# B131: Out-of-Coverage-Gedaechtnis.
+# Koordinaten, die HTTP-4xx liefern (kein Nowcast-Punkt im 1km-INCA-Raster),
+# werden hier mit Epoch-Zeitstempel gemerkt und fuer _OOC_TTL_S Sekunden nicht
+# erneut angefragt (zieldefinition.txt: unnoetige Requests vermeiden). Nach Ablauf
+# der TTL erfolgt ein erneuter Test (transienter 4xx / Coverage-Aenderung).
+_OOC_TTL_S = 86400  # 24 h Re-Test
+
+
+def _ooc_file() -> str:
+    try:
+        from config import SAVE_PATHS
+        _base = SAVE_PATHS.get("evaluation", "train_data/evaluation")
+    except Exception:
+        _base = "train_data/evaluation"
+    return os.path.join(str(_base).rstrip("/"), "nowcast_out_of_coverage.json")
+
+
+def _ooc_key(coord: tuple) -> str:
+    return f"{round(float(coord[0]), 3)},{round(float(coord[1]), 3)}"
+
+
+def _ooc_load() -> dict:
+    try:
+        with open(_ooc_file(), "r", encoding="utf-8") as _f:
+            _d = json.load(_f)
+        return _d if isinstance(_d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _ooc_save(d: dict) -> None:
+    try:
+        _path = _ooc_file()
+        os.makedirs(os.path.dirname(_path), exist_ok=True)
+        with open(_path, "w", encoding="utf-8") as _f:
+            json.dump(d, _f, ensure_ascii=False)
+    except Exception as _exc:
+        debug_log(f"[NOWCAST] OOC-Schreibfehler: {_exc}")
+
+
+def _ooc_mark(coord: tuple) -> None:
+    _d = _ooc_load()
+    _d[_ooc_key(coord)] = time.time()
+    _ooc_save(_d)
+    debug_log(
+        f"[NOWCAST] Out-of-Coverage gemerkt: {_ooc_key(coord)} "
+        f"(kein Request fuer {_OOC_TTL_S // 3600} h)"
+    )
+
+
+def _ooc_clear(coord: tuple) -> None:
+    _d = _ooc_load()
+    if _ooc_key(coord) in _d:
+        _d.pop(_ooc_key(coord), None)
+        _ooc_save(_d)
+        debug_log(
+            f"[NOWCAST] Out-of-Coverage aufgehoben (Daten wieder verfuegbar): "
+            f"{_ooc_key(coord)}"
+        )
+
+
 def assign_nowcast_to_objects(objects: list, timestamp: str | None = None) -> list:
     """
     Weist jedem Objekt aktuelle Nowcast-Werte zu (Niederschlag, Wind, Boeen).
@@ -96,18 +160,39 @@ def assign_nowcast_to_objects(objects: list, timestamp: str | None = None) -> li
             _coords.append(None)
 
     # B105: Koordinaten außerhalb des INCA-Rasters überspringen (400-Quelle).
+    # B131: zusätzlich Koordinaten überspringen, die im Out-of-Coverage-Gedächtnis
+    #       stehen (zuvor HTTP-4xx, TTL nicht abgelaufen) → kein erneuter Request.
+    _ooc_now = time.time()
+    _ooc_map = _ooc_load()
+
+    def _is_ooc(c) -> bool:
+        _ts = _ooc_map.get(_ooc_key(c))
+        try:
+            return _ts is not None and (_ooc_now - float(_ts)) < _OOC_TTL_S
+        except (TypeError, ValueError):
+            return False
+
     _valid_indices = [
         i for i, c in enumerate(_coords)
-        if c is not None and _in_nowcast_bbox(c[0], c[1])
+        if c is not None and _in_nowcast_bbox(c[0], c[1]) and not _is_ooc(c)
     ]
     _outside = [
         i for i, c in enumerate(_coords)
         if c is not None and not _in_nowcast_bbox(c[0], c[1])
     ]
+    _ooc_skipped = [
+        i for i, c in enumerate(_coords)
+        if c is not None and _in_nowcast_bbox(c[0], c[1]) and _is_ooc(c)
+    ]
     if _outside:
         debug_log(
             f"[NOWCAST] {len(_outside)} Objekt(e) außerhalb INCA-Bbox "
             f"(45.6–49.38°N, 8.2–17.64°E) → Default-Werte, kein API-Call."
+        )
+    if _ooc_skipped:
+        debug_log(
+            f"[NOWCAST] {len(_ooc_skipped)} Objekt(e) im Out-of-Coverage-Gedächtnis "
+            f"→ Default-Werte, kein API-Call (Re-Test nach {_OOC_TTL_S // 3600} h)."
         )
     if not _valid_indices:
         return objects
@@ -188,7 +273,12 @@ def assign_nowcast_to_objects(objects: list, timestamp: str | None = None) -> li
 
 def _parse_nowcast_single(coord: tuple) -> dict:
     """Fallback-Einzelabfrage wenn die Bulk-Response unvollstaendig ist.
-    B104: forecast_offset=0, kein start/end."""
+    B104: forecast_offset=0, kein start/end.
+    B131: HTTP-4xx fuer eine konkrete Koordinate -> dauerhaft keine Nowcast-Daten
+    an diesem Punkt (ausserhalb 1km-Raster). Koordinate wird ins
+    Out-of-Coverage-Gedaechtnis aufgenommen (kuenftig kein Request) und der Fehler
+    konsistent in BEIDEN Logpfaden (Zaehler + Fehler-Log) unter identischem
+    Service-Namen 'geosphere_nowcast' protokolliert."""
     import time as _t_single
 
     _lat, _lon = coord
@@ -202,10 +292,29 @@ def _parse_nowcast_single(coord: tuple) -> dict:
             "geosphere_nowcast", url=_url, status_code=_r.status_code,
             duration_ms=_dur_ms, method="GET",
         )
+        # B131: Erfolgreicher Abruf -> evtl. vorhandene OOC-Markierung aufheben.
+        _ooc_clear(coord)
         _feat = _r.json().get("features", [{}])
         return _parse_nowcast(_feat[0] if _feat else {}, url=_url)
     except Exception as _exc:
-        log_api_failure("geosphere_nowcast", _url, str(_exc), fallback_used=True)
+        _exc_resp = getattr(_exc, "response", None)
+        _status = getattr(_exc_resp, "status_code", None) or 0
+        # B131: Nur echte HTTP-4xx (keine Daten an diesem Punkt) markieren.
+        # Timeout/Connection/5xx sind transient -> NICHT merken (naechster Zyklus testet erneut).
+        if 400 <= _status < 500:
+            _ooc_mark(coord)
+        # B131: Konsistente Doppel-Protokollierung wie im Bulk-Pfad ->
+        # api_health.jsonl und api_call_counts.jsonl zeigen denselben Eintrag
+        # unter identischem Service-Namen.
+        _reason = f"http-{_status}" if _status else str(_exc)
+        log_api_failure(
+            "geosphere_nowcast", _url, _reason,
+            fallback_used=True, http_status=(_status or None),
+        )
+        log_api_call(
+            "geosphere_nowcast", url=_url, status_code=_status, method="GET",
+            error=_reason,
+        )
         return dict(_DEFAULT)
 
 
