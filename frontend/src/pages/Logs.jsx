@@ -379,7 +379,8 @@ function CacheStatusTable() {
             <td className="p-1 text-right whitespace-nowrap">
               {s.next_fetch_ts ? (() => {
                 const t = new Date(s.next_fetch_ts)
-                const clock = t.toLocaleTimeString('de-AT', {
+                const clock = t.toLocaleString('de-AT', {
+                  day: '2-digit', month: '2-digit', year: 'numeric',
                   hour: '2-digit', minute: '2-digit', second: '2-digit'
                 })
                 const overdue = t.getTime() <= Date.now()

@@ -531,7 +531,8 @@ export default function Dashboard() {
                           const cs = cacheStatus.find(c => c.namespace === svc)
                           if (!cs || !cs.next_fetch_ts) return <span className="text-gray-300">—</span>
                           const t = new Date(cs.next_fetch_ts)
-                          const clock = t.toLocaleTimeString('de-AT', {
+                          const clock = t.toLocaleString('de-AT', {
+                            day: '2-digit', month: '2-digit', year: 'numeric',
                             hour: '2-digit', minute: '2-digit', second: '2-digit'
                           })
                           const overdue = t.getTime() <= Date.now()
