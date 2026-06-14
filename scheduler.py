@@ -35,6 +35,8 @@ from config import (
     DATASET_REBUILD_INTERVAL_MIN,
     LOCAL_TRAINING,
     RETRAIN_INTERVAL_HOURS,
+    SKYWARN_EXPORT_CRON_HOUR,
+    SKYWARN_EXPORT_CRON_MINUTE,
 )
 from dataset_builder import build_dataset
 from debug_utils import debug_log
@@ -452,6 +454,35 @@ def run_cpu_monitor_job():
 
 
 
+def run_skywarn_export_snapshot_job():
+    """Daily Skywarn snapshot for the 24h debug export only."""
+    debug_log("[SCHEDULER] Job skywarn_export_snapshot gestartet")
+    try:
+        from skywarn_export_snapshot import fetch_and_store_skywarn_export_snapshot
+
+        result = fetch_and_store_skywarn_export_snapshot(force=False)
+        status = result.get("status") if isinstance(result, dict) else "unknown"
+        if status == "ok":
+            features = result.get("features_inside_kaernten_bbox", {}).get("features", [])
+            debug_log(
+                "[SCHEDULER] Skywarn Export-Snapshot abgeschlossen "
+                f"(status={status}, valid_from={result.get('valid_from')}, "
+                f"valid_to={result.get('valid_to')}, features={len(features)}, "
+                f"max_severity={result.get('max_severity_inside_kaernten_bbox')})"
+            )
+        elif status == "error":
+            err = result.get("error") or {}
+            debug_log(
+                "[SCHEDULER] Skywarn Export-Snapshot Fehler "
+                f"(type={err.get('type')}, http_status={err.get('http_status')}, "
+                f"message={err.get('message')})"
+            )
+        else:
+            debug_log(f"[SCHEDULER] Skywarn Export-Snapshot: status={status}")
+    except Exception as exc:
+        debug_log(f"[SCHEDULER] Skywarn Export-Snapshot unerwarteter Fehler: {exc}")
+
+
 def run_stats_aggregate_job():
     """P-S02: Nächtliche Langzeitstatistik-Aggregation (immer aktiv)."""
     from stats_aggregator import aggregate
@@ -558,6 +589,18 @@ def create_scheduler() -> BlockingScheduler:
         trigger=CronTrigger(hour=4, minute=45, timezone="Europe/Vienna"),
         id="api_cache_cleanup", max_instances=1, coalesce=True,
     )
+
+    # --- immer aktiv: Skywarn Export-Snapshot (nur gespeicherte Datei für 24h-Debug-Export) ---
+    sched.add_job(
+        run_skywarn_export_snapshot_job,
+        trigger=CronTrigger(
+            hour=runtime_config.get("SKYWARN_EXPORT_CRON_HOUR", SKYWARN_EXPORT_CRON_HOUR),
+            minute=runtime_config.get("SKYWARN_EXPORT_CRON_MINUTE", SKYWARN_EXPORT_CRON_MINUTE),
+            timezone="Europe/Vienna",
+        ),
+        id="skywarn_export_snapshot", max_instances=1, coalesce=True,
+    )
+    debug_log("[SCHEDULER] Skywarn Export-Snapshot: täglich 12:00 Europe/Vienna")
 
     # --- immer aktiv: CPU-Monitoring (alle 5 Min) ---
     sched.add_job(
