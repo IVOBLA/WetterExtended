@@ -211,6 +211,39 @@ def _forecast_polygon_at_h(
     )
 
 
+def _forecast_contour_grazes_segment(
+    obj: dict,
+    loc_lat: float, loc_lon: float, radius: float,
+    c0_lat: float, c0_lon: float, m0: float,
+    c1_lat: float, c1_lon: float, m1: float,
+    step_min: float = 2.0,
+) -> bool:
+    """B127: Prüft, ob der vorhergesagte Zellrand IRGENDWO entlang des
+    Teilstücks (m0→m1) den Ortsradius streift/überlappt.
+
+    Interpoliert das Forecast-Zentrum linear zwischen (c0,m0) und (c1,m1) in
+    Schritten von step_min Minuten und wertet je Sub-Schritt das vorhergesagte
+    Polygon (_forecast_polygon_at_h, richtungsabhängig skaliert) gegen den
+    Radius aus. True, sobald min_dist(Ort, Polygon) <= radius — unabhängig von
+    der Radiusgröße.
+    """
+    if m1 <= m0:
+        return False
+    span = m1 - m0
+    n_steps = max(1, int(math.ceil(span / max(step_min, 0.5))))
+    for k in range(1, n_steps + 1):
+        frac = k / n_steps
+        m = m0 + span * frac
+        c_lat = c0_lat + (c1_lat - c0_lat) * frac
+        c_lon = c0_lon + (c1_lon - c0_lon) * frac
+        poly = _forecast_polygon_at_h(obj, c_lat, c_lon, float(m))
+        if not poly:
+            continue
+        if _min_dist_to_polygon_km(loc_lat, loc_lon, poly) <= radius:
+            return True
+    return False
+
+
 def _cell_survival_fraction(obj: dict, horizon_min: float) -> float:
     """P-T06: Geschätzter Anteil der Zell-Lebenskraft bei +horizon_min Minuten.
 
@@ -472,6 +505,16 @@ def annotate_locations(
                     else:
                         # Fallback: kein Polygon verfügbar
                         _hit_s = d <= extended_r
+                    # B127: Streift der Zellrand den (erweiterten) Radius ZWISCHEN den Horizonten?
+                    if not _hit_s:
+                        _h_prev_s = sorted(horizons)[h_idx - 1] if h_idx > 0 else 0.0
+                        _prev_pt_s = _fpts_slow[h_idx] if h_idx < len(_fpts_slow) else None
+                        if _prev_pt_s is not None:
+                            _hit_s = _forecast_contour_grazes_segment(
+                                obj, loc_lat, loc_lon, extended_r,
+                                _prev_pt_s[0], _prev_pt_s[1], float(_h_prev_s),
+                                fy_f, fx_f, float(h),
+                            )
                     if _hit_s:
                         # P-T06: Überlebensprüfung (current-Hits sind nicht betroffen).
                         _ok_surv, _surv = _survival_allows(obj, float(h))
@@ -549,6 +592,16 @@ def annotate_locations(
                         _hit_f = _d_poly_f <= radius
                     else:
                         _hit_f = d <= radius
+                    # B127: Streift der Zellrand den Radius ZWISCHEN den Horizonten?
+                    if not _hit_f:
+                        _h_prev = sorted(horizons)[h_idx - 1] if h_idx > 0 else 0.0
+                        _prev_pt = _fpts[h_idx] if h_idx < len(_fpts) else None
+                        if _prev_pt is not None:
+                            _hit_f = _forecast_contour_grazes_segment(
+                                obj, loc_lat, loc_lon, radius,
+                                _prev_pt[0], _prev_pt[1], float(_h_prev),
+                                fy_f, fx_f, float(h),
+                            )
                     if _hit_f:
                         # P-T06: Überlebensprüfung (current-Hits sind nicht betroffen).
                         _ok_surv, _surv = _survival_allows(obj, float(h))

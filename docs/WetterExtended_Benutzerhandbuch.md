@@ -362,6 +362,11 @@ einen Countdown bis zur nächsten automatischen Aktualisierung. Das Intervall
 
 Definition von Überwachungsorten mit Umkreis (km). Durchquerungsanzeige in der Farbe des jeweiligen Vorhersage-Horizonts.
 
+- Ein Ort wird ab sofort gewarnt, sobald der **vorhergesagte Zellrand** den um
+  den Ort definierten Radius streift — auch wenn der Zellmittelpunkt vorbeizieht
+  und unabhängig davon, wie klein der Radius gewählt ist. Die Prüfung erfolgt
+  lückenlos entlang des gesamten Vorhersagepfads.
+
 ## Zell-Überleben bis zum Ort (P-T06) [NEU]
 
 Beim Markieren betroffener Orte wird jetzt berücksichtigt, ob eine Zelle sich
