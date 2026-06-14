@@ -36,6 +36,15 @@ BBOX_KAERNTEN_EXTENDED = {
     "west": 12.60,
 }
 
+# --------------------------------------
+# Skywarn export snapshot (24h-Debug-Export only)
+# --------------------------------------
+SKYWARN_EXPORT_URL = "https://www.skywarn.at/arr_for_new.php"
+SKYWARN_EXPORT_CRON_HOUR = 12
+SKYWARN_EXPORT_CRON_MINUTE = 0
+SKYWARN_EXPORT_TIMEOUT_SECONDS = 20
+SKYWARN_EXPORT_DIR = "train_data/external_responses/skywarn"
+
 # ROI (Pixelbereich) – wird bei Start dynamisch gesetzt
 ROI = {
     "y1": 50,
