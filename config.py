@@ -282,10 +282,10 @@ API_CACHE_TTL_SECONDS: dict = {
     "openmeteo_synoptic":     3600,  # 60 Min (500-hPa, icon_global alle 6 h)
     "geosphere_cape":         1800,  # 30 Min (Modell alle 3 h)
     "eumetview_capabilities":  600,  # 10 Min (Scan alle 15 Min)
-    "blitzortung":              60,  # 60 s   (Update alle 1 Min)
+    "blitzortung_last_strikes": 60,  # 60 s   (Update alle 1 Min)
     "openmeteo_extended":      900,
     "geosphere_nowcast":       720,
-    "geosphere_tawes":         600,
+    "geosphere_tawes_all":     600,
 }
 
 # Räumliche Rundung beim Cache-Schlüssel: 0,02° ≈ 2 km — kleine Zellbewegungen

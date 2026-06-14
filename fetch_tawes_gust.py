@@ -89,22 +89,22 @@ def fetch_tawes_stations() -> list:
         r = requests.get(url, timeout=_TIMEOUT, headers={"Accept": "application/json"})
         r.raise_for_status()
         data = r.json()
-        log_api_call("geosphere_tawes", url, r.status_code,
+        log_api_call("geosphere_tawes_all", url, r.status_code,
                      duration_ms=(_t_tawes.monotonic() - _t0_tawes) * 1000,
                      method="GET", response_payload=data,
                      content_type=r.headers.get("content-type"))
     except requests.exceptions.Timeout:
-        log_api_failure("geosphere_tawes", url, "timeout", fallback_used=True)
+        log_api_failure("geosphere_tawes_all", url, "timeout", fallback_used=True)
         return []
     except requests.exceptions.HTTPError as exc:
         status = getattr(exc.response, "status_code", None) or 0
-        log_api_call("geosphere_tawes", url, status)
-        log_api_failure("geosphere_tawes", url, f"http-error: {exc}",
+        log_api_call("geosphere_tawes_all", url, status)
+        log_api_failure("geosphere_tawes_all", url, f"http-error: {exc}",
                         fallback_used=True, http_status=status)
         return []
     except Exception as exc:
-        log_api_call("geosphere_tawes", url, 0)
-        log_api_failure("geosphere_tawes", url, f"{type(exc).__name__}: {exc}",
+        log_api_call("geosphere_tawes_all", url, 0)
+        log_api_failure("geosphere_tawes_all", url, f"{type(exc).__name__}: {exc}",
                         fallback_used=True)
         return []
 
@@ -162,7 +162,7 @@ def fetch_tawes_stations() -> list:
         })
 
     if not out:
-        log_api_failure("geosphere_tawes", url,
+        log_api_failure("geosphere_tawes_all", url,
                         "stations-empty: HTTP 200 aber keine Stationen mit "
                         "gültigen Koordinaten in Response",
                         fallback_used=True)

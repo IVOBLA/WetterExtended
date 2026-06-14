@@ -153,7 +153,7 @@ def get_latest_wms_time() -> str | None:
         r = retry_get(url, service="EUMETView-WMS-Caps", timeout=30)
         _dur_ms = (_t_wms_cap.monotonic() - _t0_wms_cap) * 1000
         log_http_response(
-            service="eumetview_wms_caps",
+            service="eumetview_capabilities",
             method="GET",
             response=r,
             duration_ms=_dur_ms,
@@ -355,7 +355,7 @@ def assign_cloud_top_height(
     if not timestamp_wms:
         debug_log("[CLOUD] Kein gültiger WMS-Timestamp — cloud_top_height_msl=-1")
         log_api_call(
-            service="eumetview_wms_caps",
+            service="eumetview_capabilities",
             url="GetCapabilities",
             status_code=200,
             method="GET",

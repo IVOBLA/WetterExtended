@@ -1562,13 +1562,13 @@ def api_statistics_year(year):
 
 # Öffentliche Browser-URLs pro externer Schnittstelle (konfigurierbar)
 _API_PUBLIC_URLS: dict = {
-    "geosphere_tawes":        "https://tawes.at/#knt",
+    "geosphere_tawes_all":    "https://tawes.at/#knt",
     "arso_radar":             "https://meteo.arso.gov.si/uploads/probase/www/nowcast/inca/",
     "openmeteo_icon_d2":      "https://open-meteo.com/en/docs",
     "openmeteo_icon_global":  "https://open-meteo.com/en/docs",
     "geosphere_cape":         "https://dataset.api.hub.geosphere.at/",
     "eumetview_wms":          "https://eumetview.eumetsat.int/",
-    "blitzortung":            "https://www.blitzortung.org/",
+    "blitzortung_last_strikes": "https://www.blitzortung.org/",
     "geosphere_nowcast":      "https://dataset.api.hub.geosphere.at/",
     "anthropic_api":          "https://console.anthropic.com/",
 }
@@ -1591,8 +1591,8 @@ _KNOWN_EXTERNAL_SERVICES = [
     "openmeteo_icon_eu_li",
     "openmeteo_icon_global",
     "openmeteo_synoptic_500",
-    "open_meteo_outlook",
-    "open_meteo_atmosphere",
+    "openmeteo_outlook",
+    "eumetview_wms",
 ]
 
 
@@ -1864,6 +1864,8 @@ def api_cache_status():
         "geosphere_tawes_all":          600,
         # cache_key("eumetview:capabilities") → Namespace eumetview_capabilities
         "eumetview_capabilities":        600,
+        # GetMap-TIFF (ungecacht, eigener Logger-Name eumetview_wms)
+        "eumetview_wms":                 900,
         # cache_key("blitzortung:last_strikes") → Namespace blitzortung_last_strikes
         "blitzortung_last_strikes":       60,
         # ── Per-Objekt-Services (nur gecacht wenn Zellen aktiv) ─────────────

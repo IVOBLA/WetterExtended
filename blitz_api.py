@@ -53,7 +53,7 @@ def fetch_and_save_lightning(timestamp: str) -> None:
 
     # --- Cache-Lookup (TTL 60s — Blitzortung aktualisiert alle 1 Min) ---
     ck = cache_key("blitzortung:last_strikes", WEST, EAST, SOUTH, NORTH, NUM_STRIKES)
-    cached_strikes = cache_get(ck, ttl_seconds=get_ttl("blitzortung", 60))
+    cached_strikes = cache_get(ck, ttl_seconds=get_ttl("blitzortung_last_strikes", 60))
     if cached_strikes is not None:
         save_path = os.path.join(_SAVE_DIR, f"{timestamp}.json")
         with open(save_path, "w", encoding="utf-8") as f:
@@ -73,14 +73,14 @@ def fetch_and_save_lightning(timestamp: str) -> None:
             auth=(USERNAME, PASSWORD),
         )
     except Exception as exc:
-        log_api_call("blitzortung", url, 0,
+        log_api_call("blitzortung_last_strikes", url, 0,
                      duration_ms=(_t_blitz.monotonic() - _t0_blitz) * 1000)
         debug_log(f"[LIGHTNING] Alle Versuche fehlgeschlagen: {type(exc).__name__}: {exc}")
         return
 
 
     log_http_response(
-        service="blitzortung",
+        service="blitzortung_last_strikes",
         method="GET",
         response=response,
         duration_ms=(_t_blitz.monotonic() - _t0_blitz) * 1000,
