@@ -6,6 +6,18 @@
 | P-M02 | **Feldbasierte Zuggeschwindigkeit im Forecast.** `prediction.py` `_append_kinematic`: bei gültigem optischen Fluss (of_available=1) wird die kinematische Vorhersage aus `of_vx/of_vy` (→ px/min über echtes Frame-Intervall) extrapoliert statt aus der centroid-/Kalman-EWMA; `kinematic_source=optflow_fm<n>`. Behebt falsche Richtungsvorhersage beim Zell-Merge an der Wurzel. Kalman/EWMA bleibt Fallback; Train=Inference gewahrt (gleiche Quelle in path_*-Vorbelegung). | `prediction.py`, `tests/test_forecast_uses_optflow.py` | ✅ erledigt |
 | P-M04 | **ML-Label-Masking am Merge-Frame.** `intensity_regression.py` (`_build_intensity_dataset`: delta_core/delta_area) und `dataset_builder.py` (`build_classification_dataset`: intensified) schließen Samples aus, deren Jetzt- ODER Ziel-Frame `merge_discontinuity=1` trägt. Reiner Helfer `_merge_contaminated()` (testbar). Verhindert, dass Intensitäts-/Größen-Modelle den künstlichen Merge-Sprung als echten Trend lernen. Positions-Labels (`build_dataset`) bewusst unverändert. | `intensity_regression.py`, `dataset_builder.py`, `tests/test_merge_label_masking.py` | ✅ erledigt |
 
+
+### B127 — Orts-Treffer bei Rand-Streifen entlang des gesamten Pfades ✅ erledigt
+- **B127 — Orts-Treffer bei Rand-Streifen entlang des gesamten Pfades.** Die
+  kantengenaue Polygon-vs-Radius-Prüfung lief bisher nur an den 5 diskreten
+  Horizonten; zwischen den Horizonten wurde nur der Zellmittelpunkt geprüft.
+  Neuer Helfer `_forecast_contour_grazes_segment` interpoliert das
+  Forecast-Zentrum in 2-min-Schritten und wertet das vorhergesagte Polygon je
+  Sub-Schritt gegen den (ggf. erweiterten) Radius aus. Treffer sobald der
+  vorhergesagte Zellrand den Radius streift/überlappt — unabhängig von der
+  Radiusgröße. Gilt für forecast + slow_approach. Tests:
+  `tests/test_locations_grazing.py`.
+
 ## Phase A — Stabilisierung (aktiv)
 
 | ID | Status | Beschreibung |
