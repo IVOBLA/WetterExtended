@@ -2127,3 +2127,13 @@ Fix: Logger-Namen in blitz_api.py/fetch_tawes_gust.py/cloud_height_from_eumetvie
      Ergänzt B132 (reale Requests) für korrekte Dashboard-Zähler.
 Dateien: blitz_api.py, fetch_tawes_gust.py, cloud_height_from_eumetview.py, config.py,
          app.py, tests/test_b133_canonical_service_names.py (neu)
+
+## B134 – „Frühester nächster Abruf": Datum + Uhrzeit statt nur Uhrzeit
+Status: ERLEDIGT
+Ursache: Logs.jsx (CacheStatusTable) und Dashboard.jsx (API-Requests-Tabelle) formatierten
+         next_fetch_ts mit toLocaleTimeString (nur Uhrzeit). Backend /api/cache_status
+         liefert seit B125 die volle UTC-ISO-Zeit inkl. Datum → reiner Frontend-Verlust.
+Fix: toLocaleTimeString → toLocaleString mit {day,month,year,hour,minute,second} (de-AT),
+     analog zur bereits korrekten Spalte „Letzter Abruf". overdue/(fällig)-Logik unverändert.
+Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
+         (Validierung: tests/test_frontend_build.py)
