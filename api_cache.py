@@ -113,12 +113,11 @@ def cache_get(key: str, ttl_seconds: int) -> Any | None:
         age = time.time() - st.st_mtime
         if age > ttl_seconds:
             debug_log(f"[API-CACHE] EXPIRED {key} age={int(age)}s ttl={ttl_seconds}s")
-            stale = cache_get_stale(key)
-            if stale is not None:
-                if isinstance(stale, dict):
-                    stale = dict(stale)
-                    stale["stale_fallback"] = True
-                return stale
+            # B132: Bei TTL-Ablauf KEIN Stale-Fallback hier. None erzwingt im Caller
+            # einen echten Refetch (mit If-Modified-Since wo unterstützt). Der
+            # Stale-While-Error-Fallback (cache_get_stale) gehört ausschließlich in
+            # den except-Zweig des Callers, damit veraltete Daten NUR bei tatsächlichem
+            # HTTP-Fehler dienen — nicht bei jedem regulären Ablauf.
             return None
         with open(path, "r", encoding="utf-8") as f:
             value = json.load(f)
