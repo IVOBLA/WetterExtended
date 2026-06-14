@@ -10,6 +10,18 @@ diskutiert.
 
 ---
 
+## B135 – Debug-Export: Hauptjournal zeitrichtig (UTC-Epoch) + neueste Zeilen
+Status: ERLEDIGT
+Ursache: _journalctl_export_text nutzte strftime-Datums-String für --since (von journalctl
+         als Lokalzeit/CEST interpretiert → Fenster 2h zu früh) und --lines=2000 ohne --until
+         (lieferte die ÄLTESTEN 2000 Zeilen). Folge: wetterprojekt.service.log endete ~21h vor
+         Exportzeit, die verbosen aktuellen Zeilen des Hauptdienstes fehlten (Beleg: Export
+         2026-06-14 deckte nur 06-13 05:19–10:24 UTC ab, obwohl Dienst bis 06-14 07:05 lief).
+Fix: --since/--until als UTC-Epoch (@<sek>), -n 5000 für die neuesten Zeilen im Fenster,
+     Timeout 10→20s. Signatur um 'now' erweitert; Aufrufstelle angepasst. app.py-Live-Anzeige
+     (_journalctl_unit_lines, bereits -n) unverändert.
+Dateien: debug_export.py, tests/test_b135_journal_export_window.py (neu)
+
 ## 0. Anweisung für die neue Chat-Session
 
 Beim Start einer neuen Session muss Claude folgende Schritte in genau dieser

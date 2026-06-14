@@ -240,13 +240,28 @@ def _read_redacted(path: Path) -> bytes:
     return redacted.replace("***REDACTED***", "<REDACTED>").encode("utf-8", errors="replace")
 
 
-def _journalctl_export_text(unit: str, window_start: datetime) -> tuple[str, bool]:
+def _journalctl_export_text(unit: str, window_start: datetime, now: datetime) -> tuple[str, bool]:
     if not shutil.which("journalctl"):
         return f"[journalctl] journalctl nicht verfügbar; {unit}.service konnte nicht gelesen werden.\n", False
-    since = window_start.strftime("%Y-%m-%d %H:%M:%S")
-    cmd = ["journalctl", "-u", unit, "--since", since, "--no-pager", "--lines=2000"]
+    # B135: --since/--until als UTC-Epoch (@<sek>). Reine Datums-Strings würden von
+    # journalctl als LOKALZEIT (CEST) interpretiert → Fenster 2h verschoben.
+    # -n liefert die NEUESTEN N Zeilen im Fenster (zuvor --lines 2000 ohne --until →
+    # älteste 2000 Zeilen; die neueren ~21h des verbosen Hauptdienstes fehlten im Export).
+    from datetime import timezone as _tz_b135
+
+    def _epoch(dt: datetime) -> int:
+        dt_utc = dt if dt.tzinfo is not None else dt.replace(tzinfo=_tz_b135.utc)
+        return int(dt_utc.timestamp())
+
+    cmd = [
+        "journalctl", "-u", unit,
+        "--since", f"@{_epoch(window_start)}",
+        "--until", f"@{_epoch(now)}",
+        "-n", "5000",
+        "--no-pager",
+    ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, check=False)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=20, check=False)
     except Exception as exc:
         return f"[journalctl] Fehler beim Lesen von {unit}.service: {exc}\n", False
     if result.returncode != 0:
@@ -333,7 +348,7 @@ def _write_api_logs_to_zip(zf: zipfile.ZipFile, root_name: str, base_dir: Path, 
             redacted.append(f"api_logs/{arc_rel}")
 
     for unit in ("wetterprojekt", "wetterprojekt-scheduler", "wetterprojekt-admin"):
-        text, ok = _journalctl_export_text(unit, window_start)
+        text, ok = _journalctl_export_text(unit, window_start, now)
         journal_success = journal_success or ok
         if not ok:
             unavailable.append(f"{unit}.service")
