@@ -1,6 +1,7 @@
 import glob
 import json
 import os
+import shutil
 import subprocess
 import time
 import traceback
@@ -795,6 +796,68 @@ def api_git():
 
 
 
+# ── B126: Volume-Export (verlustfrei, <= 80 MB je Teil) ──────────────────────
+import secrets as _secrets  # B126
+
+_EXPORT_BUILDS: dict = {}
+_EXPORT_BUILD_TTL_S = 1800
+
+
+def _sweep_export_builds():
+    """Verwaiste Volume-Builds nach TTL löschen."""
+    nowt = time.time()
+    for tok in list(_EXPORT_BUILDS.keys()):
+        info = _EXPORT_BUILDS.get(tok)
+        if info and nowt - info.get("created", 0) > _EXPORT_BUILD_TTL_S:
+            try:
+                shutil.rmtree(info["dir"], ignore_errors=True)
+            finally:
+                _EXPORT_BUILDS.pop(tok, None)
+
+
+def _build_export_volumes():
+    """Baut die Volumes, legt sie unter einem Token ab. Gibt (token, info) zurück."""
+    _sweep_export_builds()
+    out_dir = Path(tempfile.mkdtemp(prefix="wetterextended_vol_"))
+    parts, manifest = debug_export.create_debug_export_volumes(
+        base_dir=_resolve_debug_export_base_dir(SAVE_PATHS),
+        save_paths=SAVE_PATHS,
+        hours=24,
+        out_dir=out_dir,
+    )
+    token = _secrets.token_urlsafe(16)
+    info = {"dir": out_dir, "parts": parts, "manifest": manifest, "created": time.time()}
+    _EXPORT_BUILDS[token] = info
+    return token, info
+
+
+@app.route("/api/admin/export/last-24h/parts")
+def api_admin_export_parts():
+    """B126: Baut die Volumes und liefert die Teileliste (JSON) inkl. Download-Token."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "unauthorized"}), 401
+    if ROLE_LEVEL.get(user.get("role", "viewer"), 0) < ROLE_LEVEL.get("admin", 99):
+        return jsonify({"error": "forbidden"}), 403
+    if not _export_lock.acquire(blocking=False):
+        return jsonify({"error": "export_already_running"}), 409
+    try:
+        token, info = _build_export_volumes()
+        return jsonify({
+            "token": token,
+            "part_count": len(info["parts"]),
+            "parts": [
+                {"index": i, "filename": n, "bytes": p.stat().st_size}
+                for i, (p, n) in enumerate(info["parts"], start=1)
+            ],
+        })
+    except Exception as exc:
+        app.logger.exception("[ADMIN-EXPORT] parts build failed")
+        return jsonify({"error": "export_failed", "detail": str(exc)}), 500
+    finally:
+        _export_lock.release()
+
+
 @app.route("/api/admin/export/last-24h.zip")
 def api_admin_export_last_24h_zip():
     """Geschützter ZIP-Export aller relevanten Debug-Daten der letzten 24 Stunden."""
@@ -803,71 +866,65 @@ def api_admin_export_last_24h_zip():
         return jsonify({"error": "unauthorized"}), 401
     if ROLE_LEVEL.get(user.get("role", "viewer"), 0) < ROLE_LEVEL.get("admin", 99):
         return jsonify({"error": "forbidden"}), 403
+    # B126: Auslieferung eines vorbereiteten Volumes (?token=…&part=N).
+    token = request.args.get("token")
+    part = request.args.get("part", default=1, type=int)
+    if token:
+        _sweep_export_builds()
+        info = _EXPORT_BUILDS.get(token)
+        if not info:
+            return jsonify({"error": "export_expired"}), 410
+        parts = info["parts"]
+        if part < 1 or part > len(parts):
+            return jsonify({"error": "invalid_part"}), 404
+        part_path, part_name = parts[part - 1]
+        response = send_file(
+            Path(part_path), mimetype="application/zip", as_attachment=True,
+            download_name=part_name, max_age=0,
+        )
+        response.headers["X-Export-Part"] = str(part)
+        response.headers["X-Export-Part-Count"] = str(len(parts))
+        if part >= len(parts):
+            def _cleanup_build(tok=token, d=info["dir"]):
+                try:
+                    shutil.rmtree(d, ignore_errors=True)
+                finally:
+                    _EXPORT_BUILDS.pop(tok, None)
+            response.call_on_close(_cleanup_build)
+            response.response = ClosingIterator(response.response, _cleanup_build)
+        return response
+
     if not _export_lock.acquire(blocking=False):
         return jsonify({"error": "export_already_running"}), 409
-
-    hours = 24
-    export_base_dir = _resolve_debug_export_base_dir(SAVE_PATHS)
     started = time.perf_counter()
-    zip_path = None
-    tmp_path = None
-    app.logger.info("[ADMIN-EXPORT] start hours=%s base_dir=%s", hours, export_base_dir)
+    app.logger.info("[ADMIN-EXPORT] start volumes hours=24")
     try:
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
-        tmp_path = Path(tmp.name)
-        tmp.close()
-        zip_path, filename, manifest = debug_export.create_debug_export_zip(
-            base_dir=export_base_dir,
-            save_paths=SAVE_PATHS,
-            hours=hours,
-            tmp_path=tmp_path,
-        )
-        zip_path = Path(zip_path)
-        size_bytes = zip_path.stat().st_size
+        tok, info = _build_export_volumes()
+        parts = info["parts"]
+        first_path, first_name = parts[0]
         duration_s = time.perf_counter() - started
-        manifest_total_files = manifest.get("total_files", "unknown") if isinstance(manifest, dict) else "unknown"
         app.logger.info(
-            "[ADMIN-EXPORT] zip_created file=%s bytes=%s duration_s=%.3f manifest_total_files=%s",
-            zip_path, size_bytes, duration_s, manifest_total_files,
+            "[ADMIN-EXPORT] volumes_created parts=%s total_files=%s duration_s=%.3f",
+            len(parts), info["manifest"].get("total_files", "?"), duration_s,
         )
         response = send_file(
-            zip_path, mimetype="application/zip", as_attachment=True,
-            download_name=filename, max_age=0,
+            Path(first_path), mimetype="application/zip", as_attachment=True,
+            download_name=first_name, max_age=0,
         )
-
-        cleanup_done = False
-        def _cleanup_export_zip(path=zip_path):
-            nonlocal cleanup_done
-            if cleanup_done:
-                return
-            cleanup_done = True
-            try:
-                Path(path).unlink(missing_ok=True)
-            except Exception:
-                app.logger.exception("[ADMIN-EXPORT] cleanup failed path=%s", path)
-
-        response.call_on_close(_cleanup_export_zip)
-        response.response = ClosingIterator(response.response, _cleanup_export_zip)
+        response.headers["X-Export-Token"] = tok
+        response.headers["X-Export-Part"] = "1"
+        response.headers["X-Export-Part-Count"] = str(len(parts))
+        if len(parts) == 1:
+            def _cleanup_single(tok=tok, d=info["dir"]):
+                try:
+                    shutil.rmtree(d, ignore_errors=True)
+                finally:
+                    _EXPORT_BUILDS.pop(tok, None)
+            response.call_on_close(_cleanup_single)
+            response.response = ClosingIterator(response.response, _cleanup_single)
         return response
-    except debug_export.ExportLimitExceeded as exc:
-        app.logger.exception("[ADMIN-EXPORT] export too large: %s", exc)
-        if zip_path is not None or tmp_path is not None:
-            try:
-                Path(zip_path or tmp_path).unlink(missing_ok=True)
-            except Exception:
-                app.logger.exception("[ADMIN-EXPORT] cleanup after limit failed")
-        return jsonify({"error": "export_too_large", "detail": str(exc)}), 413
     except Exception as exc:
-        duration_s = time.perf_counter() - started
-        app.logger.exception(
-            "[ADMIN-EXPORT] failed hours=%s base_dir=%s duration_s=%.3f",
-            hours, export_base_dir, duration_s,
-        )
-        if zip_path is not None or tmp_path is not None:
-            try:
-                Path(zip_path or tmp_path).unlink(missing_ok=True)
-            except Exception:
-                app.logger.exception("[ADMIN-EXPORT] cleanup after error failed")
+        app.logger.exception("[ADMIN-EXPORT] volumes failed")
         return jsonify({"error": "export_failed", "detail": str(exc)}), 500
     finally:
         _export_lock.release()

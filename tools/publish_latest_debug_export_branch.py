@@ -188,28 +188,29 @@ def check_write_access(repo_dir: Path, branch: str) -> None:
     log("GitHub-Schreibtest erfolgreich.")
 
 
-def create_export(repo_dir: Path, hours: int, max_source_total_mb: int, max_zip_mb: int) -> tuple[Path, str, dict]:
+def create_export(repo_dir: Path, hours: int, max_source_total_mb: int, max_zip_mb: int) -> tuple[list[tuple[Path, str]], dict]:
     sys.path.insert(0, str(repo_dir))
     from config import SAVE_PATHS  # pylint: disable=import-outside-toplevel
-    from debug_export import create_debug_export_zip  # pylint: disable=import-outside-toplevel
+    from debug_export import create_debug_export_volumes  # pylint: disable=import-outside-toplevel
 
-    max_total_bytes = max_source_total_mb * 1024 * 1024
+    volume_max_bytes = max_zip_mb * 1024 * 1024
     log(
-        f"Erzeuge Debug-ZIP der letzten {hours} Stunden "
-        f"(Source-Limit: {max_source_total_mb} MB, ZIP-Limit: {max_zip_mb} MB)."
+        f"Erzeuge Debug-Volumes der letzten {hours} Stunden "
+        f"(Volume-Limit: {max_zip_mb} MB, keine Auslassung)."
     )
-    return create_debug_export_zip(
+    parts, manifest = create_debug_export_volumes(
         base_dir=repo_dir,
         save_paths=SAVE_PATHS,
         hours=hours,
-        max_total_bytes=max_total_bytes,
+        volume_max_bytes=volume_max_bytes,
     )
+    return parts, manifest
 
 
 def write_branch_repo(
     *,
     temp_repo: Path,
-    source_zip: Path,
+    source_zip: list[tuple[Path, str]],
     source_filename: str,
     export_manifest: dict,
     repo_dir: Path,
@@ -226,9 +227,13 @@ def write_branch_repo(
     remote = run_git(["remote", "get-url", "origin"], cwd=repo_dir).stdout.strip()
     run_git(["remote", "add", "origin", remote], cwd=temp_repo)
 
-    zip_dst = temp_repo / Path(*target_path.parts)
-    zip_dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source_zip, zip_dst)
+    # B126: source_zip ist jetzt eine Liste [(Path, name), …] — alle Teile ablegen.
+    dst_dir = temp_repo / Path(*target_path.parts).parent
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    part_names = []
+    for _p, _name in source_zip:
+        shutil.copy2(_p, dst_dir / _name)
+        part_names.append((Path(*target_path.parts).parent / _name).as_posix())
 
     manifest = {
         "schema": 1,
@@ -236,6 +241,7 @@ def write_branch_repo(
         "branch": branch,
         "target_path": target_path.as_posix(),
         "source_zip_filename": source_filename,
+        "part_files": part_names,
         "source_commit": git_commit(repo_dir),
         "hours": hours,
         "max_source_total_mb": max_source_total_mb,
@@ -250,7 +256,8 @@ def write_branch_repo(
     (temp_repo / "README.md").write_text(
         "# WetterExtended Debug-Export\n\n"
         "Dieser Branch wird automatisch erzeugt und per Force-Push ersetzt.\n\n"
-        f"Aktueller Export: `{target_path.as_posix()}`\n\n"
+        f"Aktueller Export-Ordner: `{Path(*target_path.parts).parent.as_posix()}/`\n\n"
+        f"Teile: {', '.join(f'`{name}`' for name in part_names)}\n\n"
         "Der produktive `main`-Branch bleibt unverändert; dieser Branch enthält nur den letzten Debug-Export.\n",
         encoding="utf-8",
     )
@@ -266,25 +273,27 @@ def publish(args: argparse.Namespace) -> None:
         check_write_access(args.repo_dir, args.branch)
         return
 
-    zip_path: Path | None = None
+    parts: list[tuple[Path, str]] = []
     try:
         with tempfile.TemporaryDirectory(prefix="wetterextended_debug_branch_") as tmpdir:
             tmp_repo = Path(tmpdir)
-            zip_path, filename, export_manifest = create_export(
+            parts, export_manifest = create_export(
                 args.repo_dir, args.hours, args.max_source_total_mb, args.max_zip_mb
             )
-            zip_size_bytes = zip_path.stat().st_size
-            log(f"Debug-ZIP erstellt: {zip_path} ({format_mb(zip_size_bytes)} MB).")
+            zip_size_bytes = sum(path.stat().st_size for path, _name in parts)
+            filename = parts[0][1] if len(parts) == 1 else f"{Path(*args.target_path.parts).stem}_parts.zip"
+            log(f"Debug-Volumes erstellt: {len(parts)} Teile ({format_mb(zip_size_bytes)} MB gesamt).")
             max_zip_bytes = args.max_zip_mb * 1024 * 1024
-            if zip_size_bytes > max_zip_bytes:
-                fail(
-                    "Finale ZIP-Datei ist zu groß für GitHub: "
-                    f"{format_mb(zip_size_bytes)} MB > {args.max_zip_mb} MB.\n"
-                    "Bitte Debug-Export-Profil verkleinern oder Limit bewusst anpassen."
+            oversized = [(path, name) for path, name in parts if path.stat().st_size > max_zip_bytes]
+            if oversized:
+                details = ", ".join(f"{name}={format_mb(path.stat().st_size)} MB" for path, name in oversized)
+                log(
+                    "Hinweis: Einzelne Volumes überschreiten das Limit, vermutlich wegen "
+                    f"Single-File > Limit: {details}"
                 )
             manifest = write_branch_repo(
                 temp_repo=tmp_repo,
-                source_zip=zip_path,
+                source_zip=parts,
                 source_filename=filename,
                 export_manifest=export_manifest,
                 repo_dir=args.repo_dir,
@@ -303,8 +312,8 @@ def publish(args: argparse.Namespace) -> None:
             run_git(["push", "--force", "origin", refspec], cwd=tmp_repo)
             log(f"Export veröffentlicht: {args.branch}/{args.target_path.as_posix()}")
     finally:
-        if zip_path is not None:
-            zip_path.unlink(missing_ok=True)
+        for path, _name in parts:
+            path.unlink(missing_ok=True)
 
 
 def main(argv: list[str] | None = None) -> int:

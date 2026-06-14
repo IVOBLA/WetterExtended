@@ -79,16 +79,30 @@ function Logs() {
     setExporting(true)
     setExportMsg({ ok: true, text: 'Export wird erstellt...' })
     try {
-      const { blob, filename } = await api.download('/api/admin/export/last-24h.zip')
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = filename
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      window.URL.revokeObjectURL(url)
-      setExportMsg({ ok: true, text: 'Debug-Datenexport wurde erstellt und heruntergeladen.' })
+      // B126: Mehrteiliger Export — Teileliste holen, dann alle Volumes laden.
+      const meta = await api.get('/api/admin/export/last-24h/parts')
+      const token = meta.token
+      const partCount = meta.part_count || 1
+      for (let i = 1; i <= partCount; i++) {
+        setExportMsg({ ok: true, text: `Lade Teil ${i}/${partCount} …` })
+        const { blob, filename } = await api.download(
+          `/api/admin/export/last-24h.zip?token=${encodeURIComponent(token)}&part=${i}`
+        )
+        const url = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = filename
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        window.URL.revokeObjectURL(url)
+      }
+      setExportMsg({
+        ok: true,
+        text: partCount > 1
+          ? `Debug-Datenexport in ${partCount} Teilen heruntergeladen (je ≤ 80 MB).`
+          : 'Debug-Datenexport wurde erstellt und heruntergeladen.',
+      })
       exportingRef.current = false
       await loadLogs()
     } catch (e) {
