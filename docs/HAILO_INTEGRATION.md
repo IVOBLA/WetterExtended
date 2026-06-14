@@ -2109,3 +2109,21 @@ Fix: cache_get() gibt bei TTL-Ablauf wieder None zurück. Der Stale-While-Error-
      (cache_get_stale) bleibt unverändert und dient ausschließlich im except-Zweig der
      Caller. cache_get_stale/cache_set/_put_mem/get_ttl unverändert.
 Dateien: api_cache.py, tests/test_b132_cache_refetch_on_expiry.py (neu)
+
+## B133 – Kanonische Service-Namen: Logger == Cache-Namespace == Registry
+Status: ERLEDIGT
+Ursache: Logger schrieb api_call_counts.jsonl unter blitzortung/geosphere_tawes/
+         eumetview_wms_caps, während Cache-Namespace + _KNOWN_EXTERNAL_SERVICES die
+         kanonischen Namen blitzortung_last_strikes/geosphere_tawes_all/
+         eumetview_capabilities nutzten → Dashboard zeigte diese Dienste dauerhaft mit
+         0 Anfragen und ohne „Frühester nächster Abruf" (fehlgeschlagener Namespace-Join).
+         Zusätzlich tote Registry-Namen open_meteo_outlook (real: openmeteo_outlook) und
+         open_meteo_atmosphere (real: 15x open_meteo_atmosphere_<modell>_b<n>).
+Fix: Logger-Namen in blitz_api.py/fetch_tawes_gust.py/cloud_height_from_eumetview.py an die
+     Cache-Namespaces angeglichen; config.API_CACHE_TTL_SECONDS-Keys kanonisiert;
+     _KNOWN_EXTERNAL_SERVICES bereinigt (openmeteo_outlook statt open_meteo_outlook,
+     open_meteo_atmosphere entfernt, eumetview_wms-TIFF aufgenommen) + _DEFAULT_TTLS um
+     eumetview_wms (900s) ergänzt. Cache-Keys + retry_get-Labels unverändert.
+     Ergänzt B132 (reale Requests) für korrekte Dashboard-Zähler.
+Dateien: blitz_api.py, fetch_tawes_gust.py, cloud_height_from_eumetview.py, config.py,
+         app.py, tests/test_b133_canonical_service_names.py (neu)
