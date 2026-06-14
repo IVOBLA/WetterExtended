@@ -88,6 +88,115 @@ def test_bbox_clipping_inside_outside_partial_multipolygon_geometrycollection():
     assert skywarn.clip_feature_to_bbox({"type": "Feature", "properties": {}, "geometry": {"type": "GeometryCollection", "geometries": []}}) == []
 
 
+def _flat_poly(w, s, e, n):
+    return {"type": "Polygon", "coordinates": [[w, s], [e, s], [e, n], [w, n]]}
+
+
+def test_flat_skywarn_polygon_is_normalized_clipped_and_closed():
+    b = BBOX_KAERNTEN_EXTENDED
+    feature = _feature(_flat_poly(b["west"] - 0.1, b["south"] + 0.1, b["west"] + 0.2, b["south"] + 0.2), 7)
+
+    clipped = skywarn.clip_feature_to_bbox(feature)
+
+    assert len(clipped) == 1
+    geom = clipped[0]["geometry"]
+    assert geom["type"] == "Polygon"
+    assert geom["coordinates"][0][0] == geom["coordinates"][0][-1]
+    assert shape(geom).bounds[0] >= b["west"]
+
+
+def test_standard_polygon_still_normalizes_and_open_ring_is_closed():
+    b = BBOX_KAERNTEN_EXTENDED
+    open_standard = {"type": "Polygon", "coordinates": [[[b["west"] + 0.1, b["south"] + 0.1], [b["west"] + 0.2, b["south"] + 0.1], [b["west"] + 0.2, b["south"] + 0.2], [b["west"] + 0.1, b["south"] + 0.2]]]}
+
+    normalized = skywarn.normalize_skywarn_geometry(open_standard)
+
+    assert normalized == {"type": "Polygon", "coordinates": [open_standard["coordinates"][0] + [open_standard["coordinates"][0][0]]]}
+    assert len(skywarn.clip_feature_to_bbox(_feature(open_standard, 2))) == 1
+
+
+def test_invalid_points_do_not_crash_and_invalid_polygon_is_discarded():
+    malformed = {"type": "Polygon", "coordinates": [["bad", 1], [13.0], None, [13.1, "bad"], [13.2, 46.8]]}
+
+    assert skywarn.normalize_skywarn_geometry(malformed) is None
+    assert skywarn.clip_feature_to_bbox(_feature(malformed, 1)) == []
+
+
+def test_multipolygon_skips_invalid_child_polygons():
+    b = BBOX_KAERNTEN_EXTENDED
+    valid = [[[b["west"] + 0.1, b["south"] + 0.1], [b["west"] + 0.2, b["south"] + 0.1], [b["west"] + 0.2, b["south"] + 0.2], [b["west"] + 0.1, b["south"] + 0.2]]]
+    invalid = [[["bad", 1], [13.0], [13.2, 46.8]]]
+    feature = _feature({"type": "MultiPolygon", "coordinates": [invalid, valid]}, 4)
+
+    normalized = skywarn.normalize_skywarn_geometry(feature["geometry"])
+
+    assert normalized["type"] == "MultiPolygon"
+    assert len(normalized["coordinates"]) == 1
+    assert len(skywarn.clip_feature_to_bbox(feature)) == 1
+
+
+def test_geometrycollection_skips_invalid_children_without_response_exception():
+    b = BBOX_KAERNTEN_EXTENDED
+    valid = _flat_poly(b["west"] + 0.1, b["south"] + 0.1, b["west"] + 0.2, b["south"] + 0.2)
+    invalid = {"type": "Polygon", "coordinates": [["bad", 1], [13.0], [13.2, 46.8]]}
+    feature = _feature({"type": "GeometryCollection", "geometries": [invalid, valid]}, 5)
+
+    normalized = skywarn.normalize_skywarn_geometry(feature["geometry"])
+    snapshot = skywarn.build_success_snapshot(_payload([feature]))
+
+    assert normalized["type"] == "GeometryCollection"
+    assert len(normalized["geometries"]) == 1
+    assert snapshot["status"] == "ok"
+    assert len(snapshot["features_inside_kaernten_bbox"]["features"]) == 1
+    assert snapshot["error"] is None
+
+
+def test_malformed_feature_exception_is_logged_and_does_not_error_snapshot(monkeypatch, caplog):
+    b = BBOX_KAERNTEN_EXTENDED
+    valid_a = _feature(_flat_poly(b["west"] + 0.1, b["south"] + 0.1, b["west"] + 0.2, b["south"] + 0.2), 1)
+    malformed = _feature(_flat_poly(b["west"] + 0.3, b["south"] + 0.1, b["west"] + 0.4, b["south"] + 0.2), 9)
+    valid_b = _feature(_flat_poly(b["west"] + 0.5, b["south"] + 0.1, b["west"] + 0.6, b["south"] + 0.2), 2)
+    original = skywarn.clip_feature_to_bbox
+
+    def fake_clip(feature):
+        if feature is malformed:
+            raise TypeError("'float' object is not iterable")
+        return original(feature)
+
+    monkeypatch.setattr(skywarn, "clip_feature_to_bbox", fake_clip)
+    caplog.set_level("WARNING")
+
+    snapshot = skywarn.build_success_snapshot(_payload([valid_a, malformed, valid_b]))
+
+    assert snapshot["status"] == "ok"
+    assert snapshot["error"] is None
+    assert len(snapshot["features_inside_kaernten_bbox"]["features"]) == 2
+    assert snapshot["severity_values_inside_kaernten_bbox"] == [1, 2]
+    assert "skipping malformed feature index=1" in caplog.text
+
+
+def test_single_malformed_feature_from_fetch_stays_ok(monkeypatch, skywarn_tmp):
+    b = BBOX_KAERNTEN_EXTENDED
+    payload = _payload([
+        _feature(_flat_poly(b["west"] + 0.1, b["south"] + 0.1, b["west"] + 0.2, b["south"] + 0.2), 1),
+        _feature({"type": "Polygon", "coordinates": [["bad", 1], [13.0], [13.2, 46.8]]}, 9),
+    ])
+    monkeypatch.setattr(skywarn.urllib.request, "urlopen", lambda *a, **k: _Response(200, payload))
+
+    result = skywarn.fetch_and_store_skywarn_export_snapshot(force=True)
+
+    assert result["status"] == "ok"
+    assert result["error"] is None
+    assert len(result["features_inside_kaernten_bbox"]["features"]) == 1
+
+
+def test_cli_block_calls_fetch_function():
+    source = Path(skywarn.__file__).read_text(encoding="utf-8")
+
+    assert 'if __name__ == "__main__"' in source
+    assert "fetch_and_store_skywarn_export_snapshot(force=args.force)" in source
+    assert 'parser.add_argument(\n        "--force"' in source
+
 def test_no_relevant_features_sets_bbox_relevant_false():
     b = BBOX_KAERNTEN_EXTENDED
     snapshot = skywarn.build_success_snapshot(_payload([_feature(_poly(b["east"] + 1, b["north"] + 1, b["east"] + 2, b["north"] + 2), 9)]))

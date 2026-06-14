@@ -65,6 +65,90 @@ def _html_to_plaintext(value: Any) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _coerce_coordinate_pair(point: Any) -> list[float] | None:
+    if not isinstance(point, (list, tuple)) or len(point) < 2:
+        return None
+    try:
+        lon = float(point[0])
+        lat = float(point[1])
+    except (TypeError, ValueError):
+        return None
+    return [lon, lat]
+
+
+def _normalize_polygon_ring(ring: Any) -> list[list[float]] | None:
+    if not isinstance(ring, (list, tuple)):
+        return None
+    normalized: list[list[float]] = []
+    for point in ring:
+        pair = _coerce_coordinate_pair(point)
+        if pair is not None:
+            normalized.append(pair)
+    if not normalized:
+        return None
+    if normalized[0] != normalized[-1]:
+        normalized.append(normalized[0].copy())
+    return normalized if len(normalized) >= 4 else None
+
+
+def _looks_like_coordinate_pair(value: Any) -> bool:
+    return _coerce_coordinate_pair(value) is not None
+
+
+def _normalize_polygon_coordinates(coordinates: Any) -> list[list[list[float]]] | None:
+    if not isinstance(coordinates, (list, tuple)) or not coordinates:
+        return None
+
+    rings_source = [coordinates] if _looks_like_coordinate_pair(coordinates[0]) else coordinates
+    rings: list[list[list[float]]] = []
+    for ring in rings_source:
+        normalized_ring = _normalize_polygon_ring(ring)
+        if normalized_ring is not None:
+            rings.append(normalized_ring)
+    return rings or None
+
+
+def normalize_skywarn_geometry(geometry: dict) -> dict | None:
+    """Normalize defensive Skywarn-only polygon GeoJSON before Shapely parsing."""
+    if not isinstance(geometry, dict):
+        return None
+
+    geom_type = geometry.get("type")
+    if geom_type == "Polygon":
+        rings = _normalize_polygon_coordinates(geometry.get("coordinates"))
+        if not rings:
+            return None
+        return {"type": "Polygon", "coordinates": rings}
+
+    if geom_type == "MultiPolygon":
+        coordinates = geometry.get("coordinates")
+        if not isinstance(coordinates, (list, tuple)):
+            return None
+        polygons: list[list[list[list[float]]]] = []
+        for polygon in coordinates:
+            rings = _normalize_polygon_coordinates(polygon)
+            if rings:
+                polygons.append(rings)
+        if not polygons:
+            return None
+        return {"type": "MultiPolygon", "coordinates": polygons}
+
+    if geom_type == "GeometryCollection":
+        geometries = geometry.get("geometries")
+        if not isinstance(geometries, (list, tuple)):
+            return None
+        normalized_geometries = []
+        for child in geometries:
+            normalized_child = normalize_skywarn_geometry(child)
+            if normalized_child is not None:
+                normalized_geometries.append(normalized_child)
+        if not normalized_geometries:
+            return None
+        return {"type": "GeometryCollection", "geometries": normalized_geometries}
+
+    return None
+
+
 def load_skywarn_clip_bbox():
     """Return a Shapely bbox for BBOX_KAERNTEN_EXTENDED without modifying it."""
     from shapely.geometry import box
@@ -85,6 +169,7 @@ def _safe_geometry(feature: dict):
     from shapely.validation import make_valid
 
     geom_data = feature.get("geometry") if isinstance(feature, dict) else None
+    geom_data = normalize_skywarn_geometry(geom_data)
     if not geom_data:
         return None
     geom = shape(geom_data)
@@ -164,9 +249,24 @@ def build_success_snapshot(payload: dict, fetched_at: datetime | None = None) ->
     fetched_at = fetched_at or _now_vienna()
     features = []
     polygon = payload.get("polygon") if isinstance(payload, dict) else None
-    for feature in (polygon or {}).get("features", []) if isinstance(polygon, dict) else []:
-        if isinstance(feature, dict):
+    malformed_count = 0
+    for idx, feature in enumerate((polygon or {}).get("features", []) if isinstance(polygon, dict) else []):
+        if not isinstance(feature, dict):
+            malformed_count += 1
+            LOGGER.warning("Skywarn export: skipping non-dict feature index=%s", idx)
+            continue
+        try:
             features.extend(clip_feature_to_bbox(feature))
+        except Exception as exc:
+            malformed_count += 1
+            LOGGER.warning(
+                "Skywarn export: skipping malformed feature index=%s error=%s",
+                idx,
+                exc,
+            )
+            continue
+    if malformed_count:
+        LOGGER.warning("Skywarn export: skipped malformed_features=%s", malformed_count)
     severity_values = _sort_severities(list({f["properties"].get("severity") for f in features}))
     return {
         "source": "skywarn.at",
@@ -275,3 +375,23 @@ def fetch_and_store_skywarn_export_snapshot(force: bool = False) -> dict:
     _write_snapshot(snapshot)
     _log_snapshot(snapshot)
     return snapshot
+
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(description="Fetch Skywarn export snapshot")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Erzwingt einen manuellen Abruf auch wenn heute bereits ein Snapshot existiert",
+    )
+    args = parser.parse_args()
+
+    try:
+        result = fetch_and_store_skywarn_export_snapshot(force=args.force)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    except Exception as exc:
+        print(f"[SKYWARN-EXPORT] FEHLER: {exc}", file=sys.stderr)
+        raise
