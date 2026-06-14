@@ -151,3 +151,13 @@ Dateien: main.py, tests/test_no_cells_path.py (neu)
   `wetterextended_debug{N}.zip` (`DEBUG_EXPORT_VOLUME_BASENAME`). Verlustfrei,
   einzelner Eintrag > 80 MB erhält eigenes Volume. Test neu:
   `tests/test_debug_export_volumes.py` (4 Tests, inkl. „unkomprimiert egal").
+
+## B139 – ZIP-Volume-Schätzung nach UTF-8-Bytelänge des Namens (Codex-P2)
+Status: ERLEDIGT
+Ursache: _estimated_zip_entry_bytes() nutzte 2 * len(arcname) (Zeichen). ZIP-Header
+         speichern den Namen als UTF-8-Bytes (lokaler Header + Central Directory).
+         Bei ä/ö/Emoji oder langen verschachtelten Pfaden wurde der Overhead
+         unterschätzt → ein Volume konnte das 80-MB-Limit real überschreiten.
+Fix: 2 * len(arcname.encode("utf-8")). Docstring von create_debug_export_volumes
+     auf "komprimierte Größe" korrigiert (war fälschlich "unkomprimiert").
+Dateien: debug_export.py, tests/test_b139_zip_estimate_bytes.py (neu)

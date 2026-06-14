@@ -85,7 +85,14 @@ def _estimated_zip_entry_bytes(data: bytes, arcname: str) -> int:
         body = len(co.compress(data)) + len(co.flush())
     except Exception:
         body = len(data)
-    return body + _ZIP_ENTRY_OVERHEAD + 2 * len(arcname)
+    # B139: ZIP-Header speichern die UTF-8-BYTELÄNGE des Namens (nicht Zeichen),
+    # und zwar 2× (lokaler Header + Central Directory). Bei ä/Emoji/langen Pfaden
+    # verhindert die Bytelänge ein Überschreiten des Volume-Limits.
+    try:
+        _name_bytes = len(arcname.encode("utf-8"))
+    except Exception:
+        _name_bytes = len(arcname)
+    return body + _ZIP_ENTRY_OVERHEAD + 2 * _name_bytes
 
 
 def _volume_priority(arcname: str) -> int:
@@ -108,8 +115,8 @@ def create_debug_export_volumes(
 
     Rückgabe: (parts, manifest) mit parts = [(Path, filename), ...] in Reihenfolge
     part01ofNN … partNNofNN. Single-File > volume_max_bytes bekommt ein eigenes
-    Volume; ansonsten wird vor Überschreiten der unkomprimierten Eintragsgröße
-    ein neues Volume begonnen.
+    Volume; ansonsten wird vor Überschreiten der KOMPRIMIERTEN Volumegröße
+    (Deflate-Schätzung inkl. UTF-8-Header-Bytelänge) ein neues Volume begonnen.
     """
     now = now or datetime.now(timezone.utc)
     out_dir = Path(out_dir) if out_dir else Path(tempfile.mkdtemp(prefix="wetterextended_vol_"))
