@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import time
 import zipfile
+import zlib  # B128: komprimierte Größenschätzung für Volume-Aufteilung
 import shutil
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -28,6 +29,11 @@ EXPORT_MAX_BYTES = int(os.getenv("DEBUG_EXPORT_MAX_BYTES", str(50 * 1024 * 1024)
 # B126: Maximale Größe je ZIP-Volume. Der Gesamtexport wird verlustfrei auf
 # mehrere Volumes <= dieser Grenze aufgeteilt (kein Datei-Weglassen).
 EXPORT_VOLUME_MAX_BYTES = int(os.getenv("DEBUG_EXPORT_VOLUME_MAX_BYTES", str(80 * 1024 * 1024)))
+# B128: fester Volume-Dateiname-Stamm → wetterextended_debug1.zip, …debug2.zip, …
+EXPORT_VOLUME_BASENAME = os.getenv("DEBUG_EXPORT_VOLUME_BASENAME", "wetterextended_debug")
+# B128: ZIP-Overhead-Reserve, damit die KOMPRIMIERTE Volumegröße das Limit nie überschreitet.
+_ZIP_ENTRY_OVERHEAD = 120     # lokaler Header + Central-Directory-Eintrag (Bytes), konservativ
+_ZIP_TRAILER_OVERHEAD = 1024  # End-of-Central-Directory + Reserve
 _PRIORITY_TEXT_EXTS = {
     ".json", ".jsonl", ".csv", ".txt", ".log", ".kml", ".xml",
     ".py", ".ini", ".cfg", ".conf", ".yaml", ".yml", ".env",
@@ -68,6 +74,18 @@ class ExportCandidate:
 
 class ExportLimitExceeded(RuntimeError):
     """Der Debug-Export wurde wegen konfigurierter Schutzgrenzen abgebrochen."""
+
+
+def _estimated_zip_entry_bytes(data: bytes, arcname: str) -> int:
+    """B128: Schätzt die KOMPRIMIERTE Größe eines ZIP-Eintrags (Deflate, identisch
+    zu ZIP_DEFLATED-Default) inkl. Header-Overhead. Grundlage für die Aufteilung
+    nach komprimierter Größe — die unkomprimierte Größe spielt keine Rolle."""
+    try:
+        co = zlib.compressobj(zlib.Z_DEFAULT_COMPRESSION, zlib.DEFLATED, -15)
+        body = len(co.compress(data)) + len(co.flush())
+    except Exception:
+        body = len(data)
+    return body + _ZIP_ENTRY_OVERHEAD + 2 * len(arcname)
 
 
 def _volume_priority(arcname: str) -> int:
@@ -114,25 +132,29 @@ def create_debug_export_volumes(
             part_idx = 0
             cur_zip = None
             cur_path = None
-            cur_bytes = 0
+            cur_est = 0      # B128: geschätzte KOMPRIMIERTE Größe des aktuellen Volumes
+            cur_count = 0    # Anzahl Einträge im aktuellen Volume
 
             def _open_new_part():
-                nonlocal part_idx, cur_zip, cur_path, cur_bytes
+                nonlocal part_idx, cur_zip, cur_path, cur_est, cur_count
                 part_idx += 1
                 cur_path = out_dir / f"{root_stem}_part{part_idx:02d}.zip"
                 cur_zip = zipfile.ZipFile(cur_path, "w", compression=zipfile.ZIP_DEFLATED)
-                cur_bytes = 0
+                cur_est = _ZIP_TRAILER_OVERHEAD
+                cur_count = 0
 
             _open_new_part()
             for zi in infos:
                 data = src.read(zi.filename)
-                size = len(data)
-                if cur_bytes > 0 and cur_bytes + size > volume_max_bytes:
+                # B128: NUR die komprimierte Volumegröße begrenzt — unkomprimiert ist egal.
+                est = _estimated_zip_entry_bytes(data, zi.filename)
+                if cur_count > 0 and cur_est + est > volume_max_bytes:
                     cur_zip.close()
                     parts.append((cur_path, cur_path.name))
                     _open_new_part()
                 cur_zip.writestr(zi, data)
-                cur_bytes += size
+                cur_est += est
+                cur_count += 1
             cur_zip.close()
             parts.append((cur_path, cur_path.name))
     finally:
@@ -141,7 +163,8 @@ def create_debug_export_volumes(
     total = len(parts)
     final_parts: list[tuple[Path, str]] = []
     for i, (p, _name) in enumerate(parts, start=1):
-        final_name = f"{root_stem}_part{i:02d}of{total:02d}.zip"
+        # B128: durchnummeriert ohne Timestamp/Padding → wetterextended_debug{N}.zip
+        final_name = f"{EXPORT_VOLUME_BASENAME}{i}.zip"
         final_path = p.with_name(final_name)
         p.rename(final_path)
         final_parts.append((final_path, final_name))

@@ -143,3 +143,11 @@ Dateien: main.py, tests/test_no_cells_path.py (neu)
   Nur bei KI-Vorhersagen mit Quantilen; kinematische Schaetzungen ohne Korridor.
 - Ersetzt die frueheren q10/q90-Einzel-Linien/-Dreiecke durch eine ruhige Cone-Form.
 - Test: tests/test_b130_uncertainty_corridor.py (+ test_frontend_build.py als Gate).
+
+### B128 — Volume-Aufteilung nach komprimierter Größe + Dateinamen (erledigt)
+- Korrigiert B126: Volumes werden jetzt nach **komprimierter** ZIP-Größe bis ≤ 80 MB gefüllt
+  (`EXPORT_VOLUME_MAX_BYTES`), die unkomprimierte Größe ist irrelevant
+  (Schätzung via `zlib`-Deflate + Header-Overhead). Dateinamen vereinheitlicht zu
+  `wetterextended_debug{N}.zip` (`DEBUG_EXPORT_VOLUME_BASENAME`). Verlustfrei,
+  einzelner Eintrag > 80 MB erhält eigenes Volume. Test neu:
+  `tests/test_debug_export_volumes.py` (4 Tests, inkl. „unkomprimiert egal").
