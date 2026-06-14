@@ -2096,3 +2096,16 @@ Hinweis: Die produzierten 09:30-Logs stammten von einer älteren laufenden Proze
 | # | Task | Datei(en) | Status |
 |---|------|-----------|--------|
 | LOGIC-01 | **`logic.md` mit Quellen angelegt.** Verfahrensdoku (Kalman, Tracking/Merge/Split, optischer Fluss/TRT/ETITAN, Forecast-Geschwindigkeitsquelle, Tendenz P-M03, Orts-Treffer inkl. P-M05, Survival/Stale, ML inkl. P-M04) jeweils mit Quell-Weblink (Originalpublikation/Doku) und Hinweis auf die operationell einsetzende Organisation (NCAR, MeteoSwiss, FMI, Hong Kong Observatory, DeepMind/Met Office, Microsoft). Kein Produktionscode. | `logic.md` | ✅ erledigt |
+
+## B132 – api_cache: Refetch bei TTL-Ablauf statt 24h-Stale-Auslieferung
+Status: ERLEDIGT
+Ursache: cache_get() rief im EXPIRED-Zweig cache_get_stale() (max_stale=86400s) auf und
+         lieferte den veralteten Wert statt None. Caller-Muster `if data is None: fetch`
+         löste daher nie einen Refetch aus → Blitz (TTL 60s)/TAWES (600s)/CAPE/EUMETView
+         wurden faktisch nur 1×/24h real geladen (Beleg: api_call_counts.jsonl, letzter
+         echter Call 2026-06-13 09:39; Hauptlog-Muster EXPIRED→STALE HIT). Bei Gewitter
+         wären Blitz-/Stationsdaten bis ~24h alt = funktional unbrauchbar.
+Fix: cache_get() gibt bei TTL-Ablauf wieder None zurück. Der Stale-While-Error-Fallback
+     (cache_get_stale) bleibt unverändert und dient ausschließlich im except-Zweig der
+     Caller. cache_get_stale/cache_set/_put_mem/get_ttl unverändert.
+Dateien: api_cache.py, tests/test_b132_cache_refetch_on_expiry.py (neu)
