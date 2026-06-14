@@ -25,6 +25,13 @@ from export_security import redact_json_text, redact_text
 # Fix: alle Exceptions fangen, journalctl mit Timeout, Log-Reads size-begrenzt, ZIP auf Disk.
 
 EXPORT_MAX_BYTES = int(os.getenv("DEBUG_EXPORT_MAX_BYTES", str(50 * 1024 * 1024)))
+# B126: Maximale Größe je ZIP-Volume. Der Gesamtexport wird verlustfrei auf
+# mehrere Volumes <= dieser Grenze aufgeteilt (kein Datei-Weglassen).
+EXPORT_VOLUME_MAX_BYTES = int(os.getenv("DEBUG_EXPORT_VOLUME_MAX_BYTES", str(80 * 1024 * 1024)))
+_PRIORITY_TEXT_EXTS = {
+    ".json", ".jsonl", ".csv", ".txt", ".log", ".kml", ".xml",
+    ".py", ".ini", ".cfg", ".conf", ".yaml", ".yml", ".env",
+}
 _NGINX_TAIL_BYTES = 5 * 1024 * 1024
 
 _TEXT_EXTENSIONS = {".txt", ".log", ".json", ".jsonl", ".csv", ".xml", ".kml", ".py", ".ini", ".cfg", ".conf", ".yaml", ".yml", ".env"}
@@ -61,6 +68,92 @@ class ExportCandidate:
 
 class ExportLimitExceeded(RuntimeError):
     """Der Debug-Export wurde wegen konfigurierter Schutzgrenzen abgebrochen."""
+
+
+def _volume_priority(arcname: str) -> int:
+    """0 = Text/Diagnose (zuerst), 1 = Binär/Rest (später)."""
+    ext = os.path.splitext(arcname)[1].lower()
+    return 0 if (ext in _PRIORITY_TEXT_EXTS or arcname.endswith(".env")) else 1
+
+
+def create_debug_export_volumes(
+    base_dir,
+    save_paths: dict | None = None,
+    hours: int = 24,
+    now: "datetime | None" = None,
+    max_files: int = 5000,
+    volume_max_bytes: int = EXPORT_VOLUME_MAX_BYTES,
+    out_dir: str | Path | None = None,
+) -> "tuple[list[tuple[Path, str]], dict]":
+    """B126: Baut den VOLLSTÄNDIGEN Export und teilt ihn VERLUSTFREI in
+    ZIP-Volumes <= volume_max_bytes auf. KEINE Datei wird weggelassen.
+
+    Rückgabe: (parts, manifest) mit parts = [(Path, filename), ...] in Reihenfolge
+    part01ofNN … partNNofNN. Single-File > volume_max_bytes bekommt ein eigenes
+    Volume; ansonsten wird vor Überschreiten der unkomprimierten Eintragsgröße
+    ein neues Volume begonnen.
+    """
+    now = now or datetime.now(timezone.utc)
+    out_dir = Path(out_dir) if out_dir else Path(tempfile.mkdtemp(prefix="wetterextended_vol_"))
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    full_fd = tempfile.NamedTemporaryFile(prefix="wetterextended_full_", suffix=".zip", delete=False)
+    full_path = Path(full_fd.name)
+    full_fd.close()
+    src_path, base_filename, manifest = create_debug_export_zip(
+        base_dir=base_dir, save_paths=save_paths, hours=hours, now=now,
+        max_files=max_files, max_total_bytes=None, tmp_path=full_path,
+    )
+    src_path = Path(src_path)
+    root_stem = base_filename[:-4] if base_filename.lower().endswith(".zip") else base_filename
+
+    parts: list[tuple[Path, str]] = []
+    try:
+        with zipfile.ZipFile(src_path, "r") as src:
+            infos = sorted(src.infolist(), key=lambda zi: (_volume_priority(zi.filename), zi.filename))
+            part_idx = 0
+            cur_zip = None
+            cur_path = None
+            cur_bytes = 0
+
+            def _open_new_part():
+                nonlocal part_idx, cur_zip, cur_path, cur_bytes
+                part_idx += 1
+                cur_path = out_dir / f"{root_stem}_part{part_idx:02d}.zip"
+                cur_zip = zipfile.ZipFile(cur_path, "w", compression=zipfile.ZIP_DEFLATED)
+                cur_bytes = 0
+
+            _open_new_part()
+            for zi in infos:
+                data = src.read(zi.filename)
+                size = len(data)
+                if cur_bytes > 0 and cur_bytes + size > volume_max_bytes:
+                    cur_zip.close()
+                    parts.append((cur_path, cur_path.name))
+                    _open_new_part()
+                cur_zip.writestr(zi, data)
+                cur_bytes += size
+            cur_zip.close()
+            parts.append((cur_path, cur_path.name))
+    finally:
+        src_path.unlink(missing_ok=True)
+
+    total = len(parts)
+    final_parts: list[tuple[Path, str]] = []
+    for i, (p, _name) in enumerate(parts, start=1):
+        final_name = f"{root_stem}_part{i:02d}of{total:02d}.zip"
+        final_path = p.with_name(final_name)
+        p.rename(final_path)
+        final_parts.append((final_path, final_name))
+
+    manifest = dict(manifest)
+    manifest["part_count"] = total
+    manifest["volume_max_bytes"] = volume_max_bytes
+    manifest["parts"] = [
+        {"index": i, "filename": n, "bytes": fp.stat().st_size}
+        for i, (fp, n) in enumerate(final_parts, start=1)
+    ]
+    return final_parts, manifest
 
 
 def parse_timestamp_from_name(name: str) -> datetime | None:

@@ -47,6 +47,15 @@ Ursache: No-Cells-Pfad setzt no_cells_handled nicht, Code fällt in Else-Zweig �
          save_forecast_as_kmz() zweimal aufgerufen
 Fix: no_cells_handled = True im No-Cells-Pfad, Else-Zweig nur bei echtem Datenfehler
 Dateien: main.py, tests/test_no_cells_path.py (neu)
+### B126 — Debug-Export verlustfrei in ≤ 80 MB-Volumes ✅ erledigt
+- Ersetzt den Hart-Abbruch (`413 export_too_large`) durch verlustfreie Aufteilung:
+  `create_debug_export_volumes()` baut den vollständigen Export (ohne Größenlimit)
+  und packt ihn in `…_partNNofMM.zip` ≤ 80 MB (`DEBUG_EXPORT_VOLUME_MAX_BYTES`),
+  Text/Diagnose-Dateien zuerst.
+- Admin-Download via `…/parts` (Token-Cache) + sequentieller Teil-Download;
+  KI-Branch-Push legt alle Volumes + Manifest ab. Keine Datei wird ausgelassen.
+- Test: `tests/test_debug_export_volumes.py`.
+
 
 ### B123 — install.sh ML-Feature/Model-Kompatibilitäts-Gate ✅ erledigt
 - Neue Phase **8.9** in `install.sh` vor dem Testlauf (Phase 9), beide Modi.
