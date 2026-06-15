@@ -53,7 +53,13 @@ def _save() -> None:
 
 
 def _now() -> float:
-    return time.monotonic()
+    # B144: WALL-CLOCK statt time.monotonic(). cooldown_until wird auf Platte persistiert
+    # und nach Prozess-Neustart/Reboot mit _now() verglichen. monotonic() ist über Reboots
+    # NICHT vergleichbar (resettet) → der Breaker blieb dauerhaft offen
+    # (open_meteo_atmosphere → atmospheric_snapshot dauerhaft übersprungen → openmeteo
+    # "fällig"/leer). time.time() ist über Neustarts gültig; alte stuck-open-Zustände
+    # heilen sich beim ersten is_open()-Aufruf selbst.
+    return time.time()
 
 
 def _entry(service_name: str) -> dict:
