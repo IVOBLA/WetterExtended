@@ -2181,3 +2181,14 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
   Volume-Split (B128).
 - (3) `max_files` 5000 → 50000 (24h-Fenster ist die Grenze, nicht die Dateianzahl).
 - Test: `tests/test_b142_export_window_tz.py`. Dateien: `debug_export.py`.
+
+### B143 — evaluation-JSONL Alters-Rotation (api_call_counts.jsonl) ✅ erledigt
+- KIAnalyse #1/#2: `api_call_counts.jsonl` wuchs unbegrenzt (volle CAPE/eumetview-Bodies,
+  86 MB), da `train_data/evaluation/` von der Rotation ausgenommen ist.
+- Fix: `cleanup_old_data()` ruft täglich `_prune_eval_jsonl_by_age()` für
+  `api_call_counts.jsonl` + `api_health.jsonl` auf — Zeilen älter als
+  `EVAL_LOG_RETENTION_HOURS` (Default 48 h) werden verworfen. Nicht parsebare Zeilen bleiben.
+- Bewusst 48 h > 24h-Export-Fenster → der 24h-Export behält IMMER alle Daten. Der Export
+  filtert API-Log-Zeilen ohnehin selbst auf das Fenster; A7-Volltext-Bodies bleiben.
+- Konfig: `config.EVAL_LOG_RETENTION_HOURS`. Test: `tests/test_b143_eval_log_rollover.py`.
+- Dateien: `config.py`, `cleanup_old_data.py`.
