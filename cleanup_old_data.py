@@ -10,7 +10,7 @@ Kann auch manuell ausgeführt werden: python3 cleanup_old_data.py
 import json
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from config import (DATA_CLEANUP_PATHS, DATA_CLEANUP_RETENTION_OVERRIDE,
                     DATA_RETENTION_DAYS, SAVE_PATHS)
@@ -33,6 +33,49 @@ def _free_gb() -> float:
         return stat.free / (1024 ** 3)
     except Exception:
         return 999.0  # Im Fehlerfall: annehmen dass genug Platz vorhanden
+
+
+def _prune_eval_jsonl_by_age(filename: str, max_age_hours: int) -> int:
+    """B143: Begrenzt eine append-only JSONL in train_data/evaluation/ auf die letzten
+    max_age_hours. Zeilen mit ts/ts_utc älter als der Cutoff werden verworfen; nicht
+    parsebare Zeilen werden IMMER behalten (nie Daten verlieren). Gibt die Anzahl
+    entfernter Zeilen zurück. Nie blockierend."""
+    if max_age_hours <= 0:
+        return 0
+    eval_dir = SAVE_PATHS.get("evaluation", "train_data/evaluation/").rstrip("/")
+    path = os.path.join(eval_dir, filename)
+    if not os.path.isfile(path):
+        return 0
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+    kept: list = []
+    removed = 0
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                drop = False
+                try:
+                    rec = json.loads(line)
+                    raw = rec.get("ts") or rec.get("ts_utc") or ""
+                    ts = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
+                    drop = ts < cutoff
+                except Exception:
+                    drop = False  # nicht parsebar → behalten
+                if drop:
+                    removed += 1
+                else:
+                    kept.append(line if line.endswith("\n") else line + "\n")
+        if removed:
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.writelines(kept)
+            os.replace(tmp, path)
+    except Exception as exc:
+        debug_log(f"[CLEANUP] eval-JSONL Prune Fehler ({filename}): {exc}")
+    return removed
 
 
 def cleanup_old_data() -> dict:
@@ -112,6 +155,19 @@ def cleanup_old_data() -> dict:
         "dirs_checked": len(DATA_CLEANUP_PATHS),
         "errors": errors[:10],  # max. 10 Fehler protokollieren
     }
+
+    # B143: append-only evaluation-JSONLs auf die letzten EVAL_LOG_RETENTION_HOURS begrenzen
+    # (stoppt unbegrenztes Wachstum, behält aber > 24h fürs Export-Fenster).
+    try:
+        from config import EVAL_LOG_RETENTION_HOURS as _eval_hours
+    except Exception:
+        _eval_hours = 48
+    _eval_pruned = 0
+    for _fn in ("api_call_counts.jsonl", "api_health.jsonl"):
+        _eval_pruned += _prune_eval_jsonl_by_age(_fn, _eval_hours)
+    result["eval_lines_pruned"] = _eval_pruned
+    if _eval_pruned:
+        debug_log(f"[CLEANUP] eval-JSONL Alters-Rotation: {_eval_pruned} Zeilen entfernt (>{_eval_hours}h)")
 
     # Cleanup-Log schreiben
     os.makedirs(os.path.dirname(_LOG_FILE), exist_ok=True)
