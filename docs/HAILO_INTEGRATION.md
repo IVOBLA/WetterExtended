@@ -2322,3 +2322,9 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
   Bewusst KEIN retry_get (eigene If-Modified-Since/304- und SHA256-Dedup-Logik bleibt).
 - Test: `tests/test_b156_radar_breaker.py`. Datei: `radar_download.py`.
 - #5-Rollout offen: nur noch `fetch_arome_openmeteo` (openmeteo_icon_d2) — separater Prompt.
+
+### B154 — EUMETView an Circuit-Breaker (#5, Rollout 5) ✅ erledigt
+- `cloud_height_from_eumetview`: GetCapabilities (`get_latest_wms_time`) von rohem
+  `requests.get` auf `retry_get` (`breaker_service="eumetview_capabilities"`); GetMap-TIFF
+  (`assign_cloud_top_height`) um `breaker_service="eumetview_wms"` ergänzt.
+- Test: `tests/test_b154_eumetview_breaker.py`. Datei: `cloud_height_from_eumetview.py`.
