@@ -2298,3 +2298,8 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
 - Offen im #5-Rollout: die bereits auf retry_get laufenden Fetcher je `breaker_service=`
   (blitz_api, fetch_arome_openmeteo, cloud_height_from_eumetview, fetch_700hpa_wind,
   radar_download).
+
+### B152 — Blitzortung an Circuit-Breaker (#5, Rollout 3) ✅ erledigt
+- `blitz_api`: `retry_get(...)` um `breaker_service="blitzortung_last_strikes"` ergänzt
+  (lief bereits über retry_get; nur Breaker-Anbindung).
+- Test: `tests/test_b152_blitz_breaker.py`. Datei: `blitz_api.py`.

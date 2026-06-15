@@ -69,6 +69,7 @@ def fetch_and_save_lightning(timestamp: str) -> None:
         response = retry_get(
             url,
             service="Blitzortung",
+            breaker_service="blitzortung_last_strikes",  # B152
             timeout=10,
             auth=(USERNAME, PASSWORD),
         )
