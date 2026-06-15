@@ -2161,3 +2161,12 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
 - Obsoleten Test `test_export_limit_exceeded_returns_413` entfernt (testete das durch B126
   abgelöste 413-Verhalten). `test_temp_file_cleaned_up_after_error` ist nun grün.
 - Dateien: `debug_export.py`, `tests/test_debug_export.py`
+
+### B141 — Publisher-Tests: create_export-Mock 2-Tupel + Oversized-Volume-Reject ✅ erledigt
+- `test_debug_export_branch_publisher.py`: beide `create_export`-Mocks lieferten ein
+  veraltetes 3-Tupel `(zip_path, name, manifest)` → `ValueError: too many values to unpack`.
+  Korrigiert auf das reale 2-Tupel `([(Path, name)], manifest)`.
+- `publish()`: Volumes > `--max-zip-mb` werden jetzt mit `PublisherError`
+  („Finale ZIP-Datei ist zu groß für GitHub“) abgelehnt statt nur geloggt — GitHub kann
+  nicht-pushbare Übergrößen-Dateien nicht annehmen. Admin-Download bleibt verlustfrei.
+- Dateien: `tests/test_debug_export_branch_publisher.py`, `tools/publish_latest_debug_export_branch.py`
