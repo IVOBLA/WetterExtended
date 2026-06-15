@@ -2323,6 +2323,15 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
 - Test: `tests/test_b156_radar_breaker.py`. Datei: `radar_download.py`.
 - #5-Rollout offen: nur noch `fetch_arome_openmeteo` (openmeteo_icon_d2) — separater Prompt.
 
+### B158 — Radar-Breaker-Fixes (Codex zu B156) ✅ erledigt
+- 429-Retry-After: im 4xx-Pfad wird `Retry-After` aus der Response geparst und an
+  `record_failure(..., retry_after=…)` übergeben → Cooldown folgt dem Provider statt 1h-Default.
+- Erfolg erst nach Validierung: `record_success("arso_radar")` aus dem Erfolgs-`break`
+  entfernt und erst direkt vor dem finalen `return True` (nach ZIP-Validierung + Entpacken)
+  gesetzt. Ein 200-Fehlerseiten-/Korrupt-ZIP setzt den Breaker damit nicht mehr fälschlich
+  zurück. 304/SHA256-identisch bleiben legitime Erfolge.
+- Test: `tests/test_b158_radar_breaker_fix.py`. Datei: `radar_download.py`.
+
 ### B154 — EUMETView an Circuit-Breaker (#5, Rollout 5) ✅ erledigt
 - `cloud_height_from_eumetview`: GetCapabilities (`get_latest_wms_time`) von rohem
   `requests.get` auf `retry_get` (`breaker_service="eumetview_capabilities"`); GetMap-TIFF
