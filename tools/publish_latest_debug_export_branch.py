@@ -287,9 +287,12 @@ def publish(args: argparse.Namespace) -> None:
             oversized = [(path, name) for path, name in parts if path.stat().st_size > max_zip_bytes]
             if oversized:
                 details = ", ".join(f"{name}={format_mb(path.stat().st_size)} MB" for path, name in oversized)
-                log(
-                    "Hinweis: Einzelne Volumes überschreiten das Limit, vermutlich wegen "
-                    f"Single-File > Limit: {details}"
+                # B141: GitHub kann Dateien > Limit (~100 MB) nicht pushen → klar abbrechen
+                # statt später am git push zu scheitern. Der Admin-Download bleibt verlustfrei
+                # (create_debug_export_volumes); nur der Publisher lehnt Übergrößen-Volumes ab.
+                raise PublisherError(
+                    f"Finale ZIP-Datei ist zu groß für GitHub (Limit {args.max_zip_mb} MB): {details}. "
+                    "Ursache meist eine einzelne Datei > Limit — bitte Daten-Rotation/Retention prüfen."
                 )
             manifest = write_branch_repo(
                 temp_repo=tmp_repo,

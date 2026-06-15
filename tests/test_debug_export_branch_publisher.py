@@ -89,7 +89,8 @@ def test_publish_accepts_zip_below_final_zip_limit(monkeypatch, tmp_path):
     monkeypatch.setattr("tools.publish_latest_debug_export_branch.ensure_repo", lambda repo_dir: None)
     monkeypatch.setattr(
         "tools.publish_latest_debug_export_branch.create_export",
-        lambda repo_dir, hours, max_source_total_mb, max_zip_mb: (zip_path, "export.zip", {"ok": True}),
+        # B141: create_export liefert (parts, manifest) mit parts=[(Path, name), ...].
+        lambda repo_dir, hours, max_source_total_mb, max_zip_mb: ([(zip_path, "export.zip")], {"ok": True}),
     )
 
     def fake_write_branch_repo(**kwargs):
@@ -113,7 +114,8 @@ def test_publish_rejects_zip_above_final_zip_limit(monkeypatch, tmp_path):
     monkeypatch.setattr("tools.publish_latest_debug_export_branch.ensure_repo", lambda repo_dir: None)
     monkeypatch.setattr(
         "tools.publish_latest_debug_export_branch.create_export",
-        lambda repo_dir, hours, max_source_total_mb, max_zip_mb: (zip_path, "export.zip", {}),
+        # B141: create_export liefert (parts, manifest) mit parts=[(Path, name), ...].
+        lambda repo_dir, hours, max_source_total_mb, max_zip_mb: ([(zip_path, "export.zip")], {}),
     )
 
     with pytest.raises(PublisherError, match="Finale ZIP-Datei ist zu groß für GitHub"):
