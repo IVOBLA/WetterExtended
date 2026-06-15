@@ -2192,3 +2192,13 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
   filtert API-Log-Zeilen ohnehin selbst auf das Fenster; A7-Volltext-Bodies bleiben.
 - Konfig: `config.EVAL_LOG_RETENTION_HOURS`. Test: `tests/test_b143_eval_log_rollover.py`.
 - Dateien: `config.py`, `cleanup_old_data.py`.
+
+
+### B144 — Circuit-Breaker: cooldown auf Wall-Clock (stuck-open nach Reboot) ✅ erledigt
+- Symptom: alle openmeteo_*-Dienste seit ~02:09 "fällig"/leer; atmospheric_snapshot
+  durch `is_open("open_meteo_atmosphere")` dauerhaft übersprungen.
+- Ursache: `_now()` = `time.monotonic()`. `cooldown_until` wird persistiert und nach
+  Reboot mit dem neuen (resetteten) monotonic verglichen → Breaker bleibt dauerhaft offen.
+- Fix: `_now()` → `time.time()` (Wall-Clock, reboot-stabil). Bestehende stuck-open-Zustände
+  heilen sich beim ersten `is_open()` selbst.
+- Test: `tests/test_b144_circuit_walltime.py`. Datei: `api_circuit_breaker.py`.
