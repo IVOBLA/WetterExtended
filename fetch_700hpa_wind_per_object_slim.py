@@ -161,7 +161,8 @@ def fetch_and_assign_700hpa_wind(objects: list, timestamp: str) -> list:
         _t0_wind = _t_wind.monotonic()
         try:
             from http_retry import retry_get
-            r = retry_get(bulk_url, service="Open-Meteo-700hPa", timeout=10)
+            r = retry_get(bulk_url, service="Open-Meteo-700hPa",
+                          breaker_service="openmeteo_icon_global", timeout=10)  # B153
             _dur_wind = (_t_wind.monotonic() - _t0_wind) * 1000
             data = r.json()
             log_http_response(
