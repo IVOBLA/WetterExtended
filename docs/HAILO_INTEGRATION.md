@@ -2303,3 +2303,8 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
 - `blitz_api`: `retry_get(...)` um `breaker_service="blitzortung_last_strikes"` ergänzt
   (lief bereits über retry_get; nur Breaker-Anbindung).
 - Test: `tests/test_b152_blitz_breaker.py`. Datei: `blitz_api.py`.
+
+### B153 — 700-hPa-Wind an Circuit-Breaker (#5, Rollout 4) ✅ erledigt
+- `fetch_700hpa_wind_per_object_slim`: `retry_get(...)` um
+  `breaker_service="openmeteo_icon_global"` ergänzt (lief bereits über retry_get).
+- Test: `tests/test_b153_wind_breaker.py`. Datei: `fetch_700hpa_wind_per_object_slim.py`.
