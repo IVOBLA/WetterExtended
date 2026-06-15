@@ -802,6 +802,16 @@ IR_TRACK_MAX_MISSING:         int   = 2      # 15-min-Slots ohne Detektion bis T
 # -------------------------------------------------------
 # Dateien älter als N Tage werden täglich gelöscht.
 DATA_RETENTION_DAYS: int = 90
+# B147: ConvLSTM-Training speicherschonend (Streaming) + isoliert.
+# Sicherheits-Obergrenze der je Lauf berücksichtigten (jüngsten) Radar-Frames gegen
+# RAM-Spitzen. INNERHALB des Caps werden via Streaming ALLE Frames je Epoche genutzt
+# (keine Qualitätseinbuße). 0 = unbegrenzt.
+CONVLSTM_MAX_FRAMES: int = 6000
+# Timeout (Sekunden) für den isolierten ConvLSTM-Trainings-Subprozess.
+CONVLSTM_TRAIN_TIMEOUT_S: int = 7200
+# Adressraum-Limit (GB) des Trainings-Subprozesses → planbares Scheitern statt
+# system-weitem OOM-Kill (schützt die übrigen Dienste auf dem Pi).
+CONVLSTM_TRAIN_MEM_LIMIT_GB: int = 12
 # B146: Kulanzfenster für verpasste Scheduler-Jobs (Sekunden). Wird ein Cron-Job zum
 # geplanten Zeitpunkt verpasst (Scheduler-Neustart/Downtime), läuft er bis zu so vielen
 # Sekunden später noch nach (coalesced) statt erst am Folgetag. Default 1 h.

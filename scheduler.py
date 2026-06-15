@@ -45,7 +45,6 @@ import runtime_config
 import api_circuit_breaker
 import size_regressor as _size_reg_mod
 from accuracy_tracker import evaluate_all, append_history_point
-from radar_convlstm import train_convlstm
 from cpu_monitor import append_cpu_sample
 
 
@@ -100,13 +99,60 @@ def run_retrain_job(job_name: str):
 
 
 def run_convlstm_weekly_job():
+    """B147: ConvLSTM-Training läuft als ISOLIERTER Subprozess. Ein OOM/Crash (auch ein
+    nicht abfangbares SIGKILL des Kindes) beendet NUR das Kind — der Scheduler-Dienst
+    überlebt. Das Kind bekommt ein Adressraum-Limit (RLIMIT_AS), damit nicht der
+    system-weite OOM-Killer fremde Dienste trifft."""
+    import os as _os
+    import sys as _sys
+    import subprocess as _sp
+
     runtime_config.reload_overrides()
-    debug_log("[SCHEDULER] Job convlstm_weekly gestartet")
+    debug_log("[SCHEDULER] Job convlstm_weekly gestartet (isolierter Subprozess)")
+
     try:
-        result = train_convlstm()
-        debug_log(f"[SCHEDULER] Job convlstm_weekly abgeschlossen ({result})")
+        from config import CONVLSTM_TRAIN_TIMEOUT_S as _timeout
+    except Exception:
+        _timeout = 7200
+    _timeout = int(runtime_config.get("CONVLSTM_TRAIN_TIMEOUT_S", _timeout))
+
+    try:
+        from config import CONVLSTM_TRAIN_MEM_LIMIT_GB as _mem_gb
+    except Exception:
+        _mem_gb = 12
+    _mem_gb = int(runtime_config.get("CONVLSTM_TRAIN_MEM_LIMIT_GB", _mem_gb))
+
+    project_root = _os.path.dirname(_os.path.abspath(__file__))
+
+    def _limit_mem():
+        try:
+            import resource
+            soft = _mem_gb * 1024 * 1024 * 1024
+            resource.setrlimit(resource.RLIMIT_AS, (soft, soft))
+        except Exception:
+            pass
+
+    cmd = [_sys.executable, _os.path.join(project_root, "radar_convlstm.py"), "--train"]
+    try:
+        proc = _sp.run(
+            cmd, cwd=project_root, timeout=_timeout,
+            stdout=_sp.PIPE, stderr=_sp.STDOUT, text=True,
+            preexec_fn=_limit_mem if _os.name == "posix" else None,
+        )
+        tail = (proc.stdout or "")[-2000:]
+        if proc.returncode == 0:
+            debug_log(f"[SCHEDULER] Job convlstm_weekly abgeschlossen (rc=0). {tail}")
+        elif proc.returncode in (-9, 137):
+            debug_log(
+                "[SCHEDULER] Job convlstm_weekly: Kind getötet (OOM/SIGKILL, "
+                f"rc={proc.returncode}) — Scheduler läuft weiter. {tail}"
+            )
+        else:
+            debug_log(f"[SCHEDULER] Job convlstm_weekly Fehler (rc={proc.returncode}). {tail}")
+    except _sp.TimeoutExpired:
+        debug_log(f"[SCHEDULER] Job convlstm_weekly Timeout (> {_timeout}s) — abgebrochen.")
     except Exception as exc:
-        debug_log(f"[SCHEDULER] Job convlstm_weekly Fehler: {exc}")
+        debug_log(f"[SCHEDULER] Job convlstm_weekly Fehler beim Start: {exc}")
 
 
 def _cells_detected_today() -> bool:
