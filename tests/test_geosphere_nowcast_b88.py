@@ -2,6 +2,7 @@ import sys
 import types
 
 
+
 class _DummyHTTPError(Exception):
     def __init__(self, *args, response=None):
         super().__init__(*args)
@@ -15,6 +16,17 @@ sys.modules.setdefault(
         get=lambda *a, **k: None,
     ),
 )
+sys.modules.setdefault(
+    "http_retry",
+    types.SimpleNamespace(
+        retry_get=lambda *a, **k: None,
+        requests=sys.modules["requests"],
+        CircuitOpenError=Exception,
+    ),
+)
+
+import http_retry
+
 sys.modules.setdefault(
     "debug_utils",
     types.SimpleNamespace(
@@ -88,7 +100,7 @@ def test_b116_bulk_url_has_no_ffx(monkeypatch):
                     "rr": {"data": [0.5]}, "ff": {"data": [5.0]}}}},
             ]}
 
-    monkeypatch.setattr(nowcast.requests, "get",
+    monkeypatch.setattr(http_retry, "retry_get",
                         lambda url, *a, **k: (captured.update(url=url) or _R()),
                         raising=False)
     out = nowcast.assign_nowcast_to_objects([{"id": "a", "lat": 47.147, "lon": 14.632}])
@@ -104,7 +116,7 @@ def test_b104_no_objects_does_not_call_api(monkeypatch):
         called["n"] += 1
         raise AssertionError("kein HTTP-Call bei 0 Objekten erlaubt")
 
-    monkeypatch.setattr(nowcast.requests, "get", _boom, raising=False)
+    monkeypatch.setattr(http_retry, "retry_get", _boom, raising=False)
     assert nowcast.assign_nowcast_to_objects([]) == []
     assert called["n"] == 0
 
@@ -121,7 +133,7 @@ def test_b104_bulk_keeps_repeated_lat_lon_and_forecast_offset(monkeypatch):
                 "rr": {"data": [0.0]}, "ff": {"data": [0.0]}}}},
         ]})
 
-    monkeypatch.setattr(nowcast.requests, "get", _fake_get, raising=False)
+    monkeypatch.setattr(http_retry, "retry_get", _fake_get, raising=False)
     objs = [
         {"id": "a", "lat": 47.147, "lon": 14.632},
         {"id": "b", "lat": 47.121, "lon": 14.352},
@@ -145,7 +157,7 @@ def test_b105_outside_nowcast_bbox_skips_api_and_keeps_defaults(monkeypatch):
         called["n"] += 1
         raise AssertionError("kein HTTP-Call fuer Koordinaten ausserhalb der Nowcast-Bbox")
 
-    monkeypatch.setattr(nowcast.requests, "get", _boom, raising=False)
+    monkeypatch.setattr(http_retry, "retry_get", _boom, raising=False)
     monkeypatch.setattr(nowcast, "debug_log", lambda msg: logs.append(msg), raising=False)
 
     objs = [{"id": "outside", "lat": 50.0, "lon": 14.0}]
@@ -157,17 +169,18 @@ def test_b105_outside_nowcast_bbox_skips_api_and_keeps_defaults(monkeypatch):
     assert any("außerhalb INCA-Bbox" in msg for msg in logs)
 
 
-def test_b105_bulk_http_error_logs_response_body_and_marks_fallback(monkeypatch):
+def test_b105_bulk_http_error_uses_retry_get_fallback_without_double_log(monkeypatch):
     failures = []
     logs = []
 
     def _fake_get(url, *a, **k):
-        return _Resp({"detail": "bad request"}, status=400)
+        exc = nowcast.requests.exceptions.HTTPError("http-400", response=_Resp({"detail": "bad request"}, status=400))
+        raise exc
 
     def _fake_failure(*args, **kwargs):
         failures.append((args, kwargs))
 
-    monkeypatch.setattr(nowcast.requests, "get", _fake_get, raising=False)
+    monkeypatch.setattr(http_retry, "retry_get", _fake_get, raising=False)
     monkeypatch.setattr(nowcast, "debug_log", lambda msg: logs.append(msg), raising=False)
     monkeypatch.setattr(nowcast, "log_api_failure", _fake_failure, raising=False)
 
@@ -175,8 +188,6 @@ def test_b105_bulk_http_error_logs_response_body_and_marks_fallback(monkeypatch)
     out = nowcast.assign_nowcast_to_objects(objs)
 
     assert out[0]["nowcast_rr_mm15"] == 0.0
-    assert any("[NOWCAST] 400-Body:" in msg for msg in logs)
-    assert failures
-    assert failures[0][1]["fallback_used"] is True
-    assert failures[0][1]["http_status"] == 400
+    assert any("[NOWCAST] Bulk-Fehler/Fallback:" in msg for msg in logs)
+    assert not failures
 

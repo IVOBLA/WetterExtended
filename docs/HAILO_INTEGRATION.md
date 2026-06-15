@@ -2286,3 +2286,15 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
 - Offen im #5-Rollout: B151 `fetch_geosphere_nowcast` (Bulk + Einzel + B131-OOC),
   danach die bereits auf retry_get laufenden Fetcher (blitz_api, fetch_arome_openmeteo,
   cloud_height_from_eumetview, fetch_700hpa_wind, radar_download) je `breaker_service=`.
+
+### B151 — Nowcast an Circuit-Breaker (#5, Rollout 2) ✅ erledigt
+- `fetch_geosphere_nowcast`: Bulk-Request (`assign_nowcast_to_objects`) UND Einzel-Fallback
+  (`_parse_nowcast_single`) von rohem `requests.get` auf `retry_get` mit
+  `service`/`breaker_service="geosphere_nowcast"` umgestellt.
+- Doppel-Logging entfällt (retry_get loggt Fehler in beiden Pfaden + bedient Breaker).
+  B131-Out-of-Coverage bleibt exakt: nur echte 4xx → `_ooc_mark`; Timeout/Connection/5xx/
+  CircuitOpen (status 0) → kein OOC-Merken. Erfolgs-`log_api_call` bleibt.
+- Test: `tests/test_b151_nowcast_breaker.py`. Datei: `fetch_geosphere_nowcast.py`.
+- Offen im #5-Rollout: die bereits auf retry_get laufenden Fetcher je `breaker_service=`
+  (blitz_api, fetch_arome_openmeteo, cloud_height_from_eumetview, fetch_700hpa_wind,
+  radar_download).

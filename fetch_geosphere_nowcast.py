@@ -220,9 +220,12 @@ def assign_nowcast_to_objects(objects: list, timestamp: str | None = None) -> li
     _resp = None
     try:
         _t0 = _t_nowcast_mod.monotonic()
-        _resp = requests.get(_url, timeout=_TIMEOUT, headers={"Accept": "application/json"})
+        from http_retry import retry_get
+        # B151: zentraler retry_get + Circuit-Breaker ("geosphere_nowcast").
+        _resp = retry_get(_url, service="geosphere_nowcast",
+                          breaker_service="geosphere_nowcast",
+                          timeout=_TIMEOUT, headers={"Accept": "application/json"})
         _dur_ms = (_t_nowcast_mod.monotonic() - _t0) * 1000
-        _resp.raise_for_status()
 
         _headers = getattr(_resp, "headers", {}) or {}
         _content_type = _headers.get("content-type") if hasattr(_headers, "get") else None
@@ -254,20 +257,11 @@ def assign_nowcast_to_objects(objects: list, timestamp: str | None = None) -> li
         return objects
 
     except Exception as _exc:
-        _exc_resp = getattr(_exc, "response", None)
-        _err_resp = _exc_resp if _exc_resp is not None else _resp
-        _status = getattr(_err_resp, "status_code", None) or 0
-        # B105: Response-Body loggen (max. 400 Zeichen) zur Root-Cause-Analyse.
-        _resp_text = ""
-        try:
-            _resp_text = (getattr(_err_resp, "text", "") or "")[:400]
-        except Exception:
-            pass
-        if _resp_text:
-            debug_log(f"[NOWCAST] 400-Body: {_resp_text}")
-        # B105: fallback_used=True korrekt gesetzt — Defaults wurden bereits befüllt.
-        log_api_failure("geosphere_nowcast", _url, str(_exc), fallback_used=True, http_status=_status)
-        log_api_call("geosphere_nowcast", url=_url, status_code=_status, method="GET", error=str(_exc))
+        # B151: retry_get hat den Fehler bereits in beiden Logpfaden protokolliert
+        # (log_api_failure + log_api_call unter "geosphere_nowcast", inkl. 4xx-Body) und
+        # den Breaker bedient. Defaults sind bereits befüllt → nur Fallback zurückgeben.
+        # CircuitOpenError (offener Breaker) = bewusster Skip ohne erneutes Fehl-Logging.
+        debug_log(f"[NOWCAST] Bulk-Fehler/Fallback: {type(_exc).__name__}: {_exc}")
         return objects
 
 
@@ -285,9 +279,12 @@ def _parse_nowcast_single(coord: tuple) -> dict:
     _url = _build_nowcast_url(_lat, _lon)
     try:
         _t0 = _t_single.monotonic()
-        _r = requests.get(_url, timeout=_TIMEOUT, headers={"Accept": "application/json"})
+        from http_retry import retry_get
+        # B151: zentraler retry_get + Circuit-Breaker ("geosphere_nowcast").
+        _r = retry_get(_url, service="geosphere_nowcast",
+                       breaker_service="geosphere_nowcast",
+                       timeout=_TIMEOUT, headers={"Accept": "application/json"})
         _dur_ms = (_t_single.monotonic() - _t0) * 1000
-        _r.raise_for_status()
         log_api_call(
             "geosphere_nowcast", url=_url, status_code=_r.status_code,
             duration_ms=_dur_ms, method="GET",
@@ -300,21 +297,11 @@ def _parse_nowcast_single(coord: tuple) -> dict:
         _exc_resp = getattr(_exc, "response", None)
         _status = getattr(_exc_resp, "status_code", None) or 0
         # B131: Nur echte HTTP-4xx (keine Daten an diesem Punkt) markieren.
-        # Timeout/Connection/5xx sind transient -> NICHT merken (naechster Zyklus testet erneut).
+        # Timeout/Connection/5xx/CircuitOpen sind transient -> NICHT merken.
         if 400 <= _status < 500:
             _ooc_mark(coord)
-        # B131: Konsistente Doppel-Protokollierung wie im Bulk-Pfad ->
-        # api_health.jsonl und api_call_counts.jsonl zeigen denselben Eintrag
-        # unter identischem Service-Namen.
-        _reason = f"http-{_status}" if _status else str(_exc)
-        log_api_failure(
-            "geosphere_nowcast", _url, _reason,
-            fallback_used=True, http_status=(_status or None),
-        )
-        log_api_call(
-            "geosphere_nowcast", url=_url, status_code=_status, method="GET",
-            error=_reason,
-        )
+        # B151: retry_get hat den Fehler bereits in beiden Logpfaden protokolliert und den
+        # Breaker bedient → kein Doppel-Log mehr hier.
         return dict(_DEFAULT)
 
 
