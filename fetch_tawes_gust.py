@@ -85,27 +85,22 @@ def fetch_tawes_stations() -> list:
 
     try:
         import time as _t_tawes
+        from http_retry import retry_get
         _t0_tawes = _t_tawes.monotonic()
-        r = requests.get(url, timeout=_TIMEOUT, headers={"Accept": "application/json"})
-        r.raise_for_status()
+        # B150: zentraler retry_get + Circuit-Breaker (Service "geosphere_tawes_all").
+        # retry_get protokolliert Fehler bereits (log_api_failure/log_api_call) und bedient
+        # den Breaker (is_open/record_success/record_failure) — daher hier kein Doppel-Log.
+        r = retry_get(url, service="geosphere_tawes_all",
+                      breaker_service="geosphere_tawes_all",
+                      timeout=_TIMEOUT, headers={"Accept": "application/json"})
         data = r.json()
         log_api_call("geosphere_tawes_all", url, r.status_code,
                      duration_ms=(_t_tawes.monotonic() - _t0_tawes) * 1000,
                      method="GET", response_payload=data,
                      content_type=r.headers.get("content-type"))
-    except requests.exceptions.Timeout:
-        log_api_failure("geosphere_tawes_all", url, "timeout", fallback_used=True)
-        return []
-    except requests.exceptions.HTTPError as exc:
-        status = getattr(exc.response, "status_code", None) or 0
-        log_api_call("geosphere_tawes_all", url, status)
-        log_api_failure("geosphere_tawes_all", url, f"http-error: {exc}",
-                        fallback_used=True, http_status=status)
-        return []
     except Exception as exc:
-        log_api_call("geosphere_tawes_all", url, 0)
-        log_api_failure("geosphere_tawes_all", url, f"{type(exc).__name__}: {exc}",
-                        fallback_used=True)
+        # Fehler + Breaker hat retry_get bereits behandelt; CircuitOpenError = bewusster Skip.
+        debug_log(f"[TAWES] Fallback (leer): {type(exc).__name__}: {exc}")
         return []
 
     out = []

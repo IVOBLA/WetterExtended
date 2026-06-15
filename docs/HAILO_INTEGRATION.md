@@ -2276,3 +2276,13 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
   `breaker_service="…"` (kanonischer Name) bzw. migrieren `tawes`/`nowcast` von rohem
   requests.get auf retry_get.
 - Test: `tests/test_b149_retry_get_breaker.py`. Datei: `http_retry.py`.
+
+### B150 — TAWES an Circuit-Breaker (#5, Rollout 1) ✅ erledigt
+- `fetch_tawes_gust.fetch_tawes_stations()` von rohem `requests.get` auf `retry_get`
+  umgestellt mit `service="geosphere_tawes_all"` und `breaker_service="geosphere_tawes_all"`.
+- Retry + Logging + Breaker laufen jetzt zentral; doppeltes Fehler-Logging entfällt.
+  Erfolgs-`log_api_call` (mit Payload) bleibt für das Dashboard erhalten.
+- Test: `tests/test_b150_tawes_breaker.py`. Datei: `fetch_tawes_gust.py`.
+- Offen im #5-Rollout: B151 `fetch_geosphere_nowcast` (Bulk + Einzel + B131-OOC),
+  danach die bereits auf retry_get laufenden Fetcher (blitz_api, fetch_arome_openmeteo,
+  cloud_height_from_eumetview, fetch_700hpa_wind, radar_download) je `breaker_service=`.
