@@ -2213,3 +2213,26 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
   der Scheduler einen knapp verpassten Lauf nach statt einen Tag zu warten.
 - Konfig: `config.SCHEDULER_MISFIRE_GRACE_S`. Test: `tests/test_b146_scheduler_misfire.py`.
 - Dateien: `config.py`, `scheduler.py`.
+
+### B147 — ConvLSTM-Training: Streaming + Subprozess-Isolation ✅ erledigt
+- Ursache der Montag-02:00-Einfrierung: `convlstm_weekly` rief `train_convlstm()`
+  IN-PROCESS auf; `_load_radar_dataset()` lud das gesamte Radar-Archiv als ein großes
+  Array → OOM-SIGKILL des Scheduler-Prozesses (mit B145-StartLimit → Dienst blieb tot).
+- Fix 1 (Streaming): `train_convlstm()` nutzt `tf.keras.utils.Sequence` (pro Batch nur
+  benötigte Frames von Platte; Peak-RAM ≈ batch_size × SEQUENCE_LENGTH). ALLE gecappten
+  Frames werden je Epoche gesehen → kein Qualitätsverlust. Chronologischer Train/Val-Split
+  statt `validation_split`. Sicherheits-Ceiling `CONVLSTM_MAX_FRAMES` (Default 6000).
+- Fix 2 (Isolation): Scheduler startet `python3 radar_convlstm.py --train` als Subprozess
+  mit `RLIMIT_AS` (`CONVLSTM_TRAIN_MEM_LIMIT_GB`, Default 12 GB) und Timeout
+  (`CONVLSTM_TRAIN_TIMEOUT_S`). Kind-Crash/OOM beendet nur das Kind; Scheduler überlebt.
+- Training läuft bewusst weiter lokal auf dem Pi. Ergänzt B145 (systemd self-healing) und
+  B146 (misfire-grace) zur vollständigen Scheduler-Robustheit.
+- Konfig: `config.CONVLSTM_MAX_FRAMES`, `CONVLSTM_TRAIN_TIMEOUT_S`,
+  `CONVLSTM_TRAIN_MEM_LIMIT_GB`. Test: `tests/test_b147_convlstm_isolation.py`.
+- Dateien: `config.py`, `radar_convlstm.py`, `scheduler.py`.
+
+## Phase B (Hailo) — Stand
+- Schweres Training/DFC-Kompilierung weiterhin für M910q vorgesehen (U-Net-Nowcasting als
+  primäres Hailo-Ziel). B147 macht das ConvLSTM-Training zusätzlich Pi-tauglich (Streaming),
+  ohne die Phase-B-Architektur zu ändern (Inferenz auf dem Pi, schweres Training optional
+  auf dem Trainer).
