@@ -2332,6 +2332,14 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
   zurück. 304/SHA256-identisch bleiben legitime Erfolge.
 - Test: `tests/test_b158_radar_breaker_fix.py`. Datei: `radar_download.py`.
 
+### B159 — CAPE: Doppel-Logging vermeiden (Codex zu B155) ✅ erledigt
+- Im except von `fetch_or_use_latest_geojson()` das zweite
+  `log_api_failure("GeoSphere-CAPE", …)` entfernt — `retry_get` protokolliert den Ausfall
+  bereits unter `geosphere_cape`. Verhindert Doppelzählung unter zwei Service-Namen.
+- Die übrigen `log_api_failure("GeoSphere-CAPE", …)` in `assign_cape()` (Daten-/Inhaltsfälle)
+  bleiben unberührt.
+- Test: `tests/test_b159_cape_doppellog.py`. Datei: `assign_cape_from_forecast.py`.
+
 ### B154 — EUMETView an Circuit-Breaker (#5, Rollout 5) ✅ erledigt
 - `cloud_height_from_eumetview`: GetCapabilities (`get_latest_wms_time`) von rohem
   `requests.get` auf `retry_get` (`breaker_service="eumetview_capabilities"`); GetMap-TIFF

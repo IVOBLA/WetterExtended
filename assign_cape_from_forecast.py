@@ -251,9 +251,9 @@ def fetch_or_use_latest_geojson(filetimestamp: str, cape_url: str) -> str | None
         return save_path
 
     except Exception as e:
-        from debug_utils import log_api_failure
-        log_api_failure("GeoSphere-CAPE", cape_url,
-                        f"{type(e).__name__}: {e}", fallback_used=True)
+        # B159: retry_get protokolliert den Ausfall bereits unter "geosphere_cape"
+        # (log_api_failure + log_api_call). KEIN zweites log_api_failure hier — sonst wird
+        # derselbe Fehler doppelt und unter zwei Service-Namen gezählt.
         debug_log(f"[CAPE] Fehler beim Abrufen der CAPE-Vektor-Daten: {e}")
         return get_latest_geojson()
 
