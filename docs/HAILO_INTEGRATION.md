@@ -2298,3 +2298,9 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
 - Offen im #5-Rollout: die bereits auf retry_get laufenden Fetcher je `breaker_service=`
   (blitz_api, fetch_arome_openmeteo, cloud_height_from_eumetview, fetch_700hpa_wind,
   radar_download).
+
+### B154 — EUMETView an Circuit-Breaker (#5, Rollout 5) ✅ erledigt
+- `cloud_height_from_eumetview`: GetCapabilities (`get_latest_wms_time`) von rohem
+  `requests.get` auf `retry_get` (`breaker_service="eumetview_capabilities"`); GetMap-TIFF
+  (`assign_cloud_top_height`) um `breaker_service="eumetview_wms"` ergänzt.
+- Test: `tests/test_b154_eumetview_breaker.py`. Datei: `cloud_height_from_eumetview.py`.
