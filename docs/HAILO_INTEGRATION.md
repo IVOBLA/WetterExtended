@@ -2202,3 +2202,14 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
 - Fix: `_now()` → `time.time()` (Wall-Clock, reboot-stabil). Bestehende stuck-open-Zustände
   heilen sich beim ersten `is_open()` selbst.
 - Test: `tests/test_b144_circuit_walltime.py`. Datei: `api_circuit_breaker.py`.
+
+
+### B146 — Scheduler: verpasste Cron-Jobs nach Downtime nachholen ✅ erledigt
+- Symptom-Kontext: „Lernfortschritt" leer, weil `retrain_nightly` (03:00) während des
+  Scheduler-Stillstands (B145) nicht lief und der verpasste Cron-Lauf (APScheduler-Default
+  misfire_grace_time=1 s) übersprungen wurde.
+- Fix: `create_scheduler()` setzt `job_defaults={"coalesce": True, "misfire_grace_time":
+  SCHEDULER_MISFIRE_GRACE_S}` (Default 1 h). Nach kurzer Downtime (B145 self-healing) holt
+  der Scheduler einen knapp verpassten Lauf nach statt einen Tag zu warten.
+- Konfig: `config.SCHEDULER_MISFIRE_GRACE_S`. Test: `tests/test_b146_scheduler_misfire.py`.
+- Dateien: `config.py`, `scheduler.py`.

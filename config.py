@@ -802,6 +802,10 @@ IR_TRACK_MAX_MISSING:         int   = 2      # 15-min-Slots ohne Detektion bis T
 # -------------------------------------------------------
 # Dateien älter als N Tage werden täglich gelöscht.
 DATA_RETENTION_DAYS: int = 90
+# B146: Kulanzfenster für verpasste Scheduler-Jobs (Sekunden). Wird ein Cron-Job zum
+# geplanten Zeitpunkt verpasst (Scheduler-Neustart/Downtime), läuft er bis zu so vielen
+# Sekunden später noch nach (coalesced) statt erst am Folgetag. Default 1 h.
+SCHEDULER_MISFIRE_GRACE_S: int = 3600
 # B143: Alters-Rotation für append-only JSONL-Logs in train_data/evaluation/
 # (api_call_counts.jsonl, api_health.jsonl). Zeilen älter als N Stunden werden im
 # täglichen Cleanup verworfen. Default 48 h (> 24h-Export-Fenster) → der 24h-Export

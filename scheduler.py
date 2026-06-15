@@ -510,7 +510,19 @@ def create_scheduler() -> BlockingScheduler:
         debug_log("[SCHEDULER] LOCAL_TRAINING=False — Training-Jobs deaktiviert.")
         debug_log("[SCHEDULER] Aktive Jobs: accuracy_eval, ai_analysis, data_cleanup")
 
-    sched = BlockingScheduler(timezone="Europe/Vienna")
+    # B146: Verpasste Jobs (z.B. nächtliches retrain_nightly nach kurzer Downtime) holen
+    # bis SCHEDULER_MISFIRE_GRACE_S nach, statt erst am Folgetag zu laufen.
+    try:
+        from config import SCHEDULER_MISFIRE_GRACE_S as _misfire_grace
+    except Exception:
+        _misfire_grace = 3600
+    sched = BlockingScheduler(
+        timezone="Europe/Vienna",
+        job_defaults={
+            "coalesce": True,
+            "misfire_grace_time": int(runtime_config.get("SCHEDULER_MISFIRE_GRACE_S", _misfire_grace)),
+        },
+    )
 
     # --- immer aktiv: KI-Analyse ---
     _ai_cfg  = runtime_config.get("AI_ANALYSIS_CONFIG", AI_ANALYSIS_CONFIG)
