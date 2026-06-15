@@ -215,8 +215,11 @@ def fetch_or_use_latest_geojson(filetimestamp: str, cape_url: str) -> str | None
 
     try:
         import time as _t_cape
+        from http_retry import retry_get
         _t0_cape = _t_cape.monotonic()
-        response = requests.get(cape_url, timeout=30)
+        # B155: zentraler retry_get + Circuit-Breaker ("geosphere_cape").
+        response = retry_get(cape_url, service="geosphere_cape",
+                             breaker_service="geosphere_cape", timeout=30)
         _dur_cape = (_t_cape.monotonic() - _t0_cape) * 1000
         log_http_response(
             service="geosphere_cape",
@@ -224,7 +227,6 @@ def fetch_or_use_latest_geojson(filetimestamp: str, cape_url: str) -> str | None
             response=response,
             duration_ms=_dur_cape,
         )
-        response.raise_for_status()
         content = response.content
 
         new_hash = hashlib.md5(content).hexdigest()
