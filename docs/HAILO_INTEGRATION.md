@@ -2264,3 +2264,15 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
 - Test: `tests/test_b148_first_contact.py`. Dateien: `locations_check.py`,
   `frontend/src/pages/MapView.jsx`, `frontend/src/pages/MapFullscreen.jsx`.
 - Phase B (Hailo) unberührt.
+
+### B149 — Circuit-Breaker zentral in retry_get (Schritt 1 von #5) ✅ erledigt
+- `http_retry.retry_get` bekommt optionalen Parameter `breaker_service`. Gesetzt → Breaker
+  zentral: is_open()-Gate (→ `CircuitOpenError`), record_success() bei Erfolg,
+  record_failure() bei 429/5xx/Timeout/Connection/SSL (max. 1× pro Aufruf, keine
+  Doppelzählung über Retries). Ohne Parameter unverändert (rückwärtskompatibel).
+- `CircuitOpenError` ist Subklasse von `requests.exceptions.RequestException` → bestehende
+  except-Blöcke der Fetcher greifen den Fallback automatisch.
+- Grundlage für die schrittweise Anbindung der Fetcher (#5): B150 ff. setzen je
+  `breaker_service="…"` (kanonischer Name) bzw. migrieren `tawes`/`nowcast` von rohem
+  requests.get auf retry_get.
+- Test: `tests/test_b149_retry_get_breaker.py`. Datei: `http_retry.py`.
