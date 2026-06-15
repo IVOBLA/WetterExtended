@@ -29,6 +29,18 @@ except ImportError:
 
 from debug_utils import debug_log, log_api_failure, log_api_call
 
+try:
+    import api_circuit_breaker
+except Exception:  # Breaker optional — retry_get bleibt ohne ihn nutzbar
+    api_circuit_breaker = None
+
+
+class CircuitOpenError(requests.exceptions.RequestException):
+    """B149: Circuit-Breaker für diesen Service ist offen — Request übersprungen.
+    Subklasse von RequestException, damit bestehende except-Blöcke der Fetcher
+    (RequestException/Exception) den Fallback wie bei jedem anderen Fehler greifen."""
+
+
 _DEFAULT_BACKOFF = [2]
 _DEFAULT_CONNECT_TIMEOUT = 5
 _DEFAULT_READ_TIMEOUT = 15
@@ -104,14 +116,27 @@ def retry_get(
     backoff: list | None = None,
     timeout=15,
     abort_on_4xx: bool = True,
+    breaker_service: str | None = None,
     **kwargs,
 ) -> requests.Response:
     """
     GET-Request mit zwei Retry-Schichten (Session-Adapter + Python-Loop).
     Wirft beim endgültigen Scheitern die letzte Exception (analog Vorgänger).
+
+    B149: Ist `breaker_service` (kanonischer Service-Name, z. B. "geosphere_nowcast")
+    gesetzt, führt retry_get den Circuit-Breaker zentral:
+      - is_open(breaker_service) vor dem Senden → CircuitOpenError (Caller fällt zurück),
+      - record_success() bei Erfolg,
+      - record_failure() bei 429/5xx/Timeout/Connection/SSL (max. 1× pro Aufruf).
+    Ohne `breaker_service` bleibt das Verhalten unverändert (rückwärtskompatibel).
     """
     if backoff is None:
         backoff = _DEFAULT_BACKOFF
+
+    # B149: Circuit-Breaker zentral. Ist der Service offen, gar nicht erst senden.
+    if breaker_service and api_circuit_breaker and api_circuit_breaker.is_open(breaker_service):
+        debug_log(f"[{service}] Circuit offen ({breaker_service}) — Request übersprungen")
+        raise CircuitOpenError(f"circuit open: {breaker_service}")
 
     tmo = _normalize_timeout(timeout)
     last_exc: Exception = RuntimeError("Unbekannter Fehler")
@@ -120,6 +145,8 @@ def retry_get(
         try:
             r = _SESSION.get(url, timeout=tmo, **kwargs)
             r.raise_for_status()
+            if breaker_service and api_circuit_breaker:
+                api_circuit_breaker.record_success(breaker_service)
             return r
         except requests.exceptions.Timeout as exc:
             last_exc = exc
@@ -133,6 +160,12 @@ def retry_get(
                     exc.retry_after = int(exc.response.headers.get("Retry-After")) if exc.response and exc.response.headers.get("Retry-After") else None
                 except Exception:
                     exc.retry_after = None
+                if breaker_service and api_circuit_breaker:
+                    # 429 öffnet sofort (mit Retry-After); andere 4xx zählen nicht zum Öffnen.
+                    api_circuit_breaker.record_failure(
+                        breaker_service, f"http-{status}",
+                        http_status=status, retry_after=getattr(exc, "retry_after", None),
+                    )
                 log_api_failure(
                     service,
                     url,
@@ -158,6 +191,8 @@ def retry_get(
                 f"[{service}] SSL-Fehler (Versuch {attempt + 1}/{max_retries}): "
                 f"{type(exc).__name__}: {str(exc)}"
             )
+            if breaker_service and api_circuit_breaker:
+                api_circuit_breaker.record_failure(breaker_service, "SSLError")
             raise
         except requests.exceptions.ConnectionError as exc:
             last_exc = exc
@@ -178,6 +213,20 @@ def retry_get(
             time.sleep(wait)
 
     _last_err_str = f"{type(last_exc).__name__}: {str(last_exc)}"
+    if breaker_service and api_circuit_breaker:
+        _b_status = None
+        if isinstance(last_exc, requests.exceptions.HTTPError):
+            _b_status = getattr(getattr(last_exc, "response", None), "status_code", None)
+            _b_reason = f"http-{_b_status}" if _b_status else "HTTPError"
+        elif isinstance(last_exc, requests.exceptions.Timeout):
+            _b_reason = "Timeout"
+        elif isinstance(last_exc, requests.exceptions.SSLError):
+            _b_reason = "SSLError"
+        elif isinstance(last_exc, requests.exceptions.ConnectionError):
+            _b_reason = "ConnectionError"
+        else:
+            _b_reason = type(last_exc).__name__
+        api_circuit_breaker.record_failure(breaker_service, _b_reason, http_status=_b_status)
     log_api_failure(service, url, _last_err_str, fallback_used=True)
     # In api_call_counts loggen → Dashboard zeigt fehlgeschlagene Requests
     _last_resp_text = None
