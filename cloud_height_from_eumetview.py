@@ -150,7 +150,9 @@ def get_latest_wms_time() -> str | None:
         from http_retry import retry_get
         # B125: GetCapabilities ist ein großes Dokument — 10 s führten zu
         # abgeschnittenen Antworten (ParseError). Timeout erhöht.
-        r = retry_get(url, service="EUMETView-WMS-Caps", timeout=30)
+        # B154: zentraler retry_get + Circuit-Breaker ("eumetview_capabilities").
+        r = retry_get(url, service="EUMETView-WMS-Caps",
+                      breaker_service="eumetview_capabilities", timeout=30)
         _dur_ms = (_t_wms_cap.monotonic() - _t0_wms_cap) * 1000
         log_http_response(
             service="eumetview_capabilities",
@@ -387,7 +389,8 @@ def assign_cloud_top_height(
             import time as _t_wms_tiff
             _t0_wms_tiff = _t_wms_tiff.monotonic()
             from http_retry import retry_get
-            r = retry_get(tif_url, service="EUMETView-WMS-TIFF", timeout=20)
+            r = retry_get(tif_url, service="EUMETView-WMS-TIFF",
+                          breaker_service="eumetview_wms", timeout=20)  # B154
             _dur_ms = (_t_wms_tiff.monotonic() - _t0_wms_tiff) * 1000
             _ts_str = timestamp_file.replace("-", "").replace("_", "")
             _tif_save = os.path.join(SAVE_DIR, f"ir108_{_ts_str}.tif") if "r" in dir() else None
