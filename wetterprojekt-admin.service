@@ -1,8 +1,10 @@
 [Unit]
 Description=Wetterprojekt Admin Panel (Flask + React)
 After=network.target
-StartLimitIntervalSec=120
-StartLimitBurst=3
+# B145: kein dauerhaftes "failed" nach mehreren Crashes — Self-Healing.
+# StartLimitIntervalSec=0 deaktiviert die Start-Rate-Begrenzung; systemd startet
+# den Dienst nach jedem Absturz erneut (Backoff via RestartSec).
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
