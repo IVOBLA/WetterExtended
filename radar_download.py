@@ -277,7 +277,6 @@ def download_kmz() -> bool:
             if new_lm:
                 _write_last_modified(new_lm)
 
-            _cb_radar.record_success("arso_radar")
             break  # Erfolg
 
         except requests.exceptions.Timeout as exc:
@@ -291,7 +290,16 @@ def download_kmz() -> bool:
                 log_api_failure("ARSO-Radar", KMZ_URL,
                                 f"http-{status}", fallback_used=False,
                                 http_status=status)
-                _cb_radar.record_failure("arso_radar", f"http-{status}", http_status=status)
+                # B158: Retry-After (v. a. bei 429) an den Breaker durchreichen, damit der
+                # Cooldown dem Provider-Wunsch folgt statt dem 1h-Default.
+                _retry_after = None
+                try:
+                    _ra = exc.response.headers.get("Retry-After") if exc.response is not None else None
+                    _retry_after = int(_ra) if _ra else None
+                except Exception:
+                    _retry_after = None
+                _cb_radar.record_failure("arso_radar", f"http-{status}",
+                                         http_status=status, retry_after=_retry_after)
                 return False
         except Exception as exc:
             last_exc = exc
@@ -354,5 +362,8 @@ def download_kmz() -> bool:
                         f"unzip-error: {e}", fallback_used=False)
         return False
 
+    # B158: Erst NACH erfolgreicher ZIP-Validierung + Entpacken als Erfolg werten —
+    # ein 200-Fehlerseiten-/Korrupt-ZIP-Payload darf den Breaker nicht zurücksetzen.
+    _cb_radar.record_success("arso_radar")
     debug_log("Radarbild und KML erfolgreich heruntergeladen und entpackt.")
     return True
