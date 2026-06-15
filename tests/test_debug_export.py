@@ -46,14 +46,6 @@ def test_export_success_returns_zip(client, monkeypatch, tmp_path):
     assert resp.mimetype == "application/zip"
 
 
-def test_export_limit_exceeded_returns_413(client, monkeypatch):
-    _auth(monkeypatch)
-    monkeypatch.setattr(debug_export, "create_debug_export_zip", Mock(side_effect=debug_export.ExportLimitExceeded("zu groß")))
-    resp = client.get("/api/admin/export/last-24h.zip")
-    assert resp.status_code == 413
-    assert resp.get_json()["error"] == "export_too_large"
-
-
 def test_export_exception_returns_500(client, monkeypatch):
     _auth(monkeypatch)
     monkeypatch.setattr(debug_export, "create_debug_export_zip", Mock(side_effect=RuntimeError("kaputt")))

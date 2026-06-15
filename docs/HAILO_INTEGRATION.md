@@ -2149,3 +2149,15 @@ Fix: toLocaleTimeString → toLocaleString mit {day,month,year,hour,minute,secon
      analog zur bereits korrekten Spalte „Letzter Abruf". overdue/(fällig)-Logik unverändert.
 Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
          (Validierung: tests/test_frontend_build.py)
+
+
+### B140 — Debug-Export: 50-MB-Byte-Hartgrenze entfernt + Temp-File-Leak ✅ erledigt
+- `EXPORT_MAX_BYTES` / `DEBUG_EXPORT_MAX_BYTES` und beide `max_total_bytes`-Abbruchzweige
+  in `create_debug_export_zip` entfernt. Es existiert KEINE Byte-Gesamtgrenze mehr;
+  maßgeblich ist ausschließlich die komprimierte Volume-Größe (`EXPORT_VOLUME_MAX_BYTES`, B128).
+- `ExportLimitExceeded` bleibt für den `max_files`-Schutz erhalten.
+- `create_debug_export_volumes`: angelegte Temp-Datei (`wetterextended_full_*.zip`) wird bei
+  Fehler im Vollexport zuverlässig entfernt (kein Leak mehr).
+- Obsoleten Test `test_export_limit_exceeded_returns_413` entfernt (testete das durch B126
+  abgelöste 413-Verhalten). `test_temp_file_cleaned_up_after_error` ist nun grün.
+- Dateien: `debug_export.py`, `tests/test_debug_export.py`

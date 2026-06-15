@@ -25,7 +25,9 @@ from export_security import redact_json_text, redact_text
 # Gesicherter Befund: Prozess für 2 min tot nach Export-Aufruf (Log 10:45–10:47 CEST).
 # Fix: alle Exceptions fangen, journalctl mit Timeout, Log-Reads size-begrenzt, ZIP auf Disk.
 
-EXPORT_MAX_BYTES = int(os.getenv("DEBUG_EXPORT_MAX_BYTES", str(50 * 1024 * 1024)))
+# B140: Frühere 50-MB-Byte-Hartgrenze entfernt.
+# Es gibt KEINE Byte-Gesamtgrenze mehr — maßgeblich ist ausschließlich die
+# komprimierte Volume-Größe (siehe Volume-Splitting / B128).
 # B126: Maximale Größe je ZIP-Volume. Der Gesamtexport wird verlustfrei auf
 # mehrere Volumes <= dieser Grenze aufgeteilt (kein Datei-Weglassen).
 EXPORT_VOLUME_MAX_BYTES = int(os.getenv("DEBUG_EXPORT_VOLUME_MAX_BYTES", str(80 * 1024 * 1024)))
@@ -125,10 +127,15 @@ def create_debug_export_volumes(
     full_fd = tempfile.NamedTemporaryFile(prefix="wetterextended_full_", suffix=".zip", delete=False)
     full_path = Path(full_fd.name)
     full_fd.close()
-    src_path, base_filename, manifest = create_debug_export_zip(
-        base_dir=base_dir, save_paths=save_paths, hours=hours, now=now,
-        max_files=max_files, max_total_bytes=None, tmp_path=full_path,
-    )
+    try:
+        src_path, base_filename, manifest = create_debug_export_zip(
+            base_dir=base_dir, save_paths=save_paths, hours=hours, now=now,
+            max_files=max_files, max_total_bytes=None, tmp_path=full_path,
+        )
+    except BaseException:
+        # B140: Bei Fehler im Vollexport die bereits angelegte Temp-Datei nicht leaken.
+        full_path.unlink(missing_ok=True)
+        raise
     src_path = Path(src_path)
     root_stem = base_filename[:-4] if base_filename.lower().endswith(".zip") else base_filename
 
@@ -525,7 +532,7 @@ def create_debug_export_zip(
     hours: int = 24,
     now: datetime | None = None,
     max_files: int = 5000,
-    max_total_bytes: int = EXPORT_MAX_BYTES,
+    max_total_bytes: int | None = None,   # B140: Byte-Hartgrenze entfernt (None = unbegrenzt)
     tmp_path: str | Path | None = None,
 ) -> tuple[Path, str, dict]:
     base_dir = Path(base_dir).resolve()
@@ -577,19 +584,13 @@ def create_debug_export_zip(
                     if _is_text_file(path):
                         data = _read_redacted(path)
                         next_size = len(data)
-                        if max_total_bytes and total_bytes + next_size > max_total_bytes:
-                            raise ExportLimitExceeded(
-                                f"Debug-Export abgebrochen: max_total_bytes={max_total_bytes} überschritten"
-                            )
+                        # B140: keine Byte-Gesamtgrenze mehr (Volume-Split via B128).
                         zf.writestr(arcname, data)
                         total_bytes += next_size
                         redacted_files.append(rel)
                     else:
                         next_size = path.stat().st_size
-                        if max_total_bytes and total_bytes + next_size > max_total_bytes:
-                            raise ExportLimitExceeded(
-                                f"Debug-Export abgebrochen: max_total_bytes={max_total_bytes} überschritten"
-                            )
+                        # B140: keine Byte-Gesamtgrenze mehr (Volume-Split via B128).
                         zf.write(path, arcname)
                         total_bytes += next_size
                     total_files += 1
