@@ -644,6 +644,16 @@ Die erzeugte `forecast.kmz` enthält ab v1.2 vier separat schaltbare Ordner:
 
 > **Historische Daten:** Die KMZ enthält ausschließlich Daten des aktuellen Zyklus. Historie wird nicht miterzeugt.
 
+## 8.2 Erstkontaktzeit im Orts-Popup
+
+Im Karten-Popup eines betroffenen Ortes wird jetzt angezeigt, **in wie vielen Minuten der
+Warnradius das erste Mal berührt wird** (z. B. „⏱ Radius erstmals berührt in ~22 min", bzw.
+„jetzt", wenn eine Zelle bereits im Radius liegt). Die Zeit wird **entlang der prognostizierten
+Zellbahn interpoliert** — also nicht auf die diskreten Vorhersage-Horizonte gerundet. Zieht
+eine Zelle zwischen zwei Horizonten durch den Ort (Eintritt z. B. bei Minute 22, obwohl die
+Stützpunkte bei +20 und +30 min noch außerhalb liegen), wird dieser Durchzug als Treffer
+gewertet und mit seiner tatsächlichen Erstkontaktzeit angezeigt.
+
 ## 8.1 KMZ herunterladen
 
 Über den Button **📥 KMZ** unten rechts auf der Karte kann die zuletzt erzeugte

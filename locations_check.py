@@ -303,6 +303,65 @@ def _survival_allows(obj: dict, horizon_min: float):
     return (frac >= float(_min)), frac
 
 
+def _forecast_track_points(obj: dict, horizons, o_lat: float, o_lon: float):
+    """B148: Zeitlich sortierte Bahnpunkte [(t_min, lat, lon)] der Zelle:
+    t=0 = aktuelle Position, danach je Horizont mit EXPLIZIT vorhandener
+    forecast_lat_{h}/forecast_lon_{h}. Fehlende Horizonte werden übersprungen
+    (keine Fake-Stützpunkte)."""
+    pts = [(0.0, float(o_lat), float(o_lon))]
+    seen = set()
+    for h in sorted({int(x) for x in horizons}):
+        if h in seen:
+            continue
+        seen.add(h)
+        la = obj.get(f"forecast_lat_{h}")
+        lo = obj.get(f"forecast_lon_{h}")
+        if la is None or lo is None:
+            continue
+        try:
+            pts.append((float(h), float(la), float(lo)))
+        except (TypeError, ValueError):
+            continue
+    return pts
+
+
+def _first_radius_contact_min(track, loc_lat: float, loc_lon: float, radius_km: float):
+    """B148: Früheste Zeit (Minuten), zu der die durch `track` beschriebene Bewegung den
+    Kreis (loc, radius_km) BERÜHRT — inkl. Durchquerung ZWISCHEN zwei Horizonten
+    (Segment-Kreis-Schnitt mit Zeit-Interpolation), nicht nur an den diskreten
+    Stützpunkten. Gibt None zurück, wenn der Radius nicht berührt wird.
+    Lokale äquirektanguläre Projektion um den Ort (für ~50 km in Kärnten ausreichend)."""
+    if not track:
+        return None
+    coslat = math.cos(math.radians(loc_lat))
+
+    def _xy(lat, lon):
+        return ((lon - loc_lon) * 111.32 * coslat, (lat - loc_lat) * 110.57)
+
+    R = float(radius_km)
+    x0, y0 = _xy(track[0][1], track[0][2])
+    if x0 * x0 + y0 * y0 <= R * R:
+        return float(track[0][0])           # Startpunkt bereits im Radius → Kontakt jetzt
+    for (ta, la_a, lo_a), (tb, la_b, lo_b) in zip(track, track[1:]):
+        ax, ay = _xy(la_a, lo_a)
+        bx, by = _xy(la_b, lo_b)
+        dx, dy = bx - ax, by - ay
+        A = dx * dx + dy * dy
+        if A <= 1e-9:
+            continue
+        B = 2.0 * (ax * dx + ay * dy)
+        C = ax * ax + ay * ay - R * R
+        disc = B * B - 4.0 * A * C
+        if disc < 0:
+            continue
+        sq = math.sqrt(disc)
+        candidates = sorted(s for s in ((-B - sq) / (2 * A), (-B + sq) / (2 * A)) if 0.0 <= s <= 1.0)
+        if candidates:
+            s = candidates[0]
+            return float(ta) + s * (float(tb) - float(ta))
+    return None
+
+
 def annotate_locations(
     objects: Iterable[dict],
     locations: List[dict],
@@ -631,6 +690,53 @@ def annotate_locations(
                             except Exception:
                                 pass
 
+        # ── B148: Erstkontaktzeit (min) bis der Radius zum ERSTEN Mal berührt wird ──
+        # Interpoliert entlang der Bahn → erfasst auch Durchquerung ZWISCHEN zwei
+        # Horizonten. Zusätzlich Garantie: ein solcher Transit zählt als Treffer.
+        _first_contact = None
+        _first_contact_cell = None
+        for _obj in objects:
+            _ol = _obj.get("lat")
+            _on = _obj.get("lon")
+            if _ol is None or _on is None:
+                continue
+            try:
+                _olat, _olon = float(_ol), float(_on)
+            except (TypeError, ValueError):
+                continue
+            _track = _forecast_track_points(_obj, horizons, _olat, _olon)
+            _contact = _first_radius_contact_min(_track, loc_lat, loc_lon, radius)
+            if _contact is None:
+                continue
+            _ok_c, _surv_c = _survival_allows(_obj, float(_contact))
+            if not _ok_c:
+                continue
+            _cid = _obj.get("id")
+            # Garantie (Wunsch B): falls die diskreten Prüfungen diese Zelle nicht erfassten,
+            # als transit-Treffer ergänzen (Key = aufgerundete Kontaktminute, kollisionsfrei).
+            if not any(_hh.get("cell_id") == _cid for _hh in hits.values()):
+                _key = int(math.ceil(_contact)) if _contact > 0 else 0
+                while _key in hits:
+                    _key += 1
+                _ra = float(_obj.get("radar_age_min") or 0.0)
+                hits[_key] = {
+                    "hit_type":    "transit" if _contact > 0 else "current",
+                    "color":       colors.get(_key) or colors.get(str(_key), "#e11d48"),
+                    "cell_id":     _cid,
+                    "distance_km": round(radius, 3),
+                    "speed_kmh":   round(float(_obj.get("speed_kmh") or 0.0), 1),
+                    "survival_frac": round(_surv_c, 2),
+                    "intensity_tendency": _obj.get("intensity_tendency", "stabil"),
+                    "size_tendency": _obj.get("size_tendency", "stabil"),
+                    "radar_age_min": round(_ra, 1),
+                    "effective_lead_min": round(float(_contact) - _ra, 1),
+                    "stale": _ra >= float(_contact),
+                    "contact_min": round(float(_contact), 1),
+                }
+            if _first_contact is None or _contact < _first_contact:
+                _first_contact = _contact
+                _first_contact_cell = _cid
+
         if hits:
             out.append({
                 "name":      name,
@@ -638,6 +744,9 @@ def annotate_locations(
                 "lon":       loc_lon,
                 "radius_km": radius,
                 "hits":      hits,
+                # B148: präzise Erstkontaktzeit (min) bis Radius-Berührung; None = kein Kontakt.
+                "first_contact_min": (round(_first_contact, 1) if _first_contact is not None else None),
+                "first_contact_cell_id": _first_contact_cell,
             })
 
     if not out:
