@@ -2204,6 +2204,19 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
 - Test: `tests/test_b144_circuit_walltime.py`. Datei: `api_circuit_breaker.py`.
 
 
+### B145 — systemd-Services self-healing (StartLimitIntervalSec=0) ✅ erledigt
+- Symptom: Scheduler 02:09 → 08:01 dauerhaft tot; erst manueller Eingriff (Install) brachte
+  ihn um 08:01 zurück. Ursache NICHT der Circuit-Breaker (B144, open:false) und kein Reboot.
+- Ursache: Unit-Files mit `StartLimitIntervalSec=120` + `StartLimitBurst=3`. Mehrere Crashes
+  in 120 s (z. B. Scheduler-OOM bei convlstm_weekly, vgl. B147) → systemd lässt die Unit
+  dauerhaft `failed`, kein Auto-Restart mehr bis `reset-failed`.
+- Fix: `StartLimitIntervalSec=0` (Rate-Begrenzung aus) in allen drei Units →
+  `wetterprojekt`, `wetterprojekt-scheduler`, `wetterprojekt-admin`. systemd startet nach
+  jedem Absturz erneut (Backoff `RestartSec=30`). `Restart=on-failure` deckt OOM-SIGKILL ab.
+- Zusammen mit B146 (Misfire-Nachholung) und B147 (ConvLSTM isoliert) vollständige
+  Scheduler-Robustheit.
+- Test: `tests/test_b145_service_restart_policy.py`. Dateien: die drei `.service`-Files.
+
 ### B146 — Scheduler: verpasste Cron-Jobs nach Downtime nachholen ✅ erledigt
 - Symptom-Kontext: „Lernfortschritt" leer, weil `retrain_nightly` (03:00) während des
   Scheduler-Stillstands (B145) nicht lief und der verpasste Cron-Lauf (APScheduler-Default
