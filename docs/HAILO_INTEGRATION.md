@@ -2298,3 +2298,9 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
 - Offen im #5-Rollout: die bereits auf retry_get laufenden Fetcher je `breaker_service=`
   (blitz_api, fetch_arome_openmeteo, cloud_height_from_eumetview, fetch_700hpa_wind,
   radar_download).
+
+### B155 — GeoSphere-CAPE an Circuit-Breaker (#5, Rollout 6) ✅ erledigt
+- `assign_cape_from_forecast.fetch_or_use_latest_geojson()` von rohem `requests.get` auf
+  `retry_get` (`service`/`breaker_service="geosphere_cape"`); bestehender
+  `except → get_latest_geojson()`-Fallback bleibt (fängt auch CircuitOpenError).
+- Test: `tests/test_b155_cape_breaker.py`. Datei: `assign_cape_from_forecast.py`.
