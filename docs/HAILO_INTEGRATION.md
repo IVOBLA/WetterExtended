@@ -2170,3 +2170,14 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
   („Finale ZIP-Datei ist zu groß für GitHub“) abgelehnt statt nur geloggt — GitHub kann
   nicht-pushbare Übergrößen-Dateien nicht annehmen. Admin-Download bleibt verlustfrei.
 - Dateien: `tests/test_debug_export_branch_publisher.py`, `tools/publish_latest_debug_export_branch.py`
+
+### B142 — Debug-Export: 24h-Fenster zeitzonensicher + keine Datenkürzung ✅ erledigt
+- KIAnalyse #3/#4 + Vorgabe „alle 24h-Daten an die KI, nichts kürzen".
+- (1) `_file_in_window` zeitzonensicher über `st_mtime` (UTC) — Vienna-lokale Namen (B122)
+  wurden als UTC (+2 h CEST) fehlinterpretiert, jüngste radar/objects fielen aus dem Fenster.
+- (2) Obsoletes B115-Pruning (nur 3 neueste Dateien je train_data-Unterverzeichnis)
+  ERSATZLOS entfernt — es kürzte radar/objects UND Wetterdaten (weather/cape/arome/
+  external_responses) auf 3 Snapshots. Einzige Grenze ist jetzt das 24h-Fenster; Größe via
+  Volume-Split (B128).
+- (3) `max_files` 5000 → 50000 (24h-Fenster ist die Grenze, nicht die Dateianzahl).
+- Test: `tests/test_b142_export_window_tz.py`. Dateien: `debug_export.py`.

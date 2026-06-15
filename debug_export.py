@@ -108,7 +108,7 @@ def create_debug_export_volumes(
     save_paths: dict | None = None,
     hours: int = 24,
     now: "datetime | None" = None,
-    max_files: int = 5000,
+    max_files: int = 50000,   # B142
     volume_max_bytes: int = EXPORT_VOLUME_MAX_BYTES,
     out_dir: str | Path | None = None,
 ) -> "tuple[list[tuple[Path, str]], dict]":
@@ -238,9 +238,10 @@ def _is_text_file(path: Path) -> bool:
 def _file_in_window(path: Path, start: datetime, end: datetime, force: bool) -> bool:
     if force or path.name in _ALWAYS_INCLUDE_NAMES:
         return True
-    ts = parse_timestamp_from_name(path.name)
-    if ts is not None:
-        return start <= ts <= end
+    # B142: st_mtime (UTC) ist die EINZIGE zeitzonensichere Fensterbasis.
+    # radar/objects/locations-Dateinamen sind Europe/Vienna-Lokalzeit (B122);
+    # parse_timestamp_from_name() interpretierte sie als UTC (+2 h CEST), wodurch die
+    # jüngsten Frames als "Zukunft" aus dem 24h-Fenster fielen. Schreibzeit ≈ Aufnahmezeit.
     try:
         mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
         return start <= mtime <= end
@@ -339,17 +340,11 @@ def _build_candidates_with_diagnostics(base_dir: Path, save_paths: dict | None) 
                 candidates.setdefault(file_path.resolve(), ExportCandidate(file_path, "config", Path("config") / file_path.name, True))
             elif file_path.is_file():
                 excluded_files_count += 1
-    # B115: train_data je Unterverzeichnis auf die drei neuesten Dateien begrenzen.
-    grouped_train: dict[Path, list[Path]] = {}
-    for resolved, cand in list(candidates.items()):
-        rel = _safe_rel(cand.src, base_dir)
-        if rel.parts and rel.parts[0] == "train_data":
-            grouped_train.setdefault(cand.src.parent, []).append(resolved)
-    for paths in grouped_train.values():
-        paths.sort(key=lambda rp: candidates[rp].src.stat().st_mtime if candidates[rp].src.exists() else 0, reverse=True)
-        for old_path in paths[3:]:
-            candidates.pop(old_path, None)
-            excluded_files_count += 1
+    # B142: Früheres B115-Pruning (nur 3 neueste Dateien je train_data-Unterverzeichnis)
+    # ERSATZLOS entfernt. Es kürzte radar/objects UND die Wetterdaten (weather/cape/arome/
+    # external_responses) auf 3 Snapshots — die KI braucht aber das vollständige 24h-Fenster.
+    # Die einzige Grenze ist jetzt _file_in_window (24h); die Größe regelt der Volume-Split
+    # (B128, komprimiert). Keine Kürzung mehr.
 
     diagnostics = {
         "candidates_count": len(candidates),
@@ -531,7 +526,7 @@ def create_debug_export_zip(
     save_paths: dict | None = None,
     hours: int = 24,
     now: datetime | None = None,
-    max_files: int = 5000,
+    max_files: int = 50000,   # B142: 24h-Fenster ist die Grenze, nicht die Dateianzahl
     max_total_bytes: int | None = None,   # B140: Byte-Hartgrenze entfernt (None = unbegrenzt)
     tmp_path: str | Path | None = None,
 ) -> tuple[Path, str, dict]:
