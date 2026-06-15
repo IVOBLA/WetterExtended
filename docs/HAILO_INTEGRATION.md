@@ -2236,3 +2236,18 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
   primäres Hailo-Ziel). B147 macht das ConvLSTM-Training zusätzlich Pi-tauglich (Streaming),
   ohne die Phase-B-Architektur zu ändern (Inferenz auf dem Pi, schweres Training optional
   auf dem Trainer).
+
+### B148 — Ortspopup: Erstkontaktzeit (ETA) + garantierter Transit-Treffer ✅ erledigt (Feature)
+- Wunsch A: Popup zeigt jetzt die präzise Zeit bis zur ersten Radius-Berührung
+  (`first_contact_min`), interpoliert entlang der Bahn statt nur den diskreten Horizont.
+- Wunsch B: Durchquerung zwischen zwei Horizonten zählt als Treffer. War via P34
+  (Zwischensegmente) + B127 (Rand-Streifen) bereits weitgehend abgedeckt; B148 schließt die
+  letzte Lücke (reiner Mittelpunkt-Transit trotz Polygon-Stützpunkt zu weit) durch einen
+  `transit`-Treffer aus derselben Segment-Kreis-Primitive.
+- Neue Helfer in `locations_check.py`: `_forecast_track_points`, `_first_radius_contact_min`.
+  Additiv — current/slow_approach/forecast/growth_approach, P-T06-Survival, P-T09-stale
+  unverändert. Survival-Unterdrückung greift auch auf den Transit-Treffer.
+- Frontend: `MapView.jsx` + `MapFullscreen.jsx` zeigen „⏱ Radius erstmals berührt in ~X min".
+- Test: `tests/test_b148_first_contact.py`. Dateien: `locations_check.py`,
+  `frontend/src/pages/MapView.jsx`, `frontend/src/pages/MapFullscreen.jsx`.
+- Phase B (Hailo) unberührt.

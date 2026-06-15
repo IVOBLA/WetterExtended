@@ -796,6 +796,14 @@ export default function MapFullscreen() {
               }}>
               <Popup>
                 <b>{loc.name}</b>
+                {loc.first_contact_min != null && (
+                  <div style={{ marginTop: 4, fontWeight: 'bold', color: '#b45309' }}>
+                    ⏱ Radius erstmals berührt{' '}
+                    {loc.first_contact_min <= 0
+                      ? 'jetzt'
+                      : `in ~${Math.round(loc.first_contact_min)} min`}
+                  </div>
+                )}
 
                 {currentHit && (
                   <div style={{ color: '#dc2626', fontWeight: 'bold', marginTop: 4 }}>
