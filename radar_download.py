@@ -217,6 +217,12 @@ def download_kmz() -> bool:
     """
     os.makedirs("data", exist_ok=True)
 
+    # B156: Circuit-Breaker — bei offenem Service gar nicht erst anfragen.
+    import api_circuit_breaker as _cb_radar
+    if _cb_radar.is_open("arso_radar"):
+        debug_log("[RADAR] Circuit offen (arso_radar) — Download übersprungen.")
+        return False
+
     # If-Modified-Since Header aufbauen
     last_modified = _read_last_modified()
     req_headers   = dict(_HEADERS)
@@ -245,6 +251,7 @@ def download_kmz() -> bool:
 
             if response.status_code == 304:
                 debug_log("Kein neues Radarbild verfügbar (304 Not Modified).")
+                _cb_radar.record_success("arso_radar")
                 return False
 
             response.raise_for_status()
@@ -258,6 +265,7 @@ def download_kmz() -> bool:
                     f"[RADAR] Inhalt unverändert (SHA256 identisch) — "
                     f"kein Tracking-Zyklus nötig."
                 )
+                _cb_radar.record_success("arso_radar")
                 return False
 
             with open(KMZ_PATH, "wb") as f:
@@ -269,6 +277,7 @@ def download_kmz() -> bool:
             if new_lm:
                 _write_last_modified(new_lm)
 
+            _cb_radar.record_success("arso_radar")
             break  # Erfolg
 
         except requests.exceptions.Timeout as exc:
@@ -282,6 +291,7 @@ def download_kmz() -> bool:
                 log_api_failure("ARSO-Radar", KMZ_URL,
                                 f"http-{status}", fallback_used=False,
                                 http_status=status)
+                _cb_radar.record_failure("arso_radar", f"http-{status}", http_status=status)
                 return False
         except Exception as exc:
             last_exc = exc
@@ -294,6 +304,18 @@ def download_kmz() -> bool:
     else:
         log_api_failure("ARSO-Radar", KMZ_URL,
                         f"{type(last_exc).__name__}: {last_exc}", fallback_used=False)
+        # B156: Reason/Status robust aus der letzten Exception ableiten und melden.
+        import requests as _rq_radar
+        if isinstance(last_exc, _rq_radar.exceptions.HTTPError):
+            _st = getattr(getattr(last_exc, "response", None), "status_code", None)
+            _rsn = f"http-{_st}" if _st else "HTTPError"
+        elif isinstance(last_exc, _rq_radar.exceptions.Timeout):
+            _st, _rsn = None, "Timeout"
+        elif isinstance(last_exc, _rq_radar.exceptions.ConnectionError):
+            _st, _rsn = None, "ConnectionError"
+        else:
+            _st, _rsn = None, type(last_exc).__name__
+        _cb_radar.record_failure("arso_radar", _rsn, http_status=_st)
         debug_log(f"[RADAR] Alle {_MAX_RETRIES} Versuche fehlgeschlagen.")
         return False
 

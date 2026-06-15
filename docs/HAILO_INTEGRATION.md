@@ -2314,3 +2314,11 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
   `retry_get` (`service`/`breaker_service="geosphere_cape"`); bestehender
   `except → get_latest_geojson()`-Fallback bleibt (fängt auch CircuitOpenError).
 - Test: `tests/test_b155_cape_breaker.py`. Datei: `assign_cape_from_forecast.py`.
+
+### B156 — ARSO-Radar an Circuit-Breaker (#5, Rollout 7) ✅ erledigt
+- `radar_download.download_kmz()`: Breaker EXPLIZIT angebunden (Service `arso_radar`) —
+  is_open()-Gate am Anfang; record_success() bei 304/SHA256-identisch/200; record_failure()
+  bei 4xx und nach allen fehlgeschlagenen Versuchen (Reason robust aus Exception-Typ).
+  Bewusst KEIN retry_get (eigene If-Modified-Since/304- und SHA256-Dedup-Logik bleibt).
+- Test: `tests/test_b156_radar_breaker.py`. Datei: `radar_download.py`.
+- #5-Rollout offen: nur noch `fetch_arome_openmeteo` (openmeteo_icon_d2) — separater Prompt.
