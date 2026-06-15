@@ -2298,3 +2298,11 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
 - Offen im #5-Rollout: die bereits auf retry_get laufenden Fetcher je `breaker_service=`
   (blitz_api, fetch_arome_openmeteo, cloud_height_from_eumetview, fetch_700hpa_wind,
   radar_download).
+
+### B156 — ARSO-Radar an Circuit-Breaker (#5, Rollout 7) ✅ erledigt
+- `radar_download.download_kmz()`: Breaker EXPLIZIT angebunden (Service `arso_radar`) —
+  is_open()-Gate am Anfang; record_success() bei 304/SHA256-identisch/200; record_failure()
+  bei 4xx und nach allen fehlgeschlagenen Versuchen (Reason robust aus Exception-Typ).
+  Bewusst KEIN retry_get (eigene If-Modified-Since/304- und SHA256-Dedup-Logik bleibt).
+- Test: `tests/test_b156_radar_breaker.py`. Datei: `radar_download.py`.
+- #5-Rollout offen: nur noch `fetch_arome_openmeteo` (openmeteo_icon_d2) — separater Prompt.
