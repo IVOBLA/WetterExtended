@@ -2358,6 +2358,22 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
   geosphere_cape, geosphere_nowcast, geosphere_tawes_all, openmeteo_icon_d2,
   openmeteo_icon_eu_li, openmeteo_icon_global, openmeteo_outlook).
 
+### B160 — Test-Isolation: http_retry/requests-Impostor-Leak aus test_eumetview_parser ✅ erledigt
+- Ursache der 6 roten Tests (test_b149_retry_get_breaker 5×, test_b151_nowcast_breaker 1×):
+  `tests/test_eumetview_parser.py` setzte auf Modulebene
+  `sys.modules.setdefault("http_retry", SimpleNamespace(retry_get=lambda→None))` und
+  `setdefault("requests", SimpleNamespace())`. Diese Stubs blieben für den gesamten pytest-Lauf
+  in sys.modules haften → `hr._SESSION` fehlt (b149), `http_retry.requests` fehlt (b151).
+  Gleiche Klasse wie B96/B125/B127.
+- Fix 1 (Quelle): test_eumetview_parser.py lädt die ECHTEN Module
+  (`pytest.importorskip("requests")` + `import http_retry`) statt SimpleNamespace-Stubs;
+  get_latest_wms_time() importiert retry_get zur Laufzeit, die Tests patchen
+  `sys.modules["http_retry"].retry_get` pro Test (mit echtem Modul identisch).
+- Fix 2 (Defensive): `tests/conftest.py` _preload_critical_modules() um `requests` und
+  `http_retry` erweitert (Impostor-Drop + Reimport vor der Sammlung; requests vor http_retry).
+- Test: `tests/test_b160_module_impostor_guard.py`. Dateien: `tests/test_eumetview_parser.py`,
+  `tests/conftest.py`. Produktionscode unverändert.
+
 ### B160 — EUMETView Capabilities-Loop an Breaker (Nachzieher zu B154) ✅ erledigt
 - `get_latest_wms_time()`: der GetCapabilities-Re-Fetch im B125-Robustheits-Loop bekommt
   ebenfalls `breaker_service="eumetview_capabilities"` (zuvor nur der Erst-Request via B154).

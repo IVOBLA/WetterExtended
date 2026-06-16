@@ -8,9 +8,18 @@ import pytest
 # Test-Dateien im selben pytest-Lauf.
 pytest.importorskip("numpy")  # Test überspringen wenn numpy nicht nutzbar
 
-sys.modules.setdefault("requests", types.SimpleNamespace())
+# B160: requests + http_retry NICHT als SimpleNamespace stuben. Die früheren
+# setdefault-Stubs (requests=leer, http_retry.retry_get=lambda→None) blieben für den
+# GESAMTEN pytest-Lauf in sys.modules haften und korrumpierten test_b149_*
+# (hr._SESSION fehlt), test_b151_* (http_retry.requests fehlt) und
+# test_nowcast_out_of_coverage_b131 (retry_get→None → AttributeError).
+# get_latest_wms_time() importiert retry_get erst zur Laufzeit; die Tests unten patchen
+# sys.modules["http_retry"].retry_get pro Test → funktioniert mit dem ECHTEN Modul
+# identisch, ohne Kontamination nachfolgender Testdateien.
+pytest.importorskip("requests")
+import http_retry  # echtes Modul; retry_get wird pro Test via monkeypatch ersetzt
+
 sys.modules.setdefault("utils", types.SimpleNamespace(log=lambda *a, **k: None))
-sys.modules.setdefault("http_retry", types.SimpleNamespace(retry_get=lambda *a, **k: None))
 
 import cloud_height_from_eumetview as mod
 
