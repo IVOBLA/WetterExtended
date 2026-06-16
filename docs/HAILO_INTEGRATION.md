@@ -2340,6 +2340,14 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
   bleiben unberührt.
 - Test: `tests/test_b159_cape_doppellog.py`. Datei: `assign_cape_from_forecast.py`.
 
+### B163 — Korrektur des B160-Guard-Tests (fragile requests.exceptions-Assertion) ✅ erledigt
+- `test_requests_impostor_is_replaced` prüfte `hasattr(rq, "exceptions")` — nach del+Reimport ist
+  das Submodul-Bare-Attribut auf dem neuen Parent-Objekt (CPython-Submodul-Caching) nicht
+  zuverlässig gesetzt → False-Negative. Kein Produktionsfehler (requests ist im Normallauf nie
+  Impostor; der reale Pfad http_retry.requests.exceptions ist über den http_retry-Guard abgedeckt).
+- Fix: robuste Prüfung via `importlib.import_module("requests.exceptions")` + RequestException
+  statt Bare-Attribut. Datei: `tests/test_b160_module_impostor_guard.py`. Produktionscode unverändert.
+
 ### B162 — Admin-Export: systemd-Watchdog-Kill → Subprozess-Build + Status-Polling ✅ erledigt
 - Ursache (journalctl bewiesen): `GET /api/admin/export/last-24h/parts` baute den 24-h-Export
   SYNCHRON im Flask-Request (> 60 s CPU). Das hungerte den Watchdog-Heartbeat aus →
