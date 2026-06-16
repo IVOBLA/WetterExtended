@@ -2455,3 +2455,19 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
   Kurzhorizont-Zeile + Grund ergänzt.
 - Test: `tests/test_b165_drift_absolute_guardrail.py`. Dateien: `drift_detector.py`,
   `email_notifier.py`, `docs/WetterExtended_Benutzerhandbuch.md`. Verwandt: B23.
+
+## B168 – Lernfortschritt: Fehler-/Leer-/Modus-Trennung (2026-06-16)
+Status: ERLEDIGT
+Ursache: `Progress.jsx` schluckte jeden /api/progress-Fehler still
+         (`.catch(() => setLoaded(true))`) → Fehler-Zustand optisch identisch zum
+         echten Cold-Start. Zusaetzlich war die Modus-Aussage statisch im Leer-Zweig
+         hinterlegt und aus `versions.length` abgeleitet statt aus dem echten
+         Produktiv-Status (`/api/forecast_stats.ml_blocked_reason`, B116). Folge:
+         Seite behauptete "kein trainiertes Modell aktiv" trotz 4 trainierter,
+         kompatibler Versionen (HAR + curl belegt).
+Fix: (1) loadError-State trennt Ladefehler vom echten Leerzustand; rote Fehler-Karte
+         mit "Erneut versuchen". (2) Immer sichtbare Modus-Badge aus /api/forecast_stats
+         (gruen = ML aktiv, gelb = kinematisch + Klartext-Grund). (3) Statische
+         Falschbehauptung entfernt. Charts/Tabelle unveraendert.
+Externe Services: nicht betroffen (interne Endpunkte).
+Dateien: frontend/src/pages/Progress.jsx, tests/test_b168_progress_active_mode.py (neu)
