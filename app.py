@@ -1619,6 +1619,24 @@ def api_config_save():
     return jsonify({"ok": True})
 
 
+def _json_finite_safe(value):
+    """B169: Ersetzt nicht-finite Floats (inf/-inf/nan) rekursiv durch None,
+    damit jsonify gültiges JSON erzeugt. Hintergrund: training_meta.json kann
+    "mae_old": Infinity enthalten (Cold-Start / float('inf')); Flask/json
+    serialisiert das als Literal `Infinity` → ungültiges JSON → der Browser
+    (JSON.parse) bricht ab. Betrifft /api/progress."""
+    import math as _math
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, float):
+        return value if _math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _json_finite_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_finite_safe(v) for v in value]
+    return value
+
+
 @app.route("/api/progress")
 def api_progress():
     rows = []
@@ -1627,7 +1645,7 @@ def api_progress():
             rows.append(json.load(open(p, encoding="utf-8")))
         except Exception:
             continue
-    return jsonify({"versions": rows})
+    return jsonify({"versions": _json_finite_safe(rows)})
 
 
 @app.route("/api/severity_accuracy")
@@ -2212,7 +2230,7 @@ def _ml_block_reason():
         from model_training import _check_model_compatibility, _current_models_dir
         import os as _os_mb
         _cur = _current_models_dir()
-        if not _cur or not _os_mb.isdir(_cur):
+        if not _cur or not _os_mb.path.isdir(_cur):
             return "kein trainiertes Modell (current fehlt) — kinematischer Fallback"
         _c = _check_model_compatibility(_cur)
         if not _c.get("compatible", True):

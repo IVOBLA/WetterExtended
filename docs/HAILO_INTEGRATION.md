@@ -2471,3 +2471,21 @@ Fix: (1) loadError-State trennt Ladefehler vom echten Leerzustand; rote Fehler-K
          Falschbehauptung entfernt. Charts/Tabelle unveraendert.
 Externe Services: nicht betroffen (interne Endpunkte).
 Dateien: frontend/src/pages/Progress.jsx, tests/test_b168_progress_active_mode.py (neu)
+
+## B169 – Lernfortschritt: /api/progress ungültiges JSON (Infinity) + _ml_block_reason os.isdir (2026-06-16)
+Status: ERLEDIGT
+Ursache A: `_ml_block_reason()` (app.py) rief `os.isdir` (existiert nicht) statt
+           `os.path.isdir` → jeder Status-Check landete im except
+           ("status-check fehlgeschlagen: module 'os' has no attribute 'isdir'") →
+           echter ML-Aktiv-Status (B116) nie ermittelt.
+Ursache B: `/api/progress` serialisierte `training_meta.json` mit `"mae_old": Infinity`
+           (float('inf'), Cold-Start). jsonify gibt das Literal `Infinity` aus →
+           ungültiges JSON → Browser-JSON.parse bricht ab (Spalte 2232). Das war die
+           eigentliche Ursprungsursache des leeren Lernfortschritts; B168 (UI-Robustheit)
+           machte sie sichtbar.
+Fix A: `_os_mb.isdir` → `_os_mb.path.isdir`.
+Fix B: neuer rekursiver Helfer `_json_finite_safe()` ersetzt inf/-inf/nan durch null,
+       angewandt in `api_progress` vor jsonify. Behebt auch bestehende v_*-Metas,
+       ohne Lerndaten zu verändern.
+Externe Services: nicht betroffen (interne Endpunkte).
+Dateien: app.py, tests/test_b169_progress_json_and_mlreason.py (neu). Verwandt: B116, B168.
