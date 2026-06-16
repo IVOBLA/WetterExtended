@@ -5,12 +5,27 @@ import api from '../api.js'
 export default function Progress() {
   const [versions, setVersions] = useState([])
   const [loaded, setLoaded] = useState(false)
+  const [loadError, setLoadError] = useState(null)
+  const [fcStats, setFcStats] = useState(null)
 
-  useEffect(() => {
+  // /api/forecast_stats ist die Quelle der Wahrheit fuer den AKTIVEN Produktiv-Modus
+  // (B116: ml_blocked_reason == null => ML aktiv). /api/progress liefert nur die
+  // Trainings-Historie und darf NICHT zur Modus-Bestimmung herangezogen werden.
+  function loadProgress() {
+    setLoadError(null)
+    setLoaded(false)
+    api.get('/api/forecast_stats?hours=24')
+      .then(s => setFcStats(s))
+      .catch(() => setFcStats(null))
     api.get('/api/progress')
       .then(d => { setVersions(d.versions || []); setLoaded(true) })
-      .catch(() => { setLoaded(true) })
-  }, [])
+      .catch(err => { setLoadError(err?.message || 'Laden fehlgeschlagen'); setLoaded(true) })
+  }
+
+  useEffect(() => { loadProgress() }, [])
+
+  const mlActive      = fcStats ? (fcStats.ml_blocked_reason == null) : null
+  const blockedReason = fcStats?.ml_blocked_reason || null
 
   const horizons = [10, 20, 30, 40, 60]
   const lstmSeries = versions.map((v, i) => ({ idx: i + 1, val_loss: v.lstm?.val_loss }))
@@ -51,7 +66,45 @@ export default function Progress() {
         desto präziser die Vorhersage.</p>
       </div>
 
-      {loaded && versions.length === 0 && (
+      {fcStats && (
+        <div className={`card mb-4 text-sm border ${mlActive
+          ? 'bg-green-50 border-green-300 text-green-900'
+          : 'bg-amber-50 border-amber-300 text-amber-900'}`}>
+          <p>
+            <b>Aktueller Forecast-Modus:</b>{' '}
+            {mlActive
+              ? '🤖 ML-Modell aktiv — das trainierte Modell wird für die Vorhersage genutzt.'
+              : '📐 Kinematischer Fallback (Bewegungsextrapolation ohne ML).'}
+          </p>
+          {!mlActive && blockedReason && (
+            <p className="mt-1 text-xs"><b>Grund:</b> {blockedReason}</p>
+          )}
+          {!mlActive && versions.length > 0 && (
+            <p className="mt-1 text-xs">
+              Hinweis: Es existieren bereits {versions.length} Trainings-Version(en),
+              aber das aktuelle Modell ist nicht aktiv (siehe Grund). Beim nächsten
+              kompatiblen Trainings-Lauf wird automatisch wieder ML genutzt.
+            </p>
+          )}
+        </div>
+      )}
+
+      {loaded && loadError && (
+        <div className="card mb-4 bg-red-50 border border-red-300 text-red-900 text-sm">
+          <p className="font-semibold mb-2">⚠️ Lernfortschritt konnte nicht geladen werden</p>
+          <p>Die Trainings-Historie wurde nicht zurückgegeben. Trainierte Modelle können
+             trotzdem vorhanden sein — dies ist ein Ladefehler, kein Hinweis auf fehlendes Training.</p>
+          <p className="mt-1 text-xs text-red-700">Details: {loadError}</p>
+          <button
+            onClick={loadProgress}
+            className="mt-2 px-3 py-1 rounded bg-red-600 text-white text-xs hover:bg-red-700"
+          >
+            Erneut versuchen
+          </button>
+        </div>
+      )}
+
+      {loaded && !loadError && versions.length === 0 && (
         <div className="card mb-4 bg-amber-50 border border-amber-300 text-amber-900 text-sm">
           <p className="font-semibold mb-2">⏳ Noch kein Trainings-Lauf abgeschlossen</p>
           <p>
@@ -62,10 +115,6 @@ export default function Progress() {
             Der erste Trainings-Lauf startet automatisch (täglich um 03:00 Uhr), sobald
             genügend Zell-Sequenzen gesammelt wurden. Die Grafiken erscheinen nach dem
             ersten erfolgreichen Training.
-          </p>
-          <p className="mt-2 text-xs text-amber-700">
-            <b>Aktueller Modus:</b> Kinematischer Fallback (Bewegungsextrapolation ohne ML) —
-            kein trainiertes Modell aktiv.
           </p>
         </div>
       )}
