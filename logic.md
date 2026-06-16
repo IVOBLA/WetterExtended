@@ -63,6 +63,10 @@ Organisation). Vollständige Linkliste in Abschnitt 13.
      robust gegen Merge-Schwerpunktsprünge.
   2. EWMA über History-`vx/vy` (α=`KINEMATIC_EWMA_ALPHA`).
   3. Kalman (`kalman_only`) für sehr junge Zellen.
+- **B166 — Merge/Split-Glättung:** Bei `merge_discontinuity`/`is_merged`/`is_split` wird der
+  jüngste (diskontinuierliche) History-Eintrag aus der kinematischen v-Mittelung ausgeschlossen
+  (nur wenn danach ≥ 2 Frames bleiben), damit der Schwerpunktsprung die Vor-Merge-Bewegung nicht
+  verfälscht (`kinematic_source` erhält `+mguard`). Der optische Fluss bleibt unbeeinflusst.
 - Geo-only-Fallback (B117); Train=Inference via Kinematic-First-`path_*` (B108).
 - **Operationell:** feldbasierte Extrapolation ist Kern operationeller Systeme
   (MeteoSwiss TRT; pysteps-Advektions-/LINDA-Nowcasts).
