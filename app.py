@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 import traceback
 import tempfile
@@ -803,32 +804,106 @@ _EXPORT_BUILDS: dict = {}
 _EXPORT_BUILD_TTL_S = 1800
 
 
+_EXPORT_RUNNER = Path(__file__).resolve().parent / "tools" / "build_debug_export_volumes.py"
+
+
 def _sweep_export_builds():
-    """Verwaiste Volume-Builds nach TTL löschen."""
+    """Verwaiste Volume-Builds nach TTL löschen (inkl. laufendem Subprozess)."""
     nowt = time.time()
     for tok in list(_EXPORT_BUILDS.keys()):
         info = _EXPORT_BUILDS.get(tok)
         if info and nowt - info.get("created", 0) > _EXPORT_BUILD_TTL_S:
+            _proc = info.get("proc")
+            if _proc is not None and _proc.poll() is None:
+                try:
+                    _proc.kill()
+                except Exception:
+                    pass
+            _fh = info.get("log_fh")
+            if _fh is not None:
+                try:
+                    _fh.close()
+                except Exception:
+                    pass
             try:
                 shutil.rmtree(info["dir"], ignore_errors=True)
             finally:
                 _EXPORT_BUILDS.pop(tok, None)
 
 
-def _build_export_volumes():
-    """Baut die Volumes, legt sie unter einem Token ab. Gibt (token, info) zurück."""
+def _start_export_build():
+    """B162: Startet den Volume-Build als EIGENEN Prozess (Watchdog-sicher).
+    Kehrt sofort zurück; info['status'] == 'building'. Gibt (token, info) zurück."""
     _sweep_export_builds()
     out_dir = Path(tempfile.mkdtemp(prefix="wetterextended_vol_"))
-    parts, manifest = debug_export.create_debug_export_volumes(
-        base_dir=_resolve_debug_export_base_dir(SAVE_PATHS),
-        save_paths=SAVE_PATHS,
-        hours=24,
-        out_dir=out_dir,
+    base_dir = _resolve_debug_export_base_dir(SAVE_PATHS)
+    log_fh = open(out_dir / "build.log", "w", encoding="utf-8")
+    proc = subprocess.Popen(
+        [
+            sys.executable, str(_EXPORT_RUNNER),
+            "--out-dir", str(out_dir),
+            "--base-dir", str(base_dir),
+            "--hours", "24",
+        ],
+        stdout=log_fh, stderr=subprocess.STDOUT, cwd=str(base_dir),
     )
     token = _secrets.token_urlsafe(16)
-    info = {"dir": out_dir, "parts": parts, "manifest": manifest, "created": time.time()}
+    info = {
+        "dir": out_dir, "proc": proc, "log_fh": log_fh,
+        "status": "building", "parts": None, "manifest": None,
+        "detail": None, "created": time.time(),
+    }
     _EXPORT_BUILDS[token] = info
+    debug_log(f"[ADMIN-EXPORT] build gestartet (pid={proc.pid}, token={token[:6]}…)")
     return token, info
+
+
+def _poll_export_build(token):
+    """B162: Liefert den Build-Status; liest manifest.json/error.json sobald der
+    Subprozess fertig ist. Gibt das info-dict zurück oder None (unbekannter Token)."""
+    info = _EXPORT_BUILDS.get(token)
+    if not info:
+        return None
+    if info["status"] in ("ready", "error"):
+        return info
+    proc = info.get("proc")
+    if proc is None:
+        info["status"] = "error"
+        info["detail"] = "kein Build-Prozess"
+        return info
+    rc = proc.poll()
+    if rc is None:
+        return info
+    try:
+        if info.get("log_fh"):
+            info["log_fh"].close()
+    except Exception:
+        pass
+    out_dir = info["dir"]
+    manifest_path = out_dir / "manifest.json"
+    error_path = out_dir / "error.json"
+    if rc == 0 and manifest_path.exists():
+        try:
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            info["parts"] = [(out_dir / e["filename"], e["filename"]) for e in data["parts"]]
+            info["manifest"] = data.get("manifest", {})
+            info["status"] = "ready"
+            debug_log(f"[ADMIN-EXPORT] build fertig: {len(info['parts'])} Teil(e)")
+        except Exception as exc:
+            info["status"] = "error"
+            info["detail"] = f"Manifest-Parsefehler: {exc}"
+            debug_log(f"[ADMIN-EXPORT] build-Fehler: {info['detail']}")
+    else:
+        detail = f"Build-Prozess endete mit rc={rc}"
+        if error_path.exists():
+            try:
+                detail = json.loads(error_path.read_text(encoding="utf-8")).get("detail", detail)
+            except Exception:
+                pass
+        info["status"] = "error"
+        info["detail"] = detail
+        debug_log(f"[ADMIN-EXPORT] build-Fehler: {detail}")
+    return info
 
 
 @app.route("/api/admin/export/last-24h/parts")
@@ -839,23 +914,50 @@ def api_admin_export_parts():
         return jsonify({"error": "unauthorized"}), 401
     if ROLE_LEVEL.get(user.get("role", "viewer"), 0) < ROLE_LEVEL.get("admin", 99):
         return jsonify({"error": "forbidden"}), 403
-    if not _export_lock.acquire(blocking=False):
-        return jsonify({"error": "export_already_running"}), 409
-    try:
-        token, info = _build_export_volumes()
+    # B162: Build asynchron in EIGENEM Prozess starten und SOFORT zurückkehren.
+    # Der frühere synchrone Build (> 60 s) hungerte den systemd-Watchdog aus
+    # (SIGABRT → 502). _export_lock wird nur kurz für den Start-Check gehalten.
+    with _export_lock:
+        _sweep_export_builds()
+        for _i in _EXPORT_BUILDS.values():
+            _p = _i.get("proc")
+            if _i.get("status") == "building" and _p is not None and _p.poll() is None:
+                return jsonify({"error": "export_already_running"}), 409
+        try:
+            token, _info = _start_export_build()
+        except Exception as exc:
+            app.logger.exception("[ADMIN-EXPORT] parts start failed")
+            return jsonify({"error": "export_failed", "detail": str(exc)}), 500
+    return jsonify({"token": token, "status": "building"})
+
+
+@app.route("/api/admin/export/status")
+def api_admin_export_status():
+    """B162: Status eines asynchronen Volume-Builds (Polling-Endpunkt)."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "unauthorized"}), 401
+    if ROLE_LEVEL.get(user.get("role", "viewer"), 0) < ROLE_LEVEL.get("admin", 99):
+        return jsonify({"error": "forbidden"}), 403
+    token = request.args.get("token")
+    if not token:
+        return jsonify({"error": "missing_token"}), 400
+    info = _poll_export_build(token)
+    if info is None:
+        return jsonify({"error": "export_expired"}), 410
+    if info["status"] == "ready":
+        parts = info["parts"] or []
         return jsonify({
-            "token": token,
-            "part_count": len(info["parts"]),
+            "status": "ready",
+            "part_count": len(parts),
             "parts": [
                 {"index": i, "filename": n, "bytes": p.stat().st_size}
-                for i, (p, n) in enumerate(info["parts"], start=1)
+                for i, (p, n) in enumerate(parts, start=1)
             ],
         })
-    except Exception as exc:
-        app.logger.exception("[ADMIN-EXPORT] parts build failed")
-        return jsonify({"error": "export_failed", "detail": str(exc)}), 500
-    finally:
-        _export_lock.release()
+    if info["status"] == "error":
+        return jsonify({"status": "error", "detail": info.get("detail") or "unbekannt"}), 500
+    return jsonify({"status": "building"})
 
 
 @app.route("/api/admin/export/last-24h.zip")
@@ -870,10 +972,13 @@ def api_admin_export_last_24h_zip():
     token = request.args.get("token")
     part = request.args.get("part", default=1, type=int)
     if token:
-        _sweep_export_builds()
-        info = _EXPORT_BUILDS.get(token)
+        info = _poll_export_build(token)
         if not info:
             return jsonify({"error": "export_expired"}), 410
+        if info["status"] == "error":
+            return jsonify({"error": "export_failed", "detail": info.get("detail")}), 500
+        if info["status"] != "ready" or not info.get("parts"):
+            return jsonify({"error": "export_not_ready"}), 425
         parts = info["parts"]
         if part < 1 or part > len(parts):
             return jsonify({"error": "invalid_part"}), 404
@@ -894,40 +999,16 @@ def api_admin_export_last_24h_zip():
             response.response = ClosingIterator(response.response, _cleanup_build)
         return response
 
-    if not _export_lock.acquire(blocking=False):
-        return jsonify({"error": "export_already_running"}), 409
-    started = time.perf_counter()
-    app.logger.info("[ADMIN-EXPORT] start volumes hours=24")
-    try:
-        tok, info = _build_export_volumes()
-        parts = info["parts"]
-        first_path, first_name = parts[0]
-        duration_s = time.perf_counter() - started
-        app.logger.info(
-            "[ADMIN-EXPORT] volumes_created parts=%s total_files=%s duration_s=%.3f",
-            len(parts), info["manifest"].get("total_files", "?"), duration_s,
-        )
-        response = send_file(
-            Path(first_path), mimetype="application/zip", as_attachment=True,
-            download_name=first_name, max_age=0,
-        )
-        response.headers["X-Export-Token"] = tok
-        response.headers["X-Export-Part"] = "1"
-        response.headers["X-Export-Part-Count"] = str(len(parts))
-        if len(parts) == 1:
-            def _cleanup_single(tok=tok, d=info["dir"]):
-                try:
-                    shutil.rmtree(d, ignore_errors=True)
-                finally:
-                    _EXPORT_BUILDS.pop(tok, None)
-            response.call_on_close(_cleanup_single)
-            response.response = ClosingIterator(response.response, _cleanup_single)
-        return response
-    except Exception as exc:
-        app.logger.exception("[ADMIN-EXPORT] volumes failed")
-        return jsonify({"error": "export_failed", "detail": str(exc)}), 500
-    finally:
-        _export_lock.release()
+    # B162: Kein synchroner Build mehr in diesem Endpunkt (war der zweite
+    # Watchdog-Killer). Der Build läuft ausschließlich asynchron über
+    # /api/admin/export/last-24h/parts (Subprozess); danach wird hier mit
+    # ?token=…&part=N das fertige Volume ausgeliefert.
+    return jsonify({
+        "error": "use_parts_endpoint",
+        "detail": ("Build asynchron über /api/admin/export/last-24h/parts starten, "
+                   "Status über /api/admin/export/status?token=… pollen, dann "
+                   "?token=…&part=N herunterladen."),
+    }), 400
 
 
 @app.route("/api/download/logs")
