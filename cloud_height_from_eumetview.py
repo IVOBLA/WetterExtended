@@ -178,7 +178,9 @@ def get_latest_wms_time() -> str | None:
                 else:
                     _dbg("capabilities_response", reason=f"incomplete-capabilities-retry{_b125_att}")
                 try:
-                    _rr = retry_get(url, service="EUMETView-WMS-Caps", timeout=30)
+                    # B160: Re-Fetch im Robustheits-Loop ebenfalls über den Breaker.
+                    _rr = retry_get(url, service="EUMETView-WMS-Caps",
+                                    breaker_service="eumetview_capabilities", timeout=30)
                     _caps_body = _rr.content if getattr(_rr, "ok", False) else b""
                 except Exception:
                     _caps_body = b""

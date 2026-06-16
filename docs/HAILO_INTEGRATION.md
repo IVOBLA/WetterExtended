@@ -2358,3 +2358,8 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
   geosphere_cape, geosphere_nowcast, geosphere_tawes_all, openmeteo_icon_d2,
   openmeteo_icon_eu_li, openmeteo_icon_global, openmeteo_outlook).
 
+### B160 — EUMETView Capabilities-Loop an Breaker (Nachzieher zu B154) ✅ erledigt
+- `get_latest_wms_time()`: der GetCapabilities-Re-Fetch im B125-Robustheits-Loop bekommt
+  ebenfalls `breaker_service="eumetview_capabilities"` (zuvor nur der Erst-Request via B154).
+- Test: `tests/test_b160_eumetview_caps_loop_breaker.py`. Datei: `cloud_height_from_eumetview.py`.
+
