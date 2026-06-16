@@ -54,7 +54,14 @@ def test_requests_impostor_is_replaced():
         rq = sys.modules.get("requests")
         assert not cf._is_module_impostor(rq), "requests darf kein SimpleNamespace-Impostor sein"
         assert hasattr(rq, "Session"), "echtes requests besitzt Session"
-        assert hasattr(rq, "exceptions"), "echtes requests besitzt exceptions"
+        # B163: `requests.exceptions` ist ein Submodul. Nach del+Reimport ist das
+        # Bare-Attribut auf dem neuen Parent-Objekt durch CPython-Submodul-Caching
+        # nicht zuverlässig gesetzt — das ist ein Import-Detail, keine echte Garantie.
+        # Robuste Prüfung: das ECHTE Submodul ist über expliziten Import erreichbar
+        # (funktioniert nur für das reale Paket, nicht für einen SimpleNamespace-Impostor).
+        import importlib
+        _req_exc = importlib.import_module("requests.exceptions")
+        assert hasattr(_req_exc, "RequestException"), "requests.exceptions ist das echte Submodul"
     finally:
         if _orig is not None:
             sys.modules["requests"] = _orig
