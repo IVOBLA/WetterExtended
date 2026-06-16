@@ -2427,3 +2427,14 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
   ebenfalls `breaker_service="eumetview_capabilities"` (zuvor nur der Erst-Request via B154).
 - Test: `tests/test_b160_eumetview_caps_loop_breaker.py`. Datei: `cloud_height_from_eumetview.py`.
 
+### B165 — Drift-Detektor: absoluter Kurzhorizont-Wächter (Zieldefinition ≤30 min < 1 km) ✅ erledigt
+- Ursache: `check_drift()` erkannte Drift nur RELATIV (delta > 2 km). Ein konstant hoher Fehler
+  (z. B. ~10 km bei +10/+30 min) galt als „stabil" → Verstoß gegen zieldefinition.txt
+  („≤30 Min < 1 km"). Das All-Horizont-Mittel (`_mean_mae`) maskierte zusätzlich den Kurzhorizont.
+- Fix: neuer Helper `_mean_mae_for_horizons(records, max_horizon_min)`; Config
+  `DRIFT_MAE_ABS_MAX_KM` (1.0), `DRIFT_SHORT_HORIZON_MAX_MIN` (30); absoluter Wächter in
+  `check_drift()` (unabhängig vom relativen Trend, nur bei `_has_ml_model()`); neue Result-Felder
+  `mae_recent_short_km`/`short_horizon_max_min`/`abs_threshold_km`/`drift_reason`; Alarm-Mail um
+  Kurzhorizont-Zeile + Grund ergänzt.
+- Test: `tests/test_b165_drift_absolute_guardrail.py`. Dateien: `drift_detector.py`,
+  `email_notifier.py`, `docs/WetterExtended_Benutzerhandbuch.md`. Verwandt: B23.

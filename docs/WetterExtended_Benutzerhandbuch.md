@@ -438,6 +438,8 @@ Lernkurven (Loss über Epochen) für LSTM und ConvLSTM als Recharts-Grafik.
 
 Closed-Loop-Verifikation: MAE, Hit-Rate und durchschnittliche Abweichung pro Horizont über einstellbaren Zeitraum.
 
+**Absoluter Kurzhorizont-Wächter (B165):** Zusätzlich zur relativen Trendüberwachung schlägt die Drift-Detection Alarm, sobald der mittlere Positionsfehler der Horizonte ≤ `DRIFT_SHORT_HORIZON_MAX_MIN` (Standard 30 min) die absolute Grenze `DRIFT_MAE_ABS_MAX_KM` (Standard 1,0 km) überschreitet — auch wenn sich der Fehler nicht *verschlechtert*. Das setzt die Zielvorgabe „≤30 min < 1 km" durch. Der Alarm-Grund (`relative`/`absolute`/`relative+absolute`) erscheint in der Drift-Mail und unter `/api/drift`. Nur bei aktivem ML-Modell aktiv (kein Alarm im kinematischen Fallback).
+
 ## 4.13 Logs (`/logs`)
 
 Anzeige der letzten N Zeilen des System-Logs, API-Fehler-Log, API-Request-Zähler pro Tag und externer Schnittstelle.

@@ -25,6 +25,10 @@ DRIFT_WINDOW_RECENT_H = int(os.getenv("DRIFT_WINDOW_RECENT_H", "24"))
 DRIFT_WINDOW_BASELINE_H = int(os.getenv("DRIFT_WINDOW_BASELINE_H", "168"))
 DRIFT_MAE_THRESHOLD_KM = float(os.getenv("DRIFT_MAE_THRESHOLD_KM", "2.0"))
 DRIFT_MIN_POINTS = int(os.getenv("DRIFT_MIN_POINTS", "3"))
+# B165: Absoluter Kurzhorizont-Wächter — kodiert die Zieldefinition
+# (≤30 min < 1 km). Greift unabhängig vom relativen Trend.
+DRIFT_MAE_ABS_MAX_KM = float(os.getenv("DRIFT_MAE_ABS_MAX_KM", "1.0"))
+DRIFT_SHORT_HORIZON_MAX_MIN = float(os.getenv("DRIFT_SHORT_HORIZON_MAX_MIN", "30"))
 
 _EVAL_DIR = SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/")
 _HISTORY_FILE = os.path.join(_EVAL_DIR, "accuracy_history.jsonl")
@@ -57,15 +61,31 @@ def _parse_ts(rec: dict) -> Optional[datetime]:
         return None
 
 
-def _mean_mae(records: list) -> Optional[float]:
-    """Mittlerer mae_km über alle Horizonte aller übergebenen Records."""
+def _mean_mae_for_horizons(records: list, max_horizon_min: Optional[float] = None) -> Optional[float]:
+    """Mittlerer mae_km über Horizonte aller Records.
+
+    Mit max_horizon_min werden NUR Horizonte einbezogen, deren `horizon` (Minuten)
+    <= max_horizon_min ist (B165: Kurzhorizont-Wächter). Ohne Angabe: alle Horizonte.
+    """
     values = []
     for rec in records:
         for horizon in rec.get("horizons", []):
+            if max_horizon_min is not None:
+                _h = horizon.get("horizon")
+                try:
+                    if _h is None or float(_h) > float(max_horizon_min):
+                        continue
+                except (TypeError, ValueError):
+                    continue
             v = horizon.get("mae_km")
             if v is not None and isinstance(v, (int, float)) and v > 0:
                 values.append(float(v))
     return sum(values) / len(values) if values else None
+
+
+def _mean_mae(records: list) -> Optional[float]:
+    """Mittlerer mae_km über ALLE Horizonte aller Records (Rückwärtskompatibilität)."""
+    return _mean_mae_for_horizons(records, None)
 
 
 def check_drift() -> dict:
@@ -84,11 +104,16 @@ def check_drift() -> dict:
 
     mae_recent = _mean_mae(recent_recs)
     mae_baseline = _mean_mae(baseline_recs)
+    mae_recent_short = _mean_mae_for_horizons(recent_recs, DRIFT_SHORT_HORIZON_MAX_MIN)
 
     result = {
         "drift_detected": False,
+        "drift_reason": None,
         "mae_recent_km": mae_recent,
         "mae_baseline_km": mae_baseline,
+        "mae_recent_short_km": mae_recent_short,
+        "short_horizon_max_min": DRIFT_SHORT_HORIZON_MAX_MIN,
+        "abs_threshold_km": DRIFT_MAE_ABS_MAX_KM,
         "delta_km": None,
         "threshold_km": DRIFT_MAE_THRESHOLD_KM,
         "recent_points": len(recent_recs),
@@ -108,6 +133,7 @@ def check_drift() -> dict:
 
         if delta > DRIFT_MAE_THRESHOLD_KM:
             result["drift_detected"] = True
+            result["drift_reason"] = "relative"
             result["message"] = (
                 f"⚠️ Model-Drift erkannt: MAE verschlechtert um {delta:.2f} km "
                 f"(recent={mae_recent:.2f} km vs. baseline={mae_baseline:.2f} km, "
@@ -119,6 +145,32 @@ def check_drift() -> dict:
                 f"Model stabil: delta={delta:+.2f} km "
                 f"(recent={mae_recent:.2f} km, baseline={mae_baseline:.2f} km)"
             )
+
+    # B165: Absoluter Kurzhorizont-Wächter — erzwingt die Zieldefinition
+    # (≤ DRIFT_SHORT_HORIZON_MAX_MIN min < DRIFT_MAE_ABS_MAX_KM km). Greift
+    # UNABHÄNGIG vom relativen Trend (ein konstant hoher Kurzhorizont-Fehler galt
+    # bisher als „stabil"). Nur bei aktivem ML-Modell, sonst erzeugt der erwartbar
+    # höhere kinematische Fallback-Fehler Fehlalarme.
+    if (
+        mae_recent_short is not None
+        and len(recent_recs) >= DRIFT_MIN_POINTS
+        and mae_recent_short > DRIFT_MAE_ABS_MAX_KM
+        and _has_ml_model()
+    ):
+        result["drift_detected"] = True
+        result["drift_reason"] = (
+            "relative+absolute" if result.get("drift_reason") == "relative" else "absolute"
+        )
+        _abs_msg = (
+            f"⚠️ Kurzhorizont-Genauigkeit verletzt Zielvorgabe: "
+            f"MAE(≤{int(DRIFT_SHORT_HORIZON_MAX_MIN)} min) = {mae_recent_short:.2f} km "
+            f"> {DRIFT_MAE_ABS_MAX_KM} km (Ziel < 1 km)."
+        )
+        result["message"] = (
+            f"{result['message']} | {_abs_msg}"
+            if result.get("drift_reason") == "relative+absolute" else _abs_msg
+        )
+        debug_log(f"[DRIFT] {_abs_msg}")
 
     os.makedirs(_EVAL_DIR, exist_ok=True)
     try:
