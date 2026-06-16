@@ -37,8 +37,13 @@ def _preload_critical_modules():
     Entfernt SimpleNamespace-/Fake-Impostoren und lädt echte Module nach.
     Gilt für numpy, pandas, cv2 und shapely — diese Module dürfen kein
     Mock-Objekt sein, weil spätere Tests echte Submodule daraus importieren.
+    B160: zusätzlich requests + http_retry — test_eumetview_parser.py stubte diese
+    früher per sys.modules.setdefault(SimpleNamespace) und korrumpierte so
+    test_b149_*/test_b151_*/test_nowcast_out_of_coverage_b131. requests vor http_retry,
+    weil http_retry beim Import eine requests.Session aufbaut.
     """
-    for name in ("numpy", "pandas", "cv2", "shapely", "shapely.geometry", "shapely.ops"):
+    for name in ("numpy", "pandas", "cv2", "shapely", "shapely.geometry", "shapely.ops",
+                 "requests", "http_retry"):
         if name in sys.modules and _is_module_impostor(sys.modules[name]):
             del sys.modules[name]
         try:
