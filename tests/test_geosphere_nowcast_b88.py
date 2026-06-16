@@ -47,6 +47,24 @@ sys.modules.setdefault(
 
 import fetch_geosphere_nowcast as nowcast
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _isolate_cache(monkeypatch):
+    """B164: Cache-Miss erzwingen — unabhängig von der Modul-Ladereihenfolge.
+
+    Der modulweite sys.modules.setdefault("api_cache", …)-Stub greift nur, wenn
+    api_cache noch nicht geladen ist. Hat ein früherer Test das ECHTE api_cache
+    importiert, bindet `nowcast` das echte cache_get → ein vom Live-Dienst
+    geschriebener Disk-Cache (z. B. geosphere_nowcast_bulk_*) liefert einen HIT,
+    sodass retry_get nie aufgerufen wird (captured["url"]/Fallback-Log fehlen).
+    Diese Fixture patcht die Modul-Referenzen pro Test fest auf Cache-Miss.
+    """
+    monkeypatch.setattr(nowcast, "cache_get", lambda *a, **k: None, raising=False)
+    monkeypatch.setattr(nowcast, "cache_set", lambda *a, **k: None, raising=False)
+    yield
+
 
 class _Resp:
     def __init__(self, payload, status=200):
