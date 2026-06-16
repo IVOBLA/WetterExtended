@@ -2340,6 +2340,15 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
   bleiben unberührt.
 - Test: `tests/test_b159_cape_doppellog.py`. Datei: `assign_cape_from_forecast.py`.
 
+### B167 — test_debug_export.py auf asynchronen Export-Vertrag + Temp-Cleanup bei Build-Fehler ✅ erledigt
+- Ursache: B162 entfernte den synchronen token-losen Build (→ 400 use_parts_endpoint). Sechs alte
+  Tests prüften den synchronen Vertrag (200/500/409/cleanup) und schlugen mit 400 fehl.
+- Fix: die sechs Tests auf den asynchronen Vertrag umgestellt (Fake-subprocess.Popen: ready/error/
+  building); Auth- und direkte create_debug_export_zip-Tests unverändert übernommen. Zusätzlich
+  räumt `_poll_export_build` einen fehlgeschlagenen Build-Ordner sofort auf (kein Temp-Leak).
+- Test: `tests/test_debug_export.py` (neu geschrieben). Datei: `app.py` (_poll_export_build). Verwandt: B162.
+
+
 ### B166 — Kinematische Glättung gegen vx/vy-Sprünge bei Merge/Split ✅ erledigt
 - Ursache: `_append_kinematic` mittelte die gespeicherten vx/vy ALLER History-Frames inkl. des
   Merge/Split-Frames, dessen Schwerpunktsprung die kinematische Vorhersagegeschwindigkeit verbog.

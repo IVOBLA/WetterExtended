@@ -903,6 +903,12 @@ def _poll_export_build(token):
         info["status"] = "error"
         info["detail"] = detail
         debug_log(f"[ADMIN-EXPORT] build-Fehler: {detail}")
+        # B167: fehlgeschlagenen Build-Ordner sofort aufräumen (kein Temp-Leak;
+        # der TTL-Sweep würde sonst erst nach _EXPORT_BUILD_TTL_S greifen).
+        try:
+            shutil.rmtree(info["dir"], ignore_errors=True)
+        except Exception:
+            pass
     return info
 
 
