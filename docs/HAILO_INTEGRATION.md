@@ -2340,6 +2340,20 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
   bleiben unberührt.
 - Test: `tests/test_b159_cape_doppellog.py`. Datei: `assign_cape_from_forecast.py`.
 
+### B161 — Test-Aktualisierung: Nowcast-OOC-Test auf retry_get-Pfad ✅ erledigt
+- Ursache der 4 roten Tests (test_nowcast_out_of_coverage_b131): der Test patchte noch den
+  vor B151 gültigen rohen `nowcast.requests.get`. Seit B151 läuft Nowcast (Bulk
+  `assign_nowcast_to_objects` + Einzel `_parse_nowcast_single`) ausschließlich über
+  `http_retry.retry_get(breaker_service="geosphere_nowcast")` → alter Patch ohne Wirkung.
+- Fix: Test vollständig neu — patcht `http_retry.retry_get` statt `nowcast.requests.get`;
+  OOC-Datei + log_api_call/debug_log + Cache in tmp/no-op isoliert (keine echten Writes,
+  kein Netzwerk). Abgedeckt: 4xx→_ooc_mark, CircuitOpen(status 0)→kein Merken, TTL aktiv→
+  kein Request, TTL abgelaufen→Re-Request, Erfolg→_ooc_clear.
+- Entfällt: `test_b131_single_fallback_4xx_logs_both_counter_and_failure` — das Doppel-Logging
+  (log_api_failure + log_api_call) liegt seit B151 zentral in retry_get und wird durch
+  `tests/test_b149_retry_get_breaker.py` geprüft.
+- Test: `tests/test_nowcast_out_of_coverage_b131.py`. Produktionscode unverändert.
+
 ### B154 — EUMETView an Circuit-Breaker (#5, Rollout 5) ✅ erledigt
 - `cloud_height_from_eumetview`: GetCapabilities (`get_latest_wms_time`) von rohem
   `requests.get` auf `retry_get` (`breaker_service="eumetview_capabilities"`); GetMap-TIFF
