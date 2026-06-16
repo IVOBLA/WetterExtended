@@ -768,7 +768,9 @@ def send_drift_alert(status: dict) -> None:
   <tr><td>MAE recent (letzte 24 h)</td><td><b>{recent} km</b></td></tr>
   <tr><td>MAE baseline (7-Tage-Mittel)</td><td>{base} km</td></tr>
   <tr><td>Verschlechterung</td><td style="color:red"><b>+{delta} km</b></td></tr>
-  <tr><td>Threshold</td><td>{status.get("threshold_km")} km</td></tr>
+  <tr><td>Threshold (relativ)</td><td>{status.get("threshold_km")} km</td></tr>
+  <tr><td>MAE Kurzhorizont (≤{int(status.get("short_horizon_max_min", 30))} min)</td><td><b>{status.get("mae_recent_short_km")} km</b> (Grenze {status.get("abs_threshold_km")} km)</td></tr>
+  <tr><td>Drift-Grund</td><td>{status.get("drift_reason") or "—"}</td></tr>
 </table>
 <p><b>Mögliche Ursachen:</b> Wetter-Regime-Wechsel, zu wenig Training-Samples,
 Feature-Drift (neue Radar-Kalibrierung), Datenausfall bei einem API-Provider.</p>
