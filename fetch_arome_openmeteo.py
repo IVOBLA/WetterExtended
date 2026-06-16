@@ -166,16 +166,16 @@ def assign_arome_to_objects(objects: list, timestamp: str) -> list:
     _t0_arome = _t_arome.monotonic()
     try:
         from http_retry import retry_get
-        r = retry_get(bulk_url, service="Open-Meteo-icon_d2", timeout=_TIMEOUT)
+        # B157: kanonischer Service-Name + Circuit-Breaker ("openmeteo_icon_d2").
+        r = retry_get(bulk_url, service="openmeteo_icon_d2",
+                      breaker_service="openmeteo_icon_d2", timeout=_TIMEOUT)
         _dur_arome = (_t_arome.monotonic() - _t0_arome) * 1000
         log_http_response("openmeteo_icon_d2", "GET", r, _dur_arome)
         data = r.json()
         cache_set(ck, data)
     except Exception as exc:
-        log_api_failure(
-            "Open-Meteo-icon_d2", bulk_url,
-            f"{type(exc).__name__}: {exc}", fallback_used=True,
-        )
+        # B157: retry_get protokolliert den Ausfall bereits unter "openmeteo_icon_d2"
+        # (log_api_failure + log_api_call) und bedient den Breaker → kein Doppel-Log.
         debug_log(f"[AROME] Alle Versuche fehlgeschlagen: {exc} — Default-Werte.")
         for _, obj in valid:
             obj.update(_DEFAULT)
@@ -261,7 +261,9 @@ def _fetch_arome_li_via_icon_eu(valid: list, ref_ts_str: str | None = None) -> d
     else:
         try:
             from http_retry import retry_get
-            r = retry_get(url, service="openmeteo_icon_eu_li", timeout=_TIMEOUT)
+            # B157: Circuit-Breaker ("openmeteo_icon_eu_li").
+            r = retry_get(url, service="openmeteo_icon_eu_li",
+                          breaker_service="openmeteo_icon_eu_li", timeout=_TIMEOUT)
             data = r.json()
             cache_set(ck, data)
         except Exception as exc:

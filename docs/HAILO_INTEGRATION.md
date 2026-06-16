@@ -2345,3 +2345,16 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
   `requests.get` auf `retry_get` (`breaker_service="eumetview_capabilities"`); GetMap-TIFF
   (`assign_cloud_top_height`) um `breaker_service="eumetview_wms"` ergänzt.
 - Test: `tests/test_b154_eumetview_breaker.py`. Datei: `cloud_height_from_eumetview.py`.
+
+### B157 — AROME an Circuit-Breaker (#5, Rollout 8 — Abschluss) ✅ erledigt
+- `fetch_arome_openmeteo`: icon_d2-Hauptrequest (`assign_arome_to_objects`) auf kanonischen
+  Service `openmeteo_icon_d2` + `breaker_service="openmeteo_icon_d2"`; lifted_index-Fallback
+  (`_fetch_arome_li_via_icon_eu`, GFS) um `breaker_service="openmeteo_icon_eu_li"` ergänzt.
+- Doppel-Logging im icon_d2-except entfernt (retry_get loggt bereits) — analog B159.
+- Daten-Qualitäts-Log „arome_t2m alle 0.0" bleibt unberührt (kein Netzwerk-Ausfall).
+- Test: `tests/test_b157_arome_breaker.py`. Datei: `fetch_arome_openmeteo.py`.
+- **#5-Rollout abgeschlossen:** alle externen Fetcher laufen jetzt über den Circuit-Breaker
+  (arso_radar, blitzortung_last_strikes, eumetview_capabilities, eumetview_wms,
+  geosphere_cape, geosphere_nowcast, geosphere_tawes_all, openmeteo_icon_d2,
+  openmeteo_icon_eu_li, openmeteo_icon_global, openmeteo_outlook).
+
