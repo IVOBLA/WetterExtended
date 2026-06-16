@@ -2340,6 +2340,15 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
   bleiben unberührt.
 - Test: `tests/test_b159_cape_doppellog.py`. Datei: `assign_cape_from_forecast.py`.
 
+### B164 — Test-Isolation: b88-Nowcast-Tests gegen Disk-Cache-HITs gehärtet ✅ erledigt
+- Ursache: `test_geosphere_nowcast_b88.py` stubte `api_cache` nur per modulweitem
+  `sys.modules.setdefault(...)` (greift nicht, wenn api_cache bereits geladen). Bei warmem
+  Disk-Cache (Live-Dienst schreibt `geosphere_nowcast_bulk_*`) lieferte das echte `cache_get`
+  einen HIT → `retry_get` lief nie → `captured["url"]`/Fallback-Log fehlten (KeyError/assert False).
+- Fix: autouse-Fixture `_isolate_cache` patcht `nowcast.cache_get`→None / `nowcast.cache_set`→no-op
+  pro Test (Cache-Miss erzwingen), analog `test_nowcast_out_of_coverage_b131::_isolate`.
+- Test-only, kein Produktionscode. Datei: `tests/test_geosphere_nowcast_b88.py`.
+
 ### B163 — Korrektur des B160-Guard-Tests (fragile requests.exceptions-Assertion) ✅ erledigt
 - `test_requests_impostor_is_replaced` prüfte `hasattr(rq, "exceptions")` — nach del+Reimport ist
   das Submodul-Bare-Attribut auf dem neuen Parent-Objekt (CPython-Submodul-Caching) nicht
