@@ -79,9 +79,29 @@ function Logs() {
     setExporting(true)
     setExportMsg({ ok: true, text: 'Export wird erstellt...' })
     try {
-      // B126: Mehrteiliger Export — Teileliste holen, dann alle Volumes laden.
-      const meta = await api.get('/api/admin/export/last-24h/parts')
-      const token = meta.token
+      // B126: Mehrteiliger Export. B162: Build läuft asynchron im Subprozess
+      // (sonst systemd-Watchdog-Kill → 502). /parts startet nur und liefert ein
+      // Token; der Status wird gepollt, bis das Volume-Set bereit ist.
+      const start = await api.get('/api/admin/export/last-24h/parts')
+      const token = start.token
+      let meta = start
+      if (start.status === 'building') {
+        setExportMsg({ ok: true, text: 'Export wird im Hintergrund erstellt …' })
+        const deadline = Date.now() + 15 * 60 * 1000  // max. 15 min
+        // Poll-Schleife: kurze Requests (≪ nginx-Timeout), kein Block des Backends.
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          await new Promise((r) => setTimeout(r, 2000))
+          const st = await api.get(`/api/admin/export/status?token=${encodeURIComponent(token)}`)
+          if (st.status === 'ready') { meta = st; break }
+          if (st.status === 'error') {
+            throw new Error(`Export-Build fehlgeschlagen: ${st.detail || 'unbekannt'}`)
+          }
+          if (Date.now() > deadline) {
+            throw new Error('Export-Build überschritt 15 Minuten — abgebrochen.')
+          }
+        }
+      }
       const partCount = meta.part_count || 1
       for (let i = 1; i <= partCount; i++) {
         setExportMsg({ ok: true, text: `Lade Teil ${i}/${partCount} …` })

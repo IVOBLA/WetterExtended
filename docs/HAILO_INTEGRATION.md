@@ -2340,6 +2340,23 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
   bleiben unberührt.
 - Test: `tests/test_b159_cape_doppellog.py`. Datei: `assign_cape_from_forecast.py`.
 
+### B162 — Admin-Export: systemd-Watchdog-Kill → Subprozess-Build + Status-Polling ✅ erledigt
+- Ursache (journalctl bewiesen): `GET /api/admin/export/last-24h/parts` baute den 24-h-Export
+  SYNCHRON im Flask-Request (> 60 s CPU). Das hungerte den Watchdog-Heartbeat aus →
+  „Watchdog timeout (limit 1min)!" → SIGABRT (status=6/ABRT). nginx: „upstream prematurely
+  closed" + „connect() failed (111)" → das im Dashboard sichtbare 502. Kein OOM, kein Timeout.
+- Schlüssel: Ein Build im selben Prozess (auch als Thread) hungert den Heartbeat-Thread genauso
+  aus → Build MUSS in einen eigenen Prozess.
+- Fix: neuer Runner `tools/build_debug_export_volumes.py` (eigener Prozess, schreibt
+  manifest.json/error.json). `_build_export_volumes()` ersetzt durch `_start_export_build()`
+  (subprocess.Popen, kehrt sofort zurück) + `_poll_export_build()`. `/parts` liefert sofort
+  `{token, status:"building"}`; neuer Endpunkt `/api/admin/export/status?token=…` zum Pollen;
+  `last-24h.zip?token=&part=N` liefert nur bei `ready` aus. Token-loser synchroner Build-Pfad
+  entfernt (→ 400 use_parts_endpoint). Start/Ende/Fehler über `debug_log` (journald-sichtbar,
+  da app.logger.info bei Flask-Default-Level WARNING unsichtbar war). Frontend `Logs.jsx` pollt.
+- Test: `tests/test_b162_export_async.py`. Dateien: `app.py`, `tools/build_debug_export_volumes.py`,
+  `frontend/src/pages/Logs.jsx`.
+
 ### B161 — Test-Aktualisierung: Nowcast-OOC-Test auf retry_get-Pfad ✅ erledigt
 - Ursache der 4 roten Tests (test_nowcast_out_of_coverage_b131): der Test patchte noch den
   vor B151 gültigen rohen `nowcast.requests.get`. Seit B151 läuft Nowcast (Bulk
