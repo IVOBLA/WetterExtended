@@ -2340,6 +2340,14 @@ Dateien: frontend/src/pages/Logs.jsx, frontend/src/pages/Dashboard.jsx
   bleiben unberührt.
 - Test: `tests/test_b159_cape_doppellog.py`. Datei: `assign_cape_from_forecast.py`.
 
+### B166 — Kinematische Glättung gegen vx/vy-Sprünge bei Merge/Split ✅ erledigt
+- Ursache: `_append_kinematic` mittelte die gespeicherten vx/vy ALLER History-Frames inkl. des
+  Merge/Split-Frames, dessen Schwerpunktsprung die kinematische Vorhersagegeschwindigkeit verbog.
+- Fix: Bei `merge_discontinuity`/`is_merged`/`is_split` wird der jüngste History-Eintrag aus der
+  v-Mittelung ausgeschlossen (nur wenn danach ≥ 2 Frames bleiben); `kinematic_source` += `+mguard`.
+  Optischer Fluss (P-M02) bleibt Vorrang und unbeeinflusst; Kalman-Clamp greift bei kurzer History.
+- Test: `tests/test_b166_merge_smoothing.py`. Dateien: `prediction.py`, `logic.md`. Verwandt: B30/B115/B117, P-M02.
+
 ### B164 — Test-Isolation: b88-Nowcast-Tests gegen Disk-Cache-HITs gehärtet ✅ erledigt
 - Ursache: `test_geosphere_nowcast_b88.py` stubte `api_cache` nur per modulweitem
   `sys.modules.setdefault(...)` (greift nicht, wenn api_cache bereits geladen). Bei warmem

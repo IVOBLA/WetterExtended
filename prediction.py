@@ -196,6 +196,23 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
     history = obj.get("history") or []
     n = len(history)
 
+    # B166: Merge/Split-Glättung. Bei einem Merge/Split-Frame springt der
+    # Zell-Schwerpunkt → die gespeicherte vx/vy des JÜNGSTEN History-Eintrags ist
+    # diskontinuierlich. Dieser Eintrag wird für die kinematische Geschwindigkeit
+    # ausgeschlossen (sofern genug History übrig bleibt), damit die Vorhersage der
+    # Vor-Merge-Bewegung folgt statt dem Sprung. Der optische Fluss (P-M02) bleibt
+    # Vorrang (bereits sprung-robust) und wird hiervon NICHT beeinflusst.
+    _merge_guard = (
+        int(obj.get("merge_discontinuity", 0) or 0) == 1
+        or float(obj.get("is_merged", 0.0) or 0.0) >= 0.5
+        or float(obj.get("is_split", 0.0) or 0.0) >= 0.5
+    )
+    _merge_guard_applied = False
+    if _merge_guard and n >= 3:
+        history = history[:-1]
+        n = len(history)
+        _merge_guard_applied = True
+
     # EWMA-Alpha aus runtime_config lesen (P27)
     _ewma_alpha = float(
         _runtime_cfg.get("KINEMATIC_EWMA_ALPHA", _STATIC_EWMA_ALPHA)
@@ -288,6 +305,11 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
         avg_vx = _safe_float(obj.get("of_vx", 0.0)) / _fm_of
         avg_vy = _safe_float(obj.get("of_vy", 0.0)) / _fm_of
         src = f"optflow_fm{round(_fm_of, 1)}"
+
+    # B166: Diagnose-Marker — Merge/Split-Glättung wurde auf den History/EWMA-Pfad
+    # angewandt (beim optischen Fluss nicht relevant, da feldbasiert/sprung-robust).
+    if _merge_guard_applied and not src.startswith("optflow"):
+        src = f"{src}+mguard"
 
     obj["forecast_mode"]      = "kinematic"
     obj["has_ml_forecast"]    = False
