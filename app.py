@@ -1088,9 +1088,14 @@ def api_objects():
         try:
             from ir_cell_tracking import load_active_ir_tracks
             ir_tracks = load_active_ir_tracks()
+            # CB-Höhengrenze (runtime-überschreibbar) an die IR-Objekte hängen, damit die
+            # öffentliche Karte die "CB > …"-Schwelle ohne /api/config (login-geschützt) kennt.
+            _cb_thr = float(runtime_config.get(
+                "CLOUD_HEIGHT_ALERT_THRESHOLD_M", cfg.CLOUD_HEIGHT_ALERT_THRESHOLD_M))
             # IR-Tracks als pseudo-objects mit Typ-Marker
             for t in ir_tracks:
                 t["_type"] = "ir_cell"
+                t["cb_alert_threshold_m"] = _cb_thr
             if isinstance(data, list):
                 data = data + ir_tracks
             elif isinstance(data, dict) and "objects" in data:

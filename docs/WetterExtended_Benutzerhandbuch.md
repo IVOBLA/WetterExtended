@@ -2592,3 +2592,15 @@ auch dann bleibt FES aktiv.
 | `EUMETVIEW_SCAN_MODE` | `FES` | `FES` oder `RSS` |
 | `EUMETVIEW_LICENSE_STATUS` | `unconfirmed` | `free_confirmed` aktiviert die RSS-Nutzung |
 | `EUMETVIEW_RSS_LAYER_IR108` | (leer) | nur setzen, wenn der RSS-Layer anders heißt als `msg_rss:ir108` |
+
+## CB-Höhengrenze einstellbar + neue Karten-Voreinstellungen
+
+Die Karte kennzeichnet einen IR-Cluster als „CB > …", sobald seine geschätzte
+Wolkenoberkante eine Grenze überschreitet. Diese Grenze war bisher fest auf 10.000 m
+eingestellt und ist jetzt konfigurierbar (`CLOUD_HEIGHT_ALERT_THRESHOLD_M`, Default
+10.000 m MSL, Admin → Konfiguration bzw. `runtime_overrides.json`). Das Label zeigt die
+jeweils eingestellte Grenze an.
+
+**Geänderte Voreinstellungen der Karte:** Der Layer „🌩 Risikozonen" ist standardmäßig
+**aus**, der Layer „🛰 CB / IR-Vorläufer" standardmäßig **an**. Beide bleiben jederzeit
+über die Overlay-Leiste umschaltbar.

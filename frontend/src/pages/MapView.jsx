@@ -548,8 +548,8 @@ export default function MapView() {
   const [radarTs,        setRadarTs]        = useState(0)
   const [lightning,      setLightning]      = useState([])
   const [showLightning,  setShowLightning]  = useState(true)
-  const [showRisk,      setShowRisk]      = useState(true)
-  const [showIrCells,   setShowIrCells]   = useState(false)
+  const [showRisk,      setShowRisk]      = useState(false)
+  const [showIrCells,   setShowIrCells]   = useState(true)
   const [riskGrid,      setRiskGrid]      = useState([])
   const [riskGridStep, setRiskGridStep] = useState(0.05)
   const [riskGridError, setRiskGridError] = useState(false)
@@ -1455,7 +1455,9 @@ export default function MapView() {
           )
         })}
 
-        {showIrCells && irCells.map((ir, i) => (
+        {showIrCells && irCells.map((ir, i) => {
+          const cbAlertThresholdM = ir.cb_alert_threshold_m ?? 10000
+          return (
           <CircleMarker
             key={'ir_' + i}
             center={[ir.lat, ir.lon]}
@@ -1471,8 +1473,8 @@ export default function MapView() {
             <Tooltip direction="top" sticky opacity={0.95}>
               <div style={{ fontSize: 11, lineHeight: 1.4, minWidth: 150 }}>
                 <div style={{ fontWeight: 700, color: '#7c3aed' }}>
-                  {(ir.cloud_height_m ?? ir.ir_cloud_height_m ?? 0) >= 10000
-                    ? '🛰 CB > 10.000'
+                  {(ir.cloud_height_m ?? ir.ir_cloud_height_m ?? 0) >= cbAlertThresholdM
+                    ? `🛰 CB > ${cbAlertThresholdM.toLocaleString('de-AT')}`
                     : '🛰 IR-Vorläufer'} — {ir.ir_id}
                 </div>
                 <div>Trend: <b>
@@ -1494,7 +1496,8 @@ export default function MapView() {
               </div>
             </Tooltip>
           </CircleMarker>
-        ))}
+          )
+        })}
 
 
         {/* Blitz-Layer (F50) — deaktivierbar, nur letzter Frame */}
