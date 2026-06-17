@@ -816,6 +816,23 @@ CLOUD_HEIGHT_ALERT_MIN_CORE_RATIO: float = 0.05
 
 # ── Phase E: IR-Sat Pre-Convection Detection ──────────────────────────────────
 # Alle Schwellwerte runtime-überschreibbar via runtime_overrides.json.
+# --------------------------------------
+# EUMETView Scan-Modus (Rapid Scan / Full Earth Scan) — Free-only
+# --------------------------------------
+# Nur freie EUMETView-WMS-Layer. Kein API-Key, keine kostenpflichtige Schnittstelle.
+FREE_ONLY_API_POLICY: bool = True
+EUMETVIEW_PAID_ALLOWED: bool = False
+# Scan-Modus: "FES" (Full Earth Scan, ~15 min, Default) | "RSS" (Rapid Scan, ~5 min).
+EUMETVIEW_SCAN_MODE: str = "FES"
+EUMETVIEW_FES_LAYER_IR108: str = "msg_fes:ir108"
+# RSS-Layername wird NICHT hart angenommen — None = Standardkandidat "msg_rss:ir108"
+# wird gegen GetCapabilities validiert. Bei abweichendem Namen hier explizit setzen.
+EUMETVIEW_RSS_LAYER_IR108 = None
+# RSS nur aktiv, wenn die Lizenz technisch als frei bestätigt ist.
+EUMETVIEW_LICENSE_STATUS: str = "unconfirmed"   # unconfirmed | free_confirmed | disabled
+# Max. Alter (min) eines wiederverwendeten WMS-Timestamps im RSS-Modus (kürzer als FES).
+EUMETVIEW_RSS_FALLBACK_MAX_AGE_MIN: float = 12.0
+
 IR_CONVECTION_BT_THRESHOLD_K: float = 230.0  # BT < Wert = konvektiver Wolkentop
 IR_OVERSHOOTING_TOP_BT_K:     float = 215.0  # BT < Wert = Overshooting Top (Hagelpotenzial)
 IR_MIN_CELL_AREA_PX:          int   = 300    # Mindestgröße Cluster (Pixel im TIFF)

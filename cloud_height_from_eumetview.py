@@ -22,6 +22,11 @@ from config import (
     EUMETVIEW_BT_MAX_K,
     EUMETVIEW_BT_MIN_K,
     EUMETVIEW_NODATA_PIXEL,
+    EUMETVIEW_SCAN_MODE,
+    EUMETVIEW_FES_LAYER_IR108,
+    EUMETVIEW_RSS_LAYER_IR108,
+    EUMETVIEW_LICENSE_STATUS,
+    EUMETVIEW_PAID_ALLOWED,
 )
 from debug_utils import debug_log, log_api_failure, log_api_call, log_http_response
 from api_cache import cache_key, cache_get, cache_set, get_ttl
@@ -66,6 +71,94 @@ _EVAL_DIR = SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/")
 _EUMETVIEW_DEBUG_FILE = os.path.join(_EVAL_DIR, "eumetview_debug.jsonl")
 
 
+# ── EUMETView Scan-Modus (FES/RSS) ─────────────────────────────────────────────
+_GETCAPS_URL = (
+    f"https://view.eumetsat.int/geoserver/wms"
+    f"?service=WMS&request=GetCapabilities&version={_WMS_VERSION}"
+)
+
+
+def _norm_xml_tag(tag: str) -> str:
+    return tag.split("}", 1)[-1] if "}" in tag else tag
+
+
+def _fetch_caps_root_for_resolve():
+    """Holt GetCapabilities (über Circuit-Breaker) und liefert das geparste Root-
+    Element oder None. Ausschließlich für die RSS-Layer-Validierung — die
+    Timestamp-Auswertung bleibt in get_latest_wms_time."""
+    try:
+        from http_retry import retry_get
+        r = retry_get(_GETCAPS_URL, service="EUMETView-WMS-Caps",
+                      breaker_service="eumetview_capabilities", timeout=30)
+        if not getattr(r, "ok", False):
+            return None
+        body = r.content or b""
+        tail = body[-512:].lower()
+        if (b"</wms_capabilities>" not in tail) and (b"</wmt_ms_capabilities>" not in tail):
+            return None
+        return ET.fromstring(body)
+    except Exception as exc:
+        debug_log(f"[CLOUD] RSS-Validierung: GetCapabilities-Fetch fehlgeschlagen: {exc}")
+        return None
+
+
+def _layer_in_capabilities(root, layer_name: str) -> bool:
+    if root is None or not layer_name:
+        return False
+    for layer in root.iter():
+        if _norm_xml_tag(layer.tag) != "Layer":
+            continue
+        for ch in list(layer):
+            if _norm_xml_tag(ch.tag) == "Name" and (ch.text or "").strip() == layer_name:
+                return True
+    return False
+
+
+def get_active_ir108_layer(caps_root_provider=None) -> str:
+    """
+    Liefert den zu verwendenden IR108-WMS-Layer abhängig vom Scan-Modus.
+
+    FES (Default)  → EUMETVIEW_FES_LAYER_IR108 (~15 min), KEIN Caps-Fetch.
+    RSS            → nur wenn Lizenz 'free_confirmed', PAID nicht erlaubt UND der
+                     RSS-Layer in GetCapabilities existiert (validiert + gecacht).
+                     Sonst Fallback auf FES.
+
+    Es wird KEIN harter RSS-Layername angenommen. Im FES-Modus entsteht kein
+    zusätzlicher Request (zieldefinition.txt: unnötige Fremdrequests vermeiden).
+    """
+    mode = str(runtime_config.get("EUMETVIEW_SCAN_MODE", EUMETVIEW_SCAN_MODE) or "FES").upper()
+    fes = runtime_config.get("EUMETVIEW_FES_LAYER_IR108", EUMETVIEW_FES_LAYER_IR108)
+    if mode != "RSS":
+        return fes
+
+    if str(runtime_config.get("EUMETVIEW_LICENSE_STATUS", EUMETVIEW_LICENSE_STATUS)) != "free_confirmed":
+        debug_log("[CLOUD] RSS angefordert, aber Lizenz != free_confirmed → FES")
+        return fes
+    if bool(runtime_config.get("EUMETVIEW_PAID_ALLOWED", EUMETVIEW_PAID_ALLOWED)):
+        debug_log("[CLOUD] Konfig-Konflikt: EUMETVIEW_PAID_ALLOWED=True bei Free-only → FES")
+        return fes
+
+    candidate = (
+        runtime_config.get("EUMETVIEW_RSS_LAYER_IR108", EUMETVIEW_RSS_LAYER_IR108)
+        or "msg_rss:ir108"
+    )
+
+    ck = cache_key("eumetview:active_layer", mode, candidate, _WMS_VERSION)
+    cached = cache_get(ck, ttl_seconds=get_ttl("eumetview_capabilities", 600))
+    if cached:
+        return cached
+
+    root = caps_root_provider() if caps_root_provider is not None else _fetch_caps_root_for_resolve()
+    if _layer_in_capabilities(root, candidate):
+        cache_set(ck, candidate)
+        debug_log(f"[CLOUD] RSS-Layer '{candidate}' in GetCapabilities bestätigt → RSS aktiv")
+        return candidate
+
+    cache_set(ck, fes)   # negativen Befund cachen → kein wiederholter Caps-Fetch
+    debug_log(f"[CLOUD] RSS-Layer '{candidate}' NICHT verfügbar → Fallback FES")
+    return fes
+
+
 # ── Hilfsfunktionen ──────────────────────────────────────────────────────────
 
 def get_latest_wms_time() -> str | None:
@@ -81,7 +174,8 @@ def get_latest_wms_time() -> str | None:
         f"https://view.eumetsat.int/geoserver/wms"
         f"?service=WMS&request=GetCapabilities&version={_WMS_VERSION}"
     )
-    ck = cache_key("eumetview:capabilities", LAYER, _WMS_VERSION)
+    _active_layer = get_active_ir108_layer()
+    ck = cache_key("eumetview:capabilities", _active_layer, _WMS_VERSION)
     cached_ts = cache_get(ck, ttl_seconds=get_ttl("eumetview_capabilities", 600))
     if cached_ts is not None:
         debug_log(f"[CLOUD] WMS-Timestamp aus Cache: {cached_ts}")
@@ -126,7 +220,7 @@ def get_latest_wms_time() -> str | None:
             "ts_utc": datetime.utcnow().isoformat(timespec="seconds") + "Z",
             "event": event,
             "service": "EUMETView-WMS",
-            "target_layer": LAYER,
+            "target_layer": _active_layer,
             "target_layer_found": False,
             "time_element_found": False,
             "raw_extent_default": None,
@@ -192,7 +286,7 @@ def get_latest_wms_time() -> str | None:
                 if _norm_tag(layer.tag) != "Layer":
                     continue
                 for ch in list(layer):
-                    if _norm_tag(ch.tag) == "Name" and (ch.text or "").strip() == LAYER:
+                    if _norm_tag(ch.tag) == "Name" and (ch.text or "").strip() == _active_layer:
                         target_layer = layer
                         break
                 if target_layer is not None:
@@ -282,6 +376,15 @@ def _caps_fallback(reason: str):
         from config import EUMETVIEW_FALLBACK_MAX_AGE_MIN as _max_age
     except Exception:
         _max_age = EUMETVIEW_FALLBACK_MAX_AGE_MIN
+    # RSS aktualisiert ~5 min → kürzeres Fallback-Fenster als FES (~15 min).
+    try:
+        if str(runtime_config.get("EUMETVIEW_SCAN_MODE", "FES")).upper() == "RSS":
+            from config import EUMETVIEW_RSS_FALLBACK_MAX_AGE_MIN as _rss_age_def
+            _max_age = float(
+                runtime_config.get("EUMETVIEW_RSS_FALLBACK_MAX_AGE_MIN", _rss_age_def)
+            )
+    except Exception:
+        pass
     last = read_last_timestamp()
     if not last:
         debug_log(f"[CLOUD] Fallback nicht möglich ({reason}): kein letzter Timestamp")
@@ -313,10 +416,11 @@ def write_last_timestamp(ts: str) -> None:
 
 def build_tiff_url(timestamp: str) -> str:
     bbox_str = f"{BBOX[0]},{BBOX[1]},{BBOX[2]},{BBOX[3]}"
+    _layer = get_active_ir108_layer()
     return (
         f"https://view.eumetsat.int/geoserver/wms?"
         f"service=WMS&version={_WMS_VERSION}&request=GetMap"
-        f"&layers={LAYER}&styles=&format={FORMAT}&transparent=false"
+        f"&layers={_layer}&styles=&format={FORMAT}&transparent=false"
         f"&{_WMS_SRS_KEY}={CRS}&bbox={bbox_str}&width={WIDTH}&height={HEIGHT}"
         f"&time={timestamp}"
     )
