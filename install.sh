@@ -803,27 +803,30 @@ pip_install_safe() {
     local ARGS=("$@")
 
     log_info "pip install (Stufe 1 — normal): ${ARGS[*]}"
-    if "$VENV/bin/pip" install --no-cache-dir "${ARGS[@]}" 2>&1 | tail -5; then
+    "$VENV/bin/pip" install --no-cache-dir "${ARGS[@]}" 2>&1 | tail -5
+    if [[ "${PIPESTATUS[0]}" -eq 0 ]]; then        # B178: echter pip-Exit, nicht tail
         return 0
     fi
 
     log_warn "Stufe 1 fehlgeschlagen — versuche mit --trusted-host..."
-    if "$VENV/bin/pip" install --no-cache-dir \
+    "$VENV/bin/pip" install --no-cache-dir \
             --trusted-host pypi.org \
             --trusted-host pypi.python.org \
             --trusted-host files.pythonhosted.org \
-            "${ARGS[@]}" 2>&1 | tail -5; then
+            "${ARGS[@]}" 2>&1 | tail -5
+    if [[ "${PIPESTATUS[0]}" -eq 0 ]]; then        # B178: echter pip-Exit, nicht tail
         log_warn "Installation mit --trusted-host erfolgreich (SSL-Bypass aktiv)."
         return 0
     fi
 
     log_warn "Stufe 2 fehlgeschlagen — Bootstrap-Versuch..."
     if pip_bootstrap; then
-        if "$VENV/bin/pip" install --no-cache-dir \
+        "$VENV/bin/pip" install --no-cache-dir \
                 --trusted-host pypi.org \
                 --trusted-host pypi.python.org \
                 --trusted-host files.pythonhosted.org \
-                "${ARGS[@]}" 2>&1 | tail -5; then
+                "${ARGS[@]}" 2>&1 | tail -5
+        if [[ "${PIPESTATUS[0]}" -eq 0 ]]; then    # B178: echter pip-Exit, nicht tail
             log_warn "Installation nach Bootstrap erfolgreich."
             return 0
         fi
@@ -852,6 +855,23 @@ log_info "Installiere requirements.txt..."
 # shellcheck disable=SC2086
 if pip_install_safe -r "$TARGET/requirements.txt" $PIWHEELS_EXTRA; then
     log_info "pip-Pakete installiert."
+    # B178: Kritische wissenschaftliche Abhängigkeiten verifizieren — ein still
+    # fehlgeschlagener Build (z. B. pysteps/scipy auf aarch64) darf nicht unbemerkt
+    # bleiben (zieldefinition: install.sh muss den Zustand am Raspberry prüfen).
+    _CRIT_IMPORTS="numpy scipy pysteps cv2 lightgbm shapely rasterio filterpy"
+    _MISSING_IMPORTS=""
+    for _mod in $_CRIT_IMPORTS; do
+        if ! "$VENV/bin/python3" -c "import $_mod" 2>/dev/null; then
+            _MISSING_IMPORTS="$_MISSING_IMPORTS $_mod"
+        fi
+    done
+    if [[ -n "$_MISSING_IMPORTS" ]]; then
+        log_warn "Kritische Module NICHT importierbar:$_MISSING_IMPORTS"
+        note_manual "source $VENV/bin/activate && pip install --upgrade pip wheel setuptools && pip install$_MISSING_IMPORTS"
+        note_manual "pysteps baut auf aarch64 ggf. nur via Git: pip install git+https://github.com/pySTEPS/pysteps"
+    else
+        check_ok "Kritische Module importierbar (numpy/scipy/pysteps/cv2/lightgbm/shapely/rasterio/filterpy)."
+    fi
     echo ""
     echo "[INFO] DEM-Höhendaten (Copernicus 30m) werden beim ersten Start"
     echo "       automatisch geladen (8 Kacheln × ~180 MB ≈ 1.4 GB)."
@@ -1215,9 +1235,11 @@ if [[ "$INSTALL_NODE" == true ]]; then
                 log_warn "package-lock.json konnte nicht generiert werden — npm install wird verwendet"
             fi
         fi
-        if npm ${_NPM_CMD} --no-audit --no-fund 2>&1 | tail -3; then
+        npm ${_NPM_CMD} --no-audit --no-fund 2>&1 | tail -3
+        if [[ "${PIPESTATUS[0]}" -eq 0 ]]; then
             log_info "npm run build..."
-            if NODE_OPTIONS="--max-old-space-size=2048" npm run build 2>&1 | tail -5; then
+            NODE_OPTIONS="--max-old-space-size=2048" npm run build 2>&1 | tail -5
+            if [[ "${PIPESTATUS[0]}" -eq 0 ]]; then
                 check_ok "Frontend-Build erfolgreich: frontend/dist/"
             else
                 log_warn "Frontend-Build fehlgeschlagen."

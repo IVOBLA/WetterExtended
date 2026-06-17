@@ -2544,3 +2544,16 @@ Dateien: app.py, tests/test_b169_progress_json_and_mlreason.py (neu). Verwandt: 
 - Pull-Intervall unverändert (bereits via B121-3-Stufen-Logik an Aktivität gekoppelt).
 - Test: `tests/test_b177_radar_skip_reason.py`. Dateien: `radar_download.py`, `main.py`.
 - Verwandt: B156/B158 (Radar-Breaker), B121 (Skip-Intervall), P2-1 (SHA-Dedup).
+
+### B178 — install.sh: pip-Fehler nicht mehr verschlucken + kritische Importe verifizieren ✅ erledigt
+- Root-Cause: `pip_install_safe()` maß den Erfolg an `… | tail -5; then` → Exit-Code von `tail`,
+  nicht von pip. Fehlgeschlagene Builds (z. B. pysteps/scipy auf aarch64) wurden still als
+  Erfolg gewertet → pysteps deklariert, aber nicht importierbar.
+- Fix 1: alle drei pip-Stufen prüfen `${PIPESTATUS[0]}` (echter pip-Exit), analog zur
+  pytest-Phase. Fix 2: nach dem requirements-Install werden kritische Importe
+  (numpy/scipy/pysteps/cv2/lightgbm/shapely/rasterio/filterpy) verifiziert; fehlende erzeugen
+  laute Warnung + manuellen Schritt (inkl. aarch64-Git-Fallback für pysteps). Kein Hart-Abbruch.
+- requirements.txt unverändert (`pysteps>=1.8.0` bleibt).
+- Test: `tests/test_b178_install_pip_exit.py`. Datei: `install.sh`.
+- Verwandt: B173 (zurückgezogen — pysteps war bereits deklariert; eigentliches Problem war
+  dieser stille Build-Fehler).
