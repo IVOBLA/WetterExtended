@@ -1255,6 +1255,14 @@ def _neighbor_motion_seed(cx: float, cy: float, previous_snapshot: dict):
     _sum_vx = _sum_vy = 0.0
     _n = 0
     for _prev in previous_snapshot.values():
+        # B207/Codex: Verschwundene Zellen (missing != 0) bleiben bis zum Timeout im
+        # Snapshot. Sie dürfen eine neu entstehende Zelle NICHT mit ihrer veralteten
+        # Geschwindigkeit seeden — der Helfer gilt nur für AKTIVE Zellen des letzten Frames.
+        try:
+            if int(_prev.get("missing", 0) or 0) != 0:
+                continue
+        except (TypeError, ValueError):
+            continue
         try:
             _px = float(_prev.get("x"))
             _py = float(_prev.get("y"))
