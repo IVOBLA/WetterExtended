@@ -149,6 +149,9 @@ MAX_STATION_DISTANCE_KM = 20  # Wetterstations-Zuordnung
 WIND_RASTER_RESOLUTION_KM = 10  # Rasterweite für Höhenwind
 MIN_CONTOUR_OVERLAP = 10
 MIN_CONTOUR_TOUCH = 5
+# B172: Umkreis (km), in dem der mittlere Bewegungsvektor aktiver Zellen des
+# letzten Frames als Start-Geschwindigkeit neu entstandener Zellen dient.
+NEW_CELL_SEED_RADIUS_KM = 30.0
 
 # --------------------------------------
 # Tendenz-Klassifikation (Popup-Anzeige, B92)

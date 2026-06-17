@@ -863,14 +863,18 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
         else:
             if obj_id is None:
                 obj_id = generate_id()
+            # B172: Bewegungs-Seed statt Nullvektor (siehe _neighbor_motion_seed).
+            _seed_vx, _seed_vy = _neighbor_motion_seed(
+                original_cx, original_cy, previous_snapshot
+            )
             kf = KalmanFilter(dim_x=4, dim_z=2)
-            kf.x = np.array([original_cx, original_cy, 0.0, 0.0])
+            kf.x = np.array([original_cx, original_cy, _seed_vx, _seed_vy])
             kf.F = np.array([[1, 0, 1, 0], [0, 1, 0, 1], [0, 0, 1, 0], [0, 0, 0, 1]])
             kf.H = np.array([[1, 0, 0, 0], [0, 1, 0, 0]])
             kf.P = np.eye(4) * 500
             kf.R = np.eye(2) * 10
             kf.Q = np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0.5, 0], [0, 0, 0, 0.5]])
-            vx, vy = 0.0, 0.0
+            vx, vy = _seed_vx, _seed_vy
 
         # P-M03: Beim Merge gegen das flächengewichtete Mittel ALLER Parent-Kerne
         # vergleichen — nicht nur gegen den dominanten Parent (sonst Scheinverstärkung).
@@ -1228,6 +1232,47 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
 
 
 import math as _math
+
+
+def _neighbor_motion_seed(cx: float, cy: float, previous_snapshot: dict):
+    """B172: Mittlerer Bewegungsvektor (ORIGINAL-px/Frame) der aktiven Zellen des
+    letzten Frames im Umkreis NEW_CELL_SEED_RADIUS_KM um (cx, cy). Dient als
+    Start-Geschwindigkeit neu entstandener Zellen, damit der kinematische Forecast
+    sie weiterbewegen kann (Prio-1, ≤30 min < 1 km). Liefert (0.0, 0.0) wenn keine
+    geeigneten Nachbarn vorhanden sind (dann übernimmt der optische Fluss, sobald
+    pysteps verfügbar ist). Einheiten bleiben px/Frame — identisch zu kf.x[2]/kf.x[3],
+    daher keine Einheiten-/Richtungskonvention nötig."""
+    try:
+        from config import NEW_CELL_SEED_RADIUS_KM, UPSCALE_FACTOR
+    except ImportError:
+        NEW_CELL_SEED_RADIUS_KM, UPSCALE_FACTOR = 30.0, 3.0
+    if not previous_snapshot:
+        return 0.0, 0.0
+    _km_per_px = 1.0 / float(UPSCALE_FACTOR)              # ORIGINAL-px → km
+    if _km_per_px <= 0.0:
+        return 0.0, 0.0
+    _radius_px = float(NEW_CELL_SEED_RADIUS_KM) / _km_per_px
+    _sum_vx = _sum_vy = 0.0
+    _n = 0
+    for _prev in previous_snapshot.values():
+        try:
+            _px = float(_prev.get("x"))
+            _py = float(_prev.get("y"))
+            _pvx = float(_prev.get("vx", 0.0))
+            _pvy = float(_prev.get("vy", 0.0))
+        except (TypeError, ValueError):
+            continue
+        if _pvx == 0.0 and _pvy == 0.0:
+            continue                                      # ruhende Nachbarn ignorieren
+        if _math.hypot(_px - cx, _py - cy) > _radius_px:
+            continue
+        _sum_vx += _pvx
+        _sum_vy += _pvy
+        _n += 1
+    if _n == 0:
+        return 0.0, 0.0
+    return round(_sum_vx / _n, 4), round(_sum_vy / _n, 4)
+
 
 def _clamp_kalman_velocity(kf, prev_vx: float, prev_vy: float) -> None:
     """
