@@ -37,6 +37,7 @@ from climatology_features import enrich_objects as _clim_enrich
 import math as _math_main
 import runtime_config
 from locations_check import annotate_locations
+from risk_watch import risk_watch_active
 from config import (HAIL_WARN_THRESHOLD, STATIONARY_RISK_MARKER_THRESHOLD,
                     GUST_WARN_KMH, HEAVY_RAIN_WARN_MM_PER_H)
 
@@ -284,7 +285,13 @@ def main_loop():
                 (time.time() - _last_cells_active_ts)
                 if _last_cells_active_ts is not None else float("inf")
             )
-            if _elapsed_skip < _nb_s_skip:
+            if risk_watch_active():
+                _skip_sleep = runtime_config.get("LOOP_INTERVAL_CELLS_S", LOOP_INTERVAL_CELLS_S)
+                debug_log(
+                    f"[LOOP-SKIP] Risk-Watch aktiv (Gewitterpotenzial/CB-IR-Vorläufer) "
+                    f"→ kurzer Intervall ({_skip_sleep}s)"
+                )
+            elif _elapsed_skip < _nb_s_skip:
                 _skip_sleep = runtime_config.get("LOOP_INTERVAL_CELLS_S", LOOP_INTERVAL_CELLS_S)
                 debug_log(
                     f"[LOOP-SKIP] Zellen kürzlich aktiv (vor {int(_elapsed_skip)}s) "
@@ -1020,6 +1027,11 @@ def main_loop():
         _cells_now = bool(objects and any(o.get("missing", 0) == 0 for o in objects))
         if _cells_now:
             _last_cells_active_ts = time.time()
+        # Risk-Watch: kurzer Intervall auch bei Gewitterpotenzial / CB-IR-Vorläuferzelle.
+        # IR-Tracks dieses Zyklus werden mitgegeben (kein zusätzlicher HTTP-Call bei
+        # IR-Treffer). _last_cells_active_ts bleibt unberührt (Nachbeobachtung bleibt an
+        # echte Radar-Zellen gebunden).
+        _risk_watch = risk_watch_active(_ir_tracks if '_ir_tracks' in dir() else [])
         from config import NO_CELLS_SLOW_INTERVAL_TIMEOUT_S as _NCST_CFG
         _timeout_s = float(runtime_config.get("NO_CELLS_SLOW_INTERVAL_TIMEOUT_S", _NCST_CFG))
         _elapsed_since_cells = (
@@ -1030,6 +1042,12 @@ def main_loop():
         if _cells_now:
             _sleep = runtime_config.get("LOOP_INTERVAL_CELLS_S", LOOP_INTERVAL_CELLS_S)
             debug_log(f"[LOOP] Zellen aktiv → kurzer Intervall ({_sleep}s)")
+        elif _risk_watch:
+            _sleep = runtime_config.get("LOOP_INTERVAL_CELLS_S", LOOP_INTERVAL_CELLS_S)
+            debug_log(
+                f"[LOOP] Risk-Watch (Gewitterpotenzial/CB-IR-Vorläufer) "
+                f"→ kurzer Intervall ({_sleep}s)"
+            )
         elif _within_timeout:
             _sleep = runtime_config.get(
                 "LOOP_INTERVAL_NACHBEOBACHTUNG_S", LOOP_INTERVAL_NACHBEOBACHTUNG_S

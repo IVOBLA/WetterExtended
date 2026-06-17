@@ -360,6 +360,17 @@ LOOP_INTERVAL_NACHBEOBACHTUNG_S: int = 300
 NO_CELLS_SLOW_INTERVAL_TIMEOUT_S: int = 7200
 
 # --------------------------------------
+# Risk-Watch-Polling (Gewitterpotenzial / CB-IR-Vorläuferzelle)
+# --------------------------------------
+# Auch OHNE aktive Radar-Zelle wird der kurze Loop-Intervall (LOOP_INTERVAL_CELLS_S)
+# verwendet, wenn Gewitterpotenzial herrscht ODER eine CB-IR-Vorläuferzelle existiert.
+# Beide Werte runtime-überschreibbar via runtime_overrides.json (Admin-Panel).
+RISK_WATCH_ENABLED: bool = True
+# Mindest-Risikostufe im /api/risk_grid (1=niedrig, 2=mäßig, 3=hoch), ab der
+# Risk-Watch den kurzen Intervall erzwingt.
+RISK_WATCH_MIN_RISK_LEVEL: int = 2
+
+# --------------------------------------
 # P-T06: Zell-Überleben bis zum Ort
 # --------------------------------------
 # Schwächer/schrumpfende Zellen lösen sich evtl. auf, bevor sie einen Ort
