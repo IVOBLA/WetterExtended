@@ -48,6 +48,17 @@ _TIMEOUT      = 30
 _MAX_RETRIES  = 3
 _RETRY_BACKOFF = [2, 5, 10]
 
+# B177: Grund des letzten download_kmz()-False-Returns, von main.py gelesen, um
+# "Radarbild nicht neu" (304/SHA-identisch) von "ungültig" (Download-/ZIP-/Entpack-
+# Fehler) zu trennen. Werte: "not_new"|"circuit_open"|"download_failed"|"invalid_zip"|
+# "unzip_empty"|"unzip_error"|None(=Erfolg).
+_LAST_SKIP_REASON = None
+
+
+def last_skip_reason() -> str | None:
+    """B177: Grund des letzten download_kmz()-Skips (siehe _LAST_SKIP_REASON)."""
+    return _LAST_SKIP_REASON
+
 
 def _read_last_modified() -> str | None:
     """Liest den zuletzt bekannten Last-Modified-Wert aus der Cache-Datei."""
@@ -217,9 +228,15 @@ def download_kmz() -> bool:
     """
     os.makedirs("data", exist_ok=True)
 
+    # B177: Standard-Skip-Grund "kein neues Bild" (304/SHA-identisch). Die Fehlerpfade
+    # unten überschreiben ihn gezielt, damit main.py "nicht neu" von "ungültig" trennt.
+    global _LAST_SKIP_REASON
+    _LAST_SKIP_REASON = "not_new"
+
     # B156: Circuit-Breaker — bei offenem Service gar nicht erst anfragen.
     import api_circuit_breaker as _cb_radar
     if _cb_radar.is_open("arso_radar"):
+        _LAST_SKIP_REASON = "circuit_open"
         debug_log("[RADAR] Circuit offen (arso_radar) — Download übersprungen.")
         return False
 
@@ -325,12 +342,14 @@ def download_kmz() -> bool:
             _st, _rsn = None, type(last_exc).__name__
         _cb_radar.record_failure("arso_radar", _rsn, http_status=_st)
         debug_log(f"[RADAR] Alle {_MAX_RETRIES} Versuche fehlgeschlagen.")
+        _LAST_SKIP_REASON = "download_failed"
         return False
 
     # Validierung
     if not zipfile.is_zipfile(KMZ_PATH):
         debug_log("[RADAR] Heruntergeladene Datei ist keine gültige KMZ/ZIP-Datei.")
         log_api_failure("ARSO-Radar", KMZ_URL, "invalid-zip", fallback_used=False)
+        _LAST_SKIP_REASON = "invalid_zip"
         return False
 
     # Entpacken (Fix P05: Zip-Slip-Schutz via _safe_extract_kmz)
@@ -344,6 +363,7 @@ def download_kmz() -> bool:
                     "unzip-error: keine sicheren Einträge im Archiv",
                     fallback_used=False,
                 )
+                _LAST_SKIP_REASON = "unzip_empty"
                 return False
             for name in extracted:
                 if name.endswith(".kml"):
@@ -360,10 +380,12 @@ def download_kmz() -> bool:
         debug_log(f"[RADAR] Entpacken fehlgeschlagen: {e}")
         log_api_failure("ARSO-Radar", KMZ_URL,
                         f"unzip-error: {e}", fallback_used=False)
+        _LAST_SKIP_REASON = "unzip_error"
         return False
 
     # B158: Erst NACH erfolgreicher ZIP-Validierung + Entpacken als Erfolg werten —
     # ein 200-Fehlerseiten-/Korrupt-ZIP-Payload darf den Breaker nicht zurücksetzen.
     _cb_radar.record_success("arso_radar")
     debug_log("Radarbild und KML erfolgreich heruntergeladen und entpackt.")
+    _LAST_SKIP_REASON = None
     return True
