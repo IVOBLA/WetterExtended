@@ -2502,3 +2502,12 @@ Dateien: app.py, tests/test_b169_progress_json_and_mlreason.py (neu). Verwandt: 
   (optischer Fluss übernimmt nach pysteps-Installation, siehe B173).
 - Test: `tests/test_b172_new_cell_seed.py`. Dateien: `object_tracking.py`, `config.py`.
 - Invarianten unberührt (UPSCALE_FACTOR/PX_TO_KMH). Verwandt: B173 (pysteps), P-M01/P-M02.
+
+
+### B175 — Skywarn-Snapshot defensiv gegen None/leere Antwort ✅ erledigt
+- Ursache: `build_success_snapshot()` rief im Return `payload.get("start"/"end"/"text")` ohne
+  None-Guard auf. Bei JSON `null` (leere Lage) → AttributeError, vom Catch-All als
+  "unexpected_error" mit valid_from/valid_to=null maskiert.
+- Fix: `if not isinstance(payload, dict): return _error_snapshot("empty_payload", …)` am
+  Funktionsanfang → sauberes status='error' ohne Exception, ohne Folge-Request.
+- Test: `tests/test_b175_skywarn_empty_payload.py`. Datei: `skywarn_export_snapshot.py`.
