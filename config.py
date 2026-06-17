@@ -724,7 +724,12 @@ ML_IGNORE_FLAG = -1
 # --------------------------------------
 # Räumliche Toleranz: Vorhersage gilt als Treffer wenn tatsächliche Zelle
 # innerhalb dieses Radius zur vorhergesagten Position liegt (Haversine, km).
-VERIFICATION_TOLERANCE_KM = 5.0
+# Zieldefinition (zieldefinition.txt): Trefferabweichung ≤30 min muss < 1 km sein
+# (Zielwert 0 km Drift). Die frühere 5-km-Toleranz ist damit aufgehoben.
+# HINWEIS: Forschungsziel — der aktuelle kinematische Fallback erreicht es noch nicht;
+# die Hit-Rate fällt mit dieser strengen Toleranz niedrig aus, bis die Positionsgenauigkeit
+# (B207/B208 u. a.) verbessert ist.
+VERIFICATION_TOLERANCE_KM = 1.0
 
 # Zeitliche Toleranz beim Suchen des Frames T+horizon (Sekunden).
 # ARSO liefert ca. alle 2-5 Min ein Bild → 90 s sind robust.
