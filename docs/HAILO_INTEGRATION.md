@@ -2582,3 +2582,13 @@ Gewitterpotenzial — ohne kostenpflichtige APIs und ohne unnötige Requests.
 | 1L.4 | ML-Lead-Time-Labels (`became_radar_cell`, `lead_time_min`, `prob_radar_confirmation_*`) | `dataset_builder.py`, `model_training.py` | ⏳ offen |
 | 1D | Storm-Potential anreichern (normalisierter Score 0–1 + `drivers[]`) in `risk_grid` | `app.py` | ⏳ offen |
 | 1E | Admin/Logs/Budget-Guard (Free-only erzwingen, persistente Budgetzähler) | `api_budget_guard.py`, Frontend, `app.py` | ⏳ offen |
+
+### B203 — Risk-Watch-Korrekturen (Codex-Review zu 1A.1) ✅
+- **Skip-Pfad:** `risk_watch_active(ir_tracks=None)` lädt jetzt persistierte aktive
+  IR-Tracks (`load_active_ir_tracks`), sodass eine CB-IR-Vorläuferzelle den kurzen
+  Intervall auch bei `not_new`-Radar weiter erzwingt.
+- **Frische-Gate:** `RISK_WATCH_MAX_DATA_AGE_MIN` (20 min). Sind die jüngste Objekt-Datei
+  und der IR-State älter, erzwingt Risk-Watch keinen kurzen Intervall mehr — der
+  120-min-Backoff greift wieder (verhindert Dauer-Pinning nach Radar-Ausfall).
+- **Dateien:** `risk_watch.py`, `config.py`, `tests/test_risk_watch_interval.py`,
+  `tests/test_risk_watch_freshness.py`

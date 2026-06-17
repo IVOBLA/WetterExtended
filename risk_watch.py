@@ -13,11 +13,46 @@ der HTTP-Getter ist injizierbar (Parameter http_get).
 """
 from typing import Callable, Optional
 
+import os
+import time
+
 import runtime_config
-from config import RISK_WATCH_ENABLED, RISK_WATCH_MIN_RISK_LEVEL
+from config import (
+    RISK_WATCH_ENABLED,
+    RISK_WATCH_MIN_RISK_LEVEL,
+    RISK_WATCH_MAX_DATA_AGE_MIN,
+    SAVE_PATHS,
+)
 from debug_utils import debug_log
 
 _RISK_GRID_URL = "http://127.0.0.1:5000/api/risk_grid"
+_IR_STATE_FILE = os.path.join(
+    SAVE_PATHS.get("ir_cells", "train_data/ir_cells/"), "ir_track_state.json"
+)
+
+
+def _underlying_data_age_min() -> float:
+    """Alter (min) der jüngsten zugrunde liegenden Datenquelle (neueste Objekt-Datei
+    ODER IR-Track-State). inf, wenn keine Quelle existiert (→ als veraltet behandelt)."""
+    import glob
+    newest = None
+    try:
+        candidates = glob.glob(
+            os.path.join(SAVE_PATHS.get("objects", "train_data/objects/"), "*.json")
+        )
+    except Exception:
+        candidates = []
+    candidates.append(_IR_STATE_FILE)
+    for p in candidates:
+        try:
+            m = os.path.getmtime(p)
+            if newest is None or m > newest:
+                newest = m
+        except OSError:
+            continue
+    if newest is None:
+        return float("inf")
+    return (time.time() - newest) / 60.0
 
 
 def _default_http_get(url: str, timeout: float = 5.0):
@@ -42,6 +77,7 @@ def _max_risk_level(http_get: Callable) -> int:
 def risk_watch_active(
     ir_tracks: Optional[list] = None,
     http_get: Optional[Callable] = None,
+    data_age_min: Optional[float] = None,
 ) -> bool:
     """
     True, wenn der kurze Loop-Intervall erzwungen werden soll.
@@ -55,6 +91,32 @@ def risk_watch_active(
     Bei (a) wird der HTTP-Getter NICHT aufgerufen (frühzeitiger Treffer).
     """
     if not bool(runtime_config.get("RISK_WATCH_ENABLED", RISK_WATCH_ENABLED)):
+        return False
+
+    # Codex-Review (1): Im Skip-Pfad werden keine IR-Tracks übergeben (ir_tracks is None).
+    # Dann die persistierten aktiven Tracks laden — sonst sieht risk_watch eine
+    # CB-IR-Vorläuferzelle nicht (das Risikogitter unterdrückt reine IR-Only-Zellen).
+    if ir_tracks is None:
+        try:
+            from ir_cell_tracking import load_active_ir_tracks
+            ir_tracks = load_active_ir_tracks()
+        except Exception as exc:
+            debug_log(f"[RISK-WATCH] IR-Tracks laden fehlgeschlagen: {exc}")
+            ir_tracks = []
+
+    # Codex-Review (2): Frische prüfen. Stoppt das Radar nach einem Gewitter, bleiben
+    # alte Objekte/IR-Tracks (missing==0) im Zustand und würden den kurzen Intervall
+    # sonst unbegrenzt erzwingen (umgeht den 120-min-Backoff). Sind die zugrunde
+    # liegenden Daten älter als RISK_WATCH_MAX_DATA_AGE_MIN → kein Risk-Watch.
+    _max_age = float(
+        runtime_config.get("RISK_WATCH_MAX_DATA_AGE_MIN", RISK_WATCH_MAX_DATA_AGE_MIN)
+    )
+    _age = data_age_min if data_age_min is not None else _underlying_data_age_min()
+    if _age > _max_age:
+        debug_log(
+            f"[RISK-WATCH] Daten zu alt ({_age:.0f} > {_max_age:.0f} min) "
+            "→ kein Risk-Watch"
+        )
         return False
 
     # (a) CB-IR-Vorläuferzelle? ir_only_precursor stammt ausschließlich aus
