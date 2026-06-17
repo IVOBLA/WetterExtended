@@ -2598,3 +2598,11 @@ Gewitterpotenzial — ohne kostenpflichtige APIs und ohne unnötige Requests.
   Verhindert, dass neu entstehende Zellen die veraltete Geschwindigkeit bereits
   verschwundener Nachbarn erben (Prio-1-Genauigkeit, ≤30 min < 1 km).
 - Datei: `object_tracking.py`, `tests/test_b207_seed_skip_missing.py`. Verwandt: B172.
+
+### B205 — Totes `cloud_top_alert`-Flag entfernt (Bereinigung nach B204) ✅
+- Serverseitiges `cloud_top_alert` (Radarobjekte) und `CLOUD_HEIGHT_ALERT_MIN_CORE_RATIO`
+  entfernt — seit B204 ungenutzt (Karte nutzt `CLOUD_HEIGHT_ALERT_THRESHOLD_M` direkt).
+- `CLOUD_HEIGHT_ALERT_THRESHOLD_M` bleibt (Karten-Grenze „CB > …", B204).
+- Dateien: `config.py`, `cloud_height_from_eumetview.py`,
+  `frontend/src/pages/Configuration.jsx`, `tests/test_cloud_top_alert.py` (gelöscht),
+  `docs/WetterExtended_Benutzerhandbuch.md`.

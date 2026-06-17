@@ -806,17 +806,12 @@ EUMETVIEW_BT_MIN_K: float = 180.0   # Kelvin bei Pixelwert 255
 EUMETVIEW_NODATA_PIXEL: int = 5
 
 # --------------------------------------
-# Wolkentop-Höhen-Alarm (CB-only)
+# CB-Höhengrenze (Karten-Anzeige „CB > …")
 # --------------------------------------
-# Zellen mit cloud_top_height_msl >= Schwelle UND konvektivem Kern (core_ratio >=
-# Mindestwert) erhalten cloud_top_alert = 1.0. Beide runtime-überschreibbar.
-# Default 10.000 m ≈ hochreichende Konvektion (Cb).
+# Grenze (m MSL), ab der ein IR-Cluster auf der Karte als „CB > …" statt
+# „IR-Vorläufer" beschriftet wird (B204). Runtime-überschreibbar; an die
+# öffentliche Karte via /api/objects?include_ir=1 ausgeliefert.
 CLOUD_HEIGHT_ALERT_THRESHOLD_M: float = 10000.0
-# CB-Pflicht: Der Höhen-Alarm gilt NUR für Cumulonimbus (konvektive Zellen mit
-# Niederschlagskern), nicht für andere hochliegende Wolken (Cirren, Amboss-Reste,
-# Frontbewölkung). Eine Zelle gilt als CB, wenn ihr Kernanteil (core_ratio, Anteil
-# Rot+Violett ≥54 dBZ) diesen Wert erreicht.
-CLOUD_HEIGHT_ALERT_MIN_CORE_RATIO: float = 0.05
 
 # ── Phase E: IR-Sat Pre-Convection Detection ──────────────────────────────────
 # Alle Schwellwerte runtime-überschreibbar via runtime_overrides.json.
