@@ -799,7 +799,20 @@ DEFAULT_ALTITUDE_M = 600.0
 #   BT_K = EUMETVIEW_BT_MAX_K - ((MAX_K - MIN_K) / 255.0) * pixel
 EUMETVIEW_BT_MAX_K: float = 330.0   # Kelvin bei Pixelwert 0
 EUMETVIEW_BT_MIN_K: float = 180.0   # Kelvin bei Pixelwert 255
-EUMETVIEW_NODATA_PIXEL: int = 5     # Pixelwerte <= 5 = nodata (EUMETView Randbereiche)
+EUMETVIEW_NODATA_PIXEL: int = 5
+
+# --------------------------------------
+# Wolkentop-Höhen-Alarm (CB-only)
+# --------------------------------------
+# Zellen mit cloud_top_height_msl >= Schwelle UND konvektivem Kern (core_ratio >=
+# Mindestwert) erhalten cloud_top_alert = 1.0. Beide runtime-überschreibbar.
+# Default 10.000 m ≈ hochreichende Konvektion (Cb).
+CLOUD_HEIGHT_ALERT_THRESHOLD_M: float = 10000.0
+# CB-Pflicht: Der Höhen-Alarm gilt NUR für Cumulonimbus (konvektive Zellen mit
+# Niederschlagskern), nicht für andere hochliegende Wolken (Cirren, Amboss-Reste,
+# Frontbewölkung). Eine Zelle gilt als CB, wenn ihr Kernanteil (core_ratio, Anteil
+# Rot+Violett ≥54 dBZ) diesen Wert erreicht.
+CLOUD_HEIGHT_ALERT_MIN_CORE_RATIO: float = 0.05
 
 # ── Phase E: IR-Sat Pre-Convection Detection ──────────────────────────────────
 # Alle Schwellwerte runtime-überschreibbar via runtime_overrides.json.

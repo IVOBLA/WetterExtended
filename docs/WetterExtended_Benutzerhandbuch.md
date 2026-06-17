@@ -2550,3 +2550,21 @@ konvektiven CB-Wolken — hohe, aber harmlose Wolken (z. B. Cirren) lösen ihn n
 |---|---|---|
 | `RISK_WATCH_ENABLED` | `true` | Risk-Watch ein-/ausschalten |
 | `RISK_WATCH_MIN_RISK_LEVEL` | `2` | Ab welcher Risikostufe (1=niedrig, 2=mäßig, 3=hoch) der kurze Intervall erzwungen wird |
+
+## Einstellbare Wolkentop-Alarmgrenze (nur CB)
+
+Zellen, deren Wolkenoberkante (geschätzt aus dem MSG-IR108-Satellitenbild, Qualität
+`estimated`) eine konfigurierbare Höhe erreichen, werden intern als hochreichend
+markiert (`cloud_top_alert`) — **aber nur, wenn sie ein Cumulonimbus mit konvektivem
+Niederschlagskern sind**. Hohe, aber harmlose Wolken (Cirren, Amboss-Reste,
+Frontbewölkung) lösen den Höhen-Alarm bewusst NICHT aus.
+
+**Einstellbar** (Admin → Konfiguration bzw. `runtime_overrides.json`):
+
+| Parameter | Default | Bedeutung |
+|---|---|---|
+| `CLOUD_HEIGHT_ALERT_THRESHOLD_M` | `10000` | Wolkentop-Alarmgrenze in Meter über dem Meeresspiegel (MSL). |
+| `CLOUD_HEIGHT_ALERT_MIN_CORE_RATIO` | `0.05` | Mindest-Kernanteil (core_ratio) — stellt sicher, dass nur CB-Zellen alarmieren. |
+
+> Hinweis: Die Höhe ist ein IR-Proxy (Helligkeitstemperatur → Höhe über
+> Temperaturgradient) und absolut nur grob; für die relative CB-Einstufung gut geeignet.
