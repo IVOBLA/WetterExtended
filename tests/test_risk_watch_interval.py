@@ -41,7 +41,7 @@ def test_cb_ir_precursor_triggers_without_http(monkeypatch):
         raise AssertionError("HTTP darf bei IR-Treffer nicht aufgerufen werden")
 
     assert risk_watch.risk_watch_active(
-        ir_tracks=[{"ir_only_precursor": 1.0}], http_get=_boom
+        ir_tracks=[{"ir_only_precursor": 1.0}], http_get=_boom, data_age_min=0.0
     ) is True
 
 
@@ -71,7 +71,9 @@ def test_grid_level_meets_threshold(monkeypatch):
         _cfg({"RISK_WATCH_ENABLED": True, "RISK_WATCH_MIN_RISK_LEVEL": 2}),
     )
     assert risk_watch.risk_watch_active(
-        ir_tracks=[], http_get=_getter(200, [{"risk": 2}, {"risk": 1}])
+        ir_tracks=[],
+        http_get=_getter(200, [{"risk": 2}, {"risk": 1}]),
+        data_age_min=0.0,
     ) is True
 
 

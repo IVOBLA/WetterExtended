@@ -369,6 +369,10 @@ RISK_WATCH_ENABLED: bool = True
 # Mindest-Risikostufe im /api/risk_grid (1=niedrig, 2=mäßig, 3=hoch), ab der
 # Risk-Watch den kurzen Intervall erzwingt.
 RISK_WATCH_MIN_RISK_LEVEL: int = 2
+# Maximales Alter (min) der zugrunde liegenden Daten (neueste Objekt-Datei / IR-State),
+# bis zu dem Risk-Watch den kurzen Intervall erzwingen darf. Verhindert, dass nach einem
+# Radar-Ausfall veraltete Zellen/IR-Tracks den kurzen Intervall unbegrenzt halten.
+RISK_WATCH_MAX_DATA_AGE_MIN: float = 20.0
 
 # --------------------------------------
 # P-T06: Zell-Überleben bis zum Ort
