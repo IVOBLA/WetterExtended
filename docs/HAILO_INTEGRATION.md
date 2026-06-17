@@ -2574,7 +2574,7 @@ Gewitterpotenzial — ohne kostenpflichtige APIs und ohne unnötige Requests.
 | 1A.1 | **Risk-Watch-Polling:** kurzer Loop-Intervall auch bei Gewitterpotenzial (`/api/risk_grid` ≥ `RISK_WATCH_MIN_RISK_LEVEL`) ODER CB-IR-Vorläuferzelle (`ir_only_precursor==1.0`). Gekapselt in `risk_watch.py`, beide Intervall-Stellen. | `risk_watch.py`, `main.py`, `config.py`, `tests/test_risk_watch_interval.py` | ✅ erledigt |
 | 1A.2 | EUMETView Scan-Modus FES/RSS (`get_active_ir108_layer`): RSS nur bei `free_confirmed` + GetCapabilities-validiertem Layer, sonst FES-Fallback. RSS-Layername NICHT hart angenommen. RSS-IR108 auf EUMETView nicht verfügbar (nur ir039 + RGB) → bleibt dauerhaft FES (B206). | `cloud_height_from_eumetview.py`, `config.py`, `tests/test_eumetview_scan_mode.py` | ✅ erledigt (RSS-Scharfschaltung Pi-seitig) |
 | 1B.1 | Einstellbare CB-Höhengrenze (`CLOUD_HEIGHT_ALERT_THRESHOLD_M`, runtime-überschreibbar) — ersetzt die hartkodierte `>= 10000`-Grenze der bestehenden „CB > …"-Anzeige (IR-Layer), geliefert via `/api/objects?include_ir=1`. KEIN separates Flag, KEINE Markierung aktiver Radarzellen. Karten-Defaults: Risikozonen aus, CB/IR-Vorläufer an. | `config.py`, `app.py`, `frontend/src/pages/MapView.jsx`, `frontend/src/pages/MapFullscreen.jsx`, `tests/test_cb_threshold_delivery.py` | ✅ erledigt |
-| 1B.2 | Aktive-Zelle-Höhen-Alert-Engine (Polygon-/Core-Statistik p90, Karten-Halo), nur CB | `cloud_height_alerts.py`, Frontend | ⏳ offen |
+| 1B.2 | ~~Aktive-Zelle-Höhen-Alert-Engine (Polygon-/Core-Statistik p90, Karten-Halo), nur CB~~ — **verworfen (B204):** B204 hat bewusst KEINE zusätzliche Markierung aktiver Radarzellen (kein separates Höhen-Halo) eingeführt; die einstellbare CB-Höhengrenze liefert 1B.1 über `/api/objects?include_ir=1`. | — (`cloud_height_alerts.py` nicht erstellt) | ❌ verworfen (B204) |
 | 1C | IR-Vorläuferzelle vereinheitlichen (`type/radar_confirmed/is_potential_new_cell`, Flächenwachstum, BT-Cooling), nur CB | `ir_cell_detection.py`, `ir_cell_tracking.py` | ⏳ offen |
 | 1L.1 | **Zell-Lineage:** CB-IR-Wolke bekommt früh stabile `cell_id`; technische `ir_track_id`/`radar_track_id` bleiben intern | `cell_lineage.py`, `ir_cell_tracking.py`, `config.py` | ⏳ offen |
 | 1L.2 | Score-Matching IR↔Radar (vorhergesagte IR-Position, Polygon-Overlap, Höhenwind-Versatz, Zeitfenster ≤45 min); Radarzelle übernimmt `cell_id` | `cell_lineage.py`, `main.py` | ⏳ offen |
@@ -2598,6 +2598,18 @@ Gewitterpotenzial — ohne kostenpflichtige APIs und ohne unnötige Requests.
   Verhindert, dass neu entstehende Zellen die veraltete Geschwindigkeit bereits
   verschwundener Nachbarn erben (Prio-1-Genauigkeit, ≤30 min < 1 km).
 - Datei: `object_tracking.py`, `tests/test_b207_seed_skip_missing.py`. Verwandt: B172.
+
+### B210 — Roadmap-Bereinigung: 1B.2 verworfen (B204) ✅ erledigt
+- Tabellenzeile **1B.2** ("Aktive-Zelle-Höhen-Alert-Engine, Karten-Halo") in der
+  "Schritt 1"-Roadmap auf **❌ verworfen (B204)** gesetzt.
+- Begründung: B204/1B.1 hat bewusst entschieden, KEINE zusätzliche Markierung aktiver
+  Radarzellen (kein separates Höhen-Halo) einzuführen. Die einstellbare CB-Höhengrenze
+  (`CLOUD_HEIGHT_ALERT_THRESHOLD_M`) wird über die bestehende IR-Vorläufer-Anzeige via
+  `/api/objects?include_ir=1` geliefert. Die in 1B.2 geplante Datei `cloud_height_alerts.py`
+  wurde nie erstellt.
+- Reine Doku-Bereinigung: kein Code, kein API-Aufruf, kein benutzersichtbares Feature →
+  **kein** Benutzerhandbuch-Update, **kein** Test.
+- Datei: `docs/HAILO_INTEGRATION.md`.
 
 ### B205 — Totes `cloud_top_alert`-Flag entfernt (Bereinigung nach B204) ✅
 - Serverseitiges `cloud_top_alert` (Radarobjekte) und `CLOUD_HEIGHT_ALERT_MIN_CORE_RATIO`
