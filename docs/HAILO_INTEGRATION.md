@@ -2573,7 +2573,7 @@ Gewitterpotenzial — ohne kostenpflichtige APIs und ohne unnötige Requests.
 |---|---|---|---|
 | 1A.1 | **Risk-Watch-Polling:** kurzer Loop-Intervall auch bei Gewitterpotenzial (`/api/risk_grid` ≥ `RISK_WATCH_MIN_RISK_LEVEL`) ODER CB-IR-Vorläuferzelle (`ir_only_precursor==1.0`). Gekapselt in `risk_watch.py`, beide Intervall-Stellen. | `risk_watch.py`, `main.py`, `config.py`, `tests/test_risk_watch_interval.py` | ✅ erledigt |
 | 1A.2 | EUMETView Scan-Modus FES/RSS + Lizenz/Layer-Validierung aus GetCapabilities (RSS-Layername NICHT hart annehmen) | `cloud_height_from_eumetview.py`, `config.py` | ⏳ offen |
-| 1B.1 | Einstellbare Wolkentop-Alarmgrenze (`CLOUD_HEIGHT_ALERT_THRESHOLD_M`) + `cloud_top_alert`-Flag je Zelle, **CB-gated** (`core_ratio ≥ CLOUD_HEIGHT_ALERT_MIN_CORE_RATIO`) | `config.py`, `cloud_height_from_eumetview.py` | ⏳ offen |
+| 1B.1 | Einstellbare Wolkentop-Alarmgrenze (`CLOUD_HEIGHT_ALERT_THRESHOLD_M`) + `cloud_top_alert`-Flag je Zelle, **CB-gated** (`core_ratio ≥ CLOUD_HEIGHT_ALERT_MIN_CORE_RATIO`). Admin-Konfiguration ergänzt. | `config.py`, `cloud_height_from_eumetview.py`, `frontend/src/pages/Configuration.jsx`, `tests/test_cloud_top_alert.py` | ✅ erledigt |
 | 1B.2 | Aktive-Zelle-Höhen-Alert-Engine (Polygon-/Core-Statistik p90, Karten-Halo), nur CB | `cloud_height_alerts.py`, Frontend | ⏳ offen |
 | 1C | IR-Vorläuferzelle vereinheitlichen (`type/radar_confirmed/is_potential_new_cell`, Flächenwachstum, BT-Cooling), nur CB | `ir_cell_detection.py`, `ir_cell_tracking.py` | ⏳ offen |
 | 1L.1 | **Zell-Lineage:** CB-IR-Wolke bekommt früh stabile `cell_id`; technische `ir_track_id`/`radar_track_id` bleiben intern | `cell_lineage.py`, `ir_cell_tracking.py`, `config.py` | ⏳ offen |
