@@ -670,16 +670,23 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
         M = cv2.moments(contour)
         if M["m00"] == 0:
             continue
-        cx = int(M["m10"] / M["m00"])
-        cy = int(M["m01"] / M["m00"])
-        original_cx = int(cx / UPSCALE_FACTOR)
-        original_cy = int(cy / UPSCALE_FACTOR)
+        # B209: Subpixel-Schwerpunkt — KEINE doppelte int()-Quantisierung mehr.
+        # original_cx/cy (= obj["x"]/["y"]) sind jetzt subpixel-genaue Original-px (float).
+        # Geschwindigkeit (Kalman/EWMA) und Forecast-Ursprung beruhen darauf; lat/lon kommt
+        # aus denselben subpixel-genauen skalierten Koordinaten → konsistent (Prio-1 <1 km).
+        cx_f = M["m10"] / M["m00"]              # skaliert, subpixel
+        cy_f = M["m01"] / M["m00"]
+        cx = int(round(cx_f))                  # nur für cv2/Index-Zwecke
+        cy = int(round(cy_f))
+        original_cx = cx_f / float(UPSCALE_FACTOR)   # Original-px, subpixel (float)
+        original_cy = cy_f / float(UPSCALE_FACTOR)
         area, eccentricity = calculate_shape_features(contour)
         core_ratio = calculate_core_ratio(hsv, contour)
         if area < FILTER_CONFIG["min_object_area"] and core_ratio < 0.05:
             continue
-        # pixel_to_geo erwartet SKALIERTE Koordinaten (teilt intern durch upscale)
-        lat, lon = pixel_to_geo(cx, cy)
+        # pixel_to_geo erwartet SKALIERTE Koordinaten (teilt intern durch upscale).
+        # B209: subpixel-genaue skalierte Koordinaten → lat/lon konsistent mit obj["x"]/["y"].
+        lat, lon = pixel_to_geo(cx_f, cy_f)
 
         # Ausschlusszone prüfen — bekannte Artefakte (Radarmaste, Sendeanlagen)
         _zones = _rc.get("STATIC_EXCLUSION_ZONES", _DEFAULT_EXCLUSION_ZONES)

@@ -2614,3 +2614,10 @@ Gewitterpotenzial — ohne kostenpflichtige APIs und ohne unnötige Requests.
   fällt mit der strengen Toleranz; erste Genauigkeits-Schritte sind B207/B208.
 - Suchradius (25 km) und Zeit-Toleranz unverändert. Dateien: `config.py`,
   `docs/WetterExtended_Benutzerhandbuch.md`, `tests/test_z01_verification_tolerance.py`.
+
+### B209 — Subpixel-Schwerpunkt (Genauigkeit, Prio-1) ✅
+- `update_tracking_memory()` rundet den Schwerpunkt nicht mehr doppelt ganzzahlig.
+  `obj["x"]/["y"]` sind jetzt subpixel-genaue Original-px (float) — entfernt 0,33-km-
+  Quantisierung aus Kalman/EWMA-Geschwindigkeit UND Forecast-Ursprung; `lat/lon` konsistent
+  aus denselben subpixel-Koordinaten. UPSCALE_FACTOR/Einheiten-Vertrag unverändert.
+- Datei: `object_tracking.py`, `tests/test_b209_subpixel_centroid.py`. Verwandt: B115, B209.
