@@ -13,6 +13,7 @@ import {
   MAP_TILE_ATTRIBUTION,
 } from '../constants/mapDefaults.js'
 import api, { abortApiRequests } from '../api.js'
+import { formatCbIrLabel, getCbThresholdState } from '../utils/cbThreshold.js'
 
 /**
  * B112: first_seen-Timestamps kommen als Europe/Vienna-Lokalzeit, NICHT UTC.
@@ -1072,7 +1073,7 @@ export default function MapFullscreen() {
         })}
 
         {showIrCells && irCells.map((ir, i) => {
-          const cbAlertThresholdM = ir.cb_alert_threshold_m ?? 10000
+          const cbThresholdState = getCbThresholdState(ir)
           return (
           <CircleMarker
             key={'ir_' + i}
@@ -1089,9 +1090,7 @@ export default function MapFullscreen() {
             <Tooltip direction="top" sticky opacity={0.95}>
               <div style={{ fontSize: 11, lineHeight: 1.4, minWidth: 150 }}>
                 <div style={{ fontWeight: 700, color: '#7c3aed' }}>
-                  {(ir.cloud_height_m ?? ir.ir_cloud_height_m ?? 0) >= cbAlertThresholdM
-                    ? `🛰 CB > ${cbAlertThresholdM.toLocaleString('de-AT')}`
-                    : '🛰 IR-Vorläufer'} — {ir.ir_id}
+                  {formatCbIrLabel(cbThresholdState)} — {ir.ir_id}
                 </div>
                 <div>Trend: <b>
                   {ir.bt_trend_k_per_min < -0.1
