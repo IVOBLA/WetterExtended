@@ -247,6 +247,17 @@ def _max_severity(values: list[Any]) -> Any:
 
 def build_success_snapshot(payload: dict, fetched_at: datetime | None = None) -> dict:
     fetched_at = fetched_at or _now_vienna()
+    # B175: skywarn.at liefert bei leerer Lage JSON `null` / eine Nicht-Dict-Struktur.
+    # Das Return griff direkt auf payload.get("start"/"end"/"text") zu → AttributeError
+    # ("'NoneType' object has no attribute 'get'"), den der Catch-All als
+    # "unexpected_error" maskierte. Definierter, sauberer Fehlerpfad statt Exception:
+    if not isinstance(payload, dict):
+        return _error_snapshot(
+            "empty_payload",
+            "payload is None or not a dict (skywarn.at lieferte leere Lage)",
+            None,
+            fetched_at,
+        )
     features = []
     polygon = payload.get("polygon") if isinstance(payload, dict) else None
     malformed_count = 0
