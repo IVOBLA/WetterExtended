@@ -2533,3 +2533,14 @@ Dateien: app.py, tests/test_b169_progress_json_and_mlreason.py (neu). Verwandt: 
   Exception) liefern jetzt den frischen Fallback statt None. Erfolgspfad unverändert.
 - Test: `tests/test_b174_eumetview_fallback.py`. Datei: `cloud_height_from_eumetview.py`.
 - Verwandt: B125/B154/B160 (Caps-Robustheit/Breaker).
+
+### B177 — Radar-SKIP-Grund differenzieren (nicht-neu vs. ungültig) ✅ erledigt
+- Ursache: `main.py` loggte jeden Radar-Skip pauschal ("ungültig oder nicht neu"). Track-Abrisse
+  durch echte Defekte (Download/ZIP/Entpacken) waren nicht von legitimem "kein neues Bild"
+  (304/SHA-identisch) unterscheidbar.
+- Fix: `download_kmz()` setzt `_LAST_SKIP_REASON` (Default "not_new", Fehlerpfade gezielt);
+  `last_skip_reason()` Getter; `main.py` loggt differenziert (nicht neu / Circuit offen /
+  ungültig <grund>). Rückgabe-Vertrag bleibt bool; B158-Adjazenz unangetastet.
+- Pull-Intervall unverändert (bereits via B121-3-Stufen-Logik an Aktivität gekoppelt).
+- Test: `tests/test_b177_radar_skip_reason.py`. Dateien: `radar_download.py`, `main.py`.
+- Verwandt: B156/B158 (Radar-Breaker), B121 (Skip-Intervall), P2-1 (SHA-Dedup).

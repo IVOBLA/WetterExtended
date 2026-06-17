@@ -257,7 +257,18 @@ def main_loop():
         radar_ok = download_kmz()
 
         if not radar_ok:
-            debug_log("[SKIP] Radarbild ungültig oder nicht neu → nächster Zyklus.")
+            # B177: Skip-Grund differenzieren (Diagnose von Track-Abrissen).
+            try:
+                from radar_download import last_skip_reason as _radar_skip_reason
+                _skip_reason = _radar_skip_reason()
+            except Exception:
+                _skip_reason = None
+            if _skip_reason in (None, "not_new"):
+                debug_log("[SKIP] Radarbild nicht neu (304/identischer Inhalt) → nächster Zyklus.")
+            elif _skip_reason == "circuit_open":
+                debug_log("[SKIP] Radar-Circuit offen → nächster Zyklus.")
+            else:
+                debug_log(f"[SKIP] Radarbild ungültig ({_skip_reason}) → nächster Zyklus.")
             # 3-Stufen-Intervall auch im Skip-Pfad (ARSO liefert kein neues Bild):
             #   < 5 min seit letzter Zelle  → 2 min  (Zellen kürzlich aktiv)
             #   < 120 min seit letzter Zelle → 5 min  (Nachbeobachtung)
