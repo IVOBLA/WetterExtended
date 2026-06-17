@@ -824,8 +824,11 @@ EUMETVIEW_PAID_ALLOWED: bool = False
 # Scan-Modus: "FES" (Full Earth Scan, ~15 min, Default) | "RSS" (Rapid Scan, ~5 min).
 EUMETVIEW_SCAN_MODE: str = "FES"
 EUMETVIEW_FES_LAYER_IR108: str = "msg_fes:ir108"
-# RSS-Layername wird NICHT hart angenommen — None = Standardkandidat "msg_rss:ir108"
-# wird gegen GetCapabilities validiert. Bei abweichendem Namen hier explizit setzen.
+# RSS-IR108 ist auf EUMETView NICHT verfügbar (verifiziert am Pi via GetCapabilities,
+# 2026-06): RSS bietet nur msg_rss:ir039_nrt + RGB-Produkte, KEIN msg_rss:ir108.
+# IR108 existiert nur als FES (msg_fes:ir108), EPS (Metop, polar), IODC und MUMI.
+# get_active_ir108_layer() validiert weiterhin gegen GetCapabilities → bleibt dauerhaft FES.
+# None = kein RSS-IR108-Kandidat; bei künftiger Verfügbarkeit hier explizit setzen.
 EUMETVIEW_RSS_LAYER_IR108 = None
 # RSS nur aktiv, wenn die Lizenz technisch als frei bestätigt ist.
 EUMETVIEW_LICENSE_STATUS: str = "unconfirmed"   # unconfirmed | free_confirmed | disabled
