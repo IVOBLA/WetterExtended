@@ -2489,3 +2489,16 @@ Fix B: neuer rekursiver Helfer `_json_finite_safe()` ersetzt inf/-inf/nan durch 
        ohne Lerndaten zu verändern.
 Externe Services: nicht betroffen (interne Endpunkte).
 Dateien: app.py, tests/test_b169_progress_json_and_mlreason.py (neu). Verwandt: B116, B168.
+
+### B172 — Bewegungs-Seed für neu entstandene Zellen ✅ erledigt
+- Ursache: neue Zellen (lineage="new", kein Parent) erhielten in `object_tracking.py`
+  `kf.x=[cx,cy,0,0]` → Geschwindigkeit 0. Da pysteps auf dem Pi fehlt (of_available=0),
+  fehlte jede feldbasierte Bewegung → kinematischer Forecast konnte neue Zellen nicht
+  weiterbewegen (Verstoß gegen zieldefinition.txt ≤30 min < 1 km).
+- Fix: neuer Helper `_neighbor_motion_seed()` mittelt den Bewegungsvektor (ORIGINAL-px/Frame)
+  der aktiven Zellen des letzten Frames im Umkreis `NEW_CELL_SEED_RADIUS_KM` (config, 30 km)
+  und seedet damit Kalman-Zustand und vx/vy. Konvention-frei (reine px/Frame), kf.P=500
+  bleibt → schnelle Korrektur durch die nächste Messung. Ohne Nachbarn weiterhin (0,0)
+  (optischer Fluss übernimmt nach pysteps-Installation, siehe B173).
+- Test: `tests/test_b172_new_cell_seed.py`. Dateien: `object_tracking.py`, `config.py`.
+- Invarianten unberührt (UPSCALE_FACTOR/PX_TO_KMH). Verwandt: B173 (pysteps), P-M01/P-M02.
