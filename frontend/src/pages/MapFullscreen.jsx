@@ -722,12 +722,49 @@ export default function MapFullscreen() {
             const corridor = (!g.isKin && _qpts.length >= 1)
               ? [g.origin, ..._qpts.map(s => s.q10), ..._qpts.slice().reverse().map(s => s.q90)]
               : null
+            // B176: Horizont-wachsender Unsicherheitskegel als Fallback, wenn KEIN
+            // Quantil-Korridor vorliegt (kinematische Vorhersage ODER ML ohne q10/q90).
+            // Halbbreite r(h) = CONE_BASE_KM + CONE_GROWTH_KM_PER_MIN * h; Offsets entlang
+            // der festen Achse Ursprung→letzter Stützpunkt → robust, keine Selbst-
+            // überschneidung. Macht lange/unsichere Horizonte transparent statt scheingenau.
+            const cone = corridor ? null : (() => {
+              const CONE_BASE_KM = 3.0
+              const CONE_GROWTH_KM_PER_MIN = 0.3
+              const center = [g.origin, ...sorted.map(s => s.ll)]
+              const hs = [0, ...sorted.map(s => s.h)]
+              if (center.length < 2) return null
+              const lat0 = g.origin[0]
+              const cosLat = Math.max(Math.cos(lat0 * Math.PI / 180), 1e-6)
+              const KM_PER_DEG = 111.32
+              const toKm = ([la, lo]) => [lo * cosLat * KM_PER_DEG, la * KM_PER_DEG]
+              const toLL = (x, y) => [y / KM_PER_DEG, x / (cosLat * KM_PER_DEG)]
+              const oKm = toKm(g.origin)
+              const lastKm = toKm(center[center.length - 1])
+              let ax = lastKm[0] - oKm[0], ay = lastKm[1] - oKm[1]
+              const alen = Math.hypot(ax, ay)
+              if (alen < 1e-6) { ax = 0; ay = 1 } else { ax /= alen; ay /= alen }
+              const px = -ay, py = ax   // Perpendikular-Einheitsvektor (km-Frame)
+              const left = [], right = []
+              center.forEach((c, i) => {
+                const r = CONE_BASE_KM + CONE_GROWTH_KM_PER_MIN * Math.max(hs[i], 0)
+                const ck = toKm(c)
+                left.push(toLL(ck[0] + px * r, ck[1] + py * r))
+                right.push(toLL(ck[0] - px * r, ck[1] - py * r))
+              })
+              return [...left, ...right.reverse()]
+            })()
             return (
               <React.Fragment key={'track_' + gi}>
                 {corridor && (
                   <Polygon positions={corridor} pathOptions={{
                     color: opts.color, weight: 0.5, dashArray: '2,4',
                     fillColor: opts.color, fillOpacity: 0.10, interactive: false,
+                  }} />
+                )}
+                {cone && (
+                  <Polygon positions={cone} pathOptions={{
+                    color: opts.color, weight: 0.5, dashArray: '2,4',
+                    fillColor: opts.color, fillOpacity: 0.08, interactive: false,
                   }} />
                 )}
                 <Polyline positions={line} pathOptions={opts}>
