@@ -32,6 +32,20 @@ def _is_module_impostor(module):
     )
 
 
+
+def _ensure_real_debug_utils():
+    """Stellt sicher, dass sys.modules["debug_utils"] kein Test-Stub ist."""
+    mod = sys.modules.get("debug_utils")
+    if mod is not None and (
+        _is_module_impostor(mod)
+        or not hasattr(mod, "api_call_summary")
+        or not hasattr(mod, "api_health_summary")
+        or not hasattr(mod, "log_api_failure")
+    ):
+        del sys.modules["debug_utils"]
+    return importlib.import_module("debug_utils")
+
+
 def _preload_critical_modules():
     """
     Entfernt SimpleNamespace-/Fake-Impostoren und lädt echte Module nach.
@@ -64,7 +78,7 @@ def _isolate_api_health_log(tmp_path, monkeypatch):
     tmp-Verzeichnis um.
     """
     try:
-        import debug_utils
+        debug_utils = _ensure_real_debug_utils()
     except Exception:
         yield
         return
