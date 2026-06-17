@@ -2511,3 +2511,15 @@ Dateien: app.py, tests/test_b169_progress_json_and_mlreason.py (neu). Verwandt: 
 - Fix: `if not isinstance(payload, dict): return _error_snapshot("empty_payload", …)` am
   Funktionsanfang → sauberes status='error' ohne Exception, ohne Folge-Request.
 - Test: `tests/test_b175_skywarn_empty_payload.py`. Datei: `skywarn_export_snapshot.py`.
+
+### B176 — Horizont-wachsender Unsicherheitskegel (Fallback ohne Quantile) ✅ erledigt
+- Ausgangslage: B130-Korridor nur bei KI-Vorhersagen mit q10/q90. Kinematische Vorhersagen
+  (Normalfall) ohne Kegel → scheingenaue Zugbahn, besonders +40/+60 min (hit_rate=0).
+- Fix (Frontend, MapView.jsx + MapFullscreen.jsx): neuer `cone`-Fallback, wenn kein
+  Quantil-Korridor vorliegt. Halbbreite r(h)=3 km + 0,3 km/min·h, Offsets entlang der
+  Achse Ursprung→letzter Stützpunkt (robust, ohne Selbstüberschneidung). Rein clientseitig.
+- Fach-Feature → Benutzerhandbuch-Abschnitt „NEU: Unsicherheitskegel der Zell-Vorhersage".
+- Test: `tests/test_b176_forecast_cone.py`. Dateien: `frontend/src/pages/MapView.jsx`,
+  `frontend/src/pages/MapFullscreen.jsx`, `docs/WetterExtended_Benutzerhandbuch.md`.
+- Verwandt: B128 (durchgehende Zugbahn), B130 (Quantil-Korridor). KMZ-Unsicherheit
+  unverändert über q10/q90-Ellipsen.

@@ -2514,3 +2514,20 @@ Ausblick-Raster, Langzeitstatistik-Aggregation sowie **„Alle Dienste testen"**
 externen Endpunkt einmal an). Der Status (läuft/ok/Fehler, Dauer, Uhrzeit) wird unter den
 Schaltflächen angezeigt. Die laufenden zellbezogenen Abrufe (TAWES, CAPE, Nowcast, Radar)
 erfolgen weiterhin automatisch im Hauptdienst.
+
+---
+
+# NEU: Unsicherheitskegel der Zell-Vorhersage
+
+Auf der Karte (Normal- und Vollbild-Ansicht) wird die Unsicherheit der Zug-Vorhersage als
+sich nach vorn **verbreiternder Kegel** um die Zugbahn dargestellt:
+
+| Fall | Darstellung |
+|---|---|
+| **KI-Vorhersage mit Quantilen** | Korridor aus den ML-Quantilen q10/q90 (bestehend). |
+| **Kinematische Vorhersage / KI ohne Quantile** | Horizont-wachsender Kegel mit Halbbreite `3 km + 0,3 km/min · Horizont` (≈ ±6 km bei +10 min, ±21 km bei +60 min). |
+
+Damit ist erkennbar, dass eine Vorhersage für längere Horizonte (+40/+60 min) deutlich
+unsicherer ist — die Zugbahn wird **nicht mehr scheingenau** als einzelne Linie dargestellt.
+Der Kegel ist rein clientseitig (kein zusätzlicher Server-/API-Aufruf); kinematische
+Vorhersagen erscheinen grau, KI-Vorhersagen in der Horizont-Farbe.
