@@ -207,6 +207,11 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
         or float(obj.get("is_merged", 0.0) or 0.0) >= 0.5
         or float(obj.get("is_split", 0.0) or 0.0) >= 0.5
     )
+    # B208/Codex: Ungekürzte History für das Optflow-Timing bewahren. Die
+    # Merge/Split-Kürzung (history[:-1]) darf NUR den History/EWMA-Pfad betreffen.
+    # _actual_frame_min für den optischen Fluss muss das ECHTE jüngste Frame-Intervall
+    # sehen, sonst wird der OF-Vektor durch die falsche Frame-Dauer geteilt.
+    _history_full = list(history)
     _merge_guard_applied = False
     if _merge_guard and n >= 3:
         history = history[:-1]
@@ -299,7 +304,7 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
     # statt Centroid-Verschiebung → robust gegen Merge-Schwerpunktsprünge.
     # Kalman/EWMA bleibt Fallback (of_available=0, z. B. historische JSONs ohne Flow).
     if int(obj.get("of_available", 0)) == 1:
-        _fm_of = _actual_frame_min(history, float(_FRAME_MIN) if _FRAME_MIN else 5.0)
+        _fm_of = _actual_frame_min(_history_full, float(_FRAME_MIN) if _FRAME_MIN else 5.0)
         if not _fm_of or _fm_of <= 0.0:
             _fm_of = 5.0
         avg_vx = _safe_float(obj.get("of_vx", 0.0)) / _fm_of
