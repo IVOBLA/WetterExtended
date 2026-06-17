@@ -2557,3 +2557,28 @@ Dateien: app.py, tests/test_b169_progress_json_and_mlreason.py (neu). Verwandt: 
 - Test: `tests/test_b178_install_pip_exit.py`. Datei: `install.sh`.
 - Verwandt: B173 (zurückgezogen — pysteps war bereits deklariert; eigentliches Problem war
   dieser stille Build-Fehler).
+
+## Schritt 1 — Convective-Risk-Layer (Rapid-Scan / Höhen-Alarm / IR-Lineage / Risk-Watch)
+
+Erweiterung der Phase E. Ziel: Frühwarn-Layer aus Rapid-Scan-IR108, aktiven
+Höhen-Alarmen, CB-IR-Vorläuferzellen, durchgehender Zell-Lineage (IR→Radar) und
+Gewitterpotenzial — ohne kostenpflichtige APIs und ohne unnötige Requests.
+
+> **CB-ONLY (verbindlich):** Höhen-Alarm und IR-Vorläuferstatus gelten ausschließlich
+> für Cumulonimbus (konvektive Zellen mit Niederschlagskern / Overshooting Top).
+> Andere hochliegende Wolken (Cirren, Amboss-/Anvil-Reste, Frontbewölkung) lösen
+> WEDER Höhen-Alarm NOCH IR-Vorläuferstatus aus.
+
+| Teil | Aufgabe | Datei(en) | Status |
+|---|---|---|---|
+| 1A.1 | **Risk-Watch-Polling:** kurzer Loop-Intervall auch bei Gewitterpotenzial (`/api/risk_grid` ≥ `RISK_WATCH_MIN_RISK_LEVEL`) ODER CB-IR-Vorläuferzelle (`ir_only_precursor==1.0`). Gekapselt in `risk_watch.py`, beide Intervall-Stellen. | `risk_watch.py`, `main.py`, `config.py`, `tests/test_risk_watch_interval.py` | ✅ erledigt |
+| 1A.2 | EUMETView Scan-Modus FES/RSS + Lizenz/Layer-Validierung aus GetCapabilities (RSS-Layername NICHT hart annehmen) | `cloud_height_from_eumetview.py`, `config.py` | ⏳ offen |
+| 1B.1 | Einstellbare Wolkentop-Alarmgrenze (`CLOUD_HEIGHT_ALERT_THRESHOLD_M`) + `cloud_top_alert`-Flag je Zelle, **CB-gated** (`core_ratio ≥ CLOUD_HEIGHT_ALERT_MIN_CORE_RATIO`) | `config.py`, `cloud_height_from_eumetview.py` | ⏳ offen |
+| 1B.2 | Aktive-Zelle-Höhen-Alert-Engine (Polygon-/Core-Statistik p90, Karten-Halo), nur CB | `cloud_height_alerts.py`, Frontend | ⏳ offen |
+| 1C | IR-Vorläuferzelle vereinheitlichen (`type/radar_confirmed/is_potential_new_cell`, Flächenwachstum, BT-Cooling), nur CB | `ir_cell_detection.py`, `ir_cell_tracking.py` | ⏳ offen |
+| 1L.1 | **Zell-Lineage:** CB-IR-Wolke bekommt früh stabile `cell_id`; technische `ir_track_id`/`radar_track_id` bleiben intern | `cell_lineage.py`, `ir_cell_tracking.py`, `config.py` | ⏳ offen |
+| 1L.2 | Score-Matching IR↔Radar (vorhergesagte IR-Position, Polygon-Overlap, Höhenwind-Versatz, Zeitfenster ≤45 min); Radarzelle übernimmt `cell_id` | `cell_lineage.py`, `main.py` | ⏳ offen |
+| 1L.3 | Karten-Dedup: gematchte IR-Wolke nicht mehr als Vorläufer; Merge/Split-Events; Zählregeln | `app.py`, Frontend | ⏳ offen |
+| 1L.4 | ML-Lead-Time-Labels (`became_radar_cell`, `lead_time_min`, `prob_radar_confirmation_*`) | `dataset_builder.py`, `model_training.py` | ⏳ offen |
+| 1D | Storm-Potential anreichern (normalisierter Score 0–1 + `drivers[]`) in `risk_grid` | `app.py` | ⏳ offen |
+| 1E | Admin/Logs/Budget-Guard (Free-only erzwingen, persistente Budgetzähler) | `api_budget_guard.py`, Frontend, `app.py` | ⏳ offen |

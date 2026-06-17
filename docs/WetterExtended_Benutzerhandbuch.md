@@ -2531,3 +2531,22 @@ Damit ist erkennbar, dass eine Vorhersage für längere Horizonte (+40/+60 min) 
 unsicherer ist — die Zugbahn wird **nicht mehr scheingenau** als einzelne Linie dargestellt.
 Der Kegel ist rein clientseitig (kein zusätzlicher Server-/API-Aufruf); kinematische
 Vorhersagen erscheinen grau, KI-Vorhersagen in der Horizont-Farbe.
+
+## Risk-Watch: schnellere Reaktion bei Gewitterpotenzial
+
+Bisher schaltete das System nur dann auf den kurzen Abfrageintervall, wenn bereits eine
+aktive Radar-Zelle erkannt war. Neu wird der kurze Intervall auch verwendet, wenn
+
+- das Risikogitter (Karte „🌩 Risikozonen") mindestens die eingestellte Stufe meldet, oder
+- eine CB-IR-Vorläuferzelle (Karte „🛰 CB / IR-Vorläufer") ohne Radar-Echo existiert.
+
+Dadurch werden neu entstehende Gewitter früher erfasst, ohne bei ruhiger Wetterlage
+unnötig oft abzufragen. Der IR-Vorläufer-Auslöser greift ausschließlich bei
+konvektiven CB-Wolken — hohe, aber harmlose Wolken (z. B. Cirren) lösen ihn nicht aus.
+
+**Einstellbar** (Admin → Konfiguration bzw. `runtime_overrides.json`):
+
+| Parameter | Default | Bedeutung |
+|---|---|---|
+| `RISK_WATCH_ENABLED` | `true` | Risk-Watch ein-/ausschalten |
+| `RISK_WATCH_MIN_RISK_LEVEL` | `2` | Ab welcher Risikostufe (1=niedrig, 2=mäßig, 3=hoch) der kurze Intervall erzwungen wird |
