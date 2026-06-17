@@ -2551,29 +2551,29 @@ konvektiven CB-Wolken — hohe, aber harmlose Wolken (z. B. Cirren) lösen ihn n
 | `RISK_WATCH_ENABLED` | `true` | Risk-Watch ein-/ausschalten |
 | `RISK_WATCH_MIN_RISK_LEVEL` | `2` | Ab welcher Risikostufe (1=niedrig, 2=mäßig, 3=hoch) der kurze Intervall erzwungen wird |
 
-## Satelliten-Scan-Modus: Full Earth Scan (FES) und Rapid Scan (RSS)
+## Satelliten-Scan-Modus: Full Earth Scan (FES)
 
 Die Wolkenoberkanten und IR-Vorläuferzellen stammen aus dem MSG-IR108-Satellitenbild
-von EUMETView (frei, ohne Anmeldung). Zwei Modi sind wählbar:
+von EUMETView (frei, ohne Anmeldung).
 
 | Modus | Aktualisierung | Hinweis |
 |---|---|---|
-| FES (Full Earth Scan) | ca. 15 Minuten | Standard, immer verfügbar |
-| RSS (Rapid Scan) | ca. 5 Minuten | nur Europa-Ausschnitt; früher erkennbare Entwicklung |
+| FES (Full Earth Scan) | ca. 15 Minuten | Standard und einzige Quelle für IR108 |
 
-Der Rapid-Scan-Modus liefert neu entstehende Gewitter (CB) deutlich früher. Er wird
-nur verwendet, wenn der RSS-Layer auf dem EUMETView-Server tatsächlich vorhanden ist und
-die Lizenz als frei bestätigt wurde — andernfalls schaltet das System automatisch und
-ohne Datenverlust auf FES zurück. RSS kann seitens EUMETSAT zeitweise unterbrochen sein;
-auch dann bleibt FES aktiv.
+> Hinweis: Ein Rapid-Scan-Kanal für IR 10.8 µm (`msg_rss:ir108`) wird von EUMETView
+> NICHT angeboten (am Pi via GetCapabilities verifiziert) — der RSS-Dienst liefert nur
+> IR 3,9 µm und RGB-Produkte. IR 3,9 µm eignet sich wegen Sonnenreflexion tagsüber nicht
+> für die Wolkenhöhe und wird nicht als Ersatz genutzt. Schnellere Reaktion auf neu
+> entstehende Zellen kommt daher über das Risk-Watch-Polling, nicht über eine höhere
+> Satellitenfrequenz.
 
 **Einstellbar** (Admin → Konfiguration bzw. `runtime_overrides.json`):
 
 | Parameter | Default | Bedeutung |
 |---|---|---|
-| `EUMETVIEW_SCAN_MODE` | `FES` | `FES` oder `RSS` |
-| `EUMETVIEW_LICENSE_STATUS` | `unconfirmed` | `free_confirmed` aktiviert die RSS-Nutzung |
-| `EUMETVIEW_RSS_LAYER_IR108` | (leer) | nur setzen, wenn der RSS-Layer anders heißt als `msg_rss:ir108` |
+| `EUMETVIEW_SCAN_MODE` | `FES` | Technischer Modus; für IR108 bleibt effektiv FES, solange EUMETView keinen RSS-IR108-Layer anbietet |
+| `EUMETVIEW_LICENSE_STATUS` | `unconfirmed` | RSS wird ohne validierten freien IR108-Layer nicht genutzt |
+| `EUMETVIEW_RSS_LAYER_IR108` | (leer) | nur setzen, falls EUMETView künftig einen RSS-IR108-Layer anbietet |
 
 ## CB-Höhengrenze einstellbar + neue Karten-Voreinstellungen
 
