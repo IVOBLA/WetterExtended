@@ -816,7 +816,7 @@ EUMETVIEW_NODATA_PIXEL: int = 5
 # Grenze (m MSL), ab der ein IR-Cluster auf der Karte als „CB > …" statt
 # „IR-Vorläufer" beschriftet wird (B204). Runtime-überschreibbar; an die
 # öffentliche Karte via /api/objects?include_ir=1 ausgeliefert.
-CLOUD_HEIGHT_ALERT_THRESHOLD_M: float = 10000.0
+CLOUD_HEIGHT_ALERT_THRESHOLD_M: float = 7000.0
 
 # ── Phase E: IR-Sat Pre-Convection Detection ──────────────────────────────────
 # Alle Schwellwerte runtime-überschreibbar via runtime_overrides.json.
