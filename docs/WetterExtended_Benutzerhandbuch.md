@@ -608,7 +608,7 @@ Das System vergleicht nach Ablauf jedes Vorhersage-Horizonts die vorhergesagte P
 
 | Parameter | Wert | Bedeutung |
 |---|---:|---|
-| `VERIFICATION_TOLERANCE_KM` | 5 km | Treffer wenn tatsächliche Zelle ≤ 5 km von Vorhersage |
+| `VERIFICATION_TOLERANCE_KM` | 1 km | Treffer wenn tatsächliche Zelle ≤ 1 km von Vorhersage (Zieldefinition <1 km bei ≤30 min) |
 | `VERIFICATION_TIME_TOLERANCE_S` | 90 s | Zeitfenster für Frame-Suche (ARSO liefert alle 2–5 min) |
 | `VERIFICATION_MAX_SEARCH_RADIUS_KM` | 25 km | Suchradius für Nearest-Neighbor-Match |
 
@@ -1614,7 +1614,7 @@ Alle Parameter werden in `config.py` als Python-Konstanten definiert und können
 | `ML_SEQUENCE_LENGTH` | 6 | ML (LSTM) |
 | `ML_FORECAST_HORIZONS_MIN` | `[10,20,30,40,60]` | ML |
 | `DATA_RETENTION_DAYS` | 90 | Daten-Rotation |
-| `VERIFICATION_TOLERANCE_KM` | 5 km | Verifikation |
+| `VERIFICATION_TOLERANCE_KM` | 1 km | Verifikation |
 | `AI_ANALYSIS_CONFIG.enabled` | `false` | KI-Analyse |
 | `AI_ANALYSIS_CONFIG.cron_hour` | 6 | KI-Analyse |
 | `LOCAL_TRAINING` | `true` | Multi-Rechner |

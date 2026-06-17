@@ -2606,3 +2606,11 @@ Gewitterpotenzial — ohne kostenpflichtige APIs und ohne unnötige Requests.
 - Dateien: `config.py`, `cloud_height_from_eumetview.py`,
   `frontend/src/pages/Configuration.jsx`, `tests/test_cloud_top_alert.py` (gelöscht),
   `docs/WetterExtended_Benutzerhandbuch.md`.
+
+### Z01 — Verifikations-Zieltoleranz 5 km → 1 km ✅
+- `VERIFICATION_TOLERANCE_KM = 1.0` (war 5.0) — Angleichung an `zieldefinition.txt`
+  (<1 km Trefferabweichung bei ≤30 min, Zielwert 0 km).
+- Forschungsziel: aktueller kinematischer Fallback erreicht es noch nicht → Hit-Rate
+  fällt mit der strengen Toleranz; erste Genauigkeits-Schritte sind B207/B208.
+- Suchradius (25 km) und Zeit-Toleranz unverändert. Dateien: `config.py`,
+  `docs/WetterExtended_Benutzerhandbuch.md`, `tests/test_z01_verification_tolerance.py`.
