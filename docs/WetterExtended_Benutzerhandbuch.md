@@ -2568,3 +2568,27 @@ Frontbewölkung) lösen den Höhen-Alarm bewusst NICHT aus.
 
 > Hinweis: Die Höhe ist ein IR-Proxy (Helligkeitstemperatur → Höhe über
 > Temperaturgradient) und absolut nur grob; für die relative CB-Einstufung gut geeignet.
+
+## Satelliten-Scan-Modus: Full Earth Scan (FES) und Rapid Scan (RSS)
+
+Die Wolkenoberkanten und IR-Vorläuferzellen stammen aus dem MSG-IR108-Satellitenbild
+von EUMETView (frei, ohne Anmeldung). Zwei Modi sind wählbar:
+
+| Modus | Aktualisierung | Hinweis |
+|---|---|---|
+| FES (Full Earth Scan) | ca. 15 Minuten | Standard, immer verfügbar |
+| RSS (Rapid Scan) | ca. 5 Minuten | nur Europa-Ausschnitt; früher erkennbare Entwicklung |
+
+Der Rapid-Scan-Modus liefert neu entstehende Gewitter (CB) deutlich früher. Er wird
+nur verwendet, wenn der RSS-Layer auf dem EUMETView-Server tatsächlich vorhanden ist und
+die Lizenz als frei bestätigt wurde — andernfalls schaltet das System automatisch und
+ohne Datenverlust auf FES zurück. RSS kann seitens EUMETSAT zeitweise unterbrochen sein;
+auch dann bleibt FES aktiv.
+
+**Einstellbar** (Admin → Konfiguration bzw. `runtime_overrides.json`):
+
+| Parameter | Default | Bedeutung |
+|---|---|---|
+| `EUMETVIEW_SCAN_MODE` | `FES` | `FES` oder `RSS` |
+| `EUMETVIEW_LICENSE_STATUS` | `unconfirmed` | `free_confirmed` aktiviert die RSS-Nutzung |
+| `EUMETVIEW_RSS_LAYER_IR108` | (leer) | nur setzen, wenn der RSS-Layer anders heißt als `msg_rss:ir108` |
