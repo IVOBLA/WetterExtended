@@ -49,8 +49,7 @@ const PARAM_GROUPS = [
       { key: 'SLOW_CELL_MAX_KMH',           type: 'number', default: 15,   unit: 'km/h',  desc: 'Unter diesem Wert gilt eine Zelle als "langsam ziehend" → erweiterter Warnradius.', example: 15 },
       { key: 'SLOW_CELL_RADIUS_FACTOR',     type: 'number', default: 1.5,  unit: '',      desc: 'Faktor für den erweiterten Warnradius langsamer Zellen (radius_km × Faktor).', example: 1.5 },
       { key: 'WARN_MAX_HORIZON_MIN',       type: 'number', default: 20,   unit: 'min',   desc: 'Vorwarnzeit-Schwelle für E-Mail/WhatsApp: Alarm nur wenn der früheste Forecast-Horizont ≤ diesem Wert liegt. Horizont 0 alarmiert immer sofort.', example: 20 },
-      { key: 'CLOUD_HEIGHT_ALERT_THRESHOLD_M', type: 'number', default: 10000, unit: 'm', desc: 'Wolkentop-Alarmgrenze (MSL). Nur CB-Zellen (mit konvektivem Kern) ab dieser Wolkenoberkante werden als hochreichend markiert (cloud_top_alert).', example: 10000 },
-      { key: 'CLOUD_HEIGHT_ALERT_MIN_CORE_RATIO', type: 'number', default: 0.05, desc: 'CB-Mindest-Kernanteil (core_ratio) für den Höhen-Alarm. Stellt sicher, dass nur Cumulonimbus mit Niederschlagskern alarmiert — nicht Cirren/Amboss/Stratiform.', example: 0.05 },
+      { key: 'CLOUD_HEIGHT_ALERT_THRESHOLD_M', type: 'number', default: 10000, unit: 'm', desc: 'CB-Höhengrenze (MSL): Ab dieser geschätzten Wolkenoberkante wird ein IR-Cluster auf der Karte als „CB > …" statt „IR-Vorläufer" beschriftet.', example: 10000 },
     ],
   },
   {

@@ -691,17 +691,6 @@ def assign_cloud_top_height(
             except Exception:
                 pass
 
-            # Höhen-Alarm-Schwellen (runtime-überschreibbar). Einmal pro Frame lesen.
-            from config import (
-                CLOUD_HEIGHT_ALERT_THRESHOLD_M as _CHA_THR_DEF,
-                CLOUD_HEIGHT_ALERT_MIN_CORE_RATIO as _CHA_CORE_DEF,
-            )
-            _alert_thr_m = float(
-                runtime_config.get("CLOUD_HEIGHT_ALERT_THRESHOLD_M", _CHA_THR_DEF)
-            )
-            _alert_min_core = float(
-                runtime_config.get("CLOUD_HEIGHT_ALERT_MIN_CORE_RATIO", _CHA_CORE_DEF)
-            )
             assigned = 0
             for obj in objects:
                 lat, lon = obj.get("lat"), obj.get("lon")
@@ -747,12 +736,6 @@ def assign_cloud_top_height(
                         obj["cloud_top_height_msl"]       = round(float(value), 1)
                         obj["cloud_height_missing"]        = 0.0
                         obj["cloud_top_height_timestamp"] = timestamp_file
-                        # CB-only: Alarm nur bei großer Höhe UND konvektivem Kern.
-                        # Hohe Wolken ohne Kern (Cirren/Amboss/Stratiform) lösen NICHT aus.
-                        _is_cb = float(obj.get("core_ratio", 0.0)) >= _alert_min_core
-                        obj["cloud_top_alert"] = (
-                            1.0 if (float(value) >= _alert_thr_m and _is_cb) else 0.0
-                        )
                         assigned += 1
 
                 except Exception as ex:
