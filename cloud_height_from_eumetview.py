@@ -186,7 +186,7 @@ def get_latest_wms_time() -> str | None:
                     _caps_body = b""
             if root is None:
                 _dbg("timestamp_missing", reason="parse-failed-after-retries")
-                return None
+                return _caps_fallback("parse-failed-after-retries")
             target_layer = None
             for layer in root.iter():
                 if _norm_tag(layer.tag) != "Layer":
@@ -200,7 +200,7 @@ def get_latest_wms_time() -> str | None:
             _dbg("target_layer_search", target_layer_found=bool(target_layer))
             if target_layer is None:
                 _dbg("timestamp_missing", reason="target-layer-missing")
-                return None
+                return _caps_fallback("target-layer-missing")
 
             extent_default = None
             extent_text = None
@@ -251,7 +251,7 @@ def get_latest_wms_time() -> str | None:
         log_api_failure(
             "EUMETView-WMS", url, f"{type(e).__name__}: {e}", fallback_used=True
         )
-    return None
+    return _caps_fallback("capabilities-failed")
 
 
 def wms_to_filename_timestamp(wms_time: str) -> str:
@@ -264,6 +264,45 @@ def read_last_timestamp() -> str | None:
         with open(LAST_TIMESTAMP_FILE, "r") as f:
             return f.read().strip()
     return None
+
+
+# B174: Max. Alter (min) des wiederverwendeten letzten WMS-Timestamps, wenn
+# GetCapabilities endgültig fehlschlägt (MSG-Full-Disk-Takt ~15 min).
+# Optional via config.EUMETVIEW_FALLBACK_MAX_AGE_MIN überschreibbar.
+EUMETVIEW_FALLBACK_MAX_AGE_MIN = 30.0
+
+
+def _caps_fallback(reason: str):
+    """B174: Bei endgültig fehlgeschlagener GetCapabilities-Auswertung den zuletzt
+    erfolgreich verwendeten WMS-Timestamp wiederverwenden, sofern noch frisch genug.
+    Verhindert, dass alle Objekte auf cloud_height_missing=1.0 degradieren, ohne
+    veraltete IR-Daten einzuspeisen. Liefert None bei fehlendem/zu altem/unparsbarem
+    Timestamp."""
+    try:
+        from config import EUMETVIEW_FALLBACK_MAX_AGE_MIN as _max_age
+    except Exception:
+        _max_age = EUMETVIEW_FALLBACK_MAX_AGE_MIN
+    last = read_last_timestamp()
+    if not last:
+        debug_log(f"[CLOUD] Fallback nicht möglich ({reason}): kein letzter Timestamp")
+        return None
+    try:
+        _dt = datetime.strptime(last, "%Y-%m-%dT%H:%M:%SZ")
+        _age_min = (datetime.utcnow() - _dt).total_seconds() / 60.0
+    except Exception:
+        debug_log(f"[CLOUD] Fallback nicht möglich ({reason}): letzter Timestamp unparsbar ({last})")
+        return None
+    if _age_min > float(_max_age):
+        debug_log(
+            f"[CLOUD] Fallback verworfen ({reason}): letzter Timestamp zu alt "
+            f"({int(_age_min)} min > {int(float(_max_age))} min)"
+        )
+        return None
+    debug_log(
+        f"[CLOUD] Fallback auf letzten WMS-Timestamp ({reason}): {last} "
+        f"({int(_age_min)} min alt)"
+    )
+    return last
 
 
 def write_last_timestamp(ts: str) -> None:

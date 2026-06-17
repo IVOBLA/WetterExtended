@@ -2523,3 +2523,13 @@ Dateien: app.py, tests/test_b169_progress_json_and_mlreason.py (neu). Verwandt: 
   `frontend/src/pages/MapFullscreen.jsx`, `docs/WetterExtended_Benutzerhandbuch.md`.
 - Verwandt: B128 (durchgehende Zugbahn), B130 (Quantil-Korridor). KMZ-Unsicherheit
   unverändert über q10/q90-Ellipsen.
+
+### B174 — EUMETView: Fallback auf letzten WMS-Timestamp bei Capabilities-Fehler ✅ erledigt
+- Ursache: bei endgültigem GetCapabilities-Fehlschlag gab `get_latest_wms_time()` None zurück
+  → alle Objekte cloud_height_missing=1.0 (IR-/Cloud-Top-Verarbeitung im Fallback).
+- Fix: neuer Helper `_caps_fallback(reason)` verwendet `read_last_timestamp()` wieder, sofern
+  jünger als `EUMETVIEW_FALLBACK_MAX_AGE_MIN` (30 min, config-überschreibbar). Drei
+  Failure-Returns (parse-failed/target-missing/Funktionsschluss inkl. parser-no-timestamp &
+  Exception) liefern jetzt den frischen Fallback statt None. Erfolgspfad unverändert.
+- Test: `tests/test_b174_eumetview_fallback.py`. Datei: `cloud_height_from_eumetview.py`.
+- Verwandt: B125/B154/B160 (Caps-Robustheit/Breaker).
