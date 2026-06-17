@@ -2592,3 +2592,9 @@ Gewitterpotenzial — ohne kostenpflichtige APIs und ohne unnötige Requests.
   120-min-Backoff greift wieder (verhindert Dauer-Pinning nach Radar-Ausfall).
 - **Dateien:** `risk_watch.py`, `config.py`, `tests/test_risk_watch_interval.py`,
   `tests/test_risk_watch_freshness.py`
+
+### B207 — Neu-Zellen-Seed ignoriert verschwundene Zellen (Codex-Review) ✅
+- `_neighbor_motion_seed()` überspringt jetzt Snapshot-Einträge mit `missing != 0`.
+  Verhindert, dass neu entstehende Zellen die veraltete Geschwindigkeit bereits
+  verschwundener Nachbarn erben (Prio-1-Genauigkeit, ≤30 min < 1 km).
+- Datei: `object_tracking.py`, `tests/test_b207_seed_skip_missing.py`. Verwandt: B172.
