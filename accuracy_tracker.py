@@ -136,6 +136,27 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
     fts = [(f, _parse_ts(f)) for f in files]
     fts = [(f, t) for f, t in fts if t is not None]
 
+    by_mode = {}
+    by_source = {}
+
+    def _bucket(store, key):
+        k = str(key or "unknown")
+        return store.setdefault(k, {"samples": 0, "verified": 0, "hits": 0, "missed": 0, "no_target_frame": 0, "sum_km": 0.0})
+
+    def _finish(store):
+        out = {}
+        for k, v in store.items():
+            total = int(v.get("samples", 0)) + int(v.get("no_target_frame", 0))
+            ver = int(v.get("verified", 0))
+            out[k] = {
+                "samples": total, "verified": ver, "missed": int(v.get("missed", 0)),
+                "no_target_frame": int(v.get("no_target_frame", 0)),
+                "mae_km": round(v["sum_km"] / ver, 3) if ver else None,
+                "hit_rate": round(v["hits"] / ver, 4) if ver else None,
+                "coverage_rate": round(ver / total, 4) if total else None,
+            }
+        return out
+
     base = {
         "horizon": horizon_min,
         "samples": 0,
@@ -152,6 +173,8 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         "rmse_y_px": None,
         "since_hours": since_hours,
         "tolerance_km": VERIFICATION_TOLERANCE_KM,
+        "by_forecast_mode": _finish(by_mode),
+        "by_kinematic_source": _finish(by_source),
     }
     if not fts:
         debug_log(f"[ACCURACY] Keine Objekt-Dateien gefunden in {obj_dir}")
@@ -162,7 +185,6 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
 
     n_total = hits = verified = missed = no_target_frame = id_lost = 0
     sum_km = sum_km2 = sum_abs_px = sum_sx2 = sum_sy2 = 0.0
-
     for fpath, ts in fts:
         if ts < cutoff:
             continue
@@ -182,12 +204,20 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         if target_path is None:
             no_target_frame += forecast_count_this_frame
             n_total += forecast_count_this_frame
+            for _o in objs:
+                if _o.get(f"forecast_lat_{horizon_min}") is not None and _o.get(f"forecast_lon_{horizon_min}") is not None:
+                    _bucket(by_mode, _o.get("forecast_mode"))["no_target_frame"] += 1
+                    _bucket(by_source, _o.get("kinematic_source"))["no_target_frame"] += 1
             continue
 
         target_objs = _load_objects(target_path)
         if not target_objs:
             no_target_frame += forecast_count_this_frame
             n_total += forecast_count_this_frame
+            for _o in objs:
+                if _o.get(f"forecast_lat_{horizon_min}") is not None and _o.get(f"forecast_lon_{horizon_min}") is not None:
+                    _bucket(by_mode, _o.get("forecast_mode"))["no_target_frame"] += 1
+                    _bucket(by_source, _o.get("kinematic_source"))["no_target_frame"] += 1
             continue
 
         for obj in objs:
@@ -200,9 +230,12 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
 
             matched, dist_km, _match_src = _match_actual(obj, target_objs, horizon_min)
             n_total += 1
+            _bm = _bucket(by_mode, obj.get("forecast_mode")); _bs = _bucket(by_source, obj.get("kinematic_source"))
+            _bm["samples"] += 1; _bs["samples"] += 1
 
             if matched is None:
                 missed += 1
+                _bm["missed"] += 1; _bs["missed"] += 1
                 continue
 
             try:
@@ -222,8 +255,11 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
             sum_km += dist_km
             sum_km2 += dist_km * dist_km
             verified += 1
+            _bm["verified"] += 1; _bs["verified"] += 1
+            _bm["sum_km"] += dist_km; _bs["sum_km"] += dist_km
             if dist_km <= VERIFICATION_TOLERANCE_KM:
                 hits += 1
+                _bm["hits"] += 1; _bs["hits"] += 1
 
     if n_total == 0:
         debug_log(f"[ACCURACY] horizon=+{horizon_min}m: 0 verifizierbare Samples in den letzten {since_hours}h")
@@ -253,6 +289,8 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         "rmse_y_px": round(math.sqrt(sum_sy2 / eval_n), 2) if eval_n else None,
         "since_hours": since_hours,
         "tolerance_km": VERIFICATION_TOLERANCE_KM,
+        "by_forecast_mode": _finish(by_mode),
+        "by_kinematic_source": _finish(by_source),
     }
 
 

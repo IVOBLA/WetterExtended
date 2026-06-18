@@ -2255,6 +2255,28 @@ def _ml_block_reason():
     return None
 
 
+
+
+@app.route("/api/motion_pipeline_health")
+def api_motion_pipeline_health():
+    """Liefert die zuletzt offline erzeugte Motion-Pipeline-Diagnose."""
+    path = os.path.join(_evaluation_dir(), "motion_pipeline_health.json")
+    if not os.path.exists(path):
+        return jsonify({
+            "status": "missing",
+            "message": "motion_pipeline_health.json fehlt; bitte python tools/diagnose_motion_pipeline.py --hours 24 ausführen.",
+            "pysteps_import_ok": None,
+            "pysteps_lucaskanade_ok": None,
+        }), 200
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        data.setdefault("status", "ok")
+        return jsonify(data)
+    except Exception as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 200
+
+
 @app.route("/api/forecast_stats")
 def api_forecast_stats():
     """
@@ -2326,6 +2348,16 @@ def api_forecast_stats():
     }
     # B116: ML-Block-Grund mitliefern (None = ML aktiv).
     _resp["ml_blocked_reason"] = _ml_block_reason()
+    try:
+        with open(os.path.join(_evaluation_dir(), "motion_pipeline_health.json"), "r", encoding="utf-8") as _mh_f:
+            _mh = json.load(_mh_f)
+        for _key in ("of_available_pct", "kinematic_source_counts", "median_forecast_speed_kmh_by_horizon",
+                     "zero_forecast_pct_by_horizon", "pysteps_import_ok", "pysteps_lucaskanade_ok"):
+            _resp[_key] = _mh.get(_key)
+        _warns = [d for d in _mh.get("diagnosis", []) if "inactive" in d or "near zero" in d or "false" in d]
+        _resp["motion_pipeline_warning"] = "; ".join(_warns) if _warns else None
+    except Exception:
+        _resp["motion_pipeline_warning"] = "motion_pipeline_health.json fehlt"
     return jsonify(_resp)
 
 

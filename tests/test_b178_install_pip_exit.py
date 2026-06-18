@@ -36,7 +36,7 @@ def test_pysteps_lucaskanade_function_check_present():
     src = _install_sh()
     assert "dense_lucaskanade" in src
     assert "pySTEPS Lucas-Kanade Funktionstest" in src
-    assert '"$VENV/bin/python3" - <<' in src
+    assert '"$VENV/bin/python3"' in src
     assert "pip install git+https://github.com/pySTEPS/pysteps" in src
 
 

@@ -13,10 +13,21 @@ auf 0.0 gesetzt (of_available=0) — das Modell lernt dies als "fehlend".
 
 import os
 import importlib.util
-from debug_utils import debug_log
+try:
+    from debug_utils import debug_log
+except Exception:
+    def debug_log(message):
+        print(message)
 
-_pysteps_ok = importlib.util.find_spec("pysteps") is not None
-_np_ok = importlib.util.find_spec("numpy") is not None
+def _has_module(name: str) -> bool:
+    try:
+        return importlib.util.find_spec(name) is not None
+    except Exception:
+        return False
+
+
+_pysteps_ok = _has_module("pysteps")
+_np_ok = _has_module("numpy")
 
 
 def _load_gray(path: str):
@@ -33,11 +44,29 @@ def _load_gray(path: str):
         return None
 
 
-def _zero_flow(objects: list) -> list:
-    """Setzt alle OF-Features auf 0 (Fallback)."""
+def _log_flow_summary(objects: list) -> None:
+    """Kompakte Frame-Diagnose ohne Bilddaten."""
+    try:
+        from collections import Counter
+        import statistics
+        total = len(objects)
+        available = sum(1 for o in objects if int(o.get("of_available", 0) or 0) == 1)
+        speeds = [float(o.get("of_speed", 0.0) or 0.0) for o in objects if int(o.get("of_available", 0) or 0) == 1]
+        median_speed = round(statistics.median(speeds), 4) if speeds else 0.0
+        reasons = Counter(str(o.get("of_error_reason") or "ok") for o in objects)
+        debug_log(f"[OPTFLOW] available={available}/{total}, median_of_speed={median_speed}, reasons={dict(reasons)}")
+    except Exception as exc:
+        debug_log(f"[OPTFLOW] Diagnose-Logging fehlgeschlagen: {exc}")
+
+
+def _zero_flow(objects: list, reason: str = "pysteps_missing", *, log_summary: bool = True) -> list:
+    """Setzt alle OF-Features auf 0 (Fallback) und markiert den Grund."""
     for obj in objects:
         obj.update({"of_vx": 0.0, "of_vy": 0.0, "of_speed": 0.0,
-                    "of_divergence": 0.0, "of_available": 0})
+                    "of_divergence": 0.0, "of_available": 0,
+                    "of_error_reason": reason})
+    if log_summary:
+        _log_flow_summary(objects)
     return objects
 
 
@@ -62,27 +91,28 @@ def assign_optical_flow_to_objects(
     Pixeleinheiten zurückgerechnet (/ UPSCALE_FACTOR).
     """
     if not objects:
+        _zero_flow(objects, "no_objects")
         return objects
 
     if not _pysteps_ok or not _np_ok:
         debug_log("[OPTFLOW] pysteps/numpy nicht verfügbar — Fallback auf 0")
-        return _zero_flow(objects)
+        return _zero_flow(objects, "pysteps_or_numpy_missing")
 
     if not prev_radar_path or not os.path.exists(prev_radar_path):
         debug_log("[OPTFLOW] Vorheriges Radarbild fehlt — Fallback auf 0")
-        return _zero_flow(objects)
+        return _zero_flow(objects, "prev_radar_missing")
 
     import numpy as np
     try:
         from pysteps.motion.lucaskanade import dense_lucaskanade
     except ImportError as e:
         debug_log(f"[OPTFLOW] Import-Fehler: {e}")
-        return _zero_flow(objects)
+        return _zero_flow(objects, "lucaskanade_import_error")
 
     prev = _load_gray(prev_radar_path)
     curr = _load_gray(curr_radar_path)
     if prev is None or curr is None:
-        return _zero_flow(objects)
+        return _zero_flow(objects, "curr_or_prev_image_unreadable")
 
     # pysteps erwartet Stack (N, H, W); NaN für fehlende Regenwerte
     try:
@@ -93,7 +123,7 @@ def assign_optical_flow_to_objects(
         U, V = UV[0], UV[1]                    # U = x-Richtung, V = y-Richtung
     except Exception as e:
         debug_log(f"[OPTFLOW] Lucas-Kanade Fehler: {e}")
-        return _zero_flow(objects)
+        return _zero_flow(objects, "lucaskanade_runtime_error")
 
     from config import UPSCALE_FACTOR
     import cv2
@@ -160,6 +190,7 @@ def assign_optical_flow_to_objects(
             obj["of_speed"] = 0.0
             obj["of_divergence"] = 0.0
             obj["of_available"] = 0
+            obj["of_error_reason"] = "no_valid_flow_pixel"
             continue
 
         # Auf original Pixeleinheiten umrechnen
@@ -173,6 +204,7 @@ def assign_optical_flow_to_objects(
         obj["of_speed"] = round(speed, 4)
         obj["of_divergence"] = round(divergence, 6)
         obj["of_available"] = 1
+        obj["of_error_reason"] = None
 
-    debug_log(f"[OPTFLOW] Optical Flow zugewiesen für {len(objects)} Objekte")
+    _log_flow_summary(objects)
     return objects
