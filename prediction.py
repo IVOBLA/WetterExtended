@@ -2,7 +2,7 @@ import glob
 import json
 import os
 from datetime import datetime
-from math import cos, pi, radians, sin
+from math import asin, cos, pi, radians, sin, sqrt
 
 import importlib
 import importlib.util
@@ -164,6 +164,18 @@ def _actual_frame_min(history: list, default: float) -> float:
     return default
 
 
+
+def _haversine_km(lat1, lon1, lat2, lon2) -> float:
+    try:
+        lat1, lon1, lat2, lon2 = map(float, (lat1, lon1, lat2, lon2))
+        r = 6371.0
+        dlat = radians(lat2 - lat1)
+        dlon = radians(lon2 - lon1)
+        a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+        return 2 * r * asin(sqrt(max(0.0, min(1.0, a))))
+    except Exception:
+        return 0.0
+
 def _safe_float(value):
     try:
         return float(value)
@@ -321,6 +333,10 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
     obj["kinematic_source"]   = src
     obj["kinematic_vx"]       = avg_vx
     obj["kinematic_vy"]       = avg_vy
+    try:
+        obj["kinematic_speed_kmh"] = round((float(_UF or 1.0) and (avg_vx ** 2 + avg_vy ** 2) ** 0.5 / float(_UF or 1.0) * 60.0), 3)
+    except Exception:
+        obj["kinematic_speed_kmh"] = 0.0
 
     for horizon in _get_horizons():
         # EINHEITEN (Fix P01 + P26):
@@ -358,6 +374,11 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
         obj[f"forecast_y_{horizon}"]   = float(y_pred)
         obj[f"forecast_lat_{horizon}"] = float(lat)
         obj[f"forecast_lon_{horizon}"] = float(lon)
+        _origin_lat = _safe_float(obj.get("lat", 0.0))
+        _origin_lon = _safe_float(obj.get("lon", 0.0))
+        _disp_km = _haversine_km(_origin_lat, _origin_lon, lat, lon) if (_origin_lat or _origin_lon) else 0.0
+        obj[f"forecast_displacement_km_{horizon}"] = round(_disp_km, 3)
+        obj[f"forecast_speed_kmh_{horizon}"] = round(_disp_km / (float(horizon) / 60.0), 3) if float(horizon) > 0 else 0.0
         _radar_age = obj.get("radar_age_min")
         _staleness = {}
         if _radar_age is not None:
@@ -378,6 +399,11 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
             "origin_lon":       _safe_float(obj.get("lon", 0.0)),
             "forecast_mode":    "kinematic",
             "kinematic_source": src,
+            "of_available": int(obj.get("of_available", 0) or 0),
+            "of_error_reason": obj.get("of_error_reason"),
+            "kinematic_speed_kmh": obj.get("kinematic_speed_kmh"),
+            "forecast_displacement_km": obj.get(f"forecast_displacement_km_{horizon}"),
+            "forecast_speed_kmh": obj.get(f"forecast_speed_kmh_{horizon}"),
             **_staleness,
         })
 
@@ -850,6 +876,8 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                     obj[f"forecast_y_{horizon}"]   = k["y"]
                     obj[f"forecast_lat_{horizon}"] = k["lat"]
                     obj[f"forecast_lon_{horizon}"] = k["lon"]
+                    obj[f"forecast_displacement_km_{horizon}"] = k.get("forecast_displacement_km")
+                    obj[f"forecast_speed_kmh_{horizon}"] = k.get("forecast_speed_kmh")
                     forecasts[horizon].append({
                         "id": obj.get("id"),
                         "x": k["x"], "y": k["y"],
@@ -858,6 +886,12 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                         "origin_lat": _safe_float(obj.get("lat", 0.0)),
                         "origin_lon": _safe_float(obj.get("lon", 0.0)),
                         "forecast_mode": "kinematic",
+                        "kinematic_source": k.get("kinematic_source"),
+                        "of_available": int(obj.get("of_available", 0) or 0),
+                        "of_error_reason": obj.get("of_error_reason"),
+                        "kinematic_speed_kmh": obj.get("kinematic_speed_kmh"),
+                        "forecast_displacement_km": k.get("forecast_displacement_km"),
+                        "forecast_speed_kmh": k.get("forecast_speed_kmh"),
                         "radar_age_min": round(_radar_age_min, 1),
                         "effective_lead_min": round(_eff_lead, 1),
                         "stale": _stale,
@@ -873,6 +907,9 @@ def predict_positions(objects: list, timestamp: str, stations: list):
             obj[f"forecast_y_{horizon}"] = y_pred
             obj[f"forecast_lat_{horizon}"] = float(lat)
             obj[f"forecast_lon_{horizon}"] = float(lon)
+            _ml_disp_km = _haversine_km(_safe_float(obj.get("lat", 0.0)), _safe_float(obj.get("lon", 0.0)), lat, lon)
+            obj[f"forecast_displacement_km_{horizon}"] = round(_ml_disp_km, 3)
+            obj[f"forecast_speed_kmh_{horizon}"] = round(_ml_disp_km / (float(horizon) / 60.0), 3) if float(horizon) > 0 else 0.0
             if prediction_q10 is not None and prediction_q90 is not None:
                 x_q10 = float(prediction_q10[idx * 2])     * _UF
                 y_q10 = float(prediction_q10[idx * 2 + 1]) * _UF
@@ -899,6 +936,12 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                     "origin_lat": _safe_float(obj.get("lat", 0.0)),
                     "origin_lon": _safe_float(obj.get("lon", 0.0)),
                     "forecast_mode": "ml",
+                    "kinematic_source": obj.get("kinematic_source"),
+                    "of_available": int(obj.get("of_available", 0) or 0),
+                    "of_error_reason": obj.get("of_error_reason"),
+                    "kinematic_speed_kmh": obj.get("kinematic_speed_kmh"),
+                    "forecast_displacement_km": obj.get(f"forecast_displacement_km_{horizon}"),
+                    "forecast_speed_kmh": obj.get(f"forecast_speed_kmh_{horizon}"),
                     "radar_age_min": round(_radar_age_min, 1),
                     "effective_lead_min": round(_eff_lead, 1),
                     "stale": _stale,

@@ -48,6 +48,9 @@ _ALWAYS_INCLUDE_NAMES = {
     "forecast.kmz",
     "latest.png",
     "runtime_overrides.json",
+    "motion_pipeline_health.json",
+    "drift_status.json",
+    "accuracy_history.jsonl",
     "config.py",
 }
 _EXCLUDED_NAMES = {".admin_password"}
