@@ -3974,6 +3974,70 @@ def api_outlook_risk_grid():
 
 # ── Gewitterrisiko-Grid ───────────────────────────────────────────────────────
 
+def _risk_score01_and_drivers(info, score01_norm):
+    """
+    P48: Liefert (score01, drivers) rein aus dem fertigen info-Dict einer Grid-Zelle.
+
+      - score01: float 0.0..1.0 = min(1.0, roh_score / score01_norm)
+      - drivers: nach Relevanz sortierte Liste {"source","label","value"} — erklärt,
+        WARUM die Zone riskant ist. Quellen: cell, track, ir_cell, lightning, atm.
+        Die dominante Quelle (info["dominant"]) steht zuerst.
+
+    Reiner Helfer ohne Seiteneffekte → isoliert testbar.
+    """
+    try:
+        raw = float(info.get("score") or 0.0)
+    except (TypeError, ValueError):
+        raw = 0.0
+    norm = score01_norm if (score01_norm and score01_norm > 0) else 2.5
+    score01 = round(min(1.0, max(0.0, raw / norm)), 3)
+
+    drivers = []
+
+    cid = info.get("cell_id")
+    if cid is not None:
+        lbl = f"Aktive Zelle #{cid}"
+        d = info.get("cell_dist_km")
+        if isinstance(d, (int, float)):
+            lbl += f" in {round(float(d), 1)} km"
+        drivers.append({"source": "cell", "label": lbl, "value": cid})
+
+    if info.get("in_forecast_track"):
+        drivers.append({"source": "track", "label": "In berechneter Zugbahn", "value": True})
+
+    ir_id = info.get("ir_cell_id")
+    if ir_id is not None:
+        lbl = "IR-Vorläufer (CB)"
+        bt = info.get("ir_bt_min_k")
+        if isinstance(bt, (int, float)):
+            lbl += f", BT {round(float(bt))} K"
+        drivers.append({"source": "ir_cell", "label": lbl, "value": ir_id})
+
+    lc = info.get("lightning_count") or 0
+    try:
+        lc = int(lc)
+    except (TypeError, ValueError):
+        lc = 0
+    if lc >= 1:
+        drivers.append({"source": "lightning", "label": f"{lc} Blitze < 10 km", "value": lc})
+
+    li = info.get("li")
+    ship = info.get("ship")
+    if isinstance(li, (int, float)) and li < -1.0:
+        drivers.append({"source": "atm", "label": f"Instabil (LI {round(float(li), 1)} °C)",
+                        "value": round(float(li), 1)})
+    elif isinstance(ship, (int, float)) and ship >= 1.0:
+        drivers.append({"source": "atm", "label": f"SHIP {round(float(ship), 1)}",
+                        "value": round(float(ship), 1)})
+
+    # Dominante Quelle zuerst, danach feste Reihenfolge cell→track→ir_cell→lightning→atm.
+    order = {"cell": 0, "track": 1, "ir_cell": 2, "lightning": 3, "atm": 4}
+    dom = info.get("dominant")
+    drivers.sort(key=lambda dd: (0 if dd["source"] == dom else 1, order.get(dd["source"], 9)))
+
+    return score01, drivers
+
+
 @app.route("/api/risk_grid")
 def api_risk_grid():
     """
@@ -4182,6 +4246,10 @@ def api_risk_grid():
         debug_log(f"[risk_grid] IR-Track-Vorladen fehlgeschlagen: {_ir_load_exc}")
         _ir_tracks_all = []
 
+    # P48: Normierungsfaktor Roh-Score → score01 (0–1); runtime-überschreibbar.
+    _SCORE01_NORM = _safe_float(runtime_config.get("RISK_SCORE01_NORM", 2.5), 2.5)
+    if _SCORE01_NORM <= 0:
+        _SCORE01_NORM = 2.5
     cells_out = []
     lat = LAT_MIN
     while lat <= LAT_MAX:
@@ -4433,6 +4501,11 @@ def api_risk_grid():
                     "score":            round(score, 2),
                 },
             })
+
+            # P48: Storm-Potential-Score (0–1) + Driver-Erklärung anreichern
+            _sc01, _drv = _risk_score01_and_drivers(cells_out[-1]["info"], _SCORE01_NORM)
+            cells_out[-1]["info"]["score01"] = _sc01
+            cells_out[-1]["info"]["drivers"] = _drv
 
             lon = round(lon + GRID_STEP, 6)
         lat = round(lat + GRID_STEP, 6)
