@@ -9,7 +9,7 @@ Auf dem Raspberry Pi im Projektverzeichnis:
 ```bash
 cd /home/ki-pi/wetterprojekt
 source venv/bin/activate
-python -c "import pysteps; print(pysteps.__version__)"
+python -c "import importlib.metadata; print(importlib.metadata.version(\"pysteps\"))"
 python tools/diagnose_motion_pipeline.py --hours 24
 cat train_data/evaluation/motion_pipeline_health.json
 ```
