@@ -872,6 +872,38 @@ if pip_install_safe -r "$TARGET/requirements.txt" $PIWHEELS_EXTRA; then
     else
         check_ok "Kritische Module importierbar (numpy/scipy/pysteps/cv2/lightgbm/shapely/rasterio/filterpy)."
     fi
+    if [[ -z "$_MISSING_IMPORTS" ]]; then
+        log_info "Teste pySTEPS Lucas-Kanade Funktion..."
+        if "$VENV/bin/python3" - <<'PY'
+import numpy as np
+from pysteps.motion.lucaskanade import dense_lucaskanade
+
+# Synthetische Radar-Sequenz: kleiner Regenblock verschiebt sich nach rechts.
+# Keine externen Dateien, keine externen Requests.
+R = np.zeros((2, 64, 64), dtype=np.float32)
+R[0, 22:34, 20:32] = 1.0
+R[1, 22:34, 24:36] = 1.0
+
+# pySTEPS ignoriert fehlende/irrelevante Bereiche über NaN.
+R = np.where(R < 0.01, np.nan, R)
+
+UV = dense_lucaskanade(R)
+
+assert UV.shape[0] == 2, UV.shape
+assert UV.shape[1] == 64, UV.shape
+assert UV.shape[2] == 64, UV.shape
+
+print("OK: pySTEPS Lucas-Kanade Funktionstest:", UV.shape)
+PY
+        then
+            check_ok "pySTEPS Lucas-Kanade Funktionstest erfolgreich."
+        else
+            log_warn "pySTEPS Lucas-Kanade Funktionstest fehlgeschlagen."
+            note_manual "cd $TARGET && source venv/bin/activate && pip install --upgrade numpy scipy pysteps"
+            note_manual "Auf Raspberry Pi/aarch64 ggf.: pip install git+https://github.com/pySTEPS/pysteps"
+            note_manual "Danach erneut prüfen: $VENV/bin/python3 -c 'from pysteps.motion.lucaskanade import dense_lucaskanade; print(\"OK\")'"
+        fi
+    fi
     echo ""
     echo "[INFO] DEM-Höhendaten (Copernicus 30m) werden beim ersten Start"
     echo "       automatisch geladen (8 Kacheln × ~180 MB ≈ 1.4 GB)."
