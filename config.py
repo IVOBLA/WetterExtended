@@ -169,6 +169,12 @@ NEW_CELL_SEED_RADIUS_KM = 30.0
 # "stabil"-Korridor (außerhalb → stärker/schwächer bzw. wächst/schrumpft):
 TENDENCY_CORE_DELTA_STABLE = 0.05   # |Δcore_ratio| ≤ 0.05 → Intensität stabil
 TENDENCY_AREA_PCT_STABLE   = 0.10   # |Δarea_pct|   ≤ 0.10 → Größe stabil
+# Absolute Kernfläche stabil, wenn relative Änderung im ±10-%-Korridor liegt.
+TENDENCY_CORE_AREA_PCT_STABLE = 0.10
+# Ab dieser negativen Flächenänderung gilt Schrumpfen als Widerspruch zu reiner core_ratio-Intensivierung.
+TENDENCY_CONTRADICTION_AREA_SHRINK_PCT = -0.10
+# Mindestanstieg des Kernanteils für die Anzeige "Kern konzentriert sich".
+TENDENCY_COMPACT_CORE_RATIO_DELTA = 0.05
 
 # --------------------------------------
 # Risikoalarm-Cooldowns (B97/B98)

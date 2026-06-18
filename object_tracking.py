@@ -16,7 +16,13 @@ from debug_utils import save_debug_image, debug_log
 from geo_utils import crop_and_upscale_to_bbox
 from config import MIN_CONTOUR_OVERLAP
 from config import MIN_CONTOUR_TOUCH
-from config import TENDENCY_AREA_PCT_STABLE
+from config import (
+    TENDENCY_AREA_PCT_STABLE,
+    TENDENCY_CORE_DELTA_STABLE,
+    TENDENCY_CORE_AREA_PCT_STABLE,
+    TENDENCY_CONTRADICTION_AREA_SHRINK_PCT,
+    TENDENCY_COMPACT_CORE_RATIO_DELTA,
+)
 
 
 def _compute_neighbor_ahead(self_obj, all_objs, *,
@@ -527,6 +533,11 @@ def compute_stratiform_environment(hsv: np.ndarray, contour: np.ndarray,
 
 
 def calculate_core_ratio(hsv, contour):
+    """Liefert Kernanteil plus absolute Kern-/Zellpixel.
+
+    Rückgabe bleibt über den Schlüssel ``core_ratio`` kompatibel; Aufrufer, die
+    nur den numerischen Anteil benötigen, können diesen Wert verwenden.
+    """
     CORE_HSV_RANGES = _rc.get("CORE_HSV_RANGES", _DEFAULT_CORE_HSV_RANGES)
     mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
     cv2.drawContours(mask, [contour], -1, 255, -1)
@@ -534,9 +545,16 @@ def calculate_core_ratio(hsv, contour):
     for lower, upper in CORE_HSV_RANGES:
         range_mask = cv2.inRange(hsv, np.array(lower), np.array(upper))
         core_mask |= cv2.bitwise_and(range_mask, range_mask, mask=mask)
-    core_pixels = cv2.countNonZero(core_mask)
-    total_pixels = cv2.countNonZero(mask)
-    return core_pixels / total_pixels if total_pixels > 0 else 0
+    core_pixels = int(cv2.countNonZero(core_mask))
+    total_pixels = int(cv2.countNonZero(mask))
+    core_ratio = core_pixels / total_pixels if total_pixels > 0 else 0.0
+    return {
+        "core_ratio": float(core_ratio),
+        "core_area_px": float(core_pixels),
+        "cell_area_px": float(total_pixels),
+        "core_pixels": int(core_pixels),
+        "total_pixels": int(total_pixels),
+    }
 
 
 # ── P-M03: Merge-bewusste Tendenz-Basislinien (rein, testbar) ───────────────
@@ -567,15 +585,37 @@ def _merge_prev_core(parents, previous_snapshot):
     return (w_core / w_sum) if w_sum > 0.0 else None
 
 
-def _intensity_trend_vs_baseline(core_ratio, prev_core, delta=0.05):
-    """+1 / -1 / 0 anhand core_ratio-Differenz zur Basislinie."""
+def _intensity_trend_vs_baseline(core_ratio, prev_core, delta=0.05, *, area=None, prev_area=None, core_area=None, prev_core_area=None):
+    """+1 / -1 / 0 anhand absoluter Kernfläche, nicht nur core_ratio."""
     if prev_core is None:
         return 0
-    if core_ratio > prev_core + delta:
-        return 1
-    if core_ratio < prev_core - delta:
+    delta_core_ratio = float(core_ratio) - float(prev_core)
+    delta_area_pct = ((float(area) - float(prev_area)) / float(prev_area)) if prev_area else None
+    delta_core_area_pct = ((float(core_area) - float(prev_core_area)) / float(prev_core_area)) if prev_core_area else None
+    if delta_core_area_pct is not None:
+        if (delta_core_area_pct > TENDENCY_CORE_AREA_PCT_STABLE and
+                (delta_area_pct is None or delta_area_pct >= TENDENCY_CONTRADICTION_AREA_SHRINK_PCT)):
+            return 1
+        if delta_core_area_pct < -TENDENCY_CORE_AREA_PCT_STABLE:
+            return -1
+        if (delta_core_ratio > delta and delta_area_pct is not None and
+                delta_area_pct < TENDENCY_CONTRADICTION_AREA_SHRINK_PCT):
+            return 0
+    if delta_core_ratio < -delta:
         return -1
     return 0
+
+
+def _core_trend_detail(core_ratio, prev_core, area, prev_area, core_area, prev_core_area):
+    delta_core_ratio = (float(core_ratio) - float(prev_core)) if prev_core is not None else 0.0
+    delta_area_pct = ((float(area) - float(prev_area)) / float(prev_area)) if prev_area else 0.0
+    delta_core_area_pct = ((float(core_area) - float(prev_core_area)) / float(prev_core_area)) if prev_core_area else 0.0
+    is_compact = (
+        delta_core_ratio > TENDENCY_COMPACT_CORE_RATIO_DELTA
+        and delta_area_pct < TENDENCY_CONTRADICTION_AREA_SHRINK_PCT
+        and delta_core_area_pct <= TENDENCY_CORE_AREA_PCT_STABLE
+    )
+    return delta_core_ratio, delta_area_pct, delta_core_area_pct, is_compact
 
 
 def _size_trend_vs_baseline(area, prev_area, pct_stable):
@@ -681,7 +721,15 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
         original_cx = cx_f / float(UPSCALE_FACTOR)   # Original-px, subpixel (float)
         original_cy = cy_f / float(UPSCALE_FACTOR)
         area, eccentricity = calculate_shape_features(contour)
-        core_ratio = calculate_core_ratio(hsv, contour)
+        core_info = calculate_core_ratio(hsv, contour)
+        if isinstance(core_info, dict):
+            core_ratio = float(core_info.get("core_ratio", 0.0) or 0.0)
+            core_area_px = float(core_info.get("core_area_px", core_info.get("core_pixels", 0.0)) or 0.0)
+            cell_area_px = float(core_info.get("cell_area_px", core_info.get("total_pixels", 0.0)) or 0.0)
+        else:
+            core_ratio = float(core_info or 0.0)
+            cell_area_px = float(cv2.contourArea(contour) or area or 0.0)
+            core_area_px = core_ratio * cell_area_px
         if area < FILTER_CONFIG["min_object_area"] and core_ratio < 0.05:
             continue
         # pixel_to_geo erwartet SKALIERTE Koordinaten (teilt intern durch upscale).
@@ -891,8 +939,6 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             prev_core = previous_snapshot[best_id]["core_ratio"]
         else:
             prev_core = None
-        trend = _intensity_trend_vs_baseline(core_ratio, prev_core, delta=0.05)
-
         # ── B92: Größen-Tendenz aus core_ratio-/Flächen-Verlauf (Fallback) ──
         # area-Vergleich gegen vorigen Frame → relative Flächenänderung.
         # P-M03: Beim Merge gegen die SUMME der Parent-Flächen vergleichen.
@@ -903,6 +949,19 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
         else:
             prev_area = None
         size_trend = _size_trend_vs_baseline(area, prev_area, TENDENCY_AREA_PCT_STABLE)
+        if lineage == "merged":
+            prev_core_area = sum(float(previous_snapshot.get(pid, {}).get("core_area_px") or 0.0) for pid in (parents or [])) or None
+        elif best_id and best_id in previous_snapshot:
+            prev_core_area = float(previous_snapshot[best_id].get("core_area_px") or 0.0) or None
+        else:
+            prev_core_area = None
+        trend = _intensity_trend_vs_baseline(
+            core_ratio, prev_core, delta=TENDENCY_CORE_DELTA_STABLE,
+            area=area, prev_area=prev_area, core_area=core_area_px, prev_core_area=prev_core_area,
+        )
+        delta_core_ratio, delta_area_pct, delta_core_area_pct, is_compact = _core_trend_detail(
+            core_ratio, prev_core, area, prev_area, core_area_px, prev_core_area
+        )
 
         dem    = get_dem_features(lat, lon, vx=float(vx), vy=float(vy))
         valley = get_valley_features(lat, lon, vx=float(vx), vy=float(vy))
@@ -912,8 +971,11 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
         new_memory[obj_id] = {
             "x": original_cx, "y": original_cy, "vx": float(vx), "vy": float(vy),
             "size": int(np.sqrt(area)), "area": float(area), "eccentricity": float(eccentricity),
-            "core_ratio": float(core_ratio), "trend": trend,
-            "size_trend": size_trend,
+            "core_ratio": float(core_ratio), "core_area_px": float(core_area_px),
+            "cell_area_px": float(cell_area_px), "prev_core_area_px": float(prev_core_area or 0.0),
+            "delta_core_ratio": float(delta_core_ratio), "delta_area_pct": float(delta_area_pct),
+            "delta_core_area_pct": float(delta_core_area_pct), "core_compact_signal": 1 if is_compact else 0,
+            "trend": trend, "size_trend": size_trend,
             "merge_discontinuity": 1 if lineage == "merged" else 0,
             "lat": lat, "lon": lon,
             "dem_elevation_m":        dem["dem_elevation_m"],
