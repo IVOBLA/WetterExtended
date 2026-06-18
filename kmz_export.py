@@ -121,10 +121,17 @@ def save_forecast_as_kmz(
             for _label, _key in (("IR-Track-ID", "ir_track_id"), ("BT_min_K", "ir_bt_min_k"), ("Cloud-Height_m", "ir_cloud_height_m"), ("BT-Trend_K_min", "ir_bt_trend_k_per_min"), ("Cloud-Height-Trend_m_min", "ir_cloud_height_trend_m_per_min"), ("Lineage-Match-Score", "lineage_match_score")):
                 if obj.get(_key) is not None:
                     _ir_desc.append(f"{_label}: {obj.get(_key)}")
-            pnt.description = "\n".join([f"Technische ID: {tech_id}", f"Cell-ID: {cell_id}"] + _ir_desc)
+            _lineage_desc = []
+            for _label, _key in (("Parent-Cell-ID", "parent_cell_id"), ("Child-Cell-IDs", "child_cell_ids"), ("Merged-from-Cell-IDs", "merged_from_cell_ids"), ("Lineage-Status", "lineage_status")):
+                if obj.get(_key) not in (None, [], ""):
+                    _lineage_desc.append(f"{_label}: {obj.get(_key)}")
+            pnt.description = "\n".join([f"Technische ID: {tech_id}", f"Cell-ID: {cell_id}"] + _ir_desc + _lineage_desc)
             try:
                 pnt.extendeddata.newdata(name="id", value=str(tech_id))
                 pnt.extendeddata.newdata(name="cell_id", value=str(cell_id))
+                for _name, _key in (("parent_cell_id", "parent_cell_id"), ("child_cell_ids", "child_cell_ids"), ("merged_from_cell_ids", "merged_from_cell_ids"), ("lineage_status", "lineage_status")):
+                    if obj.get(_key) not in (None, [], ""):
+                        pnt.extendeddata.newdata(name=_name, value=str(obj.get(_key)))
                 for _name, _key in (("ir_track_id", "ir_track_id"), ("bt_min_k", "ir_bt_min_k"), ("cloud_height_m", "ir_cloud_height_m"), ("bt_trend_k_per_min", "ir_bt_trend_k_per_min"), ("cloud_height_trend_m_per_min", "ir_cloud_height_trend_m_per_min"), ("lineage_match_score", "lineage_match_score")):
                     if obj.get(_key) is not None:
                         pnt.extendeddata.newdata(name=_name, value=str(obj.get(_key)))

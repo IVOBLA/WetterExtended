@@ -228,6 +228,19 @@ IR_RADAR_MATCH_USE_METPOT = True
 IR_PRECURSOR_HIDE_WHEN_RADAR_MATCHED = True
 IR_PRECURSOR_RESHOW_COOLDOWN_MIN = 15.0
 
+
+# --------------------------------------
+# B213: Split-/Merge-Lineage über cell_id
+# --------------------------------------
+# Runtime-überschreibbar via runtime_overrides.json. Dokumentiert technische
+# Radar-Lineage (parents/children/lineage) zusätzlich auf fachlicher cell_id-Ebene.
+CELL_LINEAGE_SPLIT_MERGE_ENABLED = True
+CELL_LINEAGE_PRIMARY_CHILD_POLICY = "strongest_core"
+CELL_LINEAGE_PRIMARY_MERGE_POLICY = "highest_core_ratio"
+CELL_LINEAGE_KEEP_PARENT_CELL_ID_ON_SPLIT_PRIMARY = True
+CELL_LINEAGE_CREATE_CHILD_CELL_IDS = True
+CELL_LINEAGE_RECORD_ALIAS_IDS = True
+
 # --------------------------------------
 # Weggefährten-Korridor (B94, ML-Feature)
 # --------------------------------------

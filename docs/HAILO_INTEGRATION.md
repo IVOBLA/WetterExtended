@@ -2680,3 +2680,5 @@ Gewitterpotenzial — ohne kostenpflichtige APIs und ohne unnötige Requests.
 - Kein Benutzerhandbuch-Update (Bug-/Test-Fix, kein Fach-Feature).
 - Dateien: `tests/test_b125_eumetview_caps_robust.py`, `tests/test_eumetview_parser.py`,
   `docs/HAILO_INTEGRATION.md`. Verwandt: B174, B160, B161, B125.
+
+| B213 | Split-/Merge-Lineage über `cell_id`: Parent-/Child-Beziehungen, Merge-Aliase und Events `cell_split`/`cell_merge` | `cell_lineage.py`, `main.py`, `object_tracking.py`, `tests/test_b213_split_merge_lineage.py` | ✅ erledigt |

@@ -433,6 +433,17 @@ def main_loop():
                             for _ir in _ir_tracks:
                                 if (ev.get("ir_track_id") in {_ir.get("ir_track_id"), _ir.get("ir_id")}):
                                     _matched_ir_ids.add(_ir.get("ir_id"))
+                    try:
+                        from cell_lineage import update_split_merge_lineage
+                        import object_tracking as _ot_cell_lineage
+                        _split_merge_events = update_split_merge_lineage(
+                            radar_objects=objects,
+                            previous_objects=getattr(_ot_cell_lineage, "tracking_memory", {}),
+                            timestamp=timestamp,
+                        )
+                        _lineage_events.extend(_split_merge_events or [])
+                    except Exception as exc:
+                        debug_log(f"[CELL-LINEAGE] Split/Merge-Lineage fehlgeschlagen: {exc}")
                 except Exception as _lin_exc:
                     debug_log(f"[CELL-LINEAGE] Score-Matching fehlgeschlagen, nutze Legacy-IR-Matching: {_lin_exc}")
                     objects, _ir_tracks, _matched_ir_ids = _legacy_ir_radar_distance_match(objects, _ir_tracks)

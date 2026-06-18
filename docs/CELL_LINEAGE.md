@@ -105,3 +105,19 @@ train_data/cell_lineage/ir_lead_time_labels.jsonl
 ```
 
 Die Datei dient später als Grundlage für Modelle, die zum Beispiel die Wahrscheinlichkeit einer Radarbestätigung nach 10/20/30 Minuten, hoher Wolkentops über 8/10/12 km oder nachfolgendem Starkregen/Blitz abschätzen. 1L.4 trainiert noch kein neues ML-Modell und mischt die Labels nicht automatisch in bestehende LSTM-Datasets.
+
+## B213 Split-/Merge-Lineage
+
+B213 dokumentiert Split- und Merge-Vorgänge zusätzlich auf fachlicher `cell_id`-Ebene, weil die bestehende Radar-Tracking-Lineage technische Track-IDs (`lineage`, `parents`, `children`, `lineage_end`) verwendet. Diese technischen IDs bleiben unverändert erhalten; B213 verknüpft sie nur mit den stabilen fachlichen Zell-IDs, damit Lebensdauer, physikalische Zellanzahl, Lead-Time-Labels und Forecast-Verification später sauber auswertbar sind.
+
+Das Radar-Tracking erzeugt weiterhin die eigentliche Bewegungs- und Objekt-Lineage. B213 ersetzt diese Logik nicht, sondern liest die bereits vorhandenen Felder aus und schreibt ergänzende Beziehungen nach `train_data/cell_lineage/cell_lineage_state.json` sowie Events nach `train_data/cell_lineage/cell_lineage_events.jsonl`.
+
+### Merge
+
+Bei einem Merge behält das zusammengeführte Radarobjekt eine primäre `cell_id`. Wenn bereits eine `cell_id` am Objekt vorhanden ist, wird sie nicht überschrieben. Andernfalls wird die primäre Parent-Zelle nach `core_ratio`, dann Fläche und schließlich Eingabereihenfolge ausgewählt. Weitere Parent-Zellen werden als `alias_cell_ids` und in `merged_from_cell_ids` dokumentiert; die gemergten Parent-Zellen erhalten `merged_into_cell_id`.
+
+### Split
+
+Bei einem Split darf der stärkste Child die Parent-`cell_id` behalten. Die Auswahl erfolgt über `core_ratio`, danach Fläche, danach Parent-Abstand und Eingabereihenfolge. Weitere Child-Zellen bekommen eigene neue `cell_id`s und verweisen über `parent_cell_id` bzw. `split_from_cell_id` auf die Ursprungzelle. Die Parent-Zelle dokumentiert ihre Children in `child_cell_ids` und `split_into_cell_ids`.
+
+B213 erzeugt keine neue Kartenebene und keine sichtbare neue Objektklasse. API und KMZ reichen die vorhandenen Split-/Merge-Felder lediglich weiter. Ebenso wird keine neue ML-Logik eingeführt; die Daten werden nur so persistiert, dass spätere Statistik-, Label- und Verification-Schritte sie nutzen können.
