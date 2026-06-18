@@ -1,4 +1,7 @@
 import json
+import os
+import subprocess
+import sys
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -34,6 +37,21 @@ def _write_jsonl(path: Path, rows):
 
 def _codes(diag):
     return {c["code"] for c in diag["root_cause_candidates"]}
+
+
+def test_diagnose_motion_pipeline_help_runs_without_pythonpath():
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [sys.executable, "tools/diagnose_motion_pipeline.py", "--help"],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert "ModuleNotFoundError" not in result.stderr
 
 
 def test_diagnosis_missing_details_file(tmp_path):

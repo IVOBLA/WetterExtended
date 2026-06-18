@@ -7,6 +7,10 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from forecast_error_diagnosis import build_forecast_error_diagnosis, write_forecast_error_diagnosis
 
 HORIZONS = (10, 20, 30, 40, 60)
