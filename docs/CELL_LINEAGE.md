@@ -36,3 +36,26 @@ Beispiel: `WX-20260618-0001`. Der Zähler ist pro Datum persistent und wird nich
 ## Deduplizierung
 
 In 1L.1 bleibt das bestehende Feld `display_as_precursor` maßgeblich für die Darstellung und Deduplizierung von IR-Vorläufern. In 1L.2/1L.3 wird die Radar-Deduplizierung mit `cell_id` erweitert.
+
+## 1L.2 Score-Matching IR↔Radar
+
+Die frühere Zuordnung „nächster IR-Track innerhalb von 40 km" reicht meteorologisch nicht aus: zwei CB-IR-Vorläufer können in demselben Suchradius liegen, Radar-Kerne können unterschiedlich stark sein und eine wachsende Wolke kann sich zwischen IR- und Radarzeitpunkt bereits sichtbar verlagert haben. 1L.2 behält deshalb 40 km als maximales Suchfenster, entscheidet aber über einen deterministischen Score.
+
+Verwendete Score-Komponenten:
+
+- **Räumliche Nähe** zwischen Radar-Schwerpunkt und aktuellem IR-Schwerpunkt.
+- **Vorhergesagte IR-Position** aus `vx_deg_min`/`vy_deg_min`, sofern verfügbar.
+- **Zeitliche Plausibilität** mit Lookback-Fenster und Freshness-Bonus.
+- **Bewegungsrichtung** bei vorhandenen IR- und Radar-Vektoren.
+- **Wachstums-/Konvektionssignale** wie BT-Abkühlung, Cloud-Top-Anstieg, Flächenwachstum und Overshooting-Top.
+- **Meteorologisches Potenzial** aus bereits vorhandenen Feldern (`cape`, `li`/`arome_li`, `cin`, `lapse_700_500`, `ship_index`, `lightning_count`).
+
+Das Matching lädt keine externen Daten nach und erzeugt keine neuen Requests. Es verwendet ausschließlich bereits an Radarobjekten, IR-Tracks oder im vorhandenen Weather-Kontext vorliegende Werte.
+
+Wenn eine Radarzelle zu einer CB-IR-Vorläuferzelle passt, übernimmt das Radarobjekt die fachliche `cell_id` des IR-Tracks. Der IR-Track wird als `radar_confirmed` markiert, `display_as_precursor` wird deaktiviert und `ir_only_precursor` auf `0.0` gesetzt. Dadurch wird eine bereits bestätigte IR-Wolke nicht zusätzlich als Vorläufer angezeigt. Persistiert wird die Bestätigung in `cell_lineage_state.json` (`radar_to_cell`) und als `ir_to_radar_confirmation` in `cell_lineage_events.jsonl`.
+
+Noch nicht Bestandteil von 1L.2:
+
+- vollständige Split-/Merge-Auflösung mit Parent-/Child-Lineage,
+- finale Karten-/API-Deduplizierung ausschließlich über `cell_id`,
+- ML-Lead-Time-Labels für spätere Trainingsdaten.

@@ -48,6 +48,58 @@ _RISK_ALERT_LOG = os.path.join(
 )
 
 
+
+def _legacy_ir_radar_distance_match(objects, ir_tracks):
+    """Legacy-Fallback: nächster IR-Track innerhalb 40 km (B109-kompatibel)."""
+    from cell_lineage import haversine_km
+    match_km = float(runtime_config.get("IR_RADAR_MATCH_MAX_KM", 40.0))
+    matched_ir_ids = set()
+    for obj in objects or []:
+        obj_lat = obj.get("lat", 0.0); obj_lon = obj.get("lon", 0.0)
+        best_dist = float("inf"); best_ir = None
+        for ir in ir_tracks or []:
+            try:
+                d = haversine_km(float(obj_lat), float(obj_lon), float(ir["lat"]), float(ir["lon"]))
+            except Exception:
+                continue
+            if d < best_dist:
+                best_dist = d; best_ir = ir
+        if best_ir is not None and best_dist <= match_km:
+            obj["cell_id"] = best_ir.get("cell_id", obj.get("cell_id"))
+            obj["ir_match_id"] = best_ir.get("ir_id")
+            obj["ir_track_id"] = best_ir.get("ir_track_id") or best_ir.get("ir_id")
+            obj["ir_status"] = "radar_confirmed"
+            obj["ir_radar_confirmed"] = True
+            obj["ir_is_potential_new_cell"] = False
+            obj["ir_display_as_precursor"] = False
+            obj["ir_area_growth_km2_per_min"] = best_ir.get("area_growth_km2_per_min", 0.0)
+            obj["ir_cloud_height_trend_m_per_min"] = best_ir.get("cloud_height_trend_m_per_min", 0.0)
+            for key in ("bt_min_k", "bt_mean_k", "bt_trend_k_per_min", "cloud_age_min", "anvil_extension_km", "overshooting_top"):
+                obj[key] = best_ir.get(key, obj.get(key, 0.0))
+            obj["ir_only_precursor"] = 0.0
+            best_ir.update({"radar_track_id": obj.get("id"), "status": "radar_confirmed", "radar_confirmed": True, "is_potential_new_cell": False, "display_as_precursor": False, "ir_only_precursor": 0.0})
+            matched_ir_ids.add(best_ir.get("ir_track_id") or best_ir.get("ir_id"))
+        else:
+            obj.setdefault("ir_match_id", None)
+            obj.setdefault("bt_min_k", 0.0)
+            obj.setdefault("bt_mean_k", 0.0)
+            obj.setdefault("bt_trend_k_per_min", 0.0)
+            obj.setdefault("cloud_age_min", 0.0)
+            obj.setdefault("anvil_extension_km", 0.0)
+            obj.setdefault("overshooting_top", 0.0)
+            obj.setdefault("ir_only_precursor", 0.0)
+    return objects or [], ir_tracks or [], matched_ir_ids
+
+
+def _score_match_ir_radar_lineage(objects, ir_tracks, *, timestamp=None, weather_data=None):
+    from cell_lineage import update_cell_lineage
+    return update_cell_lineage(
+        radar_objects=objects,
+        ir_tracks=ir_tracks,
+        timestamp=timestamp,
+        weather_context=weather_data,
+    )
+
 def _risk_alert_check(timestamp: str) -> None:
     import json as _j
     from datetime import datetime as _dt, timezone as _tz
@@ -368,63 +420,26 @@ def main_loop():
                 _ir_cells_raw = detect_ir_cells(timestamp=timestamp)
                 _ir_tracks = update_ir_tracking(_ir_cells_raw, timestamp)
 
-                # IR↔Radar Lineage-Matching:
-                # Maximaler Abstand für ein IR↔Radar-Match: 40 km
-                _IR_MATCH_KM = 40.0
-                _matched_ir_ids = set()
-                for _obj in objects:
-                    _obj_lat = _obj.get("lat", 0.0)
-                    _obj_lon = _obj.get("lon", 0.0)
-                    _best_dist = float("inf")
-                    _best_ir = None
-                    for _ir in _ir_tracks:
-                        from math import radians as _rad, cos as _cos, sin as _sin, sqrt as _sq, atan2 as _at2
-                        _dlat = _rad(_ir["lat"] - _obj_lat)
-                        _dlon = _rad(_ir["lon"] - _obj_lon)
-                        _a = _sin(_dlat/2)**2 + _cos(_rad(_obj_lat)) * _cos(_rad(_ir["lat"])) * _sin(_dlon/2)**2
-                        _d = 6371.0 * 2 * _at2(_sq(_a), _sq(1-_a))
-                        if _d < _best_dist:
-                            _best_dist = _d
-                            _best_ir = _ir
-                    if _best_ir is not None and _best_dist <= _IR_MATCH_KM:
-                        _obj["ir_match_id"]           = _best_ir.get("ir_id")
-                        _obj["ir_track_id"]           = _best_ir.get("ir_id")
-                        _obj["ir_status"]             = "radar_confirmed"
-                        _obj["ir_radar_confirmed"]    = True
-                        _obj["ir_is_potential_new_cell"] = False
-                        _obj["ir_display_as_precursor"] = False
-                        _obj["ir_area_growth_km2_per_min"] = _best_ir.get("area_growth_km2_per_min", 0.0)
-                        _obj["ir_cloud_height_trend_m_per_min"] = _best_ir.get("cloud_height_trend_m_per_min", 0.0)
-                        _obj["bt_min_k"]              = _best_ir.get("bt_min_k", 0.0)
-                        _obj["bt_mean_k"]             = _best_ir.get("bt_mean_k", 0.0)
-                        _obj["bt_trend_k_per_min"]    = _best_ir.get("bt_trend_k_per_min", 0.0)
-                        _obj["cloud_age_min"]         = _best_ir.get("cloud_age_min", 0.0)
-                        _obj["anvil_extension_km"]    = _best_ir.get("anvil_extension_km", 0.0)
-                        _obj["overshooting_top"]      = _best_ir.get("overshooting_top", 0.0)
-                        _obj["ir_only_precursor"]     = 0.0
-                        _best_ir["radar_track_id"] = _obj.get("id")
-                        _best_ir["status"] = "radar_confirmed"
-                        _best_ir["radar_confirmed"] = True
-                        _best_ir["is_potential_new_cell"] = False
-                        _best_ir["display_as_precursor"] = False
-                        _best_ir["ir_only_precursor"] = 0.0
-                        _matched_ir_ids.add(_best_ir.get("ir_id"))
-                        if isinstance(_best_ir.get("radar_match_ids"), list):
-                            if _obj.get("id") not in _best_ir["radar_match_ids"]:
-                                _best_ir["radar_match_ids"].append(_obj.get("id"))
-                    else:
-                        _obj.setdefault("ir_match_id",        None)
-                        _obj.setdefault("bt_min_k",           0.0)
-                        _obj.setdefault("bt_mean_k",          0.0)
-                        _obj.setdefault("bt_trend_k_per_min", 0.0)
-                        _obj.setdefault("cloud_age_min",      0.0)
-                        _obj.setdefault("anvil_extension_km", 0.0)
-                        _obj.setdefault("overshooting_top",   0.0)
-                        _obj.setdefault("ir_only_precursor",  0.0)
+                # IR↔Radar Lineage-Matching (1L.2): deterministisches Score-Matching
+                # mit Legacy-Distanzmatching als nicht-kritischem Fallback.
+                try:
+                    objects, _ir_tracks, _lineage_events = _score_match_ir_radar_lineage(
+                        objects, _ir_tracks, timestamp=timestamp, weather_data=weather_data
+                    )
+                    _matched_ir_ids = set()
+                    for ev in (_lineage_events or []):
+                        if ev.get("event_type") == "ir_to_radar_confirmation":
+                            _matched_ir_ids.add(ev.get("ir_track_id"))
+                            for _ir in _ir_tracks:
+                                if (ev.get("ir_track_id") in {_ir.get("ir_track_id"), _ir.get("ir_id")}):
+                                    _matched_ir_ids.add(_ir.get("ir_id"))
+                except Exception as _lin_exc:
+                    debug_log(f"[CELL-LINEAGE] Score-Matching fehlgeschlagen, nutze Legacy-IR-Matching: {_lin_exc}")
+                    objects, _ir_tracks, _matched_ir_ids = _legacy_ir_radar_distance_match(objects, _ir_tracks)
 
                 # IR-Cells OHNE Radar-Match: ir_only_precursor = 1.0
                 for _ir in _ir_tracks:
-                    if _ir.get("ir_id") not in _matched_ir_ids:
+                    if (_ir.get("ir_track_id") or _ir.get("ir_id")) not in _matched_ir_ids and _ir.get("ir_id") not in _matched_ir_ids:
                         _ir["status"] = "ir_precursor"
                         _ir["radar_confirmed"] = False
                         _ir["is_potential_new_cell"] = True
@@ -433,9 +448,11 @@ def main_loop():
 
                 # B109: Radar-Match-Status sofort persistieren damit api_risk_grid()
                 # keinen veralteten IR-State liest.
-                mark_radar_matched_tracks(list(_matched_ir_ids), {
-                    _ir.get("ir_id"): _ir.get("radar_track_id") for _ir in _ir_tracks
-                })
+                _radar_match_map = {}
+                for _ir in _ir_tracks:
+                    _radar_match_map[_ir.get("ir_id")] = _ir.get("radar_track_id")
+                    _radar_match_map[_ir.get("ir_track_id") or _ir.get("ir_id")] = _ir.get("radar_track_id")
+                mark_radar_matched_tracks(list(_matched_ir_ids), _radar_match_map)
 
                 debug_log(f"[IR-TRACK] {len(_ir_tracks)} aktive IR-Tracks, "
                           f"{len(_matched_ir_ids)} Radar-Matches.")
