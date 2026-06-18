@@ -84,8 +84,33 @@ def reload_overrides() -> None:
         _OVERRIDES = _load()
 
 
+
+def _location_key(entry: Any) -> str:
+    if not isinstance(entry, dict):
+        return ""
+    return str(entry.get("name", "")).strip().casefold()
+
+
+def merge_locations_watchlist(user_locations: Any = None) -> list:
+    """Effective watchlist: user entries first, missing config defaults appended by name."""
+    defaults = getattr(_cfg, "LOCATIONS_WATCHLIST", [])
+    with _LOCK:
+        if user_locations is None:
+            user_locations = _OVERRIDES.get("LOCATIONS_WATCHLIST", defaults)
+    base = user_locations if isinstance(user_locations, list) else []
+    merged = [dict(x) if isinstance(x, dict) else x for x in base]
+    seen = {_location_key(x) for x in merged if _location_key(x)}
+    for loc in defaults if isinstance(defaults, list) else []:
+        key = _location_key(loc)
+        if key and key not in seen:
+            merged.append(dict(loc))
+            seen.add(key)
+    return merged
+
 def get(name: str, default: Any = None) -> Any:
-    """Override > Config > default."""
+    """Override > Config > default; LOCATIONS_WATCHLIST is default-merged by name."""
+    if name == "LOCATIONS_WATCHLIST":
+        return merge_locations_watchlist()
     with _LOCK:
         if name in _OVERRIDES:
             return _OVERRIDES[name]
@@ -106,6 +131,7 @@ def all_effective() -> dict:
     with _LOCK:
         for k, v in _OVERRIDES.items():
             out[k] = v
+    out["LOCATIONS_WATCHLIST"] = merge_locations_watchlist()
     return out
 
 

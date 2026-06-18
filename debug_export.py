@@ -303,6 +303,7 @@ def _build_candidates_with_diagnostics(base_dir: Path, save_paths: dict | None) 
         ("system_logs", Path("logs"), False),
         ("config", Path("config.py"), True),
         ("config", Path("runtime_overrides.json"), True),
+        ("config", Path("train_data/runtime_overrides.json"), True),
     ]
     for key in ("weather", "wind", "cape", "ir", "lightning", "arome", "ir_cells", "system", "cell_lineage"):
         if key in save_paths:
@@ -605,6 +606,18 @@ def create_debug_export_zip(
                     raise
                 except Exception as exc:
                     excluded_files.append(f"{rel}: {exc}")
+
+            try:
+                import runtime_config as _runtime_config
+                effective = _runtime_config.all_effective()
+                data = json.dumps(effective, ensure_ascii=False, indent=2, default=str).encode("utf-8")
+                zf.writestr(f"{root_name}/config/effective_runtime_config.json", data)
+                total_files += 1
+                total_bytes += len(data)
+                files_by_section["config"] = files_by_section.get("config", 0) + 1
+                included_roots.add("config")
+            except Exception as exc:
+                excluded_files.append(f"effective_runtime_config.json: {exc}")
 
             api_log_info = _write_api_logs_to_zip(zf, root_name, base_dir, save_paths, window_start, now)
             if api_log_info["files_count"]:
