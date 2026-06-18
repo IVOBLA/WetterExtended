@@ -209,6 +209,25 @@ MIN_MOVEMENT_FOR_ARROW_KMH = 5.0
 # Risikozonen-Grid — IR-Vorläufer
 RISK_IR_RANGE_KM = 15
 
+
+# --------------------------------------
+# 1L.2 IR↔Radar Score-Matching
+# --------------------------------------
+# Runtime-überschreibbar via runtime_overrides.json. Keine externen Requests;
+# Score nutzt nur bereits vorhandene Radar-/IR-/Weather-Kontextfelder.
+IR_RADAR_MATCH_SCORE_MIN = 0.70
+IR_RADAR_MATCH_SCORE_WEAK_MIN = 0.55
+IR_RADAR_MATCH_MAX_KM = 40.0
+IR_RADAR_MATCH_STRONG_KM = 15.0
+IR_RADAR_MATCH_LOOKBACK_MIN = 45.0
+IR_RADAR_MATCH_MAX_IR_AGE_MIN = 20.0
+IR_RADAR_MATCH_USE_PREDICTED_POSITION = True
+IR_RADAR_MATCH_USE_STEERING_WIND = True
+IR_RADAR_MATCH_USE_GROWTH_SIGNALS = True
+IR_RADAR_MATCH_USE_METPOT = True
+IR_PRECURSOR_HIDE_WHEN_RADAR_MATCHED = True
+IR_PRECURSOR_RESHOW_COOLDOWN_MIN = 15.0
+
 # --------------------------------------
 # Weggefährten-Korridor (B94, ML-Feature)
 # --------------------------------------

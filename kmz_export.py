@@ -105,9 +105,16 @@ def save_forecast_as_kmz(
                 lon = float(obj.get("lon"))
             except (TypeError, ValueError):
                 continue
-            cell_id = obj.get("id", "cell")
+            tech_id = obj.get("id", "cell")
+            cell_id = obj.get("cell_id") or tech_id
             # Mittelpunkt
-            pnt = current_folder.newpoint(name=str(cell_id), coords=[(lon, lat)])
+            pnt = current_folder.newpoint(name=str(tech_id), coords=[(lon, lat)])
+            pnt.description = f"Technische ID: {tech_id}\nCell-ID: {cell_id}"
+            try:
+                pnt.extendeddata.newdata(name="id", value=str(tech_id))
+                pnt.extendeddata.newdata(name="cell_id", value=str(cell_id))
+            except Exception:
+                pass
             pnt.style.iconstyle.icon.href = (
                 "http://maps.google.com/mapfiles/kml/shapes/triangle.png"
             )
@@ -159,8 +166,15 @@ def save_forecast_as_kmz(
             except Exception:
                 continue
 
-            cell_id = obj.get("id", "forecast")
-            pnt = folder.newpoint(name=f"{cell_id}_+{horizon}m", coords=[(lon, lat)])
+            tech_id = obj.get("id", "forecast")
+            cell_id = obj.get("cell_id") or tech_id
+            pnt = folder.newpoint(name=f"{tech_id}_+{horizon}m", coords=[(lon, lat)])
+            pnt.description = f"Technische ID: {tech_id}\nCell-ID: {cell_id}"
+            try:
+                pnt.extendeddata.newdata(name="id", value=str(tech_id))
+                pnt.extendeddata.newdata(name="cell_id", value=str(cell_id))
+            except Exception:
+                pass
             pnt.style.iconstyle.icon.href = (
                 "http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png"
             )
