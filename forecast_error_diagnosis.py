@@ -13,9 +13,10 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from config import SAVE_PATHS
+    from config import SAVE_PATHS, VERIFICATION_TIME_TOLERANCE_S
 except Exception:  # pragma: no cover
     SAVE_PATHS = {"evaluation": "train_data/evaluation"}
+    VERIFICATION_TIME_TOLERANCE_S = 90
 
 EVAL_DIR = Path(SAVE_PATHS.get("evaluation", "train_data/evaluation"))
 DETAILS_FILE = EVAL_DIR / "forecast_error_details.jsonl"
@@ -141,7 +142,11 @@ def is_valid_forecast_error_detail(row: dict, *, now_utc: datetime | None = None
         return False, "invalid_time_order"
     if forecast_created is not None and target_ts is not None and target_ts < forecast_created:
         return False, "invalid_time_order"
-    if target_ts is not None and verified_at is not None and target_ts > verified_at:
+    if (
+        target_ts is not None
+        and verified_at is not None
+        and (target_ts - verified_at).total_seconds() > VERIFICATION_TIME_TOLERANCE_S
+    ):
         return False, "invalid_time_order"
 
     if _f(row.get("forecast_error_km")) is None and not _truthy(row.get("missed")) and not _truthy(row.get("no_target_frame")):

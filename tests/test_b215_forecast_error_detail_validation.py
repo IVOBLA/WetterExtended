@@ -52,6 +52,25 @@ def test_rejects_target_before_forecast_created():
     assert is_valid_forecast_error_detail(row, now_utc=NOW)[1] == "invalid_time_order"
 
 
+def test_accepts_tolerance_early_verified_target_frame():
+    target = NOW
+    row = _row(
+        created=target - timedelta(minutes=10),
+        target=target,
+        verified=target - timedelta(seconds=90),
+    )
+    assert is_valid_forecast_error_detail(row, now_utc=NOW) == (True, None)
+
+
+def test_rejects_verified_before_target_beyond_time_tolerance():
+    target = NOW
+    row = _row(
+        created=target - timedelta(minutes=10),
+        target=target,
+        verified=target - timedelta(seconds=91),
+    )
+    assert is_valid_forecast_error_detail(row, now_utc=NOW)[1] == "invalid_time_order"
+
 def test_rejects_synthetic_cell_one_fixture():
     row = _row(object_id="cell-1", forecast_lat=47.0, actual_lat=47.0, origin_lat=47.0, forecast_lon=15.0, actual_lon=15.0, origin_lon=15.0)
     assert is_valid_forecast_error_detail(row, now_utc=NOW)[1] == "synthetic_or_test_fixture"
