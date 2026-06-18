@@ -19,12 +19,19 @@ function Val({ v, unit = '', decimals = 1, zeroIsEmpty = false, negativeIsEmpty 
 }
 
 // Wolkenhöhe: unterscheidet fehlende Daten (missing=1) von wolkenfrei (height<=0)
-function CloudHeight({ height, missing, short = false }) {
+function CloudHeight({ height, missing, short = false, lowConfidence = false }) {
   if (missing === 1 || missing === undefined || missing === null)
     return <span className="text-gray-300">—</span>
   const h = parseFloat(height)
   if (isNaN(h) || h <= 0)
     return <span className="text-blue-300 text-xs" title="Wolkenfrei laut MSG IR108">{short ? '☀' : 'wolkenfrei'}</span>
+  if (lowConfidence)
+    return (
+      <span className="text-amber-500"
+        title="Unsicher: IR108 zeigt einen warmen Wolkenoberteil — MSG-Bild ggf. veraltet/versetzt oder flache bzw. frische Zelle. Wert ist eine grobe Untergrenze, nicht der echte Cb-Top.">
+        ~{Math.round(h)}<span className="text-gray-400 text-xs ml-0.5">m</span>
+      </span>
+    )
   return <span>{Math.round(h)}<span className="text-gray-400 text-xs ml-0.5">m</span></span>
 }
 
@@ -193,7 +200,7 @@ function CellTableRow({ o, isInactive, selected, onSelect }) {
       </td>
 
       <td className="p-2 text-right">
-        <CloudHeight height={o.cloud_top_height_msl} missing={o.cloud_height_missing} short />
+        <CloudHeight height={o.cloud_top_height_msl} missing={o.cloud_height_missing} lowConfidence={o.cloud_height_low_confidence === 1} short />
       </td>
       <td className="p-2 text-right"><Val v={o.lightning_count_10km} decimals={0} zeroIsEmpty /></td>
       <td className="p-2 text-right"><Val v={o.of_speed} decimals={1} zeroIsEmpty /></td>
@@ -350,7 +357,7 @@ export default function LiveDaten() {
                 </Group>
 
                 <Group label="Wolke & Blitze">
-                  Wolkentop: <CloudHeight height={sel.cloud_top_height_msl} missing={sel.cloud_height_missing} /><br />
+                  Wolkentop: <CloudHeight height={sel.cloud_top_height_msl} missing={sel.cloud_height_missing} lowConfidence={sel.cloud_height_low_confidence === 1} /><br />
                   Blitze &lt;10km: <Val v={sel.lightning_count_10km} decimals={0} />
                 </Group>
 

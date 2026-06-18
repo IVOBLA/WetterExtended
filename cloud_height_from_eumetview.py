@@ -485,6 +485,16 @@ def _uint8_to_bt_kelvin(bt_uint8: np.ndarray) -> np.ndarray:
 
 # ── Haupt-API ─────────────────────────────────────────────────────────────────
 
+def warm_top_height_msl(bt_val, T_surface, lapse_rate, altitude_m):
+    """P51: Wolkenhöhe MSL [m] aus einem (warmen) BT-Wert — gleiche Lapse-Rate-Formel
+    wie der reguläre Pfad. Genutzt für konvektive Zellen mit warmem IR-Oberteil, damit
+    die Wolkenhöhe IMMER befüllt ist (low-confidence). Untergrenze = Geländeniveau
+    (altitude_m), damit keine unphysikalisch tiefen Werte entstehen.
+    """
+    h = (float(T_surface) - float(bt_val)) / float(lapse_rate) + float(altitude_m)
+    return round(max(h, float(altitude_m)), 1)
+
+
 def assign_cloud_top_height(
     objects: list,
     weather_data: list | None = None,
@@ -723,15 +733,28 @@ def assign_cloud_top_height(
                             # ein Widerspruch (MSG-Scan zu alt, Koordinatenversatz,
                             # frisch entstehende Konvektion) → Datenfehler, nicht wolkenfrei.
                             is_convective = float(obj.get("core_ratio", 0.0)) > 0.0
-                            obj["cloud_top_height_msl"] = -1.0
-                            obj["cloud_height_missing"] = 1.0 if is_convective else 0.0
                             if is_convective:
-                                debug_log(
-                                    f"[CLOUD] Widerspruch: Zelle {obj.get('id','?')} "
-                                    f"core_ratio={obj.get('core_ratio',0):.2f} aber "
-                                    f"bt_k={float(bt_val):.1f} K > threshold={nan_threshold} K"
-                                    f" → cloud_height_missing=1"
+                                # P51: Wolkenhöhe IMMER anzeigen. Statt den warmen Top zu
+                                # unterdrücken, Höhe aus bt_val berechnen und als
+                                # LOW-CONFIDENCE markieren (IR108 ggf. veraltet/versetzt oder
+                                # flache/frische Zelle → grobe Untergrenze, NICHT der echte Cb-Top).
+                                obj["cloud_top_height_msl"] = warm_top_height_msl(
+                                    float(bt_val), T_surface, lapse_rate, altitude_m
                                 )
+                                obj["cloud_height_missing"] = 0.0
+                                obj["cloud_height_low_confidence"] = 1.0
+                                obj["cloud_top_height_timestamp"] = timestamp_file
+                                assigned += 1
+                                debug_log(
+                                    f"[CLOUD] Warm-Top low-confidence: Zelle {obj.get('id','?')} "
+                                    f"core_ratio={obj.get('core_ratio',0):.2f} "
+                                    f"bt_k={float(bt_val):.1f} K > threshold={nan_threshold} K "
+                                    f"→ cloud_top_height_msl={obj['cloud_top_height_msl']} (unsicher)"
+                                )
+                            else:
+                                # Nicht-konvektiv + warm = wolkenfrei (Frontend: „wolkenfrei")
+                                obj["cloud_top_height_msl"] = -1.0
+                                obj["cloud_height_missing"] = 0.0
                     else:
                         obj["cloud_top_height_msl"]       = round(float(value), 1)
                         obj["cloud_height_missing"]        = 0.0

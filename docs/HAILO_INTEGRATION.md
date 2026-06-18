@@ -2693,3 +2693,12 @@ Gewitterpotenzial — ohne kostenpflichtige APIs und ohne unnötige Requests.
   + accuracy_tracker-Konstanten nach tmp) + gezielte Isolation in
   test_accuracy_tracker_horizon_mode.py + Regressionstest + einmalige Bereinigung
   (cell-1 entfernt, Backup `.b216.bak`). Verwandt: B127, B129, B179, B215.
+
+### P51 — Wolkenhöhe immer anzeigen (Warm-Top low-confidence) ✅
+- Warm-Top-Konvektion (`bt_k > nan_threshold` & `core_ratio>0`) wird nicht mehr unterdrückt:
+  Höhe aus `bt_val` via `warm_top_height_msl()`, `cloud_height_missing=0`,
+  neues Flag `cloud_height_low_confidence=1`. Frontend `CloudHeight` zeigt Tilde+Amber+Tooltip.
+- „—" nur noch bei echtem Nodata (kein WMS-Timestamp, rasterio fehlt, außerhalb Raster, BT-Nodata).
+- Fachhinweis: Warm-Top-Wert = grobe Untergrenze, nicht der echte Cb-Top.
+- Dateien: `cloud_height_from_eumetview.py`, `frontend/src/pages/LiveDaten.jsx`,
+  `tests/test_p51_cloud_height_low_confidence.py`, Benutzerhandbuch.
