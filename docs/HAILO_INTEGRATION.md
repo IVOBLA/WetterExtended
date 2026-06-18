@@ -2579,7 +2579,7 @@ Gewitterpotenzial — ohne kostenpflichtige APIs und ohne unnötige Requests.
 | 1L.1 | **Zell-Lineage:** CB-IR-Wolke bekommt früh stabile `cell_id`; technische `ir_track_id`/`radar_track_id` bleiben intern | `cell_lineage.py`, `ir_cell_tracking.py`, `config.py` | ✅ erledigt — stabile cell_id für CB-IR-Tracks, Persistenz in train_data/cell_lineage |
 | 1L.2 | Score-Matching IR↔Radar (vorhergesagte IR-Position, Growth-/MetPot-Signale, Zeitfenster ≤45 min); Radarzelle übernimmt `cell_id` | `cell_lineage.py`, `main.py`, `config.py`, `tests/test_1l2_ir_radar_score_matching.py` | ✅ erledigt |
 | 1L.3 | Karten-/API-/KMZ-Dedup: gematchte IR-Wolke nicht mehr als Vorläufer; physikalische Zellen über `cell_id` eindeutig sichtbar | `app.py`, `kmz_export.py`, Frontend, `tests/test_1l3_cell_lineage_dedup.py` | ✅ erledigt — API/Karte/KMZ deduplizieren physikalische Zellen über cell_id |
-| 1L.4 | ML-Lead-Time-Labels (`became_radar_cell`, `lead_time_min`, `prob_radar_confirmation_*`) | `dataset_builder.py`, `model_training.py` | ⏳ offen |
+| 1L.4 | ML-Lead-Time-Labels (`became_radar_cell`, `ended_without_radar`, `lead_time_min`) aus IR→Radar-Lineage erzeugen; API-/Debug-Export-/Cleanup-Schutz; Training/Modellnutzung folgt später | `cell_lineage.py`, `app.py`, `tools/summarize_ir_lead_time_labels.py`, `tests/test_1l4_ir_lead_time_labels.py` | ✅ erledigt — Labels werden in `train_data/cell_lineage/ir_lead_time_labels.jsonl` geschrieben; ML-Verwertung folgt als spätere Phase |
 | 1D | Storm-Potential anreichern (normalisierter Score 0–1 + `drivers[]`) in `risk_grid` | `app.py` | ✅ erledigt (P48) |
 | 1E | Admin/Logs/Budget-Guard (Free-only erzwingen, persistente Budgetzähler) | `api_budget_guard.py`, Frontend, `app.py` | ✅ erledigt |
 
