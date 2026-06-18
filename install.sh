@@ -631,10 +631,17 @@ fi
 # Es enthält benutzergenerierte Lerndaten (manuelle Polygone, KI-Vorschläge,
 # PNG-Ausschnitte) und wird analog zu .env, runtime_overrides.json und
 # DEM-Tiles als geschützter Benutzerdaten-Bestand behandelt.
-log_info "Stelle HitL-Verzeichnisse sicher (bestehende Daten bleiben unberührt)..."
+log_info "Stelle HitL- und Zell-Lineage-Verzeichnisse sicher (bestehende Daten bleiben unberührt)..."
 mkdir -p "${TARGET}/train_data/cell_filters/polygons"
 chown -R "${SERVICE_USER}:${SERVICE_USER}" "${TARGET}/train_data/cell_filters" 2>/dev/null || true
 chmod 755 "${TARGET}/train_data/cell_filters" "${TARGET}/train_data/cell_filters/polygons" 2>/dev/null || true
+if mkdir -p "${TARGET}/train_data/cell_lineage"; then
+    chown -R "${SERVICE_USER}:${SERVICE_USER}" "${TARGET}/train_data/cell_lineage" 2>/dev/null || true
+    chmod 755 "${TARGET}/train_data/cell_lineage" 2>/dev/null || true
+    log_info "  ${TARGET}/train_data/cell_lineage/      (Zell-Lineage — bleibt erhalten)"
+else
+    log_warn "Konnte ${TARGET}/train_data/cell_lineage nicht anlegen; Zell-Lineage wird beim Schreiben erneut versuchen."
+fi
 
 # P-S02: Langzeitstatistik-Verzeichnis anlegen (beide Modi, idempotent).
 mkdir -p "${TARGET}/train_data/statistics"
@@ -935,6 +942,7 @@ DIRS=(
     train_data/models
     train_data/ir
     train_data/ir_cells
+    train_data/cell_lineage
     train_data/lightning
     train_data/evaluation
     train_data/cloud
