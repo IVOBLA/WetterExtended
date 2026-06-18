@@ -92,6 +92,93 @@ def _f(v: Any) -> float | None:
         return None
 
 
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return bool(value)
+
+
+def _same_float(value: Any, expected: float) -> bool:
+    parsed = _f(value)
+    return parsed is not None and abs(parsed - expected) <= 1e-9
+
+
+def is_valid_forecast_error_detail(row: dict, *, now_utc: datetime | None = None) -> tuple[bool, str | None]:
+    """Validate one B211 forecast-verification detail row for B214 diagnosis use."""
+    if not isinstance(row, dict):
+        return False, "invalid_time_order"
+
+    if any(_truthy(row.get(k)) for k in ("test_fixture", "synthetic", "dummy")):
+        return False, "synthetic_or_test_fixture"
+    if (
+        str(row.get("object_id") or "") == "cell-1"
+        and all(_same_float(row.get(k), 47.0) for k in ("forecast_lat", "actual_lat", "origin_lat"))
+        and all(_same_float(row.get(k), 15.0) for k in ("forecast_lon", "actual_lon", "origin_lon"))
+    ):
+        return False, "synthetic_or_test_fixture"
+
+    forecast_created = _parse_ts(row.get("forecast_created_at_utc"))
+    target_ts = _parse_ts(row.get("target_timestamp_utc"))
+    verified_at = _parse_ts(row.get("verified_at_utc"))
+    now = now_utc or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+
+    if verified_at is not None and forecast_created is None:
+        return False, "invalid_time_order"
+    if verified_at is not None and target_ts is None:
+        return False, "invalid_time_order"
+    if forecast_created is not None and forecast_created > now + timedelta(minutes=5):
+        return False, "forecast_created_in_future"
+    if forecast_created is not None and verified_at is not None and verified_at < forecast_created:
+        return False, "invalid_time_order"
+    if forecast_created is not None and target_ts is not None and target_ts < forecast_created:
+        return False, "invalid_time_order"
+
+    if _f(row.get("forecast_error_km")) is None and not _truthy(row.get("missed")) and not _truthy(row.get("no_target_frame")):
+        return False, "missing_error_metric"
+    return True, None
+
+
+def _summarize_invalid_detail(row: dict, reason: str) -> dict:
+    keys = (
+        "reason", "object_id", "cell_id", "forecast_created_at_utc", "target_timestamp_utc",
+        "verified_at_utc", "horizon_min", "forecast_mode", "kinematic_source", "of_available",
+        "forecast_error_km", "match_type", "forecast_lat", "forecast_lon", "actual_lat",
+        "actual_lon", "origin_lat", "origin_lon",
+    )
+    out = {"reason": reason}
+    for key in keys:
+        if key != "reason" and key in row:
+            out[key] = row.get(key)
+    return out
+
+
+def _validation_summary(details: list[dict], *, now_utc: datetime | None = None) -> tuple[list[dict], dict]:
+    valid: list[dict] = []
+    counts = {
+        "invalid_time_order": 0,
+        "synthetic_or_test_fixture": 0,
+        "forecast_created_in_future": 0,
+        "missing_error_metric": 0,
+    }
+    examples: list[dict] = []
+    for row in details:
+        ok, reason = is_valid_forecast_error_detail(row, now_utc=now_utc)
+        if ok:
+            valid.append(row)
+            continue
+        reason = reason or "invalid_time_order"
+        counts[reason] = counts.get(reason, 0) + 1
+        if len(examples) < 5:
+            examples.append(_summarize_invalid_detail(row, reason))
+    return valid, {"invalid_detail_counts": counts, "invalid_detail_examples": examples}
+
 def _pct(values: list[float], p: float) -> float | None:
     vals = sorted(v for v in values if v is not None)
     if not vals:
@@ -124,7 +211,9 @@ def build_forecast_error_diagnosis(*, details_path: str | Path = DETAILS_FILE, a
     details_path = Path(details_path); history_path = Path(accuracy_history_path)
     base = {
         "checked_at_utc": _now(), "hours": hours, "status": "ok",
-        "sample_counts": {"details": 0, "verified_short": 0, "verified_total": 0},
+        "sample_counts": {"details_total": 0, "details_valid": 0, "details_invalid": 0, "verified_short": 0, "verified_total": 0},
+        "invalid_detail_counts": {"invalid_time_order": 0, "synthetic_or_test_fixture": 0, "forecast_created_in_future": 0, "missing_error_metric": 0},
+        "invalid_detail_examples": [],
         "primary_findings": [], "recommendations": [], "severity": "ok", "root_cause_candidates": [],
         "mode_comparison": {}, "source_comparison": {}, "match_type_comparison": {},
         "direction_diagnosis": {}, "speed_diagnosis": {}, "coverage_diagnosis": {}, "worst_forecasts": [],
@@ -132,14 +221,20 @@ def build_forecast_error_diagnosis(*, details_path: str | Path = DETAILS_FILE, a
     if not details_path.exists():
         base.update({"status": "missing", "severity": "watch", "recommendations": ["B211 muss zuerst Daten sammeln."]})
         return base
-    details = _read_jsonl(details_path, hours, ("verified_at_utc", "target_timestamp_utc", "forecast_created_at_utc"))
+    details_all = _read_jsonl(details_path, hours, ("verified_at_utc", "target_timestamp_utc", "forecast_created_at_utc"))
+    valid_details, validation = _validation_summary(details_all)
+    details = valid_details
     history = _read_jsonl(history_path, hours, ("timestamp_utc",)) if history_path.exists() else []
     short = [r for r in details if (_f(r.get("horizon_min")) or 9999) <= SHORT_HORIZON_MAX_MIN]
     verified = [r for r in details if _f(r.get("forecast_error_km")) is not None]
     verified_short = [r for r in short if _f(r.get("forecast_error_km")) is not None]
-    base["sample_counts"] = {"details": len(details), "verified_short": len(verified_short), "verified_total": len(verified)}
+    base["sample_counts"] = {"details_total": len(details_all), "details_valid": len(details), "details_invalid": len(details_all) - len(details), "verified_short": len(verified_short), "verified_total": len(verified)}
+    base["invalid_detail_counts"] = validation["invalid_detail_counts"]
+    base["invalid_detail_examples"] = validation["invalid_detail_examples"]
     if not details:
-        base.update({"status": "insufficient_data", "severity": "watch", "recommendations": ["Mehr Daten sammeln, Diagnose nicht überinterpretieren."]})
+        base.update({"status": "insufficient_data", "severity": "watch", "recommendations": ["forecast_error_details.jsonl enthält zu wenige valide Produktionsdetails; B211-Schreibpfad prüfen."]})
+        _add(base["root_cause_candidates"], "low_sample_count", "watch", 0.3, {"details_valid": 0})
+        base["primary_findings"] = [FINDINGS["low_sample_count"]]
         return base
 
     def group(field: str) -> dict:
@@ -226,7 +321,10 @@ def build_forecast_error_diagnosis(*, details_path: str | Path = DETAILS_FILE, a
     base["severity"] = severity
     base["root_cause_candidates"] = sorted(cands, key=lambda c: ({"critical": 3, "warning": 2, "watch": 1, "ok": 0}[c["severity"]], c["confidence"]), reverse=True)
     base["primary_findings"] = [FINDINGS[c["code"]] for c in base["root_cause_candidates"][:5]]
-    base["recommendations"] = list(dict.fromkeys([c["recommendation"] for c in base["root_cause_candidates"]]))
+    recommendations = [c["recommendation"] for c in base["root_cause_candidates"]]
+    if len(verified_short) < 10:
+        recommendations.append("forecast_error_details.jsonl enthält zu wenige valide Produktionsdetails; B211-Schreibpfad prüfen.")
+    base["recommendations"] = list(dict.fromkeys(recommendations))
     base["worst_forecasts"] = sorted(verified, key=lambda r: _f(r.get("forecast_error_km")) or 0, reverse=True)[:10]
     return base
 

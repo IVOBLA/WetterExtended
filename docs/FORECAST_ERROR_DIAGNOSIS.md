@@ -28,3 +28,35 @@ python tools/diagnose_motion_pipeline.py --hours 24
 cat train_data/evaluation/forecast_error_diagnosis.json
 curl -s http://localhost:5000/api/forecast_error_breakdown | python -m json.tool
 ```
+## B215 Detail-Validation
+
+B215 validiert `forecast_error_details.jsonl`, bevor B214 daraus Root-Cause-Diagnosen ableitet. Dadurch werden synthetische Test-Fixtures, zeitlich unmögliche Forecast-Verifikationen und unvollständige Detailzeilen sichtbar gemacht, gezählt und aus der Ursachenanalyse ausgeschlossen. Die Diagnose wird dadurch robuster, ohne Drift-Schwellen, Accuracy-Horizonte oder Forecast-Logik zu verändern.
+
+Ausgeschlossen werden insbesondere:
+
+- Details mit `verified_at_utc < forecast_created_at_utc`.
+- Verifizierte Details ohne plausible `target_timestamp_utc` oder mit `target_timestamp_utc < forecast_created_at_utc`.
+- Offensichtliche Testdaten wie `object_id="cell-1"` mit 47.0/15.0 für Forecast-, Ist- und Ursprungspunkt.
+- Details mit `test_fixture`, `synthetic` oder `dummy`.
+- Forecasts, deren `forecast_created_at_utc` mehr als fünf Minuten in der Zukunft liegt.
+- Details ohne `forecast_error_km`, sofern sie weder `missed=true` noch `no_target_frame=true` sind.
+
+Die erzeugte `forecast_error_diagnosis.json`, `motion_pipeline_health.json` und `/api/forecast_error_breakdown` enthalten `details_total`, `details_valid`, `details_invalid`, `invalid_detail_counts` und bis zu fünf kompakte Beispiele ungültiger Details.
+
+Prüfung am Pi:
+
+```bash
+cd /home/ki-pi/wetterprojekt
+source venv/bin/activate
+
+python tools/diagnose_motion_pipeline.py --hours 24
+cat train_data/evaluation/forecast_error_diagnosis.json | python -m json.tool
+curl -s http://localhost:5000/api/forecast_error_breakdown | python -m json.tool
+```
+
+Zusätzlich kann die Detailbasis direkt geprüft werden:
+
+```bash
+python tools/diagnose_forecast_error_details.py
+```
+

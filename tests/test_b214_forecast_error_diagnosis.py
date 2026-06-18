@@ -16,8 +16,12 @@ NOW = datetime.now(timezone.utc)
 
 
 def _row(i, mode="ml", err=1.0, h=10, match="id", direction=5, speed=3, no_target=False):
+    created = NOW - timedelta(minutes=i + h + 1)
+    target = created + timedelta(minutes=h)
     return {
-        "verified_at_utc": (NOW - timedelta(minutes=i)).isoformat().replace("+00:00", "Z"),
+        "forecast_created_at_utc": created.isoformat().replace("+00:00", "Z"),
+        "target_timestamp_utc": target.isoformat().replace("+00:00", "Z"),
+        "verified_at_utc": (target + timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),
         "horizon_min": h,
         "forecast_mode": mode,
         "kinematic_source": "optflow_fm5.0" if mode == "ml" else "kalman_only",

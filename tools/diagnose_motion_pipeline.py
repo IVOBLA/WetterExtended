@@ -194,6 +194,13 @@ def build_health(hours: int = 24, base_dir: str | Path = "."):
             "root_cause_candidates": forecast_error_diagnosis.get("root_cause_candidates", []),
             "status": forecast_error_diagnosis.get("status"),
         },
+        "detail_validation": {
+            "details_total": forecast_error_diagnosis.get("sample_counts", {}).get("details_total", 0),
+            "details_valid": forecast_error_diagnosis.get("sample_counts", {}).get("details_valid", 0),
+            "details_invalid": forecast_error_diagnosis.get("sample_counts", {}).get("details_invalid", 0),
+            "invalid_detail_counts": forecast_error_diagnosis.get("invalid_detail_counts", {}),
+            "invalid_detail_examples": forecast_error_diagnosis.get("invalid_detail_examples", []),
+        },
         "diagnosis": diagnosis, "recommendations": recommendations,
     }
 
