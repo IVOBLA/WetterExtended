@@ -35,6 +35,12 @@ try:
         IR_RADAR_MATCH_USE_GROWTH_SIGNALS,
         IR_RADAR_MATCH_USE_METPOT,
         IR_PRECURSOR_HIDE_WHEN_RADAR_MATCHED,
+        IR_LEAD_TIME_LABELS_ENABLED,
+        IR_LEAD_TIME_LABELS_FILE,
+        IR_LEAD_TIME_LABELS_MAX_OPEN_MIN,
+        IR_LEAD_TIME_LABELS_MIN_FINAL_AGE_MIN,
+        IR_LEAD_TIME_LABELS_INCLUDE_NEGATIVES,
+        IR_LEAD_TIME_LABELS_DEDUP_BY_CELL_ID,
     )
 except Exception:  # pragma: no cover
     CELL_ID_PREFIX = "WX"
@@ -51,6 +57,12 @@ except Exception:  # pragma: no cover
     IR_RADAR_MATCH_USE_GROWTH_SIGNALS = True
     IR_RADAR_MATCH_USE_METPOT = True
     IR_PRECURSOR_HIDE_WHEN_RADAR_MATCHED = True
+    IR_LEAD_TIME_LABELS_ENABLED = True
+    IR_LEAD_TIME_LABELS_FILE = "ir_lead_time_labels.jsonl"
+    IR_LEAD_TIME_LABELS_MAX_OPEN_MIN = 90.0
+    IR_LEAD_TIME_LABELS_MIN_FINAL_AGE_MIN = 20.0
+    IR_LEAD_TIME_LABELS_INCLUDE_NEGATIVES = True
+    IR_LEAD_TIME_LABELS_DEDUP_BY_CELL_ID = True
 
 
 def _debug(msg: str) -> None:
@@ -238,6 +250,209 @@ def ensure_ir_tracks_cell_ids(tracks: list[dict], *, timestamp: str | None = Non
 def get_cell_id_for_ir_track(ir_track_id: str) -> str | None:
     state = load_lineage_state()
     return state.get("ir_to_cell", {}).get(str(ir_track_id))
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1L.4: ML-Lead-Time-Labels IR-Vorläufer → Radarbestätigung
+# ─────────────────────────────────────────────────────────────────────────────
+
+_LABEL_TYPE = "ir_to_radar_lead_time"
+_IR_FEATURE_KEYS = (
+    "bt_min_k", "bt_mean_k", "bt_trend_k_per_min", "cloud_height_m",
+    "cloud_height_trend_m_per_min", "area_px", "area_growth_km2_per_min",
+    "overshooting_top", "cloud_age_min", "anvil_extension_km", "cape", "li",
+    "arome_li", "cin", "lapse_700_500", "lightning_count_10km",
+    "lightning_count", "nowcast_rr_mm15", "core_ratio",
+)
+_RADAR_FEATURE_KEYS = ("radar_area_px", "radar_intensity_label", "core_ratio")
+
+
+def labels_path() -> Path:
+    return _state_dir() / str(_cfg("IR_LEAD_TIME_LABELS_FILE", IR_LEAD_TIME_LABELS_FILE))
+
+
+def _label_key(label: dict) -> str:
+    if bool(_cfg("IR_LEAD_TIME_LABELS_DEDUP_BY_CELL_ID", IR_LEAD_TIME_LABELS_DEDUP_BY_CELL_ID)):
+        outcome = "pos" if int(label.get("became_radar_cell") or 0) == 1 else "neg"
+        return f"{label.get('cell_id')}|{label.get('label_type') or _LABEL_TYPE}|{outcome}"
+    return f"{label.get('cell_id')}|{label.get('label_type') or _LABEL_TYPE}|{label.get('created_at_utc','')}"
+
+
+def append_ir_lead_time_label(label: dict) -> None:
+    if not bool(_cfg("IR_LEAD_TIME_LABELS_ENABLED", IR_LEAD_TIME_LABELS_ENABLED)) or not isinstance(label, dict):
+        return
+    try:
+        path = labels_path(); path.parent.mkdir(parents=True, exist_ok=True)
+        if _label_key(label) in load_existing_lead_time_label_keys():
+            return
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(label, ensure_ascii=False, sort_keys=True) + "\n")
+    except Exception as exc:
+        _debug(f"[CELL-LINEAGE] Lead-Time-Label konnte nicht geschrieben werden: {exc}")
+
+
+def load_existing_lead_time_label_keys() -> set[str]:
+    keys: set[str] = set()
+    path = labels_path()
+    if not path.exists():
+        return keys
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    obj = json.loads(line)
+                    if isinstance(obj, dict) and obj.get("cell_id"):
+                        keys.add(_label_key(obj))
+                except Exception:
+                    continue
+    except Exception:
+        return keys
+    return keys
+
+
+def _cell_first_seen(cell: dict, ir_track: dict | None = None) -> str | None:
+    for src in (ir_track or {}, cell or {}):
+        for key in ("first_seen_timestamp", "first_seen", "created_at", "timestamp"):
+            if src.get(key):
+                return str(src.get(key))
+    return None
+
+
+def _cell_radar_confirmed_at(cell: dict, event: dict | None = None) -> str | None:
+    for src in (event or {}, cell or {}):
+        for key in ("radar_first_confirmed", "radar_confirmed_at", "timestamp", "last_seen_timestamp"):
+            if src.get(key):
+                return str(src.get(key))
+    return None
+
+
+def compute_lead_time_min(ir_first_seen: str | None, radar_first_confirmed: str | None) -> float | None:
+    a, b = _parse_dt(ir_first_seen), _parse_dt(radar_first_confirmed)
+    if not a or not b:
+        return None
+    return round((b - a).total_seconds() / 60.0, 3)
+
+
+def _copy_label_features(label: dict, cell: dict, ir_track: dict | None, radar_obj: dict | None = None) -> dict:
+    for src in (cell or {}, ir_track or {}):
+        for key in _IR_FEATURE_KEYS:
+            if key in src and src.get(key) is not None and key not in label:
+                label[key] = src.get(key)
+    if "lightning_count" in label and "lightning_count_10km" not in label:
+        label["lightning_count_10km"] = label.pop("lightning_count")
+    for src in (radar_obj or {}, cell or {}):
+        if not isinstance(src, dict):
+            continue
+        if src.get("area_px") is not None:
+            label.setdefault("radar_area_px", src.get("area_px"))
+        if src.get("area") is not None:
+            label.setdefault("radar_area_px", src.get("area"))
+        if src.get("intensity_label") is not None:
+            label.setdefault("radar_intensity_label", src.get("intensity_label"))
+        if src.get("radar_intensity_label") is not None:
+            label.setdefault("radar_intensity_label", src.get("radar_intensity_label"))
+        if src.get("core_ratio") is not None:
+            label.setdefault("core_ratio", src.get("core_ratio"))
+    return label
+
+
+def build_positive_ir_lead_time_label(cell: dict, ir_track: dict | None, radar_obj: dict | None, event: dict | None = None) -> dict:
+    ir_first = _cell_first_seen(cell, ir_track)
+    radar_at = _cell_radar_confirmed_at(cell, event)
+    label = {
+        "label_type": _LABEL_TYPE, "cell_id": (cell or {}).get("cell_id") or (ir_track or {}).get("cell_id") or (radar_obj or {}).get("cell_id"),
+        "ir_track_id": (ir_track or {}).get("ir_track_id") or (cell or {}).get("ir_track_id"),
+        "radar_track_id": (radar_obj or {}).get("id") or (radar_obj or {}).get("track_id") or (cell or {}).get("radar_track_id"),
+        "became_radar_cell": 1, "ended_without_radar": 0,
+        "ir_first_seen": ir_first, "radar_first_confirmed": radar_at,
+        "lead_time_min": compute_lead_time_min(ir_first, radar_at),
+        "source": (ir_track or {}).get("first_seen_source") or (cell or {}).get("first_seen_source") or "ir108",
+        "created_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "match_score": (event or {}).get("score") or (radar_obj or {}).get("lineage_match_score"),
+        "match_decision": (event or {}).get("decision") or (radar_obj or {}).get("lineage_match_decision"),
+        "match_reason": (event or {}).get("reason") or (radar_obj or {}).get("lineage_match_reason"),
+    }
+    return _copy_label_features(label, cell or {}, ir_track, radar_obj)
+
+
+def build_negative_ir_lead_time_label(cell: dict, ir_track: dict | None, *, ended_at: str | None = None, reason: str = "expired_without_radar") -> dict:
+    ended_at = ended_at or _timestamp_str(None)
+    label = {
+        "label_type": _LABEL_TYPE, "cell_id": (cell or {}).get("cell_id") or (ir_track or {}).get("cell_id"),
+        "ir_track_id": (ir_track or {}).get("ir_track_id") or (cell or {}).get("ir_track_id"),
+        "radar_track_id": None, "became_radar_cell": 0, "ended_without_radar": 1,
+        "ir_first_seen": _cell_first_seen(cell, ir_track), "radar_first_confirmed": None,
+        "lead_time_min": None, "ended_at": ended_at, "negative_reason": reason,
+        "source": (ir_track or {}).get("first_seen_source") or (cell or {}).get("first_seen_source") or "ir108",
+        "created_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    return _copy_label_features(label, cell or {}, ir_track, None)
+
+
+def maybe_write_positive_ir_lead_time_label(cell_id: str, *, ir_track: dict | None = None, radar_obj: dict | None = None, event: dict | None = None, state: dict | None = None) -> dict | None:
+    if not bool(_cfg("IR_LEAD_TIME_LABELS_ENABLED", IR_LEAD_TIME_LABELS_ENABLED)) or not cell_id:
+        return None
+    state = load_lineage_state() if state is None else _normalize_state(state)
+    cell = state.setdefault("cells", {}).setdefault(str(cell_id), {"cell_id": str(cell_id)})
+    label = build_positive_ir_lead_time_label(cell, ir_track, radar_obj, event)
+    existing = load_existing_lead_time_label_keys()
+    if _label_key(label) in existing:
+        return None
+    neg_probe = dict(label); neg_probe["became_radar_cell"] = 0
+    if _label_key(neg_probe) in existing:
+        label["supersedes_negative"] = True
+    append_ir_lead_time_label(label)
+    cell.update({"became_radar_cell": 1, "ended_without_radar": 0, "radar_first_confirmed": label.get("radar_first_confirmed"), "lead_time_min": label.get("lead_time_min"), "label_written": True})
+    return label
+
+
+def finalize_expired_ir_precursors(*, timestamp: str | None = None, active_ir_tracks: list[dict] | None = None, state: dict | None = None) -> list[dict]:
+    if not bool(_cfg("IR_LEAD_TIME_LABELS_ENABLED", IR_LEAD_TIME_LABELS_ENABLED)) or not bool(_cfg("IR_LEAD_TIME_LABELS_INCLUDE_NEGATIVES", IR_LEAD_TIME_LABELS_INCLUDE_NEGATIVES)):
+        return []
+    state = load_lineage_state() if state is None else _normalize_state(state)
+    now_s = _timestamp_str(timestamp); now = _parse_dt(now_s)
+    active_by_cell = {str(t.get("cell_id")): t for t in (active_ir_tracks or []) if isinstance(t, dict) and t.get("cell_id")}
+    keys = load_existing_lead_time_label_keys(); written = []
+    max_open = float(_cfg("IR_LEAD_TIME_LABELS_MAX_OPEN_MIN", IR_LEAD_TIME_LABELS_MAX_OPEN_MIN))
+    min_final = float(_cfg("IR_LEAD_TIME_LABELS_MIN_FINAL_AGE_MIN", IR_LEAD_TIME_LABELS_MIN_FINAL_AGE_MIN))
+    for cell_id, cell in list(state.get("cells", {}).items()):
+        if not isinstance(cell, dict) or cell.get("radar_confirmed") is True or cell.get("status") == "radar_confirmed" or int(cell.get("became_radar_cell") or 0) == 1:
+            continue
+        probe_pos = {"cell_id": cell_id, "label_type": _LABEL_TYPE, "became_radar_cell": 1}
+        probe_neg = {"cell_id": cell_id, "label_type": _LABEL_TYPE, "became_radar_cell": 0}
+        if _label_key(probe_pos) in keys or _label_key(probe_neg) in keys:
+            continue
+        first = _parse_dt(_cell_first_seen(cell, active_by_cell.get(cell_id)))
+        last = _parse_dt((active_by_cell.get(cell_id) or {}).get("last_seen_timestamp") or cell.get("last_seen_timestamp") or _cell_first_seen(cell))
+        if not now or not first or not last:
+            continue
+        if (now - first).total_seconds() / 60.0 < max_open or (now - last).total_seconds() / 60.0 < min_final:
+            continue
+        if cell_id in active_by_cell and (now - last).total_seconds() / 60.0 < max_open:
+            continue
+        label = build_negative_ir_lead_time_label(cell, active_by_cell.get(cell_id), ended_at=now_s)
+        append_ir_lead_time_label(label)
+        cell.update({"became_radar_cell": 0, "ended_without_radar": 1, "ended_at": now_s, "negative_reason": label.get("negative_reason"), "label_written": True})
+        written.append(label); keys.add(_label_key(label))
+    return written
+
+
+def update_ir_lead_time_labels(radar_objects: list[dict] | None = None, ir_tracks: list[dict] | None = None, lineage_events: list[dict] | None = None, *, timestamp: str | None = None) -> list[dict]:
+    state = load_lineage_state(); out = []
+    for ev in lineage_events or []:
+        if isinstance(ev, dict) and ev.get("event_type") == "ir_to_radar_confirmation":
+            cid = ev.get("cell_id")
+            ir = next((t for t in (ir_tracks or []) if isinstance(t, dict) and t.get("cell_id") == cid), None)
+            ro = next((r for r in (radar_objects or []) if isinstance(r, dict) and r.get("cell_id") == cid), None)
+            label = maybe_write_positive_ir_lead_time_label(str(cid), ir_track=ir, radar_obj=ro, event=ev, state=state)
+            if label:
+                out.append({"event_type": "ir_lead_time_label_written", "cell_id": cid, "timestamp": _timestamp_str(timestamp), "became_radar_cell": 1})
+    for label in finalize_expired_ir_precursors(timestamp=timestamp, active_ir_tracks=ir_tracks, state=state):
+        out.append({"event_type": "ir_precursor_ended_without_radar", "cell_id": label.get("cell_id"), "timestamp": _timestamp_str(timestamp), "became_radar_cell": 0})
+        out.append({"event_type": "ir_lead_time_label_written", "cell_id": label.get("cell_id"), "timestamp": _timestamp_str(timestamp), "became_radar_cell": 0})
+    save_lineage_state(state)
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -466,8 +681,11 @@ def apply_ir_radar_lineage_match(radar_obj: dict, ir_track: dict, match: dict, s
     state.setdefault("radar_to_cell", {})[radar_track_id] = cell_id
     state.setdefault("ir_to_cell", {})[ir_track_id] = cell_id
     cell = state.setdefault("cells", {}).setdefault(cell_id, {"cell_id": cell_id})
-    cell.update({"status": "radar_confirmed", "radar_confirmed": True, "radar_track_id": radar_track_id, "ir_track_id": ir_track_id, "last_seen_timestamp": _timestamp_str(timestamp)})
-    event = {"event_type": "ir_to_radar_confirmation", "cell_id": cell_id, "ir_track_id": ir_track_id, "radar_track_id": radar_track_id, "timestamp": _timestamp_str(timestamp), "score": match.get("score"), "decision": match.get("decision"), "centroid_distance_km": match.get("centroid_distance_km"), "predicted_centroid_distance_km": match.get("predicted_centroid_distance_km")}
+    cell.update({"status": "radar_confirmed", "radar_confirmed": True, "radar_track_id": radar_track_id, "ir_track_id": ir_track_id, "last_seen_timestamp": _timestamp_str(timestamp), "radar_confirmed_at": _timestamp_str(timestamp)})
+    for key in _IR_FEATURE_KEYS:
+        if key in ir_track and ir_track.get(key) is not None:
+            cell[key] = ir_track.get(key)
+    event = {"event_type": "ir_to_radar_confirmation", "cell_id": cell_id, "ir_track_id": ir_track_id, "radar_track_id": radar_track_id, "timestamp": _timestamp_str(timestamp), "score": match.get("score"), "decision": match.get("decision"), "reason": match.get("reason"), "centroid_distance_km": match.get("centroid_distance_km"), "predicted_centroid_distance_km": match.get("predicted_centroid_distance_km")}
     append_lineage_event(event)
     match["event"] = event
     return radar_obj, ir_track, state
@@ -483,6 +701,11 @@ def update_cell_lineage(radar_objects: list[dict], ir_tracks: list[dict], *, tim
         r, ir = radar_objects[m["radar_index"]], ir_tracks[m["ir_index"]]
         apply_ir_radar_lineage_match(r, ir, m, state=state, timestamp=timestamp)
         events.append(m.get("event"))
+        label = maybe_write_positive_ir_lead_time_label(str(ir.get("cell_id") or r.get("cell_id")), ir_track=ir, radar_obj=r, event=m.get("event"), state=state)
+        if label:
+            label_event = {"event_type": "ir_lead_time_label_written", "cell_id": label.get("cell_id"), "timestamp": _timestamp_str(timestamp), "became_radar_cell": 1}
+            append_lineage_event(label_event)
+            events.append(label_event)
     for ir in ir_tracks or []:
         if ir.get("radar_confirmed") is not True:
             ir.setdefault("status", "ir_precursor")
@@ -490,5 +713,17 @@ def update_cell_lineage(radar_objects: list[dict], ir_tracks: list[dict], *, tim
             ir.setdefault("is_potential_new_cell", True)
             ir.setdefault("display_as_precursor", True)
             ir.setdefault("ir_only_precursor", 1.0)
+            cell = state.setdefault("cells", {}).setdefault(ir.get("cell_id"), {"cell_id": ir.get("cell_id")}) if ir.get("cell_id") else None
+            if isinstance(cell, dict):
+                for key in _IR_FEATURE_KEYS:
+                    if key in ir and ir.get(key) is not None:
+                        cell[key] = ir.get(key)
+    for label in finalize_expired_ir_precursors(timestamp=timestamp, active_ir_tracks=ir_tracks, state=state):
+        for label_event in (
+            {"event_type": "ir_precursor_ended_without_radar", "cell_id": label.get("cell_id"), "timestamp": _timestamp_str(timestamp), "became_radar_cell": 0},
+            {"event_type": "ir_lead_time_label_written", "cell_id": label.get("cell_id"), "timestamp": _timestamp_str(timestamp), "became_radar_cell": 0},
+        ):
+            append_lineage_event(label_event)
+            events.append(label_event)
     save_lineage_state(state)
     return radar_objects or [], ir_tracks or [], [e for e in events if e]

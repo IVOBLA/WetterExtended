@@ -823,6 +823,14 @@ CELL_LINEAGE_STATE_DIR = "train_data/cell_lineage"
 CELL_LINEAGE_STATE_FILE = "cell_lineage_state.json"
 CELL_LINEAGE_EVENTS_FILE = "cell_lineage_events.jsonl"
 
+# 1L.4 ML-Lead-Time-Labels: offline Trainingslabels aus IR→Radar-Lineage.
+IR_LEAD_TIME_LABELS_ENABLED = True
+IR_LEAD_TIME_LABELS_FILE = "ir_lead_time_labels.jsonl"
+IR_LEAD_TIME_LABELS_MAX_OPEN_MIN = 90.0
+IR_LEAD_TIME_LABELS_MIN_FINAL_AGE_MIN = 20.0
+IR_LEAD_TIME_LABELS_INCLUDE_NEGATIVES = True
+IR_LEAD_TIME_LABELS_DEDUP_BY_CELL_ID = True
+
 # Ausgabeauflösung in Pixeln (z. B. für GeoTIFF via WMS)
 WIDTH = 1600
 HEIGHT = 600
