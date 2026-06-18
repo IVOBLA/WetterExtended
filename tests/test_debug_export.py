@@ -220,6 +220,30 @@ def test_secrets_redacted_in_export(tmp_path):
         z.unlink(missing_ok=True)
 
 
+def test_effective_runtime_config_redacted_in_export(tmp_path, monkeypatch):
+    import runtime_config
+
+    monkeypatch.setattr(
+        runtime_config,
+        "all_effective",
+        lambda: {
+            "GITHUB_VERIFY_CONFIG": {"token": "ghp_live_secret", "enabled": True},
+            "NORMAL_SETTING": "visible",
+        },
+    )
+
+    z, _, _ = debug_export.create_debug_export_zip(base_dir=tmp_path, save_paths={})
+    try:
+        with zipfile.ZipFile(z) as zf:
+            config_name = next(n for n in zf.namelist() if n.endswith("config/effective_runtime_config.json"))
+            text = zf.read(config_name).decode("utf-8")
+        assert "ghp_live_secret" not in text
+        assert "<REDACTED>" in text
+        assert "visible" in text
+    finally:
+        z.unlink(missing_ok=True)
+
+
 def test_missing_log_source_does_not_crash(tmp_path, monkeypatch):
     monkeypatch.setattr(debug_export, "_read_nginx_log_for_export", lambda p, *a: (f"source_unavailable: {p}\n", False))
     z, _, _ = debug_export.create_debug_export_zip(base_dir=tmp_path, save_paths={})
