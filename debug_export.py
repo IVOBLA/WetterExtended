@@ -610,7 +610,8 @@ def create_debug_export_zip(
             try:
                 import runtime_config as _runtime_config
                 effective = _runtime_config.all_effective()
-                data = json.dumps(effective, ensure_ascii=False, indent=2, default=str).encode("utf-8")
+                effective_text = json.dumps(effective, ensure_ascii=False, indent=2, default=str)
+                data = redact_json_text(effective_text).replace("***REDACTED***", "<REDACTED>").encode("utf-8")
                 zf.writestr(f"{root_name}/config/effective_runtime_config.json", data)
                 total_files += 1
                 total_bytes += len(data)
