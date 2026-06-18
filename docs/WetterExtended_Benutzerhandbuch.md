@@ -2586,3 +2586,27 @@ jeweils eingestellte Grenze an.
 **Geänderte Voreinstellungen der Karte:** Der Layer „🌩 Risikozonen" ist standardmäßig
 **aus**, der Layer „🛰 CB / IR-Vorläufer" standardmäßig **an**. Beide bleiben jederzeit
 über die Overlay-Leiste umschaltbar.
+
+## API-Budget-Guard (Free-only-Durchsetzung)
+
+WetterExtended nutzt ausschließlich kostenlose Datenquellen. Damit das
+providerweite Open-Meteo-Freikontingent (10.000 Requests/Tag) nie überschritten
+wird, zählt der API-Budget-Guard jeden tatsächlich abgesetzten externen Request
+pro Schnittstellen-Gruppe und blockt neue Requests einer Gruppe, sobald ihr
+Tagesbudget erreicht ist. Geblockte Requests lösen denselben Fallback aus wie ein
+offener Circuit-Breaker — das System liefert dann den zwischengespeicherten Wert.
+
+**Gruppen-Modell:** Alle `openmeteo_*`-Dienste (icon_d2, icon_global, Extended,
+Synoptic, Outlook, …) teilen ein gemeinsames Tageskontingent „openmeteo“, weil das
+Limit beim Anbieter providerweit gilt. Dienste ohne konfiguriertes Limit werden
+gezählt, aber nicht blockiert.
+
+**Konfiguration** (Admin → Konfiguration bzw. `runtime_overrides.json`):
+
+| Schlüssel | Default | Bedeutung |
+|---|---|---|
+| `API_DAILY_BUDGET` | `{"openmeteo": 9000}` | Tageslimit je Gruppe. Gruppe ohne Eintrag = kein Limit. |
+
+Die Zähler werden in `train_data/evaluation/api_budget.json` persistiert und um
+00:00 UTC automatisch zurückgesetzt. Den aktuellen Stand liefert `GET /api/api_budget`
+(je Gruppe: verbraucht, Budget, Rest, überschritten).

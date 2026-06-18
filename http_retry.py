@@ -34,11 +34,22 @@ try:
 except Exception:  # Breaker optional — retry_get bleibt ohne ihn nutzbar
     api_circuit_breaker = None
 
+try:
+    import api_budget_guard
+except Exception:  # Budget-Guard optional — retry_get bleibt ohne ihn nutzbar
+    api_budget_guard = None
+
 
 class CircuitOpenError(requests.exceptions.RequestException):
     """B149: Circuit-Breaker für diesen Service ist offen — Request übersprungen.
     Subklasse von RequestException, damit bestehende except-Blöcke der Fetcher
     (RequestException/Exception) den Fallback wie bei jedem anderen Fehler greifen."""
+
+
+class BudgetExceededError(requests.exceptions.RequestException):
+    """1E: Tagesbudget der Service-Gruppe erschöpft — Request übersprungen.
+    Subklasse von RequestException, damit bestehende except-Blöcke der Fetcher
+    den Fallback (Stale-Cache) wie bei jedem anderen Fehler greifen."""
 
 
 _DEFAULT_BACKOFF = [2]
@@ -138,11 +149,18 @@ def retry_get(
         debug_log(f"[{service}] Circuit offen ({breaker_service}) — Request übersprungen")
         raise CircuitOpenError(f"circuit open: {breaker_service}")
 
+    # 1E: Budget-Guard zentral. Ist das Tagesbudget der Gruppe erschöpft, gar nicht senden.
+    if api_budget_guard is not None and api_budget_guard.over_budget(service):
+        debug_log(f"[{service}] Tagesbudget erschöpft — Request übersprungen")
+        raise BudgetExceededError(f"budget exceeded: {service}")
+
     tmo = _normalize_timeout(timeout)
     last_exc: Exception = RuntimeError("Unbekannter Fehler")
 
     for attempt in range(max_retries):
         try:
+            if api_budget_guard is not None:
+                api_budget_guard.record_request(service)
             r = _SESSION.get(url, timeout=tmo, **kwargs)
             r.raise_for_status()
             if breaker_service and api_circuit_breaker:

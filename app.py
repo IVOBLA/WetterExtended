@@ -1847,6 +1847,16 @@ def api_api_calls_detail():
     })
 
 
+@app.route("/api/api_budget")
+def api_api_budget():
+    """1E: Tagesbudget je externer Schnittstellen-Gruppe (Free-only-Durchsetzung)."""
+    try:
+        import api_budget_guard
+        return jsonify(api_budget_guard.snapshot())
+    except Exception as exc:
+        return jsonify({"error": str(exc), "groups": {}}), 500
+
+
 @app.route("/api/api_calls/last")
 def api_api_calls_last():
     """Liefert genau den letzten API-Request (optional gefiltert nach Service/Zeitraum)."""
