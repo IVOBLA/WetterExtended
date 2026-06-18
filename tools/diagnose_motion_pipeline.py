@@ -7,6 +7,8 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from forecast_error_diagnosis import build_forecast_error_diagnosis, write_forecast_error_diagnosis
+
 HORIZONS = (10, 20, 30, 40, 60)
 
 
@@ -146,6 +148,12 @@ def build_health(hours: int = 24, base_dir: str | Path = "."):
 
     diagnosis = []; recommendations = []
     accuracy_attribution = _latest_accuracy_attribution(eval_dir, warnings, recommendations)
+    forecast_error_diagnosis = build_forecast_error_diagnosis(
+        details_path=eval_dir / "forecast_error_details.jsonl",
+        accuracy_history_path=eval_dir / "accuracy_history.jsonl",
+        hours=hours,
+    )
+    write_forecast_error_diagnosis(forecast_error_diagnosis, eval_dir / "forecast_error_diagnosis.json")
     if not pysteps_import_ok:
         diagnosis.append("pysteps_import_ok=false: pySTEPS ist nicht importierbar.")
         recommendations.append("pySTEPS im venv installieren/aktualisieren.")
@@ -175,6 +183,13 @@ def build_health(hours: int = 24, base_dir: str | Path = "."):
         "median_forecast_speed_kmh_by_horizon": med_speed,
         "forecast_sample_count_by_horizon": dict(count_by_h), "warnings": dict(warnings),
         "latest_drift_status": latest_drift, "accuracy_attribution": accuracy_attribution,
+        "forecast_error_diagnosis": {
+            "severity": forecast_error_diagnosis.get("severity"),
+            "primary_findings": forecast_error_diagnosis.get("primary_findings", []),
+            "recommendations": forecast_error_diagnosis.get("recommendations", []),
+            "root_cause_candidates": forecast_error_diagnosis.get("root_cause_candidates", []),
+            "status": forecast_error_diagnosis.get("status"),
+        },
         "diagnosis": diagnosis, "recommendations": recommendations,
     }
 

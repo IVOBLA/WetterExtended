@@ -2682,3 +2682,4 @@ Gewitterpotenzial — ohne kostenpflichtige APIs und ohne unnötige Requests.
   `docs/HAILO_INTEGRATION.md`. Verwandt: B174, B160, B161, B125.
 
 | B213 | Split-/Merge-Lineage über `cell_id`: Parent-/Child-Beziehungen, Merge-Aliase und Events `cell_split`/`cell_merge` | `cell_lineage.py`, `main.py`, `object_tracking.py`, `tests/test_b213_split_merge_lineage.py` | ✅ erledigt |
+| B214 | Forecast-Error-Breakdown automatisch diagnostizieren: ML vs. kinematic, Richtung, Speed, Match-Type, Coverage und Worst-Forecasts | `forecast_error_diagnosis.py`, `tools/diagnose_motion_pipeline.py`, `app.py`, `drift_detector.py`, `tests/test_b214_forecast_error_diagnosis.py` | ✅ erledigt |

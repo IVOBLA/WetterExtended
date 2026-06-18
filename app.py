@@ -2294,10 +2294,25 @@ def api_motion_pipeline_health():
 
 @app.route("/api/forecast_error_breakdown")
 def api_forecast_error_breakdown():
-    """Liefert die letzte Accuracy-Attribution aus accuracy_history.jsonl."""
-    path = os.path.join(_evaluation_dir(), "accuracy_history.jsonl")
+    """Liefert die letzte Accuracy-Attribution inklusive B214-Diagnose."""
+    eval_dir = _evaluation_dir()
+    path = os.path.join(eval_dir, "accuracy_history.jsonl")
+    diagnosis_file = os.path.join(eval_dir, "forecast_error_diagnosis.json")
+    def _diagnosis_payload():
+        try:
+            from forecast_error_diagnosis import build_forecast_error_diagnosis, load_latest_forecast_error_diagnosis
+            if os.path.exists(diagnosis_file):
+                return load_latest_forecast_error_diagnosis(diagnosis_file)
+            return build_forecast_error_diagnosis(
+                details_path=os.path.join(eval_dir, "forecast_error_details.jsonl"),
+                accuracy_history_path=path,
+                hours=24,
+            )
+        except Exception as exc:
+            return {"status": "missing", "severity": "watch", "message": str(exc), "primary_findings": [], "recommendations": [], "root_cause_candidates": []}
     if not os.path.exists(path):
-        return jsonify({"status": "missing", "message": "accuracy_history.jsonl fehlt; Forecast-Attribution ist noch nicht verfügbar."}), 200
+        diag = _diagnosis_payload()
+        return jsonify({"status": "missing", "message": "accuracy_history.jsonl fehlt; Forecast-Attribution ist noch nicht verfügbar.", "diagnosis_file": diagnosis_file, "forecast_error_diagnosis": diag, "primary_findings": diag.get("primary_findings", []), "recommendations": diag.get("recommendations", []), "root_cause_candidates": diag.get("root_cause_candidates", []), "severity": diag.get("severity")}), 200
     latest = None
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -2309,7 +2324,9 @@ def api_forecast_error_breakdown():
                 except Exception:
                     continue
         if latest is None:
-            return jsonify({"status": "missing", "message": "accuracy_history.jsonl enthält noch keine verwertbare Attribution."}), 200
+            diag = _diagnosis_payload()
+            return jsonify({"status": "missing", "message": "accuracy_history.jsonl enthält noch keine verwertbare Attribution.", "diagnosis_file": diagnosis_file, "forecast_error_diagnosis": diag, "primary_findings": diag.get("primary_findings", []), "recommendations": diag.get("recommendations", []), "root_cause_candidates": diag.get("root_cause_candidates", []), "severity": diag.get("severity")}), 200
+        diag = _diagnosis_payload()
         return jsonify({
             "status": "ok",
             "latest_timestamp_utc": latest.get("timestamp_utc"),
@@ -2323,6 +2340,12 @@ def api_forecast_error_breakdown():
             "speed_stats_by_horizon": latest.get("speed_stats_by_horizon", {}),
             "worst_forecasts": latest.get("worst_forecasts", []),
             "diagnosis": latest.get("diagnosis", []),
+            "diagnosis_file": diagnosis_file,
+            "forecast_error_diagnosis": diag,
+            "primary_findings": diag.get("primary_findings", []),
+            "recommendations": diag.get("recommendations", []),
+            "root_cause_candidates": diag.get("root_cause_candidates", []),
+            "severity": diag.get("severity"),
         }), 200
     except Exception as exc:
         return jsonify({"status": "error", "message": str(exc)}), 200

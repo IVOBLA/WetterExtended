@@ -172,6 +172,21 @@ def check_drift() -> dict:
         )
         debug_log(f"[DRIFT] {_abs_msg}")
 
+    try:
+        from forecast_error_diagnosis import build_forecast_error_diagnosis
+        _diag = build_forecast_error_diagnosis(
+            details_path=os.path.join(_EVAL_DIR, "forecast_error_details.jsonl"),
+            accuracy_history_path=_HISTORY_FILE,
+            hours=DRIFT_WINDOW_RECENT_H,
+        )
+        result["diagnosis_summary"] = {
+            "severity": _diag.get("severity"),
+            "primary_findings": _diag.get("primary_findings", []),
+            "top_recommendation": (_diag.get("recommendations") or [None])[0],
+        }
+    except Exception as exc:
+        debug_log(f"[DRIFT] Forecast-Error-Diagnose nicht verfügbar: {exc}")
+
     os.makedirs(_EVAL_DIR, exist_ok=True)
     try:
         with open(_STATUS_FILE, "w", encoding="utf-8") as f:
