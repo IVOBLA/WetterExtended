@@ -449,20 +449,23 @@ def _classify_tendency(obj: dict, has_ml: bool) -> None:
     if has_ml:
         dc = _safe_float(obj.get("delta_core_ratio_pred", 0.0))
         da = _safe_float(obj.get("delta_area_pred", 0.0))
-        dca = _safe_float(obj.get("delta_core_area_pct_pred", obj.get("delta_core_area_pct", 0.0)))
+        has_dca_pred = "delta_core_area_pct_pred" in obj and obj.get("delta_core_area_pct_pred") is not None
+        dca = _safe_float(obj.get("delta_core_area_pct_pred", 0.0)) if has_dca_pred else None
         obj["size_tendency"] = _size_label(da)
-        if dc > _TENDENCY_COMPACT_CORE_TH and da < _TENDENCY_SHRINK_TH and dca <= _TENDENCY_CORE_AREA_TH:
+        if has_dca_pred and dc > _TENDENCY_COMPACT_CORE_TH and da < _TENDENCY_SHRINK_TH and dca <= _TENDENCY_CORE_AREA_TH:
             obj["intensity_tendency"] = "kompakt"
             obj["tendency_source_detail"] = "core_ratio_steigt_bei_schrumpfender_flaeche_ohne_absolute_kernzunahme"
-        elif dca > _TENDENCY_CORE_AREA_TH and da >= _TENDENCY_SHRINK_TH:
+        elif has_dca_pred and dca > _TENDENCY_CORE_AREA_TH and da >= _TENDENCY_SHRINK_TH:
             obj["intensity_tendency"] = "staerker"
             obj["tendency_source_detail"] = "absolute_kernflaeche_steigt"
-        elif dca < -_TENDENCY_CORE_AREA_TH:
+        elif has_dca_pred and dca < -_TENDENCY_CORE_AREA_TH:
             obj["intensity_tendency"] = "schwaecher"
             obj["tendency_source_detail"] = "absolute_kernflaeche_sinkt"
         elif dc > _TENDENCY_CORE_TH and da < _TENDENCY_SHRINK_TH:
             obj["intensity_tendency"] = "unsicher"
             obj["tendency_source_detail"] = "ml_core_ratio_und_flaeche_widersprechen_sich"
+        elif dc > _TENDENCY_CORE_TH:
+            obj["intensity_tendency"] = "staerker"
         elif dc < -_TENDENCY_CORE_TH:
             obj["intensity_tendency"] = "schwaecher"
         else:

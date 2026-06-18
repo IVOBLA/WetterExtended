@@ -591,7 +591,10 @@ def _intensity_trend_vs_baseline(core_ratio, prev_core, delta=0.05, *, area=None
         return 0
     delta_core_ratio = float(core_ratio) - float(prev_core)
     delta_area_pct = ((float(area) - float(prev_area)) / float(prev_area)) if prev_area else None
-    delta_core_area_pct = ((float(core_area) - float(prev_core_area)) / float(prev_core_area)) if prev_core_area else None
+    if prev_core_area is not None and float(prev_core_area) == 0.0:
+        delta_core_area_pct = float("inf") if float(core_area or 0.0) > 0.0 else 0.0
+    else:
+        delta_core_area_pct = ((float(core_area) - float(prev_core_area)) / float(prev_core_area)) if prev_core_area else None
     if delta_core_area_pct is not None:
         if (delta_core_area_pct > TENDENCY_CORE_AREA_PCT_STABLE and
                 (delta_area_pct is None or delta_area_pct >= TENDENCY_CONTRADICTION_AREA_SHRINK_PCT)):
@@ -950,9 +953,9 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             prev_area = None
         size_trend = _size_trend_vs_baseline(area, prev_area, TENDENCY_AREA_PCT_STABLE)
         if lineage == "merged":
-            prev_core_area = sum(float(previous_snapshot.get(pid, {}).get("core_area_px") or 0.0) for pid in (parents or [])) or None
+            prev_core_area = sum(float(previous_snapshot.get(pid, {}).get("core_area_px") or 0.0) for pid in (parents or [])) if parents else None
         elif best_id and best_id in previous_snapshot:
-            prev_core_area = float(previous_snapshot[best_id].get("core_area_px") or 0.0) or None
+            prev_core_area = float(previous_snapshot[best_id].get("core_area_px") or 0.0)
         else:
             prev_core_area = None
         trend = _intensity_trend_vs_baseline(
