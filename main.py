@@ -237,6 +237,16 @@ def _compute_hail_prob(obj: dict) -> float:
     return round(core_factor * cape_factor * height_factor, 3)
 
 
+def _suppress_inactive_rain_warning_badges(obj: dict) -> dict:
+    """Entfernt Karten-Warnmarker fuer still nachverfolgte Regenreste."""
+    if obj.get("tracking_state") == "inactive_rain" or obj.get("silent_tracking") is True:
+        obj["hail_warning"] = False
+        obj["stationary_marker"] = False
+        obj["hail_prob"] = 0.0
+        obj["stationary_risk"] = 0.0
+    return obj
+
+
 def _compute_wind_shear(obj: dict) -> tuple:
     """
     Windscherung zwischen Boden (10m) und 700 hPa (ca. 3000m) (F16).
@@ -698,6 +708,10 @@ def main_loop():
                 _obj["wind_shear_speed"]   = _shear_speed
                 _obj["wind_shear_dir_cos"] = _shear_cos
                 _obj["wind_shear_dir_sin"] = _shear_sin
+
+                if _obj.get("tracking_state") == "inactive_rain" or _obj.get("silent_tracking") is True:
+                    _suppress_inactive_rain_warning_badges(_obj)
+                    continue
 
                 _hp = _compute_hail_prob(_obj)
                 _obj["hail_prob"]    = _hp
