@@ -54,3 +54,14 @@ def test_ml_core_ratio_only_with_shrinking_area_is_not_stronger():
     _classify()(obj, has_ml=True)
     assert obj["intensity_tendency"] == "kompakt"
     assert obj["size_tendency"] == "schrumpft"
+
+
+def test_ml_core_ratio_growth_without_core_area_prediction_classifies_stronger():
+    obj = {
+        "delta_core_ratio_pred": 0.20,
+        "delta_area_pred": 0.00,
+        "delta_core_area_pct": 0.0,
+    }
+    _classify()(obj, has_ml=True)
+    assert obj["intensity_tendency"] == "staerker"
+    assert obj["size_tendency"] == "stabil"

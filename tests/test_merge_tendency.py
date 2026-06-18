@@ -102,3 +102,16 @@ def test_divergence_does_not_override_clear_trend():
     obj = {"trend": 1, "size_trend": 0, "of_available": 1, "of_divergence": 0.1}
     cl(obj, has_ml=False)
     assert obj["intensity_tendency"] == "staerker"
+
+
+def test_zero_previous_core_area_to_positive_core_area_is_stronger():
+    ot = _ot()
+    assert ot._intensity_trend_vs_baseline(
+        0.15,
+        0.0,
+        0.05,
+        area=120.0,
+        prev_area=100.0,
+        core_area=18.0,
+        prev_core_area=0.0,
+    ) == 1
