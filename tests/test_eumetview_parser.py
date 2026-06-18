@@ -36,6 +36,8 @@ def _run_with_xml(monkeypatch, xml_text: str):
     monkeypatch.setattr(mod, "cache_get", lambda *a, **k: None)
     monkeypatch.setattr(mod, "cache_set", lambda *a, **k: None)
     monkeypatch.setattr(mod, "log_http_response", lambda **k: None)
+    # B179: read_last_timestamp isolieren (Parse-Pfad → None ohne B174-Fallback).
+    monkeypatch.setattr(mod, "read_last_timestamp", lambda: None)
     monkeypatch.setattr(sys.modules["http_retry"], "retry_get", lambda *a, **k: DummyResponse(xml_text.encode("utf-8")))
     return mod.get_latest_wms_time()
 
@@ -80,6 +82,8 @@ def test_invalid_xml(monkeypatch):
     monkeypatch.setattr(mod, "cache_get", lambda *a, **k: None)
     monkeypatch.setattr(mod, "cache_set", lambda *a, **k: None)
     monkeypatch.setattr(mod, "log_http_response", lambda **k: None)
+    # B179: read_last_timestamp isolieren (Parse-Pfad → None ohne B174-Fallback).
+    monkeypatch.setattr(mod, "read_last_timestamp", lambda: None)
     monkeypatch.setattr(sys.modules["http_retry"], "retry_get", lambda *a, **k: DummyResponse(b"<html"))
     assert mod.get_latest_wms_time() is None
 
@@ -88,5 +92,7 @@ def test_http_200_html_not_xml(monkeypatch):
     monkeypatch.setattr(mod, "cache_get", lambda *a, **k: None)
     monkeypatch.setattr(mod, "cache_set", lambda *a, **k: None)
     monkeypatch.setattr(mod, "log_http_response", lambda **k: None)
+    # B179: read_last_timestamp isolieren (Parse-Pfad → None ohne B174-Fallback).
+    monkeypatch.setattr(mod, "read_last_timestamp", lambda: None)
     monkeypatch.setattr(sys.modules["http_retry"], "retry_get", lambda *a, **k: DummyResponse(b"<html>ok</html>", 200, True, "text/html"))
     assert mod.get_latest_wms_time() is None

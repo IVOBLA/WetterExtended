@@ -42,6 +42,10 @@ def _patch_common(monkeypatch):
     monkeypatch.setattr(mod, "cache_get", lambda *a, **k: None)
     monkeypatch.setattr(mod, "cache_set", lambda *a, **k: None)
     monkeypatch.setattr(mod, "log_http_response", lambda **k: None)
+    # B179: read_last_timestamp isolieren → kein B174-Fallback auf eine reale
+    # train_data/cloud/last_wms_timestamp.txt. Diese Tests pruefen NUR den Parse-
+    # Pfad (Fehler → None). Der Fallback-Pfad liegt in test_b174_eumetview_fallback.py.
+    monkeypatch.setattr(mod, "read_last_timestamp", lambda: None)
 
 
 def test_truncated_then_complete_retries_and_succeeds(monkeypatch):

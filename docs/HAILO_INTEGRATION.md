@@ -2659,3 +2659,24 @@ Gewitterpotenzial — ohne kostenpflichtige APIs und ohne unnötige Requests.
 - Dateien: `api_budget_guard.py`, `http_retry.py`, `config.py`, `app.py`.
   Test: `tests/test_api_budget_guard.py`.
 
+
+### B179 — Test-Isolation: EUMETView-Parser/B125-Tests gegen B174-Fallback ✅ erledigt
+- Ursache der 5 roten Tests (test_b125_eumetview_caps_robust 1×, test_eumetview_parser 4×):
+  Seit B174 liefert `get_latest_wms_time()` bei jedem Fehlerpfad `_caps_fallback(reason)`
+  statt None. `_caps_fallback()` liest via `read_last_timestamp()` die reale Datei
+  `train_data/cloud/last_wms_timestamp.txt`. Die Tests patchten `read_last_timestamp` NICHT
+  → auf dem Pi mit frischem Timestamp (< EUMETVIEW_FALLBACK_MAX_AGE_MIN=30 min) griff der
+  Fallback und gab einen Wert statt None zurück. Auf einer sauberen Maschine ohne die Datei
+  waren die Tests grün → undeklarierte Filesystem-Abhängigkeit. Gleiche Klasse wie B160/B161.
+- Fix (NUR Tests): in `_patch_common` (b125) sowie in `_run_with_xml`, `test_invalid_xml`
+  und `test_http_200_html_not_xml` (parser) `monkeypatch.setattr(mod, "read_last_timestamp",
+  lambda: None)` ergänzt. Die Tests pruefen damit wieder ausschliesslich den Parse-Pfad
+  (Fehler/kein Layer/kein Timestamp → None). `test_always_broken_returns_none` ist semantisch
+  korrekt: „immer kaputt" = nie ein erfolgreicher Fetch = kein letzter Timestamp.
+- Produktionscode UNVERÄNDERT. B174-Verhalten korrekt und konform zu zieldefinition.txt
+  (gebundener Fallback < 30 min, keine veralteten IR-Daten). Der Fallback-Positivpfad
+  (frisch/zu alt/fehlend/unparsbar) bleibt vollständig durch
+  `tests/test_b174_eumetview_fallback.py` abgedeckt.
+- Kein Benutzerhandbuch-Update (Bug-/Test-Fix, kein Fach-Feature).
+- Dateien: `tests/test_b125_eumetview_caps_robust.py`, `tests/test_eumetview_parser.py`,
+  `docs/HAILO_INTEGRATION.md`. Verwandt: B174, B160, B161, B125.
