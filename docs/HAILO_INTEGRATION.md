@@ -2580,7 +2580,7 @@ Gewitterpotenzial — ohne kostenpflichtige APIs und ohne unnötige Requests.
 | 1L.2 | Score-Matching IR↔Radar (vorhergesagte IR-Position, Polygon-Overlap, Höhenwind-Versatz, Zeitfenster ≤45 min); Radarzelle übernimmt `cell_id` | `cell_lineage.py`, `main.py` | ⏳ offen |
 | 1L.3 | Karten-Dedup: gematchte IR-Wolke nicht mehr als Vorläufer; Merge/Split-Events; Zählregeln | `app.py`, Frontend | ⏳ offen |
 | 1L.4 | ML-Lead-Time-Labels (`became_radar_cell`, `lead_time_min`, `prob_radar_confirmation_*`) | `dataset_builder.py`, `model_training.py` | ⏳ offen |
-| 1D | Storm-Potential anreichern (normalisierter Score 0–1 + `drivers[]`) in `risk_grid` | `app.py` | ⏳ offen |
+| 1D | Storm-Potential anreichern (normalisierter Score 0–1 + `drivers[]`) in `risk_grid` | `app.py` | ✅ erledigt (P48) |
 | 1E | Admin/Logs/Budget-Guard (Free-only erzwingen, persistente Budgetzähler) | `api_budget_guard.py`, Frontend, `app.py` | ⏳ offen |
 
 ### B203 — Risk-Watch-Korrekturen (Codex-Review zu 1A.1) ✅
@@ -2598,6 +2598,17 @@ Gewitterpotenzial — ohne kostenpflichtige APIs und ohne unnötige Requests.
   Verhindert, dass neu entstehende Zellen die veraltete Geschwindigkeit bereits
   verschwundener Nachbarn erben (Prio-1-Genauigkeit, ≤30 min < 1 km).
 - Datei: `object_tracking.py`, `tests/test_b207_seed_skip_missing.py`. Verwandt: B172.
+
+### P48 — Storm-Potential-Score (0–1) + drivers[] in /api/risk_grid (Roadmap 1D) ✅ erledigt
+- `/api/risk_grid` liefert je Grid-Zelle zusätzlich `info.score01` (normalisierter
+  Roh-Score 0.0–1.0, Default-Norm `RISK_SCORE01_NORM=2.5`, runtime-überschreibbar) und
+  `info.drivers[]` (`{source,label,value}`, dominante Quelle zuerst:
+  cell→track→ir_cell→lightning→atm) — erklärt, warum eine Zone riskant ist.
+- Rein additiv: bestehende Felder (`risk`, `color`, `info.score`, …) unverändert.
+- Reiner Modul-Helfer `_risk_score01_and_drivers(info, norm)` (isoliert testbar), arbeitet
+  nur auf dem fertigen info-Dict (keine Loop-Variablen).
+- Backend-only (noch keine UI) → kein Benutzerhandbuch-Eintrag; Frontend-Tooltip ist separat.
+- Test: `tests/test_risk_score01_drivers.py`. Datei: `app.py`.
 
 ### B210 — Roadmap-Bereinigung: 1B.2 verworfen (B204) ✅ erledigt
 - Tabellenzeile **1B.2** ("Aktive-Zelle-Höhen-Alert-Engine, Karten-Halo") in der
