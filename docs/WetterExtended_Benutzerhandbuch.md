@@ -320,6 +320,15 @@ Blitzanzahl auch die **maximale Wolkenoberkante** des Bereichs angezeigt
 Der Wert wird in der Tooltip-Anzeige in Metern (m MSL) mit Tausender-Trennpunkt dargestellt
 (Beispiel: `9.846 m`). IR-Vorläufer-Tooltips zeigen die Wolkenhöhe ebenfalls in Metern.
 
+**Immer befüllte Wolkenhöhe:** Die Wolkenhöhe wird angezeigt, sobald ein gültiger
+IR108-Bildpunkt vorliegt. Zeigt der Satellit über einer aktiven Zelle einen ungewöhnlich
+**warmen** Wolkenoberteil (typisch bei leicht veraltetem/versetztem MSG-Bild oder flachen
+bzw. frisch entstehenden Zellen), wird die abgeleitete Höhe als **unsicher** markiert: in der
+Live-Daten-Tabelle mit vorangestellter Tilde in Amber (z. B. `~1.800 m`) und erläuterndem
+Tooltip. Dieser Wert ist eine grobe Untergrenze, nicht der echte Cb-Top. Nur wenn überhaupt
+kein IR-Bildpunkt verfügbar ist (kein Satellitenzeitstempel, Koordinate außerhalb des Rasters,
+Nodata), bleibt „—" stehen.
+
 ## 4.3 Live-Daten (`/live`)
 
 Die Seite zeigt zwei getrennte Gruppen:
