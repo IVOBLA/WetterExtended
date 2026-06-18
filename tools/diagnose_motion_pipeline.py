@@ -11,7 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from forecast_error_diagnosis import build_forecast_error_diagnosis, write_forecast_error_diagnosis
+from forecast_error_diagnosis import build_forecast_error_diagnosis, is_valid_forecast_error_detail, write_forecast_error_diagnosis
 
 HORIZONS = (10, 20, 30, 40, 60)
 
@@ -193,6 +193,13 @@ def build_health(hours: int = 24, base_dir: str | Path = "."):
             "recommendations": forecast_error_diagnosis.get("recommendations", []),
             "root_cause_candidates": forecast_error_diagnosis.get("root_cause_candidates", []),
             "status": forecast_error_diagnosis.get("status"),
+        },
+        "detail_validation": {
+            "details_total": forecast_error_diagnosis.get("sample_counts", {}).get("details_total", 0),
+            "details_valid": forecast_error_diagnosis.get("sample_counts", {}).get("details_valid", 0),
+            "details_invalid": forecast_error_diagnosis.get("sample_counts", {}).get("details_invalid", 0),
+            "invalid_detail_counts": forecast_error_diagnosis.get("invalid_detail_counts", {}),
+            "invalid_detail_examples": forecast_error_diagnosis.get("invalid_detail_examples", []),
         },
         "diagnosis": diagnosis, "recommendations": recommendations,
     }

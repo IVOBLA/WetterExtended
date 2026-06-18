@@ -2298,6 +2298,14 @@ def api_forecast_error_breakdown():
     eval_dir = _evaluation_dir()
     path = os.path.join(eval_dir, "accuracy_history.jsonl")
     diagnosis_file = os.path.join(eval_dir, "forecast_error_diagnosis.json")
+    def _detail_validation_payload(diag):
+        return {
+            "details_total": diag.get("sample_counts", {}).get("details_total", 0),
+            "details_valid": diag.get("sample_counts", {}).get("details_valid", 0),
+            "details_invalid": diag.get("sample_counts", {}).get("details_invalid", 0),
+            "invalid_detail_counts": diag.get("invalid_detail_counts", {}),
+            "invalid_detail_examples": diag.get("invalid_detail_examples", []),
+        }
     def _diagnosis_payload():
         try:
             from forecast_error_diagnosis import build_forecast_error_diagnosis, load_latest_forecast_error_diagnosis
@@ -2312,7 +2320,7 @@ def api_forecast_error_breakdown():
             return {"status": "missing", "severity": "watch", "message": str(exc), "primary_findings": [], "recommendations": [], "root_cause_candidates": []}
     if not os.path.exists(path):
         diag = _diagnosis_payload()
-        return jsonify({"status": "missing", "message": "accuracy_history.jsonl fehlt; Forecast-Attribution ist noch nicht verfügbar.", "diagnosis_file": diagnosis_file, "forecast_error_diagnosis": diag, "primary_findings": diag.get("primary_findings", []), "recommendations": diag.get("recommendations", []), "root_cause_candidates": diag.get("root_cause_candidates", []), "severity": diag.get("severity")}), 200
+        return jsonify({"status": "missing", "message": "accuracy_history.jsonl fehlt; Forecast-Attribution ist noch nicht verfügbar.", "diagnosis_file": diagnosis_file, "forecast_error_diagnosis": diag, "detail_validation": _detail_validation_payload(diag), "primary_findings": diag.get("primary_findings", []), "recommendations": diag.get("recommendations", []), "root_cause_candidates": diag.get("root_cause_candidates", []), "severity": diag.get("severity")}), 200
     latest = None
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -2325,8 +2333,9 @@ def api_forecast_error_breakdown():
                     continue
         if latest is None:
             diag = _diagnosis_payload()
-            return jsonify({"status": "missing", "message": "accuracy_history.jsonl enthält noch keine verwertbare Attribution.", "diagnosis_file": diagnosis_file, "forecast_error_diagnosis": diag, "primary_findings": diag.get("primary_findings", []), "recommendations": diag.get("recommendations", []), "root_cause_candidates": diag.get("root_cause_candidates", []), "severity": diag.get("severity")}), 200
+            return jsonify({"status": "missing", "message": "accuracy_history.jsonl enthält noch keine verwertbare Attribution.", "diagnosis_file": diagnosis_file, "forecast_error_diagnosis": diag, "detail_validation": _detail_validation_payload(diag), "primary_findings": diag.get("primary_findings", []), "recommendations": diag.get("recommendations", []), "root_cause_candidates": diag.get("root_cause_candidates", []), "severity": diag.get("severity")}), 200
         diag = _diagnosis_payload()
+        detail_validation = _detail_validation_payload(diag)
         return jsonify({
             "status": "ok",
             "latest_timestamp_utc": latest.get("timestamp_utc"),
@@ -2342,6 +2351,7 @@ def api_forecast_error_breakdown():
             "diagnosis": latest.get("diagnosis", []),
             "diagnosis_file": diagnosis_file,
             "forecast_error_diagnosis": diag,
+            "detail_validation": detail_validation,
             "primary_findings": diag.get("primary_findings", []),
             "recommendations": diag.get("recommendations", []),
             "root_cause_candidates": diag.get("root_cause_candidates", []),
