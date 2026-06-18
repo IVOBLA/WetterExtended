@@ -358,6 +358,30 @@ export default function Dashboard() {
     ? `${disk.used_gb} / ${disk.total_gb} GB — ${disk.free_gb} GB frei`
     : null
 
+  const mlBlocked = forecastStats?.ml_blocked_reason != null
+  const activeMode = mlBlocked ? 'kinematic' : forecastStats?.active_mode
+
+  const forecastModeValue = mlBlocked
+    ? '📐 Fallback'
+    : activeMode === 'ml'
+      ? '🤖 ML'
+      : activeMode === 'kinematic'
+        ? '📐 Fallback'
+        : '—'
+
+  const forecastModeSubtitle = mlBlocked
+    ? `Aktuell blockiert: ${forecastStats.ml_blocked_reason}` +
+      (forecastStats.ml_pct != null
+        ? ` · 24h: ML ${forecastStats.ml_pct}% / Fallback ${forecastStats.kinematic_pct}%`
+        : '')
+    : forecastStats?.ml_pct != null
+      ? `ML ${forecastStats.ml_pct}% / Fallback ${forecastStats.kinematic_pct}% (24h)`
+      : 'Noch keine Zellen'
+
+  const forecastModeColorClass = mlBlocked || activeMode === 'kinematic'
+    ? 'border-l-4 border-yellow-400'
+    : ''
+
   const handleServiceClick = (svc) => {
     setSelectedService(prev => prev === svc ? '' : svc)
   }
@@ -411,13 +435,9 @@ export default function Dashboard() {
         {forecastStats && (
           <Card
             title="Forecast-Modus"
-            value={forecastStats.active_mode === 'ml' ? '🤖 ML' : forecastStats.active_mode === 'kinematic' ? '📐 Fallback' : '—'}
-            subtitle={
-              forecastStats.ml_pct != null
-                ? `ML ${forecastStats.ml_pct}% / Fallback ${forecastStats.kinematic_pct}% (24h)`
-                : 'Noch keine Zellen'
-            }
-            colorClass={forecastStats.active_mode === 'ml' ? '' : forecastStats.active_mode === 'kinematic' ? 'border-l-4 border-yellow-400' : ''}
+            value={forecastModeValue}
+            subtitle={forecastModeSubtitle}
+            colorClass={forecastModeColorClass}
           />
         )}
 
