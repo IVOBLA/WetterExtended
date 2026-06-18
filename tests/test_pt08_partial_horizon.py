@@ -105,3 +105,65 @@ def test_masked_mse_counts_valid():
     y_pred = tf.constant([[2.0, 999.0]])   # Fehler 2 im gültigen Element → MSE = 4
     loss = float(_masked_mse(y_true, y_pred).numpy())
     assert loss == pytest.approx(4.0, abs=1e-4)
+
+
+def test_predict_positions_marks_partial_lgbm_horizons_per_horizon(monkeypatch):
+    pytest.importorskip("numpy")
+    import numpy as np
+    import prediction
+
+    monkeypatch.setattr(prediction, "_get_horizons", lambda: [10, 20, 30])
+    monkeypatch.setattr(prediction, "ML_SEQUENCE_LENGTH", 1)
+    monkeypatch.setattr(prediction, "ML_NUM_FEATURES", 1)
+    monkeypatch.setattr(prediction, "_UF", 1.0)
+    monkeypatch.setattr(prediction, "pixel_to_geo", lambda x, y: (float(y) / 100.0, float(x) / 100.0))
+    monkeypatch.setattr(prediction, "_build_sequence", lambda *args, **kwargs: np.asarray([[0.0]], dtype=float))
+    monkeypatch.setattr(prediction, "load_lstm", lambda: None)
+    monkeypatch.setattr(prediction, "load_intensification_model", lambda: None)
+    monkeypatch.setattr(prediction, "_load_intensity_regressors", lambda: (None, None))
+    monkeypatch.setattr(prediction, "_load_atmosphere_snapshot", lambda: {})
+
+    class _ScalerX:
+        def transform(self, seq):
+            return np.asarray(seq, dtype=float)
+
+    class _ScalerY:
+        def inverse_transform(self, arr):
+            return np.asarray(arr, dtype=float)
+
+    class _FakeBooster:
+        def __init__(self, value):
+            self.value = value
+
+        def predict(self, frame):
+            return [self.value]
+
+    monkeypatch.setattr(prediction, "load_scalers", lambda: (_ScalerX(), _ScalerY()))
+    monkeypatch.setattr(
+        prediction,
+        "load_lgbm_models",
+        lambda: {"lgbm_h10_x": _FakeBooster(110.0), "lgbm_h10_y": _FakeBooster(210.0)},
+    )
+
+    obj = {
+        "id": "partial",
+        "x": 100.0,
+        "y": 200.0,
+        "lat": 47.0,
+        "lon": 15.0,
+        "vx": 1.0,
+        "vy": 1.0,
+        "of_available": 0,
+    }
+
+    fc10, fc20, fc30 = prediction.predict_positions([obj], "2026-06-18_12-00-00", [])
+
+    assert obj["forecast_mode"] == "ml"
+    assert obj["forecast_mode_10"] == "ml"
+    assert obj["forecast_mode_20"] == "kinematic"
+    assert obj["forecast_mode_30"] == "kinematic"
+    assert obj["kinematic_source_10"] is None
+    assert obj["kinematic_source_20"] == obj["kinematic_source"]
+    assert fc10[0]["forecast_mode_horizon"] == "ml"
+    assert fc20[0]["forecast_mode_horizon"] == "kinematic"
+    assert fc30[0]["forecast_mode_horizon"] == "kinematic"
