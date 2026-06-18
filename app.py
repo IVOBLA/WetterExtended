@@ -1096,6 +1096,10 @@ def api_objects():
             # Tracks bleiben im Payload, werden aber nicht als Vorläufer dargestellt.
             for t in ir_tracks:
                 t["_type"] = "ir_precursor_cell"
+                if t.get("ir_id") and not t.get("ir_track_id"):
+                    t["ir_track_id"] = t.get("ir_id")
+                if not t.get("cell_id"):
+                    t["cell_id"] = t.get("ir_id")
                 if t.get("radar_confirmed") is True or t.get("status") == "radar_confirmed":
                     t["display_as_precursor"] = False
                     t["ir_only_precursor"] = 0.0

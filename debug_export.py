@@ -298,11 +298,12 @@ def _build_candidates_with_diagnostics(base_dir: Path, save_paths: dict | None) 
         ("forecast", Path("data/forecast"), False),
         ("evaluation", Path(save_paths.get("evaluation", "train_data/evaluation")), False),
         ("admin_state", Path("train_data/system"), False),
+        ("cell_lineage", Path("train_data/cell_lineage"), False),
         ("system_logs", Path("logs"), False),
         ("config", Path("config.py"), True),
         ("config", Path("runtime_overrides.json"), True),
     ]
-    for key in ("weather", "wind", "cape", "ir", "lightning", "arome", "ir_cells", "system"):
+    for key in ("weather", "wind", "cape", "ir", "lightning", "arome", "ir_cells", "system", "cell_lineage"):
         if key in save_paths:
             roots.append((_section_for_external(Path(save_paths[key])), Path(save_paths[key]), False))
     roots.extend([

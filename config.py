@@ -792,7 +792,18 @@ SAVE_PATHS = {
     "statistics": "train_data/statistics/",
     "cell_filters": "train_data/cell_filters/",   # HitL: Filter + Polygon-PNGs
     "system": "train_data/system/",               # CPU/System-Monitoring
+    "cell_lineage": "train_data/cell_lineage/",     # 1L.1: stabile fachliche Zell-IDs
 }
+
+# --------------------------------------
+# Zell-Lineage (1L.1)
+# --------------------------------------
+IR_LINEAGE_ENABLED = True
+CELL_ID_PREFIX = "WX"
+CELL_LINEAGE_STATE_DIR = "train_data/cell_lineage"
+CELL_LINEAGE_STATE_FILE = "cell_lineage_state.json"
+CELL_LINEAGE_EVENTS_FILE = "cell_lineage_events.jsonl"
+
 # Ausgabeauflösung in Pixeln (z. B. für GeoTIFF via WMS)
 WIDTH = 1600
 HEIGHT = 600

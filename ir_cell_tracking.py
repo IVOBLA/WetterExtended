@@ -25,6 +25,18 @@ from glob import glob
 from math import radians, cos, sin, sqrt, atan2
 
 from config import SAVE_PATHS, IR_TRACK_MAX_MISSING
+
+try:
+    import runtime_config
+except Exception:
+    runtime_config = None
+
+try:
+    from cell_lineage import ensure_ir_track_cell_id, ensure_ir_tracks_cell_ids
+except Exception:
+    ensure_ir_track_cell_id = None
+    ensure_ir_tracks_cell_ids = None
+
 def debug_log(*args, **kwargs):
     pass
 
@@ -57,6 +69,15 @@ def _is_truthy_precursor(value) -> bool:
         return bool(value)
 
 
+def _lineage_enabled() -> bool:
+    if runtime_config is not None:
+        try:
+            return bool(runtime_config.get("IR_LINEAGE_ENABLED", True))
+        except Exception:
+            pass
+    return True
+
+
 def _normalize_ir_track(track: dict, *, default_timestamp: str | None = None) -> dict:
     """Ergänzt und harmonisiert die 1C-Semantikfelder eines IR-Tracks."""
     if not isinstance(track, dict):
@@ -68,6 +89,8 @@ def _normalize_ir_track(track: dict, *, default_timestamp: str | None = None) ->
         radar_confirmed = not _is_truthy_precursor(track.get("ir_only_precursor"))
 
     track["_type"] = "ir_precursor_cell"
+    if track.get("ir_id") and not track.get("ir_track_id"):
+        track["ir_track_id"] = track.get("ir_id")
     track.setdefault("source_type", "ir108")
     track.setdefault("radar_track_id", None)
     track.setdefault("radar_match_ids", [])
@@ -97,6 +120,12 @@ def _normalize_ir_track(track: dict, *, default_timestamp: str | None = None) ->
         track["is_potential_new_cell"] = True
         track["display_as_precursor"] = True
         track["ir_only_precursor"] = 1.0
+
+    if _lineage_enabled() and ensure_ir_track_cell_id is not None and not track.get("cell_id"):
+        try:
+            ensure_ir_track_cell_id(track, timestamp=ts)
+        except Exception as exc:
+            debug_log(f"[IR-TRACK] Zell-Lineage konnte nicht gesetzt werden: {exc}")
     return track
 
 def _load_state() -> dict:
@@ -296,6 +325,11 @@ def update_ir_tracking(new_cells: list, timestamp: str) -> list:
     # ── State persistieren ────────────────────────────────────────────────────
     for _track in tracks.values():
         _normalize_ir_track(_track, default_timestamp=timestamp)
+    if _lineage_enabled() and ensure_ir_tracks_cell_ids is not None:
+        try:
+            ensure_ir_tracks_cell_ids(list(tracks.values()), timestamp=timestamp)
+        except Exception as exc:
+            debug_log(f"[IR-TRACK] Zell-Lineage-Migration vor Save fehlgeschlagen: {exc}")
     state["tracks"] = tracks
     state["next_id"] = next_id
     _save_state(state)
@@ -337,6 +371,8 @@ def mark_radar_matched_tracks(matched_ir_ids: list, radar_match_map: dict | None
             track["display_as_precursor"] = False
             track["status"] = "radar_confirmed"
             track["_type"] = "ir_precursor_cell"
+            if track.get("ir_id") and not track.get("ir_track_id"):
+                track["ir_track_id"] = track.get("ir_id")
             if radar_match_map is not None:
                 track["radar_track_id"] = radar_match_map.get(track.get("ir_id"))
             _normalize_ir_track(track)
@@ -356,7 +392,17 @@ def load_active_ir_tracks() -> list:
     """
     state = _load_state()
     tracks = state.get("tracks", {})
-    return [_normalize_ir_track(t) for t in tracks.values() if t.get("missing", 0) == 0]
+    active = [_normalize_ir_track(t) for t in tracks.values() if t.get("missing", 0) == 0]
+    if _lineage_enabled() and ensure_ir_tracks_cell_ids is not None:
+        try:
+            missing_before = any(isinstance(t, dict) and not t.get("cell_id") for t in active)
+            ensure_ir_tracks_cell_ids(active)
+            if missing_before:
+                state["tracks"] = tracks
+                _save_state(state)
+        except Exception as exc:
+            debug_log(f"[IR-TRACK] Zell-Lineage-Migration beim Laden fehlgeschlagen: {exc}")
+    return active
 
 
 if __name__ == "__main__":
