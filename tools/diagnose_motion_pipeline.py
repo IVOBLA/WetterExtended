@@ -57,6 +57,34 @@ def _load_json(path: Path, warnings: Counter):
         return []
 
 
+
+def _latest_accuracy_attribution(eval_dir: Path, warnings: Counter, recommendations: list) -> dict:
+    details = eval_dir / "forecast_error_details.jsonl"
+    history = eval_dir / "accuracy_history.jsonl"
+    if not details.exists():
+        warnings["forecast_error_details_missing"] = True
+        recommendations.append("Forecast error detail logging is not available yet.")
+    latest = {}
+    try:
+        if history.exists():
+            for line in history.read_text(encoding="utf-8").splitlines():
+                try:
+                    rec = json.loads(line)
+                    if isinstance(rec, dict): latest = rec
+                except Exception: pass
+    except Exception:
+        warnings["accuracy_history_read_error"] += 1
+    return {
+        "latest_timestamp_utc": latest.get("timestamp_utc"),
+        "breakdown_by_forecast_mode": latest.get("breakdown_by_forecast_mode", {}),
+        "breakdown_by_kinematic_source": latest.get("breakdown_by_kinematic_source", {}),
+        "breakdown_by_match_type": latest.get("breakdown_by_match_type", {}),
+        "direction_stats_by_horizon": latest.get("direction_stats_by_horizon", {}),
+        "speed_stats_by_horizon": latest.get("speed_stats_by_horizon", {}),
+        "worst_forecasts": latest.get("worst_forecasts", []),
+        "diagnosis": latest.get("diagnosis", []),
+    }
+
 def build_health(hours: int = 24, base_dir: str | Path = "."):
     base = Path(base_dir)
     eval_dir = base / "train_data" / "evaluation"
@@ -117,6 +145,7 @@ def build_health(hours: int = 24, base_dir: str | Path = "."):
     zero_pct = {h: pct(zero_by_h[h], count_by_h[h]) for h in [str(x) for x in HORIZONS]}
 
     diagnosis = []; recommendations = []
+    accuracy_attribution = _latest_accuracy_attribution(eval_dir, warnings, recommendations)
     if not pysteps_import_ok:
         diagnosis.append("pysteps_import_ok=false: pySTEPS ist nicht importierbar.")
         recommendations.append("pySTEPS im venv installieren/aktualisieren.")
@@ -145,7 +174,8 @@ def build_health(hours: int = 24, base_dir: str | Path = "."):
         "median_forecast_displacement_km_by_horizon": med_disp,
         "median_forecast_speed_kmh_by_horizon": med_speed,
         "forecast_sample_count_by_horizon": dict(count_by_h), "warnings": dict(warnings),
-        "latest_drift_status": latest_drift, "diagnosis": diagnosis, "recommendations": recommendations,
+        "latest_drift_status": latest_drift, "accuracy_attribution": accuracy_attribution,
+        "diagnosis": diagnosis, "recommendations": recommendations,
     }
 
 

@@ -2277,6 +2277,42 @@ def api_motion_pipeline_health():
         return jsonify({"status": "error", "message": str(exc)}), 200
 
 
+
+@app.route("/api/forecast_error_breakdown")
+def api_forecast_error_breakdown():
+    """Liefert die letzte Accuracy-Attribution aus accuracy_history.jsonl."""
+    path = os.path.join(_evaluation_dir(), "accuracy_history.jsonl")
+    if not os.path.exists(path):
+        return jsonify({"status": "missing", "message": "accuracy_history.jsonl fehlt; Forecast-Attribution ist noch nicht verfügbar."}), 200
+    latest = None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    rec = json.loads(line.strip())
+                    if isinstance(rec, dict):
+                        latest = rec
+                except Exception:
+                    continue
+        if latest is None:
+            return jsonify({"status": "missing", "message": "accuracy_history.jsonl enthält noch keine verwertbare Attribution."}), 200
+        return jsonify({
+            "status": "ok",
+            "latest_timestamp_utc": latest.get("timestamp_utc"),
+            "since_hours": latest.get("since_hours"),
+            "tolerance_km": latest.get("tolerance_km"),
+            "horizons": latest.get("horizons", []),
+            "breakdown_by_forecast_mode": latest.get("breakdown_by_forecast_mode", {}),
+            "breakdown_by_kinematic_source": latest.get("breakdown_by_kinematic_source", {}),
+            "breakdown_by_match_type": latest.get("breakdown_by_match_type", {}),
+            "direction_stats_by_horizon": latest.get("direction_stats_by_horizon", {}),
+            "speed_stats_by_horizon": latest.get("speed_stats_by_horizon", {}),
+            "worst_forecasts": latest.get("worst_forecasts", []),
+            "diagnosis": latest.get("diagnosis", []),
+        }), 200
+    except Exception as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 200
+
 @app.route("/api/forecast_stats")
 def api_forecast_stats():
     """
@@ -2345,6 +2381,7 @@ def api_forecast_stats():
         "last_mode":        last_mode,
         "last_ts":          last_ts,
         "active_mode":      last_mode or "unbekannt",
+        "error_breakdown_available": os.path.exists(os.path.join(_evaluation_dir(), "accuracy_history.jsonl")),
     }
     # B116: ML-Block-Grund mitliefern (None = ML aktiv).
     _resp["ml_blocked_reason"] = _ml_block_reason()

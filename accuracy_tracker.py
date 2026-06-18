@@ -24,7 +24,7 @@ import json
 import math
 import os
 from datetime import datetime, timedelta
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, Any
 
 from config import (
     SAVE_PATHS,
@@ -36,6 +36,7 @@ from debug_utils import debug_log
 
 EVAL_DIR = SAVE_PATHS.get("evaluation", "train_data/evaluation/").rstrip("/")
 HISTORY_FILE = os.path.join(EVAL_DIR, "accuracy_history.jsonl")
+DETAILS_FILE = os.path.join(EVAL_DIR, "forecast_error_details.jsonl")
 
 
 def _parse_ts(path: str) -> Optional[datetime]:
@@ -65,6 +66,92 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlam / 2) ** 2
     return 2 * R * math.asin(min(1.0, math.sqrt(a)))
 
+
+
+def _safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def direction_error_deg(a: Optional[float], b: Optional[float]) -> Optional[float]:
+    """Minimaler Winkelabstand 0..180 Grad."""
+    if a is None or b is None:
+        return None
+    diff = abs((float(a) - float(b)) % 360.0)
+    return min(diff, 360.0 - diff)
+
+
+def _bearing_deg(lat1, lon1, lat2, lon2) -> Optional[float]:
+    vals = [_safe_float(v) for v in (lat1, lon1, lat2, lon2)]
+    if any(v is None for v in vals):
+        return None
+    lat1, lon1, lat2, lon2 = vals
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dlam = math.radians(lon2 - lon1)
+    y = math.sin(dlam) * math.cos(phi2)
+    x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(dlam)
+    return (math.degrees(math.atan2(y, x)) + 360.0) % 360.0
+
+
+def _jsonl_append(path: str, rec: dict) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False, allow_nan=False) + "\n")
+    except (TypeError, ValueError):
+        clean = {k: (None if isinstance(v, float) and not math.isfinite(v) else v) for k, v in rec.items()}
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(clean, ensure_ascii=False, allow_nan=False) + "\n")
+
+
+def _match_type(raw: str) -> str:
+    return {"nn": "nearest", "miss": "none"}.get(raw, raw or "none")
+
+
+def _forecast_meta(obj: dict, horizon_min: int, key: str, default=None):
+    return obj.get(f"{key}_{horizon_min}", obj.get(key, default))
+
+
+def _detail_record(obj: dict, ts: datetime, target_ts: datetime, horizon_min: int, matched: Optional[dict],
+                   dist_km: Optional[float], match_src: str, no_target_frame: bool, stale: bool,
+                   effective_lead_min: float, ex_px: Optional[float] = None, ey_px: Optional[float] = None) -> dict:
+    f_lat = _safe_float(obj.get(f"forecast_lat_{horizon_min}")); f_lon = _safe_float(obj.get(f"forecast_lon_{horizon_min}"))
+    o_lat = _safe_float(obj.get("origin_lat", obj.get("lat"))); o_lon = _safe_float(obj.get("origin_lon", obj.get("lon")))
+    a_lat = _safe_float(matched.get("lat") if matched else None); a_lon = _safe_float(matched.get("lon") if matched else None)
+    fc_disp = _haversine_km(o_lat, o_lon, f_lat, f_lon) if None not in (o_lat, o_lon, f_lat, f_lon) else None
+    ac_disp = _haversine_km(o_lat, o_lon, a_lat, a_lon) if None not in (o_lat, o_lon, a_lat, a_lon) else None
+    lead_h = effective_lead_min / 60.0 if effective_lead_min else (horizon_min / 60.0)
+    fc_speed = fc_disp / lead_h if fc_disp is not None and lead_h else None
+    ac_speed = ac_disp / lead_h if ac_disp is not None and lead_h else None
+    fc_dir = _bearing_deg(o_lat, o_lon, f_lat, f_lon); ac_dir = _bearing_deg(o_lat, o_lon, a_lat, a_lon)
+    return {
+        "verified_at_utc": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "forecast_created_at_utc": ts.isoformat(timespec="seconds") + "Z",
+        "target_timestamp_utc": target_ts.isoformat(timespec="seconds") + "Z",
+        "horizon_min": horizon_min, "effective_lead_min": round(effective_lead_min, 3), "stale": bool(stale),
+        "object_id": str(obj.get("id", "")), "cell_id": str(obj.get("cell_id", obj.get("id", ""))), "track_id": str(obj.get("track_id", "")),
+        "forecast_mode": str(_forecast_meta(obj, horizon_min, "forecast_mode", "unknown") or "unknown"),
+        "kinematic_source": str(_forecast_meta(obj, horizon_min, "kinematic_source", "unknown") or "unknown"),
+        "of_available": int(obj.get("of_available", 0) or 0), "of_error_reason": obj.get("of_error_reason"),
+        "forecast_lat": f_lat, "forecast_lon": f_lon, "actual_lat": a_lat, "actual_lon": a_lon, "origin_lat": o_lat, "origin_lon": o_lon,
+        "forecast_error_km": round(dist_km, 6) if dist_km is not None and math.isfinite(dist_km) else None,
+        "forecast_error_x_px": ex_px, "forecast_error_y_px": ey_px,
+        "forecast_displacement_km": round(fc_disp, 6) if fc_disp is not None else None, "forecast_speed_kmh": round(fc_speed, 6) if fc_speed is not None else None,
+        "actual_displacement_km": round(ac_disp, 6) if ac_disp is not None else None, "actual_speed_kmh": round(ac_speed, 6) if ac_speed is not None else None,
+        "speed_error_kmh": round(abs(fc_speed - ac_speed), 6) if fc_speed is not None and ac_speed is not None else None,
+        "forecast_direction_deg": round(fc_dir, 6) if fc_dir is not None else None, "actual_direction_deg": round(ac_dir, 6) if ac_dir is not None else None,
+        "direction_error_deg": round(direction_error_deg(fc_dir, ac_dir), 6) if direction_error_deg(fc_dir, ac_dir) is not None else None,
+        "match_type": _match_type(match_src), "matched_object_id": str(matched.get("id", "")) if matched else None,
+        "matched_cell_id": str(matched.get("cell_id", matched.get("id", ""))) if matched else None,
+        "match_distance_km": round(dist_km, 6) if dist_km is not None and math.isfinite(dist_km) else None,
+        "radar_age_min": _safe_float(obj.get("radar_age_min"), 0.0), "no_target_frame": bool(no_target_frame),
+        "id_lost": bool((not no_target_frame) and matched is not None and str(matched.get("id")) != str(obj.get("id"))),
+        "missed": bool((not no_target_frame) and matched is None),
+    }
 
 def _find_target_frame(by_ts: Dict[datetime, str],
                        target_ts: datetime,
@@ -110,6 +197,22 @@ def _match_actual(obj: dict, target_objs: list, horizon_min: int
     return best, best_d, "nn"
 
 
+def _percentile(values: list, p: float) -> Optional[float]:
+    vals = sorted(float(v) for v in values if v is not None)
+    if not vals:
+        return None
+    idx = min(len(vals) - 1, max(0, math.ceil((p / 100.0) * len(vals)) - 1))
+    return vals[idx]
+
+
+def _stat_errors(values: list, name: str) -> dict:
+    if not values:
+        return {}
+    prefix = "direction" if "direction" in name else "speed"
+    unit = "deg" if prefix == "direction" else "kmh"
+    return {f"median_{prefix}_error_{unit}": round(_percentile(values, 50), 3), f"p90_{prefix}_error_{unit}": round(_percentile(values, 90), 3)}
+
+
 def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
     """
     Closed-Loop-Verifikation pro Horizont.
@@ -138,10 +241,14 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
 
     by_mode = {}
     by_source = {}
+    by_match = {}
+    direction_errors = []
+    speed_errors = []
+    details = []
 
     def _bucket(store, key):
         k = str(key or "unknown")
-        return store.setdefault(k, {"samples": 0, "verified": 0, "hits": 0, "missed": 0, "no_target_frame": 0, "sum_km": 0.0})
+        return store.setdefault(k, {"samples": 0, "verified": 0, "hits": 0, "missed": 0, "no_target_frame": 0, "sum_km": 0.0, "sum_km2": 0.0})
 
 
     def _mode_for(obj):
@@ -159,6 +266,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
                 "samples": total, "verified": ver, "missed": int(v.get("missed", 0)),
                 "no_target_frame": int(v.get("no_target_frame", 0)),
                 "mae_km": round(v["sum_km"] / ver, 3) if ver else None,
+                "rmse_km": round(math.sqrt(v.get("sum_km2", 0.0) / ver), 3) if ver else None,
                 "hit_rate": round(v["hits"] / ver, 4) if ver else None,
                 "coverage_rate": round(ver / total, 4) if total else None,
             }
@@ -182,6 +290,9 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         "tolerance_km": VERIFICATION_TOLERANCE_KM,
         "by_forecast_mode": _finish(by_mode),
         "by_kinematic_source": _finish(by_source),
+        "by_match_type": _finish(by_match),
+        "direction_stats": {},
+        "speed_stats": {},
     }
     if not fts:
         debug_log(f"[ACCURACY] Keine Objekt-Dateien gefunden in {obj_dir}")
@@ -215,6 +326,9 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
                 if _o.get(f"forecast_lat_{horizon_min}") is not None and _o.get(f"forecast_lon_{horizon_min}") is not None:
                     _bucket(by_mode, _mode_for(_o))["no_target_frame"] += 1
                     _bucket(by_source, _source_for(_o))["no_target_frame"] += 1
+                    _bucket(by_match, "none")["no_target_frame"] += 1
+                    rec = _detail_record(_o, ts, target_ts, horizon_min, None, None, "none", True, False, horizon_min)
+                    details.append(rec); _jsonl_append(DETAILS_FILE, rec)
             continue
 
         target_objs = _load_objects(target_path)
@@ -225,6 +339,9 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
                 if _o.get(f"forecast_lat_{horizon_min}") is not None and _o.get(f"forecast_lon_{horizon_min}") is not None:
                     _bucket(by_mode, _mode_for(_o))["no_target_frame"] += 1
                     _bucket(by_source, _source_for(_o))["no_target_frame"] += 1
+                    _bucket(by_match, "none")["no_target_frame"] += 1
+                    rec = _detail_record(_o, ts, target_ts, horizon_min, None, None, "none", True, False, horizon_min)
+                    details.append(rec); _jsonl_append(DETAILS_FILE, rec)
             continue
 
         for obj in objs:
@@ -237,12 +354,15 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
 
             matched, dist_km, _match_src = _match_actual(obj, target_objs, horizon_min)
             n_total += 1
-            _bm = _bucket(by_mode, _mode_for(obj)); _bs = _bucket(by_source, _source_for(obj))
-            _bm["samples"] += 1; _bs["samples"] += 1
+            _bm = _bucket(by_mode, _mode_for(obj)); _bs = _bucket(by_source, _source_for(obj)); _bt = _bucket(by_match, _match_type(_match_src))
+            _bm["samples"] += 1; _bs["samples"] += 1; _bt["samples"] += 1
+            ex = ey = None
 
             if matched is None:
                 missed += 1
-                _bm["missed"] += 1; _bs["missed"] += 1
+                _bm["missed"] += 1; _bs["missed"] += 1; _bt["missed"] += 1
+                rec = _detail_record(obj, ts, target_ts, horizon_min, None, None, _match_src, False, False, horizon_min)
+                details.append(rec); _jsonl_append(DETAILS_FILE, rec)
                 continue
 
             try:
@@ -262,11 +382,16 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
             sum_km += dist_km
             sum_km2 += dist_km * dist_km
             verified += 1
-            _bm["verified"] += 1; _bs["verified"] += 1
-            _bm["sum_km"] += dist_km; _bs["sum_km"] += dist_km
+            _bm["verified"] += 1; _bs["verified"] += 1; _bt["verified"] += 1
+            _bm["sum_km"] += dist_km; _bs["sum_km"] += dist_km; _bt["sum_km"] += dist_km
+            _bm["sum_km2"] += dist_km * dist_km; _bs["sum_km2"] += dist_km * dist_km; _bt["sum_km2"] += dist_km * dist_km
+            rec = _detail_record(obj, ts, target_ts, horizon_min, matched, dist_km, _match_src, False, False, horizon_min, ex, ey)
+            if rec.get("direction_error_deg") is not None: direction_errors.append(float(rec["direction_error_deg"]))
+            if rec.get("speed_error_kmh") is not None: speed_errors.append(float(rec["speed_error_kmh"]))
+            details.append(rec); _jsonl_append(DETAILS_FILE, rec)
             if dist_km <= VERIFICATION_TOLERANCE_KM:
                 hits += 1
-                _bm["hits"] += 1; _bs["hits"] += 1
+                _bm["hits"] += 1; _bs["hits"] += 1; _bt["hits"] += 1
 
     if n_total == 0:
         debug_log(f"[ACCURACY] horizon=+{horizon_min}m: 0 verifizierbare Samples in den letzten {since_hours}h")
@@ -298,12 +423,62 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         "tolerance_km": VERIFICATION_TOLERANCE_KM,
         "by_forecast_mode": _finish(by_mode),
         "by_kinematic_source": _finish(by_source),
+        "by_match_type": _finish(by_match),
+        "direction_stats": _stat_errors(direction_errors, "direction_error_deg"),
+        "speed_stats": _stat_errors(speed_errors, "speed_error_kmh"),
     }
 
 
+def _diagnosis(summary: dict) -> list:
+    out = []
+    for h, modes in summary.get("breakdown_by_forecast_mode", {}).items():
+        ml = modes.get("ml", {}).get("mae_km"); kin = modes.get("kinematic", {}).get("mae_km")
+        if ml is not None and kin is not None and ml > kin * 1.5:
+            out.append("ML forecast performs worse than kinematic fallback."); break
+    if any((v.get("p90_direction_error_deg") or 0) >= 90 for v in summary.get("direction_stats_by_horizon", {}).values()):
+        out.append("Forecast direction error dominates.")
+    if any((v.get("p90_speed_error_kmh") or 0) >= 30 for v in summary.get("speed_stats_by_horizon", {}).values()):
+        out.append("Forecast speed error dominates.")
+    for h, mt in summary.get("breakdown_by_match_type", {}).items():
+        nn = mt.get("nearest", {}).get("mae_km"); iid = mt.get("id", {}).get("mae_km")
+        if nn is not None and iid is not None and nn > iid * 1.5:
+            out.append("Verification likely affected by ID/split/merge matching."); break
+    for row in summary.get("horizons", []):
+        if row.get("samples") and (row.get("no_target_frame", 0) / row.get("samples", 1)) >= 0.3:
+            out.append("Coverage limited by missing target frames."); break
+    return list(dict.fromkeys(out))
+
+
 def evaluate_all(horizons: List[int], since_hours: int = 24) -> dict:
-    return {"since_hours": since_hours, "tolerance_km": VERIFICATION_TOLERANCE_KM,
-            "horizons": [evaluate_for_horizon(h, since_hours) for h in horizons]}
+    rows = [evaluate_for_horizon(h, since_hours) for h in horizons]
+    summary = {"since_hours": since_hours, "tolerance_km": VERIFICATION_TOLERANCE_KM, "horizons": rows}
+    summary["breakdown_by_forecast_mode"] = {str(r["horizon"]): r.get("by_forecast_mode", {}) for r in rows}
+    summary["breakdown_by_kinematic_source"] = {str(r["horizon"]): r.get("by_kinematic_source", {}) for r in rows}
+    summary["breakdown_by_match_type"] = {str(r["horizon"]): r.get("by_match_type", {}) for r in rows}
+    summary["direction_stats_by_horizon"] = {str(r["horizon"]): r.get("direction_stats", {}) for r in rows}
+    summary["speed_stats_by_horizon"] = {str(r["horizon"]): r.get("speed_stats", {}) for r in rows}
+    summary["worst_forecasts"] = load_error_details(limit=10, since_hours=since_hours, sort_worst=True)
+    summary["diagnosis"] = _diagnosis(summary)
+    return summary
+
+
+def load_error_details(limit: int = 1000, since_hours: int = 24 * 7, sort_worst: bool = False) -> list:
+    if not os.path.exists(DETAILS_FILE):
+        return []
+    cutoff = datetime.utcnow() - timedelta(hours=since_hours)
+    out = []
+    with open(DETAILS_FILE, "r", encoding="utf-8") as f:
+        for line in f:
+            try:
+                rec = json.loads(line)
+                ts = datetime.fromisoformat(str(rec.get("verified_at_utc", "")).replace("Z", ""))
+                if ts >= cutoff:
+                    out.append(rec)
+            except Exception:
+                continue
+    if sort_worst:
+        out.sort(key=lambda r: r.get("forecast_error_km") if r.get("forecast_error_km") is not None else -1, reverse=True)
+    return out[:limit]
 
 
 def classify_zero_sample_health(obj_dir: str, since_hours: int = 24) -> dict:
