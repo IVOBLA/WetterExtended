@@ -54,6 +54,16 @@ Das Matching lädt keine externen Daten nach und erzeugt keine neuen Requests. E
 
 Wenn eine Radarzelle zu einer CB-IR-Vorläuferzelle passt, übernimmt das Radarobjekt die fachliche `cell_id` des IR-Tracks. Der IR-Track wird als `radar_confirmed` markiert, `display_as_precursor` wird deaktiviert und `ir_only_precursor` auf `0.0` gesetzt. Dadurch wird eine bereits bestätigte IR-Wolke nicht zusätzlich als Vorläufer angezeigt. Persistiert wird die Bestätigung in `cell_lineage_state.json` (`radar_to_cell`) und als `ir_to_radar_confirmation` in `cell_lineage_events.jsonl`.
 
+## 1L.3 Deduplizierung in API/Karte/KMZ
+
+1L.3 macht `cell_id` zur bevorzugten fachlichen ID für die sichtbare Darstellung einer physikalischen Zelle in API, Karte und KMZ. Technische IDs wie Radar-`id` und `ir_track_id` bleiben weiterhin im Payload und in KMZ-Daten erhalten, damit Debugging und Rückverfolgung möglich bleiben.
+
+Sobald eine Radar-/Regenzelle eine IR-Vorläuferzelle bestätigt, ist das Radarobjekt die primäre Darstellung. Die gematchte IR-Wolke wird nicht mehr separat als IR-Vorläufer angezeigt, wenn beide dieselbe `cell_id` tragen oder der IR-Track als `radar_confirmed` bzw. `display_as_precursor=false` markiert ist. IR-Vorläufer ohne Radar-Match bleiben sichtbar, sofern `ir_only_precursor == 1.0` gilt.
+
+Die IR-Informationen gehen bei der Deduplizierung nicht verloren: BT-Minimum, BT-Trend, Wolkenhöhe, Höhen-Trend, Flächenwachstum, Overshooting-Top, Wolkenalter und Lineage-Match-Daten werden am passenden Radarobjekt mitgeführt. Das Frontend enthält zusätzlich eine Guardrail gegen doppelte IR-Darstellung, die Hauptentscheidung liegt aber im Backend. Der KMZ-Export unterdrückt duplicate IR-Vorläufer mit bereits vorhandener Radar-`cell_id` und schreibt die wichtigsten IR-Werte an die Radarzelle.
+
+Es wird keine neue Kartenebene eingeführt. Die bestehende CB-/IR-Vorläuferdarstellung bleibt für nicht gematchte IR-Zellen erhalten.
+
 Noch nicht Bestandteil von 1L.2:
 
 - vollständige Split-/Merge-Auflösung mit Parent-/Child-Lineage,

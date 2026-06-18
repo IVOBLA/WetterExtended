@@ -20,6 +20,7 @@ Fix P08:
 import math
 
 import simplekml
+from cell_lineage_dedup import attach_ir_values_to_radar
 
 from geo_utils import pixel_to_geo
 
@@ -96,6 +97,13 @@ def save_forecast_as_kmz(
     """
     kml = simplekml.Kml()
 
+    radar_cell_ids = {str(o.get("cell_id")) for o in (current_objects or []) if isinstance(o, dict) and o.get("cell_id")}
+    if current_objects and ir_tracks:
+        radar_by_cell_id = {str(o.get("cell_id")): o for o in current_objects if isinstance(o, dict) and o.get("cell_id")}
+        for ir in ir_tracks or []:
+            if isinstance(ir, dict) and ir.get("cell_id") and str(ir.get("cell_id")) in radar_by_cell_id:
+                attach_ir_values_to_radar(radar_by_cell_id[str(ir.get("cell_id"))], ir)
+
     # ── Layer 1: Aktuelle Zellen ───────────────────────────────────────────
     if current_objects:
         current_folder = kml.newfolder(name="Aktuelle Zellen")
@@ -109,10 +117,17 @@ def save_forecast_as_kmz(
             cell_id = obj.get("cell_id") or tech_id
             # Mittelpunkt
             pnt = current_folder.newpoint(name=str(tech_id), coords=[(lon, lat)])
-            pnt.description = f"Technische ID: {tech_id}\nCell-ID: {cell_id}"
+            _ir_desc = []
+            for _label, _key in (("IR-Track-ID", "ir_track_id"), ("BT_min_K", "ir_bt_min_k"), ("Cloud-Height_m", "ir_cloud_height_m"), ("BT-Trend_K_min", "ir_bt_trend_k_per_min"), ("Cloud-Height-Trend_m_min", "ir_cloud_height_trend_m_per_min"), ("Lineage-Match-Score", "lineage_match_score")):
+                if obj.get(_key) is not None:
+                    _ir_desc.append(f"{_label}: {obj.get(_key)}")
+            pnt.description = "\n".join([f"Technische ID: {tech_id}", f"Cell-ID: {cell_id}"] + _ir_desc)
             try:
                 pnt.extendeddata.newdata(name="id", value=str(tech_id))
                 pnt.extendeddata.newdata(name="cell_id", value=str(cell_id))
+                for _name, _key in (("ir_track_id", "ir_track_id"), ("bt_min_k", "ir_bt_min_k"), ("cloud_height_m", "ir_cloud_height_m"), ("bt_trend_k_per_min", "ir_bt_trend_k_per_min"), ("cloud_height_trend_m_per_min", "ir_cloud_height_trend_m_per_min"), ("lineage_match_score", "lineage_match_score")):
+                    if obj.get(_key) is not None:
+                        pnt.extendeddata.newdata(name=_name, value=str(obj.get(_key)))
             except Exception:
                 pass
             pnt.style.iconstyle.icon.href = (
@@ -250,9 +265,14 @@ def save_forecast_as_kmz(
         ir_folder = kml.newfolder(name="IR-Cells (Vorläufer)")
         for ir in ir_tracks:
             try:
+                if ir.get("display_as_precursor") is False or ir.get("radar_confirmed") is True or float(ir.get("ir_only_precursor", 0.0) or 0.0) != 1.0:
+                    continue
+                if ir.get("cell_id") and str(ir.get("cell_id")) in radar_cell_ids:
+                    continue
                 ir_lat = float(ir.get("lat", 0))
                 ir_lon = float(ir.get("lon", 0))
                 ir_id  = ir.get("ir_id", "ir_?")
+                ir_cell_id = ir.get("cell_id") or ir_id
                 bt_min = ir.get("bt_min_k", 0.0)
                 age    = ir.get("cloud_age_min", 0.0)
                 ot     = ir.get("overshooting_top", 0.0)
@@ -265,9 +285,14 @@ def save_forecast_as_kmz(
                     description=(
                         f"IR-Vorläufer | BT_min={bt_min:.1f}K | "
                         f"Trend={trend:+.2f}K/min | Age={age:.0f}min | "
-                        f"OT={'ja' if ot else 'nein'}"
+                        f"OT={'ja' if ot else 'nein'} | Cell-ID={ir_cell_id}"
                     )
                 )
+                try:
+                    pnt.extendeddata.newdata(name="id", value=str(ir_id))
+                    pnt.extendeddata.newdata(name="cell_id", value=str(ir_cell_id))
+                except Exception:
+                    pass
                 # Violettes Icon für IR-Cells
                 pnt.style.iconstyle.icon.href = (
                     "http://maps.google.com/mapfiles/kml/paddle/purple-circle.png"

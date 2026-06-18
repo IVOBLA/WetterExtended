@@ -368,8 +368,12 @@ export default function MapFullscreen() {
       fetch('/api/objects?include_ir=1')
         .then(r => r.json())
         .then(d => {
-          const irOnly = (Array.isArray(d) ? d : (d.objects || []))
-            .filter(o => (o._type === 'ir_precursor_cell' || o._type === 'ir_cell') && Number(o.ir_only_precursor) === 1 && o.display_as_precursor !== false && o.radar_confirmed !== true)
+          const items = Array.isArray(d) ? d : (d.objects || [])
+          const radarCellIds = new Set(items
+            .filter(o => o.cell_id && o._type !== 'ir_precursor_cell' && o._type !== 'ir_cell')
+            .map(o => String(o.cell_id)))
+          const irOnly = items
+            .filter(o => (o._type === 'ir_precursor_cell' || o._type === 'ir_cell') && Number(o.ir_only_precursor ?? 0) === 1 && o.display_as_precursor !== false && o.radar_confirmed !== true && (!o.cell_id || !radarCellIds.has(String(o.cell_id))))
           setIrCells(irOnly)
         })
         .catch(() => setIrCells([]))
