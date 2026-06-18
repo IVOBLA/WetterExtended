@@ -2685,3 +2685,11 @@ Gewitterpotenzial — ohne kostenpflichtige APIs und ohne unnötige Requests.
 | B214 | Forecast-Error-Breakdown automatisch diagnostizieren: ML vs. kinematic, Richtung, Speed, Match-Type, Coverage und Worst-Forecasts | `forecast_error_diagnosis.py`, `tools/diagnose_motion_pipeline.py`, `app.py`, `drift_detector.py`, `tests/test_b214_forecast_error_diagnosis.py` | ✅ erledigt |
 
 | B215 | Forecast-Error-Detail-Validation: synthetische/zeitlich unmögliche Details aus Diagnose ausschließen und Datenbasis sichtbar machen | `forecast_error_diagnosis.py`, `tools/diagnose_motion_pipeline.py`, `app.py`, `tests/test_b215_forecast_error_detail_validation.py` | ✅ erledigt |
+
+### B216 — Test-Isolation der evaluation-Schreibpfade (Ursache zu B215) ✅
+- B215 filterte synthetische Records nur in der Diagnose; die Ursache blieb: Tests schrieben
+  via evaluate_for_horizon() echte forecast_error_details.jsonl/accuracy_history.jsonl voll.
+- Fix: conftest-autouse-Fixture `_isolate_evaluation_writes` (klassenweit, SAVE_PATHS['evaluation']
+  + accuracy_tracker-Konstanten nach tmp) + gezielte Isolation in
+  test_accuracy_tracker_horizon_mode.py + Regressionstest + einmalige Bereinigung
+  (cell-1 entfernt, Backup `.b216.bak`). Verwandt: B127, B129, B179, B215.

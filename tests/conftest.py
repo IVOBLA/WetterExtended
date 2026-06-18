@@ -89,6 +89,33 @@ def _isolate_api_health_log(tmp_path, monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _isolate_evaluation_writes(tmp_path, monkeypatch):
+    """
+    B216: Verhindert, dass Tests in die ECHTE train_data/evaluation/ schreiben
+    (forecast_error_details.jsonl, accuracy_history.jsonl). Klasse B127/B129/B179:
+    test_accuracy_tracker_horizon_mode ruft evaluate_for_horizon() auf, das via
+    _jsonl_append(DETAILS_FILE, rec) synthetische cell-1-Records in die echte Datei
+    schrieb (bei jedem install.sh-Phase-9-Lauf). Diese Fixture lenkt den Schreibpfad
+    pro Test nach tmp:
+      (a) SAVE_PATHS['evaluation'] — greift auch bei Re-Import von accuracy_tracker,
+      (b) falls accuracy_tracker bereits importiert ist, dessen Modul-Konstanten direkt.
+    """
+    ev = tmp_path / "evaluation"
+    ev.mkdir(exist_ok=True)
+    try:
+        import config
+        monkeypatch.setitem(config.SAVE_PATHS, "evaluation", str(ev) + "/")
+    except Exception:
+        pass
+    at = sys.modules.get("accuracy_tracker")
+    if at is not None:
+        monkeypatch.setattr(at, "EVAL_DIR", str(ev), raising=False)
+        monkeypatch.setattr(at, "DETAILS_FILE", str(ev / "forecast_error_details.jsonl"), raising=False)
+        monkeypatch.setattr(at, "HISTORY_FILE", str(ev / "accuracy_history.jsonl"), raising=False)
+    yield
+
+
 def _drop_numpy_contaminated_modules():
     """
     B127: Entfernt ein mit numpy-Stub kontaminiertes `prediction`/`model_training`
