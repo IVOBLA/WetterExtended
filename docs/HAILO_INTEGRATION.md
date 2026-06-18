@@ -2581,7 +2581,7 @@ Gewitterpotenzial — ohne kostenpflichtige APIs und ohne unnötige Requests.
 | 1L.3 | Karten-Dedup: gematchte IR-Wolke nicht mehr als Vorläufer; Merge/Split-Events; Zählregeln | `app.py`, Frontend | ⏳ offen |
 | 1L.4 | ML-Lead-Time-Labels (`became_radar_cell`, `lead_time_min`, `prob_radar_confirmation_*`) | `dataset_builder.py`, `model_training.py` | ⏳ offen |
 | 1D | Storm-Potential anreichern (normalisierter Score 0–1 + `drivers[]`) in `risk_grid` | `app.py` | ✅ erledigt (P48) |
-| 1E | Admin/Logs/Budget-Guard (Free-only erzwingen, persistente Budgetzähler) | `api_budget_guard.py`, Frontend, `app.py` | ⏳ offen |
+| 1E | Admin/Logs/Budget-Guard (Free-only erzwingen, persistente Budgetzähler) | `api_budget_guard.py`, Frontend, `app.py` | ✅ erledigt |
 
 ### B203 — Risk-Watch-Korrekturen (Codex-Review zu 1A.1) ✅
 - **Skip-Pfad:** `risk_watch_active(ir_tracks=None)` lädt jetzt persistierte aktive
@@ -2644,3 +2644,18 @@ Gewitterpotenzial — ohne kostenpflichtige APIs und ohne unnötige Requests.
   Quantisierung aus Kalman/EWMA-Geschwindigkeit UND Forecast-Ursprung; `lat/lon` konsistent
   aus denselben subpixel-Koordinaten. UPSCALE_FACTOR/Einheiten-Vertrag unverändert.
 - Datei: `object_tracking.py`, `tests/test_b209_subpixel_centroid.py`. Verwandt: B115, B209.
+### P49 — 1E API-Budget-Guard (Free-only-Durchsetzung) ✅ erledigt
+- Neues Modul `api_budget_guard.py`: persistente Tageszaehler je Budget-Gruppe
+  (`train_data/evaluation/api_budget.json`, fcntl-gesichert, Reset 00:00 UTC).
+- Zentraler Hook in `http_retry.retry_get` (analog Circuit-Breaker B149):
+  `over_budget(service)`-Gate -> `BudgetExceededError` (RequestException) +
+  `record_request(service)` vor jedem echten `_SESSION.get`. Geblockte Requests
+  loesen den bestehenden Fetcher-Fallback (Stale-Cache) aus.
+- Gruppen-Modell: alle `openmeteo_*` teilen das providerweite 10.000/Tag-Limit;
+  Default `API_DAILY_BUDGET={"openmeteo": 9000}` (config, runtime-ueberschreibbar).
+  Gruppen ohne Limit werden gezaehlt, aber nie geblockt (non-breaking).
+- Read-Endpoint `GET /api/api_budget` (Stand je Gruppe).
+- Offen (optional, kosmetisch): Logs-Budget-Balken im Frontend -> separates P50.
+- Dateien: `api_budget_guard.py`, `http_retry.py`, `config.py`, `app.py`.
+  Test: `tests/test_api_budget_guard.py`.
+

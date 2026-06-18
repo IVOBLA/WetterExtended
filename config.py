@@ -304,6 +304,16 @@ API_CACHE_TTL_SECONDS: dict = {
 # treffen denselben Cache-Eintrag und sparen so weitere Requests.
 API_CACHE_GRID_ROUND_DEG: float = 0.02
 
+# --------------------------------------
+# 1E: Tagesbudget je externer Schnittstellen-Gruppe (Free-only-Durchsetzung).
+# Gruppen ohne Eintrag haben KEIN Limit. Open-Meteo: providerweites Free-Limit
+# 10.000/Tag → konservativ 9.000 als Gruppe "openmeteo" (alle openmeteo_*-Dienste).
+# Runtime-überschreibbar über runtime_overrides.json.
+# --------------------------------------
+API_DAILY_BUDGET: dict = {
+    "openmeteo": 9000,
+}
+
 # ── Warnschwellwerte ──────────────────────────────────────────────────────────
 # Hagelwarnung wird ausgelöst wenn hail_prob diesen Wert überschreitet.
 HAIL_WARN_THRESHOLD: float = 0.45
