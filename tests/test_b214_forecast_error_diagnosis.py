@@ -90,6 +90,30 @@ def test_detects_coverage_limited_from_history(tmp_path):
     assert "coverage_limited" in _codes(build_forecast_error_diagnosis(details_path=p, accuracy_history_path=h))
 
 
+def test_rejects_verified_detail_with_target_after_verification(tmp_path):
+    p = tmp_path / "forecast_error_details.jsonl"
+    verified_at = NOW.replace(microsecond=0)
+    impossible = _row(1, err=99.0, direction=90)
+    impossible.update({
+        "forecast_created_at_utc": (verified_at - timedelta(minutes=10)).isoformat().replace("+00:00", "Z"),
+        "verified_at_utc": verified_at.isoformat().replace("+00:00", "Z"),
+        "target_timestamp_utc": (verified_at + timedelta(minutes=10)).isoformat().replace("+00:00", "Z"),
+    })
+    valid = _row(2, err=1.0, direction=5)
+    valid.update({
+        "forecast_created_at_utc": (verified_at - timedelta(minutes=20)).isoformat().replace("+00:00", "Z"),
+        "verified_at_utc": verified_at.isoformat().replace("+00:00", "Z"),
+        "target_timestamp_utc": (verified_at - timedelta(minutes=5)).isoformat().replace("+00:00", "Z"),
+    })
+    _write_jsonl(p, [impossible, valid])
+
+    diag = build_forecast_error_diagnosis(details_path=p, accuracy_history_path=tmp_path / "h.jsonl")
+
+    assert diag["invalid_detail_counts"] == {"invalid_time_order": 1}
+    assert diag["sample_counts"]["details"] == 1
+    assert diag["sample_counts"]["verified_total"] == 1
+    assert diag["worst_forecasts"][0]["forecast_error_km"] == 1.0
+
 def test_low_sample_count_is_watch_not_critical(tmp_path):
     p = tmp_path / "forecast_error_details.jsonl"
     _write_jsonl(p, [_row(1), _row(2)])

@@ -100,6 +100,31 @@ def _pct(values: list[float], p: float) -> float | None:
     return vals[idx]
 
 
+def _validate_detail_time_order(row: dict) -> tuple[bool, str | None]:
+    forecast_created = _parse_ts(row.get("forecast_created_at_utc"))
+    verified_at = _parse_ts(row.get("verified_at_utc"))
+    target_ts = _parse_ts(row.get("target_timestamp_utc"))
+    if forecast_created is not None and verified_at is not None and verified_at < forecast_created:
+        return False, "invalid_time_order"
+    if forecast_created is not None and target_ts is not None and target_ts < forecast_created:
+        return False, "invalid_time_order"
+    if target_ts is not None and verified_at is not None and target_ts > verified_at:
+        return False, "invalid_time_order"
+    return True, None
+
+
+def _filter_valid_details(rows: list[dict]) -> tuple[list[dict], dict[str, int]]:
+    valid = []
+    invalid_counts: dict[str, int] = {}
+    for row in rows:
+        ok, reason = _validate_detail_time_order(row)
+        if ok:
+            valid.append(row)
+            continue
+        invalid_counts[reason or "invalid_detail"] = invalid_counts.get(reason or "invalid_detail", 0) + 1
+    return valid, invalid_counts
+
+
 def _stats(rows: list[dict], key: str = "forecast_error_km") -> dict:
     vals = [_f(r.get(key)) for r in rows]
     vals = [v for v in vals if v is not None]
@@ -125,6 +150,7 @@ def build_forecast_error_diagnosis(*, details_path: str | Path = DETAILS_FILE, a
     base = {
         "checked_at_utc": _now(), "hours": hours, "status": "ok",
         "sample_counts": {"details": 0, "verified_short": 0, "verified_total": 0},
+        "invalid_detail_counts": {},
         "primary_findings": [], "recommendations": [], "severity": "ok", "root_cause_candidates": [],
         "mode_comparison": {}, "source_comparison": {}, "match_type_comparison": {},
         "direction_diagnosis": {}, "speed_diagnosis": {}, "coverage_diagnosis": {}, "worst_forecasts": [],
@@ -132,8 +158,9 @@ def build_forecast_error_diagnosis(*, details_path: str | Path = DETAILS_FILE, a
     if not details_path.exists():
         base.update({"status": "missing", "severity": "watch", "recommendations": ["B211 muss zuerst Daten sammeln."]})
         return base
-    details = _read_jsonl(details_path, hours, ("verified_at_utc", "target_timestamp_utc", "forecast_created_at_utc"))
+    details, invalid_detail_counts = _filter_valid_details(_read_jsonl(details_path, hours, ("verified_at_utc", "target_timestamp_utc", "forecast_created_at_utc")))
     history = _read_jsonl(history_path, hours, ("timestamp_utc",)) if history_path.exists() else []
+    base["invalid_detail_counts"] = invalid_detail_counts
     short = [r for r in details if (_f(r.get("horizon_min")) or 9999) <= SHORT_HORIZON_MAX_MIN]
     verified = [r for r in details if _f(r.get("forecast_error_km")) is not None]
     verified_short = [r for r in short if _f(r.get("forecast_error_km")) is not None]
