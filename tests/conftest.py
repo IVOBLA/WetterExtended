@@ -97,12 +97,13 @@ def _isolate_evaluation_writes(tmp_path, monkeypatch):
     test_accuracy_tracker_horizon_mode ruft evaluate_for_horizon() auf, das via
     _jsonl_append(DETAILS_FILE, rec) synthetische cell-1-Records in die echte Datei
     schrieb (bei jedem install.sh-Phase-9-Lauf). Diese Fixture lenkt den Schreibpfad
-    pro Test nach tmp:
+    pro Test nach tmp/train_data/evaluation, ohne das evaluation-Verzeichnis vorab anzulegen:
       (a) SAVE_PATHS['evaluation'] — greift auch bei Re-Import von accuracy_tracker,
       (b) falls accuracy_tracker bereits importiert ist, dessen Modul-Konstanten direkt.
     """
-    ev = tmp_path / "evaluation"
-    ev.mkdir(exist_ok=True)
+    train_data = tmp_path / "train_data"
+    train_data.mkdir(parents=True, exist_ok=True)
+    ev = train_data / "evaluation"
     try:
         import config
         monkeypatch.setitem(config.SAVE_PATHS, "evaluation", str(ev) + "/")
