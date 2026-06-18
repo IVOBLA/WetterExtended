@@ -44,6 +44,9 @@ from config import (
     ML_STATION_FEATURES as STATION_KEYS,
     TENDENCY_AREA_PCT_STABLE as _TENDENCY_AREA_TH,
     TENDENCY_CORE_DELTA_STABLE as _TENDENCY_CORE_TH,
+    TENDENCY_CORE_AREA_PCT_STABLE as _TENDENCY_CORE_AREA_TH,
+    TENDENCY_CONTRADICTION_AREA_SHRINK_PCT as _TENDENCY_SHRINK_TH,
+    TENDENCY_COMPACT_CORE_RATIO_DELTA as _TENDENCY_COMPACT_CORE_TH,
     SAVE_PATHS,
     UPSCALE_FACTOR as _UF,
 )
@@ -437,18 +440,33 @@ def _classify_tendency(obj: dict, has_ml: bool) -> None:
     has_ml=True  → nutzt delta_core_ratio_pred / delta_area_pred (Regressoren).
     has_ml=False → nutzt trend (-1/0/+1) und size_trend (-1/0/+1) aus dem Tracker.
 
-    Werte: "staerker" | "schwaecher" | "stabil"  bzw.
+    Werte: "staerker" | "schwaecher" | "stabil" | "kompakt" | "unsicher"  bzw.
            "waechst"  | "schrumpft"  | "stabil".
     """
+    def _size_label(da):
+        return "waechst" if da > _TENDENCY_AREA_TH else "schrumpft" if da < -_TENDENCY_AREA_TH else "stabil"
+
     if has_ml:
         dc = _safe_float(obj.get("delta_core_ratio_pred", 0.0))
         da = _safe_float(obj.get("delta_area_pred", 0.0))
-        obj["intensity_tendency"] = (
-            "staerker" if dc > _TENDENCY_CORE_TH else "schwaecher" if dc < -_TENDENCY_CORE_TH else "stabil"
-        )
-        obj["size_tendency"] = (
-            "waechst" if da > _TENDENCY_AREA_TH else "schrumpft" if da < -_TENDENCY_AREA_TH else "stabil"
-        )
+        dca = _safe_float(obj.get("delta_core_area_pct_pred", obj.get("delta_core_area_pct", 0.0)))
+        obj["size_tendency"] = _size_label(da)
+        if dc > _TENDENCY_COMPACT_CORE_TH and da < _TENDENCY_SHRINK_TH and dca <= _TENDENCY_CORE_AREA_TH:
+            obj["intensity_tendency"] = "kompakt"
+            obj["tendency_source_detail"] = "core_ratio_steigt_bei_schrumpfender_flaeche_ohne_absolute_kernzunahme"
+        elif dca > _TENDENCY_CORE_AREA_TH and da >= _TENDENCY_SHRINK_TH:
+            obj["intensity_tendency"] = "staerker"
+            obj["tendency_source_detail"] = "absolute_kernflaeche_steigt"
+        elif dca < -_TENDENCY_CORE_AREA_TH:
+            obj["intensity_tendency"] = "schwaecher"
+            obj["tendency_source_detail"] = "absolute_kernflaeche_sinkt"
+        elif dc > _TENDENCY_CORE_TH and da < _TENDENCY_SHRINK_TH:
+            obj["intensity_tendency"] = "unsicher"
+            obj["tendency_source_detail"] = "ml_core_ratio_und_flaeche_widersprechen_sich"
+        elif dc < -_TENDENCY_CORE_TH:
+            obj["intensity_tendency"] = "schwaecher"
+        else:
+            obj["intensity_tendency"] = "stabil"
         obj["tendency_source"] = "ml"
     else:
         t = int(obj.get("trend", 0) or 0)
@@ -464,9 +482,18 @@ def _classify_tendency(obj: dict, has_ml: bool) -> None:
                 t = 1
             elif _div > _OF_DIV_TH:
                 t = -1
-        obj["intensity_tendency"] = (
-            "staerker" if t > 0 else "schwaecher" if t < 0 else "stabil"
-        )
+        dc = _safe_float(obj.get("delta_core_ratio", 0.0))
+        da = _safe_float(obj.get("delta_area_pct", 0.0))
+        dca = _safe_float(obj.get("delta_core_area_pct", 0.0))
+        if int(obj.get("core_compact_signal", 0) or 0) == 1 or (
+            dc > _TENDENCY_COMPACT_CORE_TH and da < _TENDENCY_SHRINK_TH and dca <= _TENDENCY_CORE_AREA_TH
+        ):
+            obj["intensity_tendency"] = "kompakt"
+            obj["tendency_source_detail"] = "core_ratio_steigt_bei_schrumpfender_flaeche_ohne_absolute_kernzunahme"
+        else:
+            obj["intensity_tendency"] = (
+                "staerker" if t > 0 else "schwaecher" if t < 0 else "stabil"
+            )
         obj["size_tendency"] = (
             "waechst" if st > 0 else "schrumpft" if st < 0 else "stabil"
         )

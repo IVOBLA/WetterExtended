@@ -43,9 +43,12 @@ function CellTendency({ obj }) {
   const isMl = obj.tendency_source === 'ml'
 
   const intMap = {
-    staerker:   { sym: '↑', txt: 'verstärkt sich', color: '#dc2626' },
-    schwaecher: { sym: '↓', txt: 'schwächt ab',    color: '#2563eb' },
-    stabil:     { sym: '→', txt: 'stabil',          color: '#6b7280' },
+    staerker:   { sym: '↑', txt: 'verstärkt sich',      color: '#dc2626' },
+    schwaecher: { sym: '↓', txt: 'schwächt ab',         color: '#2563eb' },
+    stabil:     { sym: '→', txt: 'stabil',              color: '#6b7280' },
+    kompakt:    { sym: '◉', txt: 'konzentriert sich',   color: '#f97316' },
+    konzentriert: { sym: '◉', txt: 'konzentriert sich', color: '#f97316' },
+    unsicher:   { sym: '?', txt: 'Trend unsicher',      color: '#9ca3af' },
   }
   const sizeMap = {
     waechst:   { sym: '⤢', txt: 'wächst',    color: '#dc2626' },
@@ -60,11 +63,11 @@ function CellTendency({ obj }) {
                   opacity: isMl ? 1 : 0.7 }}>
       <div style={{ fontWeight: 600, color: '#374151' }}>Tendenz</div>
       <div>
-        <span style={{ color: i.color, fontWeight: 700 }}>{i.sym} Intensität:</span>{' '}
+        <span style={{ color: i.color, fontWeight: 700 }}>{i.sym} Kern:</span>{' '}
         {i.txt}
       </div>
       <div>
-        <span style={{ color: s.color, fontWeight: 700 }}>{s.sym} Größe:</span>{' '}
+        <span style={{ color: s.color, fontWeight: 700 }}>{s.sym} Fläche:</span>{' '}
         {s.txt}
       </div>
       <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
