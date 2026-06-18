@@ -29,6 +29,12 @@ DEFAULTS: dict = {
     "IR_MIN_CELL_AREA_PX":   300,
     "IR_MIN_CAPE_J_KG":      200.0,
     "IR_MAX_LI_C":           -0.5,
+    "IR_LEAD_TIME_LABELS_ENABLED": True,
+    "IR_LEAD_TIME_LABELS_FILE": "ir_lead_time_labels.jsonl",
+    "IR_LEAD_TIME_LABELS_MAX_OPEN_MIN": 90.0,
+    "IR_LEAD_TIME_LABELS_MIN_FINAL_AGE_MIN": 20.0,
+    "IR_LEAD_TIME_LABELS_INCLUDE_NEGATIVES": True,
+    "IR_LEAD_TIME_LABELS_DEDUP_BY_CELL_ID": True,
 
     # ── Orts-Watchlist (5 Kärntner Orte als Defaults) ──────────────────────
     "LOCATIONS_WATCHLIST": [

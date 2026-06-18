@@ -3049,6 +3049,59 @@ def api_dataset_stats():
     })
 
 
+
+@app.route("/api/cell_lineage/lead_time_labels")
+def api_cell_lineage_lead_time_labels():
+    """Read-only Diagnose-Summary fuer 1L.4 IR-Lead-Time-Labels."""
+    import json as _json
+    from statistics import median
+    try:
+        import cell_lineage
+        path = cell_lineage.labels_path()
+        try:
+            rel = str(path if not path.is_absolute() else path.relative_to(Path(__file__).resolve().parent))
+        except Exception:
+            rel = str(path)
+    except Exception:
+        path = Path("train_data/cell_lineage/ir_lead_time_labels.jsonl")
+        rel = str(path)
+    if not path.exists():
+        return jsonify({
+            "status": "missing", "file": rel, "positive_count": 0, "negative_count": 0,
+            "median_lead_time_min": None, "p90_lead_time_min": None, "latest_labels": [],
+        })
+    pos = neg = 0; lead = []; latest = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                obj = _json.loads(line)
+            except Exception:
+                continue
+            if not isinstance(obj, dict):
+                continue
+            if int(obj.get("became_radar_cell", 0) or 0) == 1:
+                pos += 1
+                if obj.get("lead_time_min") is not None:
+                    try: lead.append(float(obj.get("lead_time_min")))
+                    except Exception: pass
+            if int(obj.get("ended_without_radar", 0) or 0) == 1:
+                neg += 1
+            latest.append(obj)
+            if len(latest) > 20:
+                latest = latest[-20:]
+    except Exception as exc:
+        debug_log(f"[CELL-LINEAGE] Lead-Time-Label Summary Fehler: {exc}")
+    lead_sorted = sorted(lead)
+    p90 = None
+    if lead_sorted:
+        idx = min(len(lead_sorted) - 1, int(round(0.9 * (len(lead_sorted) - 1))))
+        p90 = lead_sorted[idx]
+    return jsonify({
+        "status": "ok", "file": rel, "positive_count": pos, "negative_count": neg,
+        "median_lead_time_min": median(lead_sorted) if lead_sorted else None,
+        "p90_lead_time_min": p90, "latest_labels": list(reversed(latest[-20:])),
+    })
+
 @app.route("/api/cells_log")
 def api_cells_log():
     """Letzte N Einträge aus cells_log.jsonl — welche Zellen wurden wann erkannt."""

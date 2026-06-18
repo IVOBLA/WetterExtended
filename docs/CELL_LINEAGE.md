@@ -69,3 +69,39 @@ Noch nicht Bestandteil von 1L.2:
 - vollständige Split-/Merge-Auflösung mit Parent-/Child-Lineage,
 - finale Karten-/API-Deduplizierung ausschließlich über `cell_id`,
 - ML-Lead-Time-Labels für spätere Trainingsdaten.
+
+## 1L.4 ML-Lead-Time-Labels
+
+1L.4 erzeugt aus der vorhandenen Zell-Lineage offline Trainingslabels für die spätere ML-Nutzung. Damit bleibt die sichtbare Kartenlogik unverändert: Es gibt keinen neuen Kartenlayer, keine neuen Fremdrequests und kein neues Modell in diesem Schritt.
+
+### Positive Labels
+
+Ein positives Label entsteht, wenn ein CB-IR-Vorläufer später per IR↔Radar-Match als Radar-/Regen-/Gewitterzelle bestätigt wird. Das Label enthält unter anderem:
+
+- `became_radar_cell=1`
+- `ended_without_radar=0`
+- `cell_id`, `ir_track_id`, `radar_track_id`
+- `ir_first_seen`, `radar_first_confirmed`
+- `lead_time_min` als Minuten zwischen IR-Erstsichtung und Radarbestätigung
+- vorhandene IR-, Wachstums-, MetPot- und Radar-Featurefelder, soweit im Track/State vorhanden
+
+### Negative Labels
+
+Ein negatives Label entsteht, wenn ein IR-Vorläufer alt genug ist, nicht mehr frisch gesehen wurde und ohne Radarbestätigung endet. Das Label enthält unter anderem:
+
+- `became_radar_cell=0`
+- `ended_without_radar=1`
+- `negative_reason="expired_without_radar"`
+- `lead_time_min=null`
+
+Die Sicherheitswartezeit verhindert, dass kurz verschwundene Zellen vorschnell negativ gelabelt werden.
+
+### Datei und spätere Nutzung
+
+Die Labels werden append-only als JSONL geschrieben:
+
+```text
+train_data/cell_lineage/ir_lead_time_labels.jsonl
+```
+
+Die Datei dient später als Grundlage für Modelle, die zum Beispiel die Wahrscheinlichkeit einer Radarbestätigung nach 10/20/30 Minuten, hoher Wolkentops über 8/10/12 km oder nachfolgendem Starkregen/Blitz abschätzen. 1L.4 trainiert noch kein neues ML-Modell und mischt die Labels nicht automatisch in bestehende LSTM-Datasets.

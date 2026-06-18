@@ -161,3 +161,8 @@ Ursache: _estimated_zip_entry_bytes() nutzte 2 * len(arcname) (Zeichen). ZIP-Hea
 Fix: 2 * len(arcname.encode("utf-8")). Docstring von create_debug_export_volumes
      auf "komprimierte Größe" korrigiert (war fälschlich "unkomprimiert").
 Dateien: debug_export.py, tests/test_b139_zip_estimate_bytes.py (neu)
+
+
+### ✅ 1L.4 ML-Lead-Time-Labels
+
+Labels für IR-Vorläufer → Radarbestätigung werden in `train_data/cell_lineage/ir_lead_time_labels.jsonl` geschrieben. Training und Modellnutzung folgen später.
