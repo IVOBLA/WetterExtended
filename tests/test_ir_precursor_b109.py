@@ -4,19 +4,16 @@ import types
 
 import pytest
 
-sys.modules.setdefault(
-    "debug_utils",
-    types.SimpleNamespace(debug_log=lambda *a, **k: None),
-)
 
-
-def _get_module():
+def _get_module(monkeypatch):
+    monkeypatch.setitem(sys.modules, "debug_utils", types.SimpleNamespace(debug_log=lambda *a, **k: None))
+    sys.modules.pop("ir_cell_tracking", None)
     return pytest.importorskip("ir_cell_tracking")
 
 
 def test_b109_mark_radar_matched_clears_precursor(monkeypatch):
     """Radar-gematchter Track muss nach mark_radar_matched_tracks persistiert ir_only_precursor=0.0 haben."""
-    mod = _get_module()
+    mod = _get_module(monkeypatch)
     fake_track = {"ir_id": "IR-001", "ir_only_precursor": 1.0, "radar_matched": False}
     state = {"tracks": {"ir_0": fake_track}, "next_id": 1}
     saved = []
@@ -33,7 +30,7 @@ def test_b109_mark_radar_matched_clears_precursor(monkeypatch):
 
 def test_b109_unmatched_track_keeps_precursor_score(monkeypatch):
     """Nicht-gematchter Track behält seinen ir_only_precursor."""
-    mod = _get_module()
+    mod = _get_module(monkeypatch)
     fake_track = {"ir_id": "IR-002", "ir_only_precursor": 0.8}
     state = {"tracks": {"ir_0": fake_track}, "next_id": 1}
     saved = []
@@ -48,7 +45,7 @@ def test_b109_unmatched_track_keeps_precursor_score(monkeypatch):
 
 def test_b109_empty_list_no_save(monkeypatch):
     """Leere matched_ir_ids → kein State-Write."""
-    mod = _get_module()
+    mod = _get_module(monkeypatch)
     saved = []
     monkeypatch.setattr(mod, "_load_state", lambda: pytest.fail("_load_state darf nicht aufgerufen werden"))
     monkeypatch.setattr(mod, "_save_state", lambda new_state: saved.append(new_state))

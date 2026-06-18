@@ -1092,9 +1092,16 @@ def api_objects():
             # öffentliche Karte die "CB > …"-Schwelle ohne /api/config (login-geschützt) kennt.
             _cb_thr = float(runtime_config.get(
                 "CLOUD_HEIGHT_ALERT_THRESHOLD_M", cfg.CLOUD_HEIGHT_ALERT_THRESHOLD_M))
-            # IR-Tracks als pseudo-objects mit Typ-Marker
+            # IR-Tracks als pseudo-objects mit Typ-Marker; radarbestätigte
+            # Tracks bleiben im Payload, werden aber nicht als Vorläufer dargestellt.
             for t in ir_tracks:
-                t["_type"] = "ir_cell"
+                t["_type"] = "ir_precursor_cell"
+                if t.get("radar_confirmed") is True or t.get("status") == "radar_confirmed":
+                    t["display_as_precursor"] = False
+                    t["ir_only_precursor"] = 0.0
+                elif t.get("display_as_precursor", True) and float(t.get("ir_only_precursor", 1.0)) == 1.0:
+                    t["display_as_precursor"] = True
+                    t["ir_only_precursor"] = 1.0
                 t["cb_alert_threshold_m"] = _cb_thr
             if isinstance(data, list):
                 data = data + ir_tracks

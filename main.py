@@ -388,6 +388,13 @@ def main_loop():
                             _best_ir = _ir
                     if _best_ir is not None and _best_dist <= _IR_MATCH_KM:
                         _obj["ir_match_id"]           = _best_ir.get("ir_id")
+                        _obj["ir_track_id"]           = _best_ir.get("ir_id")
+                        _obj["ir_status"]             = "radar_confirmed"
+                        _obj["ir_radar_confirmed"]    = True
+                        _obj["ir_is_potential_new_cell"] = False
+                        _obj["ir_display_as_precursor"] = False
+                        _obj["ir_area_growth_km2_per_min"] = _best_ir.get("area_growth_km2_per_min", 0.0)
+                        _obj["ir_cloud_height_trend_m_per_min"] = _best_ir.get("cloud_height_trend_m_per_min", 0.0)
                         _obj["bt_min_k"]              = _best_ir.get("bt_min_k", 0.0)
                         _obj["bt_mean_k"]             = _best_ir.get("bt_mean_k", 0.0)
                         _obj["bt_trend_k_per_min"]    = _best_ir.get("bt_trend_k_per_min", 0.0)
@@ -395,6 +402,12 @@ def main_loop():
                         _obj["anvil_extension_km"]    = _best_ir.get("anvil_extension_km", 0.0)
                         _obj["overshooting_top"]      = _best_ir.get("overshooting_top", 0.0)
                         _obj["ir_only_precursor"]     = 0.0
+                        _best_ir["radar_track_id"] = _obj.get("id")
+                        _best_ir["status"] = "radar_confirmed"
+                        _best_ir["radar_confirmed"] = True
+                        _best_ir["is_potential_new_cell"] = False
+                        _best_ir["display_as_precursor"] = False
+                        _best_ir["ir_only_precursor"] = 0.0
                         _matched_ir_ids.add(_best_ir.get("ir_id"))
                         if isinstance(_best_ir.get("radar_match_ids"), list):
                             if _obj.get("id") not in _best_ir["radar_match_ids"]:
@@ -412,11 +425,17 @@ def main_loop():
                 # IR-Cells OHNE Radar-Match: ir_only_precursor = 1.0
                 for _ir in _ir_tracks:
                     if _ir.get("ir_id") not in _matched_ir_ids:
+                        _ir["status"] = "ir_precursor"
+                        _ir["radar_confirmed"] = False
+                        _ir["is_potential_new_cell"] = True
+                        _ir["display_as_precursor"] = True
                         _ir["ir_only_precursor"] = 1.0
 
                 # B109: Radar-Match-Status sofort persistieren damit api_risk_grid()
                 # keinen veralteten IR-State liest.
-                mark_radar_matched_tracks(list(_matched_ir_ids))
+                mark_radar_matched_tracks(list(_matched_ir_ids), {
+                    _ir.get("ir_id"): _ir.get("radar_track_id") for _ir in _ir_tracks
+                })
 
                 debug_log(f"[IR-TRACK] {len(_ir_tracks)} aktive IR-Tracks, "
                           f"{len(_matched_ir_ids)} Radar-Matches.")

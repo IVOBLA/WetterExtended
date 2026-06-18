@@ -369,7 +369,7 @@ export default function MapFullscreen() {
         .then(r => r.json())
         .then(d => {
           const irOnly = (Array.isArray(d) ? d : (d.objects || []))
-            .filter(o => o._type === 'ir_cell')
+            .filter(o => (o._type === 'ir_precursor_cell' || o._type === 'ir_cell') && Number(o.ir_only_precursor) === 1 && o.display_as_precursor !== false && o.radar_confirmed !== true)
           setIrCells(irOnly)
         })
         .catch(() => setIrCells([]))
