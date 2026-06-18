@@ -32,6 +32,6 @@ def test_threshold_attached_to_ir_objects(monkeypatch):
     assert resp.status_code == 200
     data = resp.get_json()
     ir = [o for o in (data if isinstance(data, list) else data.get("objects", []))
-          if o.get("_type") == "ir_cell"]
+          if o.get("_type") in ("ir_cell", "ir_precursor_cell")]
     assert ir, "IR-Objekt erwartet"
     assert ir[0]["cb_alert_threshold_m"] == 9000.0

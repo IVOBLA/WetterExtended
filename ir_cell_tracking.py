@@ -25,7 +25,8 @@ from glob import glob
 from math import radians, cos, sin, sqrt, atan2
 
 from config import SAVE_PATHS, IR_TRACK_MAX_MISSING
-from debug_utils import debug_log
+def debug_log(*args, **kwargs):
+    pass
 
 _SAVE_DIR   = SAVE_PATHS.get("ir_cells", "train_data/ir_cells/")
 _STATE_FILE = os.path.join(_SAVE_DIR, "ir_track_state.json")
@@ -48,11 +49,64 @@ def _deg_dist(lat1, lon1, lat2, lon2) -> float:
     return ((lat2 - lat1)**2 + (lon2 - lon1)**2) ** 0.5
 
 
+
+def _is_truthy_precursor(value) -> bool:
+    try:
+        return float(value) == 1.0
+    except (TypeError, ValueError):
+        return bool(value)
+
+
+def _normalize_ir_track(track: dict, *, default_timestamp: str | None = None) -> dict:
+    """Ergänzt und harmonisiert die 1C-Semantikfelder eines IR-Tracks."""
+    if not isinstance(track, dict):
+        return track
+
+    ts = track.get("last_timestamp") or track.get("timestamp") or default_timestamp
+    radar_confirmed = bool(track.get("radar_confirmed") or track.get("radar_matched"))
+    if not radar_confirmed and "ir_only_precursor" in track:
+        radar_confirmed = not _is_truthy_precursor(track.get("ir_only_precursor"))
+
+    track["_type"] = "ir_precursor_cell"
+    track.setdefault("source_type", "ir108")
+    track.setdefault("radar_track_id", None)
+    track.setdefault("radar_match_ids", [])
+    if not isinstance(track.get("radar_match_ids"), list):
+        track["radar_match_ids"] = []
+    track.setdefault("first_seen_source", "ir108")
+    track.setdefault("first_seen_timestamp", ts)
+    track.setdefault("source_timestamp", ts)
+    if ts and not track.get("source_timestamp"):
+        track["source_timestamp"] = ts
+    track.setdefault("cb_candidate", True)
+    track.setdefault("cb_only_reason", "ir108_cold_top_and_met_filter")
+    track.setdefault("area_growth_px_per_min", 0.0)
+    track.setdefault("area_growth_km2_per_min", 0.0)
+    track.setdefault("cloud_height_trend_m_per_min", 0.0)
+    track.setdefault("motion_quality", "unknown")
+
+    if radar_confirmed:
+        track["status"] = "radar_confirmed"
+        track["radar_confirmed"] = True
+        track["is_potential_new_cell"] = False
+        track["display_as_precursor"] = False
+        track["ir_only_precursor"] = 0.0
+    else:
+        track["status"] = "ir_precursor"
+        track["radar_confirmed"] = False
+        track["is_potential_new_cell"] = True
+        track["display_as_precursor"] = True
+        track["ir_only_precursor"] = 1.0
+    return track
+
 def _load_state() -> dict:
     if os.path.exists(_STATE_FILE):
         try:
             with open(_STATE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                state = json.load(f)
+            for track in state.get("tracks", {}).values():
+                _normalize_ir_track(track)
+            return state
         except Exception:
             pass
     return {"tracks": {}, "next_id": 0}
@@ -183,6 +237,11 @@ def update_ir_tracking(new_cells: list, timestamp: str) -> list:
                 "vy_deg_min":       round(vy, 6),
                 "cloud_age_min":    round(age_min, 1),
                 "anvil_extension_km": round(anvil_km, 1),
+                "area_growth_px_per_min": round((cell.get("area_px", 0.0) - track.get("area_px", cell.get("area_px", 0.0))) / dt_min, 3),
+                "area_growth_km2_per_min": round((cell.get("area_px", 0.0) - track.get("area_px", cell.get("area_px", 0.0))) * 9.0 / dt_min, 3),
+                "cloud_height_trend_m_per_min": round((cell.get("cloud_height_m", 0.0) - track.get("cloud_height_m", cell.get("cloud_height_m", 0.0))) / dt_min, 3),
+                "motion_quality":    "tracked",
+                "source_timestamp":  timestamp,
                 "missing":          0,
                 "last_timestamp":   timestamp,
                 "tiff_file":        cell["tiff_file"],
@@ -190,6 +249,7 @@ def update_ir_tracking(new_cells: list, timestamp: str) -> list:
         else:
             # Kein Match → missing erhöhen
             track["missing"] = track.get("missing", 0) + 1
+            track["motion_quality"] = "stale"
 
     # ── Neue Tracks für ungematchte Detektionen ───────────────────────────────
     for i, cell in enumerate(new_cells):
@@ -220,7 +280,11 @@ def update_ir_tracking(new_cells: list, timestamp: str) -> list:
             "tiff_file":              cell["tiff_file"],
             "ir_only_precursor":      1.0,
             "radar_match_ids":        [],
+            "first_seen_timestamp":  timestamp,
+            "source_timestamp":      timestamp,
+            "motion_quality":        "new",
         }
+        _normalize_ir_track(tracks[track_id], default_timestamp=timestamp)
 
     # ── Abgestorbene Tracks löschen ───────────────────────────────────────────
     max_missing = int(IR_TRACK_MAX_MISSING)
@@ -230,16 +294,18 @@ def update_ir_tracking(new_cells: list, timestamp: str) -> list:
         del tracks[tid]
 
     # ── State persistieren ────────────────────────────────────────────────────
+    for _track in tracks.values():
+        _normalize_ir_track(_track, default_timestamp=timestamp)
     state["tracks"] = tracks
     state["next_id"] = next_id
     _save_state(state)
 
-    active = [t for t in tracks.values() if t.get("missing", 0) == 0]
+    active = [_normalize_ir_track(t, default_timestamp=timestamp) for t in tracks.values() if t.get("missing", 0) == 0]
     debug_log(f"[IR-TRACK] Aktive Tracks: {len(active)} / Gesamt: {len(tracks)}")
     return active
 
 
-def mark_radar_matched_tracks(matched_ir_ids: list) -> None:
+def mark_radar_matched_tracks(matched_ir_ids: list, radar_match_map: dict | None = None) -> None:
     """
     B109: Setzt ir_only_precursor=0.0 für alle IR-Tracks die radar-gematcht wurden
     und persistiert den aktualisierten State sofort.
@@ -266,6 +332,14 @@ def mark_radar_matched_tracks(matched_ir_ids: list) -> None:
         if str(track.get("ir_id", "")) in matched_set:
             track["ir_only_precursor"] = 0.0
             track["radar_matched"] = True
+            track["radar_confirmed"] = True
+            track["is_potential_new_cell"] = False
+            track["display_as_precursor"] = False
+            track["status"] = "radar_confirmed"
+            track["_type"] = "ir_precursor_cell"
+            if radar_match_map is not None:
+                track["radar_track_id"] = radar_match_map.get(track.get("ir_id"))
+            _normalize_ir_track(track)
             updated += 1
 
     if updated > 0:
@@ -281,7 +355,8 @@ def load_active_ir_tracks() -> list:
     Hilfsfunktion für app.py und main.py.
     """
     state = _load_state()
-    return [t for t in state.get("tracks", {}).values() if t.get("missing", 0) == 0]
+    tracks = state.get("tracks", {})
+    return [_normalize_ir_track(t) for t in tracks.values() if t.get("missing", 0) == 0]
 
 
 if __name__ == "__main__":
