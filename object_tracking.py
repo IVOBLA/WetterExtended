@@ -148,6 +148,17 @@ except Exception:
 
 tracking_memory = {}
 
+
+def _suppress_inactive_rain_warning_fields(obj: dict) -> dict:
+    """Entfernt Karten-Warnmarker von still nachverfolgten Regenresten."""
+    if obj.get("tracking_state") == "inactive_rain" or obj.get("silent_tracking") is True:
+        obj["hail_warning"] = False
+        obj["stationary_marker"] = False
+        obj["hail_prob"] = 0.0
+        obj["stationary_risk"] = 0.0
+    return obj
+
+
 # B121: Snapshot-Pfad — wird beim Service-Start via load_tracking_snapshot() geladen.
 # Kein Import von SAVE_PATHS auf Modulebene um zirkuläre Imports zu vermeiden.
 _SNAPSHOT_FILENAME = "tracking_memory_snapshot.json"
@@ -1178,6 +1189,7 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
                     obj["reactivated_at"] = None
                     obj["support_pixels"] = int(support.get("support_pixels") or 0)
                     obj["support_overlap"] = float(support.get("support_overlap") or 0.0)
+                    _suppress_inactive_rain_warning_fields(obj)
                     sx, sy = support.get("support_cx"), support.get("support_cy")
                     if sx is not None and sy is not None:
                         obj["x"] = float(sx) / float(UPSCALE_FACTOR)
@@ -1433,6 +1445,7 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
             except Exception:
                 obj_clean.setdefault("speed_kmh", 0.0)
                 obj_clean.setdefault("direction_deg", None)
+            _suppress_inactive_rain_warning_fields(obj_clean)
             objects.append({"id": obj_id, **obj_clean})
     return objects
 
