@@ -604,6 +604,8 @@ def _intensity_trend_vs_baseline(core_ratio, prev_core, delta=0.05, *, area=None
         if (delta_core_ratio > delta and delta_area_pct is not None and
                 delta_area_pct < TENDENCY_CONTRADICTION_AREA_SHRINK_PCT):
             return 0
+    if delta_core_ratio > delta:
+        return 1
     if delta_core_ratio < -delta:
         return -1
     return 0
