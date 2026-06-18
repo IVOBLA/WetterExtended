@@ -41,6 +41,12 @@ try:
         IR_LEAD_TIME_LABELS_MIN_FINAL_AGE_MIN,
         IR_LEAD_TIME_LABELS_INCLUDE_NEGATIVES,
         IR_LEAD_TIME_LABELS_DEDUP_BY_CELL_ID,
+        CELL_LINEAGE_SPLIT_MERGE_ENABLED,
+        CELL_LINEAGE_PRIMARY_CHILD_POLICY,
+        CELL_LINEAGE_PRIMARY_MERGE_POLICY,
+        CELL_LINEAGE_KEEP_PARENT_CELL_ID_ON_SPLIT_PRIMARY,
+        CELL_LINEAGE_CREATE_CHILD_CELL_IDS,
+        CELL_LINEAGE_RECORD_ALIAS_IDS,
     )
 except Exception:  # pragma: no cover
     CELL_ID_PREFIX = "WX"
@@ -63,6 +69,12 @@ except Exception:  # pragma: no cover
     IR_LEAD_TIME_LABELS_MIN_FINAL_AGE_MIN = 20.0
     IR_LEAD_TIME_LABELS_INCLUDE_NEGATIVES = True
     IR_LEAD_TIME_LABELS_DEDUP_BY_CELL_ID = True
+    CELL_LINEAGE_SPLIT_MERGE_ENABLED = True
+    CELL_LINEAGE_PRIMARY_CHILD_POLICY = "strongest_core"
+    CELL_LINEAGE_PRIMARY_MERGE_POLICY = "highest_core_ratio"
+    CELL_LINEAGE_KEEP_PARENT_CELL_ID_ON_SPLIT_PRIMARY = True
+    CELL_LINEAGE_CREATE_CHILD_CELL_IDS = True
+    CELL_LINEAGE_RECORD_ALIAS_IDS = True
 
 
 def _debug(msg: str) -> None:
@@ -94,8 +106,32 @@ def _events_path() -> Path:
     return _state_dir() / str(_cfg("CELL_LINEAGE_EVENTS_FILE", CELL_LINEAGE_EVENTS_FILE))
 
 
+_CELL_LINEAGE_DEFAULTS = {
+    "parent_cell_id": None,
+    "child_cell_ids": [],
+    "merged_from_cell_ids": [],
+    "merged_into_cell_id": None,
+    "alias_cell_ids": [],
+    "split_from_cell_id": None,
+    "split_into_cell_ids": [],
+    "lineage_events": [],
+    "status": "active_tracked",
+}
+
+
 def _empty_state() -> dict:
     return {"version": 1, "date_counters": {}, "ir_to_cell": {}, "radar_to_cell": {}, "cells": {}}
+
+
+def _ensure_cell_defaults(cell_id: str, cell: dict | None = None) -> dict:
+    cell = cell if isinstance(cell, dict) else {}
+    cell.setdefault("cell_id", str(cell_id))
+    for key, val in _CELL_LINEAGE_DEFAULTS.items():
+        if key not in cell:
+            cell[key] = list(val) if isinstance(val, list) else val
+        elif isinstance(val, list) and not isinstance(cell.get(key), list):
+            cell[key] = []
+    return cell
 
 
 def _normalize_state(state: dict | None) -> dict:
@@ -107,6 +143,8 @@ def _normalize_state(state: dict | None) -> dict:
         if not isinstance(out.get(key), dict):
             out[key] = {}
     out["version"] = 1
+    for cid, cell in list(out.get("cells", {}).items()):
+        out["cells"][cid] = _ensure_cell_defaults(str(cid), cell)
     return out
 
 
@@ -727,3 +765,234 @@ def update_cell_lineage(radar_objects: list[dict], ir_tracks: list[dict], *, tim
             events.append(label_event)
     save_lineage_state(state)
     return radar_objects or [], ir_tracks or [], [e for e in events if e]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# B213: Split-/Merge-Lineage über fachliche cell_id
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _obj_track_id(obj: dict | None) -> str:
+    return str((obj or {}).get("id") or (obj or {}).get("track_id") or "").strip()
+
+
+def _num(obj: dict | None, *keys: str, default: float = 0.0) -> float:
+    for key in keys:
+        val = _float_or_none((obj or {}).get(key))
+        if val is not None:
+            return val
+    return default
+
+
+def _append_unique(seq: list, values) -> list:
+    for val in values if isinstance(values, (list, tuple, set)) else [values]:
+        if val is not None and val not in seq:
+            seq.append(val)
+    return seq
+
+
+def _prev_map(previous_objects: dict | list | None) -> dict[str, dict]:
+    if isinstance(previous_objects, dict):
+        vals = previous_objects.values() if all(isinstance(v, dict) for v in previous_objects.values()) else previous_objects.items()
+        out = {}
+        for k, v in (previous_objects.items()):
+            if isinstance(v, dict):
+                out[str(k)] = v
+                oid = _obj_track_id(v)
+                if oid:
+                    out[oid] = v
+        return out
+    out = {}
+    for obj in previous_objects or []:
+        if isinstance(obj, dict):
+            oid = _obj_track_id(obj)
+            if oid:
+                out[oid] = obj
+    return out
+
+
+def get_cell_id_for_radar_track(radar_track_id: str | int, state: dict | None = None) -> str | None:
+    if radar_track_id is None:
+        return None
+    state = load_lineage_state() if state is None else _normalize_state(state)
+    return state.get("radar_to_cell", {}).get(str(radar_track_id))
+
+
+def ensure_radar_track_cell_id(radar_obj: dict, *, timestamp: str | None = None, state: dict | None = None) -> tuple[dict, dict]:
+    if not isinstance(radar_obj, dict):
+        return radar_obj, _normalize_state(state) if state is not None else load_lineage_state()
+    own_state = state is None
+    state = load_lineage_state() if state is None else _normalize_state(state)
+    rid = _obj_track_id(radar_obj)
+    ts = _track_timestamp(radar_obj, timestamp)
+    cell_id = radar_obj.get("cell_id") or (state.get("radar_to_cell", {}).get(rid) if rid else None)
+    if not cell_id:
+        cell_id = make_cell_id(ts, state)
+    cell_id = str(cell_id)
+    radar_obj["cell_id"] = cell_id
+    if rid:
+        state.setdefault("radar_to_cell", {})[rid] = cell_id
+    cell = state.setdefault("cells", {}).setdefault(cell_id, {"cell_id": cell_id})
+    _ensure_cell_defaults(cell_id, cell)
+    cell.update({"radar_track_id": rid or cell.get("radar_track_id"), "last_seen_timestamp": ts})
+    if cell.get("status") in (None, "active_tracked", "ir_precursor"):
+        cell["status"] = "radar_confirmed"
+    if own_state:
+        save_lineage_state(state)
+    return radar_obj, state
+
+
+def select_primary_child(children: list[dict], *, policy: str | None = None) -> dict | None:
+    valid = [c for c in (children or []) if isinstance(c, dict)]
+    if not valid:
+        return None
+    policy = policy or str(_cfg("CELL_LINEAGE_PRIMARY_CHILD_POLICY", CELL_LINEAGE_PRIMARY_CHILD_POLICY))
+    if policy == "strongest_core":
+        return max(enumerate(valid), key=lambda it: (_num(it[1], "core_ratio"), _num(it[1], "area", "area_px", "area_km2"), -_num(it[1], "parent_distance_km", "distance_to_parent_km", default=0.0), -it[0]))[1]
+    return valid[0]
+
+
+def select_primary_merge_parent(parent_objects: list[dict], *, policy: str | None = None) -> dict | None:
+    valid = [p for p in (parent_objects or []) if isinstance(p, dict)]
+    if not valid:
+        return None
+    policy = policy or str(_cfg("CELL_LINEAGE_PRIMARY_MERGE_POLICY", CELL_LINEAGE_PRIMARY_MERGE_POLICY))
+    if policy == "highest_core_ratio":
+        return max(enumerate(valid), key=lambda it: (_num(it[1], "core_ratio"), _num(it[1], "area", "area_px", "area_km2"), -it[0]))[1]
+    return valid[0]
+
+
+def record_cell_merge(parent_cell_ids: list[str], merged_obj: dict, *, timestamp: str | None = None, state: dict | None = None) -> dict | None:
+    if not bool(_cfg("CELL_LINEAGE_SPLIT_MERGE_ENABLED", CELL_LINEAGE_SPLIT_MERGE_ENABLED)) or not isinstance(merged_obj, dict):
+        return None
+    own_state = state is None
+    state = load_lineage_state() if state is None else _normalize_state(state)
+    ts = _timestamp_str(timestamp)
+    parent_cell_ids = list(dict.fromkeys(str(cid) for cid in (parent_cell_ids or []) if cid))
+    if not parent_cell_ids:
+        return None
+    primary = str(merged_obj.get("cell_id") or parent_cell_ids[0])
+    merged_obj.update({"cell_id": primary, "lineage_status": "merged", "merged_from_cell_ids": parent_cell_ids})
+    aliases = [cid for cid in parent_cell_ids if cid != primary]
+    if bool(_cfg("CELL_LINEAGE_RECORD_ALIAS_IDS", CELL_LINEAGE_RECORD_ALIAS_IDS)):
+        merged_obj["alias_cell_ids"] = aliases
+    rid = _obj_track_id(merged_obj)
+    if rid:
+        state.setdefault("radar_to_cell", {})[rid] = primary
+    pcell = state.setdefault("cells", {}).setdefault(primary, {"cell_id": primary})
+    _ensure_cell_defaults(primary, pcell)
+    _append_unique(pcell.setdefault("merged_from_cell_ids", []), parent_cell_ids)
+    _append_unique(pcell.setdefault("alias_cell_ids", []), aliases)
+    pcell["status"] = "radar_confirmed"
+    pcell["last_seen_timestamp"] = ts
+    for cid in parent_cell_ids:
+        cell = state.setdefault("cells", {}).setdefault(cid, {"cell_id": cid})
+        _ensure_cell_defaults(cid, cell)
+        if cid != primary:
+            cell["merged_into_cell_id"] = primary
+            cell["status"] = "merged"
+    event = {"event_type": "cell_merge", "timestamp": ts, "cell_id": primary, "merged_from_cell_ids": parent_cell_ids, "primary_cell_id": primary, "radar_track_id": rid, "parent_radar_track_ids": list(merged_obj.get("parents") or [])}
+    if merged_obj.get("unresolved_parent_ids"):
+        event["unresolved_parent_ids"] = list(merged_obj.get("unresolved_parent_ids") or [])
+    _append_unique(pcell.setdefault("lineage_events", []), event)
+    append_lineage_event(event)
+    if own_state:
+        save_lineage_state(state)
+    return event
+
+
+def record_cell_split(parent_cell_id: str, child_objects: list[dict], *, timestamp: str | None = None, state: dict | None = None) -> list[dict]:
+    if not bool(_cfg("CELL_LINEAGE_SPLIT_MERGE_ENABLED", CELL_LINEAGE_SPLIT_MERGE_ENABLED)) or not parent_cell_id:
+        return []
+    own_state = state is None
+    state = load_lineage_state() if state is None else _normalize_state(state)
+    ts = _timestamp_str(timestamp)
+    children = [c for c in (child_objects or []) if isinstance(c, dict)]
+    if len(children) < 2:
+        return []
+    primary_child = select_primary_child(children)
+    child_cell_ids = []
+    for child in children:
+        is_primary = child is primary_child
+        if is_primary and bool(_cfg("CELL_LINEAGE_KEEP_PARENT_CELL_ID_ON_SPLIT_PRIMARY", CELL_LINEAGE_KEEP_PARENT_CELL_ID_ON_SPLIT_PRIMARY)):
+            cid = str(parent_cell_id)
+            child["lineage_status"] = "split_primary"
+        else:
+            cid = str(child.get("cell_id") or "")
+            if (not cid or cid == str(parent_cell_id)) and bool(_cfg("CELL_LINEAGE_CREATE_CHILD_CELL_IDS", CELL_LINEAGE_CREATE_CHILD_CELL_IDS)):
+                cid = make_cell_id(ts, state)
+            child["split_from_cell_id"] = str(parent_cell_id)
+            child["lineage_status"] = "split_child"
+        child["cell_id"] = cid
+        child["parent_cell_id"] = str(parent_cell_id)
+        child_cell_ids.append(cid)
+        rid = _obj_track_id(child)
+        if rid:
+            state.setdefault("radar_to_cell", {})[rid] = cid
+        cstate = state.setdefault("cells", {}).setdefault(cid, {"cell_id": cid})
+        _ensure_cell_defaults(cid, cstate)
+        cstate["parent_cell_id"] = str(parent_cell_id)
+        if cid != str(parent_cell_id):
+            cstate["split_from_cell_id"] = str(parent_cell_id)
+        cstate["status"] = "split" if cid != str(parent_cell_id) else "radar_confirmed"
+    parent = state.setdefault("cells", {}).setdefault(str(parent_cell_id), {"cell_id": str(parent_cell_id)})
+    _ensure_cell_defaults(str(parent_cell_id), parent)
+    _append_unique(parent.setdefault("split_into_cell_ids", []), child_cell_ids)
+    _append_unique(parent.setdefault("child_cell_ids", []), child_cell_ids)
+    parent["status"] = "split"
+    event = {"event_type": "cell_split", "timestamp": ts, "parent_cell_id": str(parent_cell_id), "child_cell_ids": child_cell_ids, "primary_child_cell_id": primary_child.get("cell_id") if primary_child else None, "parent_radar_track_id": (children[0].get("parents") or [None])[0], "child_radar_track_ids": [_obj_track_id(c) for c in children]}
+    _append_unique(parent.setdefault("lineage_events", []), event)
+    append_lineage_event(event)
+    if own_state:
+        save_lineage_state(state)
+    return [event]
+
+
+def update_split_merge_lineage(radar_objects: list[dict], previous_objects: dict | list | None = None, *, timestamp: str | None = None) -> list[dict]:
+    if not bool(_cfg("CELL_LINEAGE_SPLIT_MERGE_ENABLED", CELL_LINEAGE_SPLIT_MERGE_ENABLED)):
+        return []
+    state = load_lineage_state(); events = []; prev = _prev_map(previous_objects); by_id = {_obj_track_id(o): o for o in (radar_objects or []) if isinstance(o, dict) and _obj_track_id(o)}
+    for obj in radar_objects or []:
+        if isinstance(obj, dict) and not (obj.get("lineage") == "merged" and len(obj.get("parents") or []) >= 2):
+            ensure_radar_track_cell_id(obj, timestamp=timestamp, state=state)
+    for obj in radar_objects or []:
+        if not isinstance(obj, dict):
+            continue
+        if obj.get("lineage") == "merged" and len(obj.get("parents") or []) >= 2:
+            parent_cids=[]; unresolved=[]; parent_objs=[]
+            for pid in obj.get("parents") or []:
+                po = prev.get(str(pid), {})
+                cid = state.get("radar_to_cell", {}).get(str(pid)) or po.get("cell_id")
+                if cid:
+                    parent_cids.append(str(cid)); parent_objs.append(dict(po, cell_id=str(cid)))
+                else:
+                    unresolved.append(str(pid))
+            parent_cids = list(dict.fromkeys(parent_cids))
+            if not obj.get("cell_id") and parent_cids:
+                primary_parent = select_primary_merge_parent(parent_objs)
+                obj["cell_id"] = (primary_parent or {}).get("cell_id") or parent_cids[0]
+            if unresolved:
+                obj["unresolved_parent_ids"] = unresolved
+            ev = record_cell_merge(parent_cids, obj, timestamp=timestamp, state=state) if parent_cids else None
+            if ev:
+                events.append(ev)
+            elif unresolved:
+                ev = {"event_type": "cell_merge", "timestamp": _timestamp_str(timestamp), "cell_id": obj.get("cell_id"), "radar_track_id": _obj_track_id(obj), "parent_radar_track_ids": list(obj.get("parents") or []), "unresolved_parent_ids": unresolved}
+                append_lineage_event(ev); events.append(ev)
+        if obj.get("lineage") == "split" and obj.get("parents"):
+            pid = str((obj.get("parents") or [None])[0]); parent_cid = state.get("radar_to_cell", {}).get(pid) or (prev.get(pid) or {}).get("cell_id")
+            siblings = [o for o in (radar_objects or []) if isinstance(o, dict) and pid in [str(x) for x in (o.get("parents") or [])]]
+            if parent_cid and len(siblings) > 1:
+                for ev in record_cell_split(str(parent_cid), siblings, timestamp=timestamp, state=state):
+                    if ev not in events: events.append(ev)
+            elif not parent_cid:
+                ev = {"event_type": "cell_split", "timestamp": _timestamp_str(timestamp), "parent_radar_track_id": pid, "child_radar_track_ids": [_obj_track_id(c) for c in siblings or [obj]], "unresolved_parent_id": pid}
+                append_lineage_event(ev); events.append(ev)
+    for pobj in prev.values():
+        if isinstance(pobj, dict) and len(pobj.get("children") or []) > 1:
+            parent_cid = state.get("radar_to_cell", {}).get(_obj_track_id(pobj)) or pobj.get("cell_id")
+            children = [by_id.get(str(cid)) for cid in (pobj.get("children") or [])]
+            children = [c for c in children if isinstance(c, dict)]
+            if parent_cid and len(children) > 1:
+                for ev in record_cell_split(str(parent_cid), children, timestamp=timestamp, state=state):
+                    if ev not in events: events.append(ev)
+    save_lineage_state(state)
+    return events

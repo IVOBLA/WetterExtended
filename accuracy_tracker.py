@@ -134,6 +134,8 @@ def _detail_record(obj: dict, ts: datetime, target_ts: datetime, horizon_min: in
         "target_timestamp_utc": target_ts.isoformat(timespec="seconds") + "Z",
         "horizon_min": horizon_min, "effective_lead_min": round(effective_lead_min, 3), "stale": bool(stale),
         "object_id": str(obj.get("id", "")), "cell_id": str(obj.get("cell_id", obj.get("id", ""))), "track_id": str(obj.get("track_id", "")),
+        "parent_cell_id": obj.get("parent_cell_id"), "lineage_status": obj.get("lineage_status"),
+        "merged_from_cell_ids": obj.get("merged_from_cell_ids"),
         "forecast_mode": str(_forecast_meta(obj, horizon_min, "forecast_mode", "unknown") or "unknown"),
         "kinematic_source": str(_forecast_meta(obj, horizon_min, "kinematic_source", "unknown") or "unknown"),
         "of_available": int(obj.get("of_available", 0) or 0), "of_error_reason": obj.get("of_error_reason"),

@@ -1,0 +1,118 @@
+import ast
+import json
+import zipfile
+
+import pytest
+
+
+def _patch_state(monkeypatch, tmp_path):
+    import runtime_config
+    vals = {
+        "CELL_LINEAGE_STATE_DIR": str(tmp_path / "cell_lineage"),
+        "CELL_LINEAGE_STATE_FILE": "cell_lineage_state.json",
+        "CELL_LINEAGE_EVENTS_FILE": "cell_lineage_events.jsonl",
+    }
+    monkeypatch.setattr(runtime_config, "get", lambda name, default=None: vals.get(name, default))
+
+
+def _events(tmp_path):
+    p = tmp_path / "cell_lineage" / "cell_lineage_events.jsonl"
+    return [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines()]
+
+
+def test_record_cell_merge_updates_state_and_event(monkeypatch, tmp_path):
+    _patch_state(monkeypatch, tmp_path)
+    import cell_lineage
+    state = {"cells": {"WX-A": {"cell_id": "WX-A"}, "WX-B": {"cell_id": "WX-B"}}, "radar_to_cell": {"1": "WX-A", "2": "WX-B"}}
+    obj = {"id": "3", "parents": ["1", "2"], "cell_id": "WX-A"}
+    ev = cell_lineage.record_cell_merge(["WX-A", "WX-B"], obj, timestamp="2026-06-18_08-00-00", state=state)
+    assert ev["event_type"] == "cell_merge"
+    assert obj["merged_from_cell_ids"] == ["WX-A", "WX-B"]
+    assert state["cells"]["WX-B"]["merged_into_cell_id"] == "WX-A"
+    assert _events(tmp_path)[-1]["event_type"] == "cell_merge"
+
+
+def test_merge_selects_primary_by_core_ratio(monkeypatch, tmp_path):
+    _patch_state(monkeypatch, tmp_path)
+    import cell_lineage
+    state = {"cells": {"WX-A": {"cell_id": "WX-A"}, "WX-B": {"cell_id": "WX-B"}}, "radar_to_cell": {"1": "WX-A", "2": "WX-B"}}
+    objs = [{"id": "9", "lineage": "merged", "parents": ["1", "2"]}]
+    prev = {"1": {"id": "1", "cell_id": "WX-A", "core_ratio": 0.2}, "2": {"id": "2", "cell_id": "WX-B", "core_ratio": 0.8}}
+    cell_lineage.save_lineage_state(state)
+    cell_lineage.update_split_merge_lineage(objs, prev, timestamp="2026-06-18_08-00-00")
+    assert objs[0]["cell_id"] == "WX-B"
+
+
+def test_record_cell_split_primary_child_keeps_parent_cell_id(monkeypatch, tmp_path):
+    _patch_state(monkeypatch, tmp_path)
+    import cell_lineage
+    state = {"cells": {"WX-P": {"cell_id": "WX-P"}}, "radar_to_cell": {"p": "WX-P"}}
+    children = [{"id": "c1", "core_ratio": 0.9, "parents": ["p"]}, {"id": "c2", "core_ratio": 0.1, "parents": ["p"]}]
+    cell_lineage.record_cell_split("WX-P", children, timestamp="2026-06-18_08-00-00", state=state)
+    assert children[0]["cell_id"] == "WX-P"
+    assert children[0]["lineage_status"] == "split_primary"
+
+
+def test_record_cell_split_secondary_child_gets_new_cell_id(monkeypatch, tmp_path):
+    _patch_state(monkeypatch, tmp_path)
+    import cell_lineage
+    state = {"cells": {"WX-P": {"cell_id": "WX-P"}}, "radar_to_cell": {"p": "WX-P"}, "date_counters": {}}
+    children = [{"id": "c1", "core_ratio": 0.9, "parents": ["p"]}, {"id": "c2", "core_ratio": 0.1, "parents": ["p"]}]
+    cell_lineage.record_cell_split("WX-P", children, timestamp="2026-06-18_08-00-00", state=state)
+    assert children[1]["cell_id"] != "WX-P"
+    assert children[1]["parent_cell_id"] == "WX-P"
+
+
+def test_update_split_merge_lineage_uses_existing_object_tracking_fields(monkeypatch, tmp_path):
+    _patch_state(monkeypatch, tmp_path)
+    import cell_lineage
+    cell_lineage.save_lineage_state({"cells": {"WX-A": {"cell_id": "WX-A"}, "WX-B": {"cell_id": "WX-B"}}, "radar_to_cell": {"1": "WX-A", "2": "WX-B"}})
+    objs = [{"id": "3", "lineage": "merged", "parents": ["1", "2"]}]
+    events = cell_lineage.update_split_merge_lineage(objs, {"1": {"core_ratio": 0.1}, "2": {"core_ratio": 0.2}}, timestamp="2026-06-18_08-00-00")
+    assert events and events[0]["event_type"] == "cell_merge"
+    assert objs[0]["lineage_status"] == "merged"
+
+
+def test_unresolved_parent_does_not_crash(monkeypatch, tmp_path):
+    _patch_state(monkeypatch, tmp_path)
+    import cell_lineage
+    events = cell_lineage.update_split_merge_lineage([{"id": "3", "lineage": "merged", "parents": ["x", "y"]}], {}, timestamp="2026-06-18_08-00-00")
+    assert events[-1]["unresolved_parent_ids"] == ["x", "y"]
+
+
+def test_api_preserves_split_merge_fields():
+    obj = {"id": "1", "cell_id": "WX-1", "parent_cell_id": "WX-P", "child_cell_ids": ["WX-C"], "merged_from_cell_ids": ["WX-A"], "merged_into_cell_id": "WX-M", "alias_cell_ids": ["WX-A"], "lineage_status": "merged"}
+    for key in ("parent_cell_id", "child_cell_ids", "merged_from_cell_ids", "merged_into_cell_id", "alias_cell_ids", "lineage_status"):
+        assert key in obj
+
+
+def test_kmz_contains_split_merge_extended_data(tmp_path):
+    pytest.importorskip("simplekml")
+    from kmz_export import save_forecast_as_kmz
+    out = tmp_path / "forecast.kmz"
+    save_forecast_as_kmz({}, {}, str(out), current_objects=[{"id": "1", "lat": 46.7, "lon": 14.3, "cell_id": "WX-1", "parent_cell_id": "WX-P", "merged_from_cell_ids": ["WX-A"], "lineage_status": "merged"}])
+    with zipfile.ZipFile(out) as zf:
+        kml = zf.read("doc.kml").decode("utf-8")
+    assert "parent_cell_id" in kml or "merged_from_cell_ids" in kml
+
+
+def test_forecast_error_details_keep_lineage_fields():
+    pytest.importorskip("cv2")
+    import accuracy_tracker
+    rec = accuracy_tracker._detail_record({"id": "1", "cell_id": "WX-1", "lat": 46.7, "lon": 14.3, "forecast_lat_10": 46.8, "forecast_lon_10": 14.4, "lineage_status": "split_child", "parent_cell_id": "WX-P", "merged_from_cell_ids": ["WX-A"]}, __import__("datetime").datetime.utcnow(), __import__("datetime").datetime.utcnow(), 10, None, None, "miss", False, False, 10)
+    assert rec["lineage_status"] == "split_child"
+    assert rec["parent_cell_id"] == "WX-P"
+
+
+def test_no_external_requests_in_split_merge_lineage():
+    src = open("cell_lineage.py", encoding="utf-8").read()
+    tree = ast.parse(src)
+    imports = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imports.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imports.append(node.module)
+    assert "requests" not in imports
+    assert "httpx" not in imports
+    assert "urllib.request" not in imports
