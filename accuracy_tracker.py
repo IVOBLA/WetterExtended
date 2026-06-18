@@ -143,6 +143,13 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         k = str(key or "unknown")
         return store.setdefault(k, {"samples": 0, "verified": 0, "hits": 0, "missed": 0, "no_target_frame": 0, "sum_km": 0.0})
 
+
+    def _mode_for(obj):
+        return obj.get(f"forecast_mode_{horizon_min}", obj.get("forecast_mode"))
+
+    def _source_for(obj):
+        return obj.get(f"kinematic_source_{horizon_min}", obj.get("kinematic_source"))
+
     def _finish(store):
         out = {}
         for k, v in store.items():
@@ -206,8 +213,8 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
             n_total += forecast_count_this_frame
             for _o in objs:
                 if _o.get(f"forecast_lat_{horizon_min}") is not None and _o.get(f"forecast_lon_{horizon_min}") is not None:
-                    _bucket(by_mode, _o.get("forecast_mode"))["no_target_frame"] += 1
-                    _bucket(by_source, _o.get("kinematic_source"))["no_target_frame"] += 1
+                    _bucket(by_mode, _mode_for(_o))["no_target_frame"] += 1
+                    _bucket(by_source, _source_for(_o))["no_target_frame"] += 1
             continue
 
         target_objs = _load_objects(target_path)
@@ -216,8 +223,8 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
             n_total += forecast_count_this_frame
             for _o in objs:
                 if _o.get(f"forecast_lat_{horizon_min}") is not None and _o.get(f"forecast_lon_{horizon_min}") is not None:
-                    _bucket(by_mode, _o.get("forecast_mode"))["no_target_frame"] += 1
-                    _bucket(by_source, _o.get("kinematic_source"))["no_target_frame"] += 1
+                    _bucket(by_mode, _mode_for(_o))["no_target_frame"] += 1
+                    _bucket(by_source, _source_for(_o))["no_target_frame"] += 1
             continue
 
         for obj in objs:
@@ -230,7 +237,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
 
             matched, dist_km, _match_src = _match_actual(obj, target_objs, horizon_min)
             n_total += 1
-            _bm = _bucket(by_mode, obj.get("forecast_mode")); _bs = _bucket(by_source, obj.get("kinematic_source"))
+            _bm = _bucket(by_mode, _mode_for(obj)); _bs = _bucket(by_source, _source_for(obj))
             _bm["samples"] += 1; _bs["samples"] += 1
 
             if matched is None:
