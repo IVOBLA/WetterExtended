@@ -420,6 +420,8 @@ def annotate_locations(
         extended_r = radius * slow_radius_factor
 
         for obj in objects:
+            if obj.get("tracking_state") == "inactive_rain" or obj.get("silent_tracking") is True:
+                continue
             o_lat = obj.get("lat")
             o_lon = obj.get("lon")
             if o_lat is None or o_lon is None:
@@ -696,6 +698,8 @@ def annotate_locations(
         _first_contact = None
         _first_contact_cell = None
         for _obj in objects:
+            if _obj.get("tracking_state") == "inactive_rain" or _obj.get("silent_tracking") is True:
+                continue
             _ol = _obj.get("lat")
             _on = _obj.get("lon")
             if _ol is None or _on is None:

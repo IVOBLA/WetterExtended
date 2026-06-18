@@ -444,6 +444,100 @@ def preprocess_image(image_path):
     merged = merge_close_contours(contours, hsv.shape[:2], min_touch=MIN_CONTOUR_TOUCH)
     return hsv, merged, mask
     
+
+def build_rain_support_mask(hsv) -> np.ndarray:
+    """Erzeugt aus dem bereits geladenen ARSO-HSV-Bild eine Regenstützungsmaske.
+
+    Enthalten sind stratiforme Regenfarben plus aktive Zellfarben. Es werden
+    ausschließlich vorhandene Bilddaten genutzt; die Funktion löst keine
+    Netzwerk-/Fremdrequests aus.
+    """
+    filter_config = _get_filter_config_live()
+    try:
+        from config import STRATIFORM_HSV_RANGES as _STRAT_RANGES
+    except Exception:
+        _STRAT_RANGES = []
+    mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+    for lower, upper in list(_STRAT_RANGES) + list(filter_config.get("allowed_hsv_ranges", [])):
+        mask |= cv2.inRange(
+            hsv,
+            np.array(lower, dtype=np.uint8),
+            np.array(upper, dtype=np.uint8),
+        )
+    close_size = max(1, min(int(_rc.get("INACTIVE_RAIN_SUPPORT_CLOSE_SIZE", 3)), 5))
+    kernel = np.ones((close_size, close_size), np.uint8)
+    return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1)
+
+
+def _timestamp_age_min(inactive_since, timestamp) -> float:
+    try:
+        if inactive_since is None:
+            return 0.0
+        if isinstance(inactive_since, (int, float)):
+            import time as _time_mod
+            return max(0.0, (_time_mod.time() - float(inactive_since)) / 60.0)
+        from datetime import datetime as _dt
+        fmt = "%Y-%m-%d_%H-%M-%S"
+        return max(0.0, (_dt.strptime(str(timestamp), fmt) - _dt.strptime(str(inactive_since), fmt)).total_seconds() / 60.0)
+    except Exception:
+        return 0.0
+
+
+def find_rain_support_for_track(old_obj, rain_support_mask, pred_centroid, pred_polygon=None) -> dict:
+    """Prüft Regenstützung um eine vorhergesagte Track-Position in skalierten Pixeln."""
+    result = {
+        "supported": False, "support_pixels": 0, "support_overlap": 0.0,
+        "support_cx": None, "support_cy": None,
+    }
+    if rain_support_mask is None or pred_centroid is None:
+        return result
+    try:
+        h, w = rain_support_mask.shape[:2]
+        cx, cy = float(pred_centroid[0]), float(pred_centroid[1])
+        if not (0 <= cx < w and 0 <= cy < h):
+            return result
+        try:
+            from config import (
+                INACTIVE_RAIN_SUPPORT_MIN_PIXELS as _MIN_PX,
+                INACTIVE_RAIN_SUPPORT_RADIUS_PX as _RAD,
+                INACTIVE_RAIN_SUPPORT_MIN_OVERLAP as _MIN_OV,
+                INACTIVE_RAIN_SUPPORT_MAX_DISTANCE_PX as _MAX_D,
+            )
+        except Exception:
+            _MIN_PX, _RAD, _MIN_OV, _MAX_D = 30, 60, 0.05, 90
+        min_px = int(_rc.get("INACTIVE_RAIN_SUPPORT_MIN_PIXELS", _MIN_PX))
+        radius = int(_rc.get("INACTIVE_RAIN_SUPPORT_RADIUS_PX", _RAD))
+        min_overlap = float(_rc.get("INACTIVE_RAIN_SUPPORT_MIN_OVERLAP", _MIN_OV))
+        max_dist = float(_rc.get("INACTIVE_RAIN_SUPPORT_MAX_DISTANCE_PX", _MAX_D))
+        roi_mask = np.zeros((h, w), dtype=np.uint8)
+        cv2.circle(roi_mask, (int(round(cx)), int(round(cy))), max(1, radius), 255, -1)
+        rain_roi = cv2.bitwise_and(rain_support_mask, rain_support_mask, mask=roi_mask)
+        support_pixels = int(cv2.countNonZero(rain_roi))
+        overlap = 0.0
+        if pred_polygon is not None:
+            poly_mask = np.zeros((h, w), dtype=np.uint8)
+            pts = np.array(list(pred_polygon.exterior.coords), dtype=np.int32).reshape(-1, 1, 2)
+            cv2.drawContours(poly_mask, [pts], -1, 255, -1)
+            poly_area = max(1, int(cv2.countNonZero(poly_mask)))
+            overlap = cv2.countNonZero(cv2.bitwise_and(rain_support_mask, rain_support_mask, mask=poly_mask)) / float(poly_area)
+        moments = cv2.moments(rain_roi)
+        sx = sy = None
+        if moments["m00"]:
+            sx = moments["m10"] / moments["m00"]
+            sy = moments["m01"] / moments["m00"]
+        dist_ok = sx is None or _math.hypot(float(sx) - cx, float(sy) - cy) <= max_dist
+        supported = dist_ok and (support_pixels >= min_px or overlap >= min_overlap)
+        result.update({
+            "supported": bool(supported),
+            "support_pixels": support_pixels,
+            "support_overlap": float(overlap),
+            "support_cx": sx,
+            "support_cy": sy,
+        })
+    except Exception as exc:
+        debug_log(f"[TRACK] Regenstützung fehlgeschlagen: {exc}")
+    return result
+
 def compute_stratiform_environment(hsv: np.ndarray, contour: np.ndarray,
                                    vx: float = 0.0,
                                    vy: float = 0.0) -> dict:
@@ -635,17 +729,24 @@ def _size_trend_vs_baseline(area, prev_area, pct_stable):
     return 0
 
 
-def update_tracking_memory(hsv, contours, weather_data, timestamp):
+def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_mask=None):
     FILTER_CONFIG = _get_filter_config_live()
     # was_active-Schwellwert — runtime-überschreibbar über Admin-Panel
     from config import WAS_ACTIVE_CORE_RATIO_THRESHOLD as _WAT_CFG
     _was_active_threshold = float(_rc.get("WAS_ACTIVE_CORE_RATIO_THRESHOLD", _WAT_CFG))
-    # Zeitbasiertes Hintergrund-Tracking: 20 Minuten unabhängig vom Loop-Intervall
+    # Zeitbasiertes Hintergrund-Tracking: 30 Minuten unabhängig vom Loop-Intervall
     from config import INACTIVE_CELL_TRACK_DURATION_S as _ICTD_CFG
     _track_duration_s = float(_rc.get("INACTIVE_CELL_TRACK_DURATION_S", _ICTD_CFG))
     # F7-FIX: BBOX live aus runtime_config — Admin-Panel-Änderungen wirken sofort.
     from config import BBOX_KAERNTEN_EXTENDED as _DEFAULT_BBOX
     _BBOX_LIVE = _rc.get("BBOX_KAERNTEN_EXTENDED", _DEFAULT_BBOX)
+    if rain_support_mask is None:
+        rain_support_mask = build_rain_support_mask(hsv)
+    try:
+        from config import INACTIVE_RAIN_SUPPORT_ENABLED as _IRSE
+    except Exception:
+        _IRSE = True
+    _rain_support_enabled = bool(_rc.get("INACTIVE_RAIN_SUPPORT_ENABLED", _IRSE))
     global tracking_memory
     objects = []
     new_memory = {}
@@ -999,6 +1100,14 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
             "lightning_count_10km": 0,
             "kf": kf, "contour": contour[:, 0, :].tolist(), "weather_vals": {}, "station_ids": [],
             "lstm_vx": 0.0, "lstm_vy": 0.0, "missing": 0,
+            "is_active_cell": True,
+            "tracking_state": ("reactivated" if previous_snapshot.get(obj_id, {}).get("tracking_state") == "inactive_rain" else "active"),
+            "silent_tracking": False, "rain_supported": True,
+            "inactive_since": None, "inactive_age_min": 0.0,
+            "last_active_timestamp": timestamp,
+            "reactivated_from_inactive": bool(previous_snapshot.get(obj_id, {}).get("tracking_state") == "inactive_rain"),
+            "reactivated_at": (timestamp if previous_snapshot.get(obj_id, {}).get("tracking_state") == "inactive_rain" else None),
+            "support_pixels": 0, "support_overlap": 0.0,
             "lineage": lineage, "parents": parents, "children": [], "lineage_end": None,
         }
         for parent_id in parents:
@@ -1038,29 +1147,51 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
     for obj_id, obj in previous_snapshot.items():
         if obj_id not in new_memory:
             lat, lon = obj.get("lat"), obj.get("lon")
-            if is_within_bbox(lat, lon, _BBOX_LIVE):
-                obj["missing"] = obj.get("missing", 0) + 1
-                # Zeitstempel des ersten Verschwindens setzen (einmalig)
-                if "missing_since" not in obj:
-                    obj["missing_since"] = _time_mod.time()
-                # Zeitbasiertes Limit: 20 Minuten unabhängig vom Loop-Intervall
-                _elapsed = _time_mod.time() - float(obj["missing_since"])
-                if _elapsed <= _track_duration_s:
-                    new_memory[obj_id] = obj
-                else:
-                    # P-S01: Track endgültig tot (Missing-Limit überschritten)
-                    try:
-                        from track_statistics import write_track_end as _wte_ps01
-                        _wte_ps01(obj, "dissolved", timestamp)
-                    except Exception as _e_te1:
-                        debug_log(f"[P-S01] track_end dissolved Fehler ({obj_id}): {_e_te1}")
+            reason = "dissolved"
+            if not is_within_bbox(lat, lon, _BBOX_LIVE):
+                reason = "left_bbox"
             else:
-                # P-S01: Zelle hat die Live-BBOX verlassen → Track endet hier
-                try:
-                    from track_statistics import write_track_end as _wte_ps01b
-                    _wte_ps01b(obj, "left_bbox", timestamp)
-                except Exception as _e_te2:
-                    debug_log(f"[P-S01] track_end left_bbox Fehler ({obj_id}): {_e_te2}")
+                prev_state = obj.get("tracking_state", "active" if obj.get("missing", 0) == 0 else "expired")
+                inactive_since = obj.get("inactive_since") or obj.get("missing_since") or timestamp
+                inactive_age_min = _timestamp_age_min(inactive_since, timestamp)
+                if isinstance(inactive_since, (int, float)):
+                    inactive_age_min = max(0.0, (_time_mod.time() - float(inactive_since)) / 60.0)
+                reason = "inactive_timeout" if inactive_age_min * 60.0 > _track_duration_s else "no_rain_support"
+                support = {"supported": False, "support_pixels": 0, "support_overlap": 0.0, "support_cx": None, "support_cy": None}
+                if _rain_support_enabled and prev_state in ("active", "inactive_rain", "reactivated") and inactive_age_min * 60.0 <= _track_duration_s:
+                    support = find_rain_support_for_track(
+                        obj, rain_support_mask, pred_centroids.get(obj_id), pred_polys.get(obj_id)
+                    )
+                if support.get("supported"):
+                    obj = obj.copy()
+                    obj["missing"] = int(obj.get("missing", 0) or 0) + 1
+                    obj.setdefault("missing_since", _time_mod.time())
+                    if not obj.get("inactive_since"):
+                        obj["inactive_since"] = timestamp
+                        inactive_age_min = 0.0
+                    obj["inactive_age_min"] = round(float(inactive_age_min), 2)
+                    obj["tracking_state"] = "inactive_rain"
+                    obj["is_active_cell"] = False
+                    obj["silent_tracking"] = True
+                    obj["rain_supported"] = True
+                    obj["reactivated_from_inactive"] = False
+                    obj["reactivated_at"] = None
+                    obj["support_pixels"] = int(support.get("support_pixels") or 0)
+                    obj["support_overlap"] = float(support.get("support_overlap") or 0.0)
+                    sx, sy = support.get("support_cx"), support.get("support_cy")
+                    if sx is not None and sy is not None:
+                        obj["x"] = float(sx) / float(UPSCALE_FACTOR)
+                        obj["y"] = float(sy) / float(UPSCALE_FACTOR)
+                        obj["lat"], obj["lon"] = pixel_to_geo(float(sx), float(sy))
+                    new_memory[obj_id] = obj
+                    continue
+            try:
+                from track_statistics import write_track_end as _wte_ps01
+                obj["tracking_state"] = "expired"
+                obj["lineage_end"] = reason
+                _wte_ps01(obj, reason, timestamp)
+            except Exception as _e_te1:
+                debug_log(f"[P-S01] track_end {reason} Fehler ({obj_id}): {_e_te1}")
 
     if len(set(new_memory.keys())) != len(new_memory):
         debug_log("[TRACKING] WARN: Doppelte IDs in new_memory erkannt")
@@ -1098,8 +1229,9 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp):
     # Wird beim nächsten Service-Start via load_tracking_snapshot() geladen.
     save_tracking_snapshot()
     for obj_id, obj in new_memory.items():
-        if obj.get("missing", 0) == 0:
-            obj.pop("missing_since", None)  # Zelle wieder sichtbar → Timer zurücksetzen
+        if obj.get("missing", 0) == 0 or obj.get("tracking_state") == "inactive_rain":
+            if obj.get("missing", 0) == 0:
+                obj.pop("missing_since", None)  # Zelle wieder sichtbar → Timer zurücksetzen
             # was_active: sticky Flag — True sobald core_ratio Schwellwert je erreicht.
             # Prüft auch previous_snapshot (carry-forward) falls Matching-Code das Flag
             # nicht automatisch übernimmt. Ermöglicht MISSING_LIMIT_ACTIVE statt DEFAULT.
@@ -1494,7 +1626,8 @@ def detect_and_track_objects(image_path=None, weather_data=None):
     merged = merge_close_contours(contours, hsv.shape[:2], min_touch=MIN_CONTOUR_TOUCH)
 
     # 📌 Objektverfolgung
-    objects = update_tracking_memory(hsv, merged, weather_data, timestamp)
+    rain_support_mask = build_rain_support_mask(hsv)
+    objects = update_tracking_memory(hsv, merged, weather_data, timestamp, rain_support_mask=rain_support_mask)
 
     # 🖼️ Overlay erstellen
     overlay_img = processed_img.copy()

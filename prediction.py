@@ -508,6 +508,9 @@ def _kinematic_fallback(objects: list) -> tuple:
     _horizons = _get_horizons()
     forecasts = {h: [] for h in _horizons}
     for obj in objects:
+        if obj.get("tracking_state") == "inactive_rain" or obj.get("silent_tracking") is True:
+            obj["forecast_source"] = "inactive_rain_kinematic"
+            obj["forecast_mode"] = "kinematic"
         obj["intensification_prob"]  = 0.0
         obj["delta_core_ratio_pred"] = 0.0
         obj["delta_area_pred"]       = 0.0
