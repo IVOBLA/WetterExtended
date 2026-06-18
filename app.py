@@ -210,8 +210,30 @@ def _object_frame_meta(ts: str) -> dict:
             data = json.load(f)
         objs = data if isinstance(data, list) else []
         count = len(objs)
-        active = any(isinstance(o, dict) and o.get("missing", 0) == 0 for o in objs)
-        return {"has_objects_file": True, "object_count": count, "cells_active": bool(active)}
+        active_count = sum(
+            1 for o in objs
+            if isinstance(o, dict)
+            and bool(o.get("is_active_cell", o.get("missing", 0) == 0))
+            and o.get("tracking_state") != "inactive_rain"
+        )
+        inactive_rain_count = sum(
+            1 for o in objs
+            if isinstance(o, dict)
+            and (o.get("tracking_state") == "inactive_rain" or o.get("silent_tracking") is True)
+        )
+        reactivated_count = sum(
+            1 for o in objs
+            if isinstance(o, dict)
+            and (o.get("tracking_state") == "reactivated" or o.get("reactivated_from_inactive") is True)
+        )
+        return {
+            "has_objects_file": True,
+            "object_count": count,
+            "cells_active": bool(active_count),
+            "active_count": active_count,
+            "inactive_rain_count": inactive_rain_count,
+            "reactivated_count": reactivated_count,
+        }
     except Exception:
         return {"has_objects_file": False, "object_count": None, "cells_active": None}
 
@@ -547,9 +569,10 @@ def api_radar_timing():
                 pass
 
     cells_active = False
+    latest_obj_meta = {}
     if obj_files:
-        meta = _object_frame_meta(os.path.basename(obj_files[-1]).replace(".json", ""))
-        cells_active = bool(meta.get("cells_active"))
+        latest_obj_meta = _object_frame_meta(os.path.basename(obj_files[-1]).replace(".json", ""))
+        cells_active = bool(latest_obj_meta.get("cells_active"))
 
     interval_s = (
         runtime_config.get("LOOP_INTERVAL_CELLS_S", LOOP_INTERVAL_CELLS_S)
@@ -579,6 +602,9 @@ def api_radar_timing():
         "next_fetch_estimated_utc": next_fetch_utc,
         "loop_interval_s":          interval_s,
         "cells_active":             cells_active,
+        "active_count":             int(latest_obj_meta.get("active_count") or 0),
+        "inactive_rain_count":      int(latest_obj_meta.get("inactive_rain_count") or 0),
+        "reactivated_count":        int(latest_obj_meta.get("reactivated_count") or 0),
     })
 
 

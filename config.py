@@ -394,8 +394,16 @@ WAS_ACTIVE_CORE_RATIO_THRESHOLD: float = 0.25
 
 # Wie lange inaktive Zellen (missing > 0) weitergetrackt werden.
 # Zeitbasiert — unabhängig vom aktuellen Loop-Intervall.
-# 1200 s = 20 Minuten.
-INACTIVE_CELL_TRACK_DURATION_S: int = 1200
+# 1800 s = 30 Minuten.
+INACTIVE_CELL_TRACK_DURATION_S: int = 1800
+
+# Stille Regen-Weiterverfolgung ehemals aktiver Zellen anhand des bereits
+# geladenen ARSO-Radarbilds (keine Zusatzrequests). Runtime-overridable.
+INACTIVE_RAIN_SUPPORT_ENABLED: bool = True
+INACTIVE_RAIN_SUPPORT_MIN_PIXELS: int = 30
+INACTIVE_RAIN_SUPPORT_RADIUS_PX: int = 60
+INACTIVE_RAIN_SUPPORT_MIN_OVERLAP: float = 0.05
+INACTIVE_RAIN_SUPPORT_MAX_DISTANCE_PX: int = 90
 
 # Nachbeobachtungs-Intervall: Wird nach dem Verschwinden aktiver Zellen verwendet,
 # bis NO_CELLS_SLOW_INTERVAL_TIMEOUT_S abgelaufen ist.

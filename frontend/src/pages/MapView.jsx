@@ -88,10 +88,11 @@ const CELL_POLYGON_FILL_OPACITY = 0.25
 // dieselbe dunkelblaue Farbe; lineage bleibt nur über Strichstärke/-muster sichtbar.
 // merged → dicker (4) + auffällig gestrichelt; split → 3 + fein gestrichelt;
 // new/continued → unverändert durchgezogen (2).
-function cellStroke(lineage) {
-  if (lineage === 'merged') return { color: CELL_POLYGON_COLOR, weight: 4, dashArray: '10,6' }
-  if (lineage === 'split')  return { color: CELL_POLYGON_COLOR, weight: 3, dashArray: '4,4' }
-  return { color: CELL_POLYGON_COLOR, weight: 2, dashArray: undefined }
+function cellStroke(lineage, trackingState) {
+  if (trackingState === 'inactive_rain') return { color: CELL_POLYGON_COLOR, weight: 2, dashArray: '7,6', opacity: 0.55, fillOpacity: 0.10 }
+  if (lineage === 'merged') return { color: CELL_POLYGON_COLOR, weight: 4, dashArray: '10,6', opacity: 1, fillOpacity: CELL_POLYGON_FILL_OPACITY }
+  if (lineage === 'split')  return { color: CELL_POLYGON_COLOR, weight: 3, dashArray: '4,4', opacity: 1, fillOpacity: CELL_POLYGON_FILL_OPACITY }
+  return { color: CELL_POLYGON_COLOR, weight: 2, dashArray: undefined, opacity: 1, fillOpacity: CELL_POLYGON_FILL_OPACITY }
 }
 
 // FlyToCell: Liest URL-Parameter lat/lon/zoom aus und zentriert die Karte.
@@ -954,18 +955,32 @@ export default function MapView() {
         {objects.map(o => {
           if (!o.contour_geo || o.contour_geo.length < 3) return null
           const outerPos    = o.contour_geo.map(p => [p[1], p[0]])
-          const stroke      = cellStroke(o.lineage)
+          const stroke      = cellStroke(o.lineage, o.tracking_state)
           const borderColor = lineageColor[o.lineage] || '#888'
           return (
             <React.Fragment key={'cell_' + o.id}>
               <Polygon
                 positions={outerPos}
-                pathOptions={{ color:stroke.color, weight:stroke.weight, dashArray:stroke.dashArray, fillColor:CELL_POLYGON_COLOR, fillOpacity:CELL_POLYGON_FILL_OPACITY, interactive:true }}
+                pathOptions={{ color:stroke.color, weight:stroke.weight, dashArray:stroke.dashArray, fillColor:CELL_POLYGON_COLOR, fillOpacity:stroke.fillOpacity, opacity:stroke.opacity, interactive:true }}
                 eventHandlers={{ click: (e) => { e.target.openPopup(e.latlng) } }}
                 pane="tooltipPane"
               >
                 <Popup autoPan={true} keepInView={true}>
                   <div><strong>{o.id}</strong> ({o.lineage})</div>
+                  {o.tracking_state === 'inactive_rain' && (
+                    <div style={{fontSize:'0.85em',color:'#0b1f5e',marginTop:3}}>
+                      Status: stille Regen-Weiterführung<br />
+                      ARSO-Regen vorhanden<br />
+                      ID bleibt für Reaktivierung erhalten<br />
+                      Inaktiv seit: {o.inactive_age_min ?? 0} Minuten
+                    </div>
+                  )}
+                  {o.tracking_state === 'reactivated' && (
+                    <div style={{fontSize:'0.85em',color:'#0b1f5e',marginTop:3}}>
+                      Status: reaktiviert<br />
+                      vorherige Zell-ID beibehalten
+                    </div>
+                  )}
                   {o.severity && (
                     <div style={{fontSize:'0.8em', marginTop:2}}>
                       <span style={{
