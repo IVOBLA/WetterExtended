@@ -103,5 +103,4 @@ def test_radar_confirmed_ir_not_displayed_as_precursor_payload(monkeypatch):
 
     resp = app_module.app.test_client().get("/api/objects?include_ir=1")
     data = resp.get_json()
-    assert data[0]["_type"] == "ir_precursor_cell"
-    assert data[0]["display_as_precursor"] is False
+    assert data == []
