@@ -168,3 +168,4 @@ Dateien: debug_export.py, tests/test_b139_zip_estimate_bytes.py (neu)
 Labels für IR-Vorläufer → Radarbestätigung werden in `train_data/cell_lineage/ir_lead_time_labels.jsonl` geschrieben. Training und Modellnutzung folgen später.
 
 | B213 | Split-/Merge-Lineage über `cell_id`: Parent-/Child-Beziehungen, Merge-Aliase und Events `cell_split`/`cell_merge` | `cell_lineage.py`, `main.py`, `object_tracking.py`, `tests/test_b213_split_merge_lineage.py` | ✅ erledigt |
+| B214 | Forecast-Error-Breakdown automatisch diagnostizieren: ML vs. kinematic, Richtung, Speed, Match-Type, Coverage und Worst-Forecasts | `forecast_error_diagnosis.py`, `tools/diagnose_motion_pipeline.py`, `app.py`, `drift_detector.py`, `tests/test_b214_forecast_error_diagnosis.py` | ✅ erledigt |

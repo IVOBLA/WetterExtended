@@ -52,6 +52,7 @@ _ALWAYS_INCLUDE_NAMES = {
     "drift_status.json",
     "accuracy_history.jsonl",
     "forecast_error_details.jsonl",
+    "forecast_error_diagnosis.json",
     "config.py",
 }
 _EXCLUDED_NAMES = {".admin_password"}
