@@ -186,21 +186,34 @@ def _latest_objects():
 
 
 def _objects_for_ts(ts: str | None) -> list:
-    """
-    Liest Objekte für einen spezifischen Radar-Frame-Timestamp.
-    Gibt [] zurück wenn kein passendes JSON existiert (keine Zellen in diesem Frame).
-    Fällt auf _latest_objects() zurück wenn ts=None (Live-Ansicht).
-    """
+    """Liest Objekte für einen spezifischen, vollständig verarbeiteten Frame."""
     if not ts:
         return _latest_objects()
     path = os.path.join(SAVE_PATHS["objects"], f"{ts}.json")
     if not os.path.exists(path):
+        # Fehlende Datei bedeutet: Frame ist nicht fertig analysiert, nicht "keine Zellen".
         return []
     try:
         with open(path, encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+            return data if isinstance(data, list) else []
     except Exception:
         return []
+
+
+def _object_frame_meta(ts: str) -> dict:
+    path = os.path.join(SAVE_PATHS["objects"], f"{ts}.json")
+    if not os.path.exists(path):
+        return {"has_objects_file": False, "object_count": None, "cells_active": None}
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        objs = data if isinstance(data, list) else []
+        count = len(objs)
+        active = any(isinstance(o, dict) and o.get("missing", 0) == 0 for o in objs)
+        return {"has_objects_file": True, "object_count": count, "cells_active": bool(active)}
+    except Exception:
+        return {"has_objects_file": False, "object_count": None, "cells_active": None}
 
 
 def _latest_location_hits():
@@ -535,12 +548,8 @@ def api_radar_timing():
 
     cells_active = False
     if obj_files:
-        try:
-            with open(obj_files[-1], encoding="utf-8") as _f:
-                objs = json.load(_f)
-                cells_active = bool(objs and any(o.get("missing", 0) == 0 for o in objs))
-        except Exception:
-            pass
+        meta = _object_frame_meta(os.path.basename(obj_files[-1]).replace(".json", ""))
+        cells_active = bool(meta.get("cells_active"))
 
     interval_s = (
         runtime_config.get("LOOP_INTERVAL_CELLS_S", LOOP_INTERVAL_CELLS_S)
@@ -710,11 +719,19 @@ def api_radar_frames():
             "utc":     f["utc"].isoformat(timespec="seconds").replace("+00:00", "Z"),
             "label":   f["ldt"].strftime("%H:%M"),
             "gap_min": gap_min,   # Minuten seit Vorgänger-Frame (None beim ersten)
+            **_object_frame_meta(f["ts"]),
         })
+
+    latest_idx = -1
+    for i in range(len(frames) - 1, -1, -1):
+        if frames[i].get("has_objects_file"):
+            latest_idx = i
+            break
 
     return jsonify({
         "frames":     frames,
-        "latest_idx": len(frames) - 1,
+        "latest_idx": latest_idx,
+        "analysis_lag": bool(frames and latest_idx != len(frames) - 1),
     })
 
 

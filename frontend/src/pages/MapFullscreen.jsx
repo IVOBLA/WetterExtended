@@ -577,7 +577,7 @@ export default function MapFullscreen() {
           />
         )}
 
-        {(currentIdx === frames.length - 1 || frames.length === 0) && objects.map(o => {
+        {objects.map(o => {
           if (!o.contour_geo || o.contour_geo.length < 3) return null
           const outerPos    = o.contour_geo.map(p => [p[1], p[0]])
           const stroke      = cellStroke(o.lineage)
