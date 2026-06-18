@@ -1107,10 +1107,13 @@ def api_objects():
                     t["display_as_precursor"] = True
                     t["ir_only_precursor"] = 1.0
                 t["cb_alert_threshold_m"] = _cb_thr
+            from cell_lineage_dedup import dedupe_ir_precursors_for_payload
             if isinstance(data, list):
-                data = data + ir_tracks
+                objects, visible_ir_tracks = dedupe_ir_precursors_for_payload(data, ir_tracks)
+                data = objects + visible_ir_tracks
             elif isinstance(data, dict) and "objects" in data:
-                data["objects"] = data["objects"] + ir_tracks
+                objects, visible_ir_tracks = dedupe_ir_precursors_for_payload(data.get("objects") or [], ir_tracks)
+                data["objects"] = objects + visible_ir_tracks
         except Exception as _ir_api_exc:
             debug_log(f"[API/objects] IR-Track-Anhang fehlgeschlagen: {_ir_api_exc}")
     return jsonify(data)
