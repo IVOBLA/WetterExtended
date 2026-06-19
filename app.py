@@ -5053,57 +5053,101 @@ def api_size_regressor_status():
 
 
 # ── Hydro-Impact API ───────────────────────────────────────────────────────
+def _hydro_json(status: str, data=None, ok: bool | None = None, error: str | None = None, code: int = 200):
+    payload = {"ok": bool(ok if ok is not None else (error is None and status not in {"error", "invalid_static_json"})), "status": status}
+    if data is not None:
+        payload["data"] = data
+    if error:
+        payload["error"] = error
+    return jsonify(payload), code
+
+
+def _hydro_safe(fn, fallback_status="error"):
+    try:
+        data = fn()
+        status = data.get("status", "ok") if isinstance(data, dict) else "ok"
+        return _hydro_json(status, data=data, ok=True)
+    except Exception as exc:
+        try:
+            from debug_utils import log_api_failure
+            log_api_failure("hydro_api", request.path, f"{type(exc).__name__}: {exc}", fallback_used=True)
+        except Exception:
+            pass
+        return _hydro_json(fallback_status, data=None, ok=False, error=f"{type(exc).__name__}: {exc}")
+
 @app.route("/api/hydro/status")
 def api_hydro_status():
-    import hydro_api
-    return jsonify(hydro_api.status())
+    return _hydro_safe(lambda: __import__("hydro_api").status(), "hydro_status_error")
+
+@app.route("/api/hydro/live")
+def api_hydro_live():
+    return _hydro_safe(lambda: __import__("hydro_fetch").load_latest_hydro_live(max_age_seconds=None) or {"status": "hydro_live_missing", "stations": []}, "hydro_live_error")
 
 @app.route("/api/hydro/stations")
 def api_hydro_stations():
-    import hydro_api
-    include_disabled = request.args.get("include_disabled") == "1"
-    if include_disabled and not _current_user_is_admin():
-        return jsonify({"error": "include_disabled erfordert Admin-Berechtigung"}), 403
-    return jsonify(hydro_api.station_features(include_disabled=include_disabled))
+    def _load():
+        import hydro_api
+        include_disabled = request.args.get("include_disabled") == "1"
+        if include_disabled and not _current_user_is_admin():
+            return {"status": "forbidden", "error": "include_disabled erfordert Admin-Berechtigung"}
+        return hydro_api.station_features(include_disabled=include_disabled)
+    resp, code = _hydro_safe(_load, "hydro_stations_error")
+    data = resp.get_json(silent=True) or {}
+    if data.get("data", {}).get("status") == "forbidden":
+        return _hydro_json("forbidden", ok=False, error=data["data"].get("error"), code=403)
+    return resp, code
+
+@app.route("/api/hydro/catchments")
+def api_hydro_catchments():
+    return _hydro_safe(lambda: {"type": "FeatureCollection", "features": __import__("hydro_api").catchments_all().get("features", [])} if hasattr(__import__("hydro_api"), "catchments_all") else {"type": "FeatureCollection", "features": []}, "hydro_catchments_error")
 
 @app.route("/api/hydro/impacts")
 def api_hydro_impacts():
-    import hydro_api
-    return jsonify(hydro_api.normalized_impacts(False))
+    return _hydro_safe(lambda: __import__("hydro_api").normalized_impacts(False), "hydro_impacts_error")
 
 @app.route("/api/hydro/impacts/latest")
 def api_hydro_impacts_latest():
-    import hydro_api
-    fields = ("cell_id", "station_id", "score", "confidence", "status", "reason", "estimated_lag_min", "relation")
-    return jsonify([{k: e.get(k) for k in fields} for e in hydro_api.normalized_impacts(True)])
+    def _load():
+        import hydro_api
+        fields = ("cell_id", "station_id", "score", "confidence", "status", "reason", "estimated_lag_min", "relation", "cell_lat", "cell_lon", "station_lat", "station_lon")
+        return [{k: e.get(k) for k in fields} for e in hydro_api.normalized_impacts(True)]
+    return _hydro_safe(_load, "hydro_impacts_error")
+
+@app.route("/api/hydro/verification")
+def api_hydro_verification():
+    return _hydro_safe(lambda: __import__("hydro_verification").get_hydro_verification_summary(), "hydro_verification_error")
 
 @app.route("/api/hydro/station/<station_id>")
 def api_hydro_station(station_id):
-    import hydro_api
-    for f in hydro_api.station_features(include_disabled=_current_user_is_admin()).get("features", []):
-        if str((f.get("properties") or {}).get("station_id")) == str(station_id):
-            return jsonify(f)
-    return jsonify({"error": "Hydro-Station nicht gefunden", "station_id": station_id}), 404
+    import re as _re_hydro
+    if not _re_hydro.fullmatch(r"[A-Za-z0-9_.:-]{1,80}", str(station_id or "")):
+        return _hydro_json("invalid_station_id", ok=False, error="Ungültige station_id", code=400)
+    def _load():
+        import hydro_api
+        for f in hydro_api.station_features(include_disabled=_current_user_is_admin()).get("features", []):
+            if str((f.get("properties") or {}).get("station_id")) == str(station_id):
+                return f
+        return {"status": "not_found", "station_id": station_id}
+    return _hydro_safe(_load, "hydro_station_error")
 
 @app.route("/api/hydro/station/<station_id>/catchment")
 def api_hydro_station_catchment(station_id):
-    import hydro_api
-    return jsonify(hydro_api.catchment(station_id))
+    import re as _re_hydro
+    if not _re_hydro.fullmatch(r"[A-Za-z0-9_.:-]{1,80}", str(station_id or "")):
+        return _hydro_json("invalid_station_id", ok=False, error="Ungültige station_id", code=400)
+    return _hydro_safe(lambda: __import__("hydro_api").catchment(station_id), "hydro_catchment_error")
 
 @app.route("/api/hydro/reload-static", methods=["POST"])
 def api_hydro_reload_static():
-    from hydro_static_import import build_static_hydro
-    return jsonify(build_static_hydro())
+    return _hydro_safe(lambda: __import__("hydro_static_import").build_static_hydro(), "hydro_static_error")
 
 @app.route("/api/hydro/fetch-live", methods=["POST"])
 def api_hydro_fetch_live():
-    from hydro_fetch import fetch_hydro_live
-    return jsonify(fetch_hydro_live(force=True))
+    return _hydro_safe(lambda: __import__("hydro_fetch").fetch_hydro_live(force=True), "hydro_live_error")
 
 @app.route("/api/hydro/verify", methods=["POST"])
 def api_hydro_verify():
-    from hydro_verification import verify_pending_hydro_impacts
-    return jsonify({"results": verify_pending_hydro_impacts()})
+    return _hydro_safe(lambda: {"results": __import__("hydro_verification").verify_pending_hydro_impacts(), "status": "ok"}, "hydro_verification_error")
 
 @app.route("/api/hydro/stations/<station_id>", methods=["PATCH"])
 def api_hydro_station_patch(station_id):

@@ -2623,3 +2623,7 @@ Die Zähler werden in `train_data/evaluation/api_budget.json` persistiert und um
 ## Hydro-Impact / Pegel-Attribution
 
 Hydro-Impact bewertet nur einen **plausibler Zusammenhang** zwischen Niederschlagszellen und Pegeln. Die Zuordnung ist **nicht radiusbasiert**, sondern benötigt das **oberliegendes Einzugsgebiet** und einen hydrologischen **Zeitversatz**. Die Anzeige ist **keine amtliche Hochwasserwarnung**; Live-Pegel sind Rohdaten/Indikatoren und keine geprüften Endwerte. Statische Hydro-Daten werden lokal unter `train_data/hydro/static/generated/` erwartet; bei fehlenden Daten meldet das System `hydro_static_missing` und erzeugt keinen Hydro-Impact.
+
+### Hydro-Impact: sichere Pegel-Attribution
+
+Der nächste Pegel ist fachlich kein gültiges Kriterium: Niederschlag unterhalb oder neben einem Pegel kann dessen Reaktion nicht plausibel erklären. WetterExtended verwendet Hydro-Impact daher nur, wenn eine Zelle das lokal hinterlegte oberliegende Einzugsgebiet des Pegels schneidet und anschließend ein plausibles Zeitfenster für eine Pegel-/Abflussreaktion geprüft wird. Die Anzeige ist immer ein vorsichtig formulierter plausibler Zusammenhang, keine amtliche Hochwasserwarnung und kein Ersatz für geprüfte amtliche Endwerte. Fehlen statische Hydro-Daten, bleibt das System lauffähig und meldet `hydro_static_missing`; ohne Live-Daten wird Cache/Fallback genutzt oder ein stabiler Fehlerstatus angezeigt.

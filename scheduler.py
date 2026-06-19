@@ -522,6 +522,21 @@ def run_skywarn_export_snapshot_job():
         debug_log(f"[SCHEDULER] Skywarn Export-Snapshot unerwarteter Fehler: {exc}")
 
 
+def run_hydro_verify_job():
+    """Regelmäßige Hydro-Live-Aktualisierung und vorsichtige Pending-Verifikation."""
+    try:
+        if not runtime_config.get("HYDRO_ENABLED", True):
+            debug_log("[SCHEDULER] Hydro deaktiviert — kein Request, keine Verifikation")
+            return
+        from hydro_fetch import fetch_hydro_live
+        from hydro_verification import verify_pending_hydro_impacts
+        live = fetch_hydro_live(force=False)
+        results = verify_pending_hydro_impacts()
+        debug_log(f"[SCHEDULER] Hydro: live_status={live.get('status', {}).get('error') or 'ok'} verifications={len(results)}")
+    except Exception as exc:
+        debug_log(f"[SCHEDULER] Hydro-Job Fehler: {exc}")
+
+
 def run_stats_aggregate_job():
     """P-S02: Nächtliche Langzeitstatistik-Aggregation (immer aktiv)."""
     from stats_aggregator import aggregate
@@ -658,6 +673,13 @@ def create_scheduler() -> BlockingScheduler:
         run_cpu_monitor_job,
         trigger=IntervalTrigger(minutes=5),
         id="cpu_monitor", max_instances=1, coalesce=True,
+    )
+
+    # --- Hydro-Live/Verifikation: TTL im Fetch verhindert unnötige Fremdrequests ---
+    sched.add_job(
+        run_hydro_verify_job,
+        trigger=IntervalTrigger(minutes=int(runtime_config.get("HYDRO_VERIFY_INTERVAL_MIN", 15))),
+        id="hydro_live_verify", max_instances=1, coalesce=True,
     )
 
     # --- immer aktiv: Langzeitstatistik-Aggregation (nächtlich) ---

@@ -167,3 +167,7 @@ Polygon-basiert; vier Treffertypen (Priorität current > slow > forecast/growth)
 ## Hydro-Impact-Logik
 
 Pegel-Attribution erfolgt **nicht radiusbasiert**. Eine Zelle wird nur berücksichtigt, wenn ihr Polygon das **oberliegendes Einzugsgebiet** einer Station schneidet und anschließend ein plausibler hydrologischer **Zeitversatz** angewendet wird. Ergebnisse heißen stets **plausibler Zusammenhang** und sind **keine amtliche Hochwasserwarnung**. Fehlen lokale statische Daten, bleibt das System lauffähig und setzt `hydro_static_missing`.
+
+### Hydro-Impact Produktionsregeln
+
+Die Hydro-Logik setzt keine Pegelzuordnung über Entfernung oder Radius um. Zulässig sind nur impact-fähige Stationen mit aus `upstream_catchment_ids` geometrisch vereinigtem oberliegendem Einzugsgebiet. Zellpolygon und Einzugsgebiet müssen sich schneiden; zusätzlich werden Mindestfläche, Zellanteil, Dauer, relevante Intensität, Zeitversatz und Verifikationsschwellen ausgewertet. Flowline-Snapping ist Diagnosemetadatum und keine Entscheidungsgrundlage. Pending-Events werden aus allen Hydro-JSONL-Dateien geladen; `latest_hydro_impacts.json` ist nur Anzeige-/Cache-Datei.

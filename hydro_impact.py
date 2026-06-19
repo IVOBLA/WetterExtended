@@ -184,38 +184,37 @@ def _bbox_intersection_ring(a, b):
 
 
 def compute_cell_catchment_overlap(cell, catchment) -> dict:
-    """Berechnet Schnittfläche zwischen Zellpolygon und Stations-Einzugsgebiet."""
-    cell_poly = _cell_polygon(cell)
+    """Berechnet Schnittfläche zwischen Zellpolygon und Stations-Einzugsgebiet.
+
+    Ohne Shapely wird bewusst keine produktive Bounding-Box-Attribution erzeugt.
+    """
+    empty = {"hit": False, "status": "hydro_geometry_unavailable" if not SHAPELY_AVAILABLE else "no_intersection", "overlap_area_km2": 0.0, "overlap_ratio_cell": 0.0, "overlap_ratio_catchment": 0.0, "cell_area_km2": 0.0, "catchment_area_km2": 0.0}
     if not SHAPELY_AVAILABLE:
-        geom = catchment.get("geometry", catchment) if isinstance(catchment, dict) else None
-        coords = (geom.get("coordinates") or [[]])[0] if isinstance(geom, dict) and geom.get("type") == "Polygon" else None
-        catch_poly = _to_polygon_from_coords(coords)
-        if cell_poly is None or catch_poly is None:
-            return {"hit": False, "overlap_area_km2": 0.0, "overlap_ratio_cell": 0.0, "overlap_ratio_catchment": 0.0, "cell_area_km2": 0.0, "catchment_area_km2": 0.0}
-        inter = _bbox_intersection_ring(cell_poly, catch_poly)
-        cell_area = _area_km2(cell_poly); catch_area = _area_km2(catch_poly); overlap_area = _area_km2(inter)
-        return {"hit": overlap_area > 0, "overlap_area_km2": round(overlap_area, 3), "overlap_ratio_cell": round(overlap_area / cell_area, 4) if cell_area else 0.0, "overlap_ratio_catchment": round(overlap_area / catch_area, 4) if catch_area else 0.0, "cell_area_km2": round(cell_area, 3), "catchment_area_km2": round(catch_area, 3)}
-    catch_poly = catchment if hasattr(catchment, "intersection") else shape(catchment.get("geometry", catchment))
+        return empty
+    cell_poly = _cell_polygon(cell)
+    try:
+        catch_poly = catchment if hasattr(catchment, "intersection") else shape(catchment.get("geometry", catchment))
+    except Exception:
+        return empty | {"status": "invalid_catchment_geometry"}
     if catch_poly is not None and not catch_poly.is_valid:
         catch_poly = make_valid(catch_poly)
     if cell_poly is None or catch_poly is None or cell_poly.is_empty or catch_poly.is_empty:
-        return {"hit": False, "overlap_area_km2": 0.0, "overlap_ratio_cell": 0.0, "overlap_ratio_catchment": 0.0, "cell_area_km2": 0.0, "catchment_area_km2": 0.0}
-    if not cell_poly.intersects(catch_poly):
-        cell_area = _area_km2(cell_poly)
-        return {"hit": False, "overlap_area_km2": 0.0, "overlap_ratio_cell": 0.0, "overlap_ratio_catchment": 0.0, "cell_area_km2": round(cell_area, 3), "catchment_area_km2": round(_area_km2(catch_poly), 3)}
-    inter = cell_poly.intersection(catch_poly)
+        return empty | {"status": "missing_geometry"}
     cell_area = _area_km2(cell_poly)
     catch_area = _area_km2(catch_poly)
+    if not cell_poly.intersects(catch_poly):
+        return empty | {"cell_area_km2": round(cell_area, 3), "catchment_area_km2": round(catch_area, 3)}
+    inter = cell_poly.intersection(catch_poly)
     overlap_area = _area_km2(inter)
     return {
         "hit": overlap_area > 0,
+        "status": "ok" if overlap_area > 0 else "no_intersection",
         "overlap_area_km2": round(overlap_area, 3),
         "overlap_ratio_cell": round(overlap_area / cell_area, 4) if cell_area else 0.0,
         "overlap_ratio_catchment": round(overlap_area / catch_area, 4) if catch_area else 0.0,
         "cell_area_km2": round(cell_area, 3),
         "catchment_area_km2": round(catch_area, 3),
     }
-
 
 def _intensity(cell: dict[str, Any]) -> str:
     return str(cell.get("intensity") or cell.get("intensity_label") or cell.get("max_intensity") or "unknown").lower()
@@ -240,7 +239,7 @@ def score_hydro_impact(cell, station, overlap, context) -> dict:
     intensity = _intensity(cell)
 
     min_area = _runtime_float("HYDRO_MIN_OVERLAP_AREA_KM2", MIN_OVERLAP_AREA_KM2)
-    min_ratio = _runtime_float("HYDRO_MIN_CELL_OVERLAP_RATIO", MIN_OVERLAP_RATIO_CELL)
+    min_ratio = _runtime_float("HYDRO_MIN_OVERLAP_RATIO_CELL", MIN_OVERLAP_RATIO_CELL)
     if area >= min_area:
         score += min(area / 20.0, 0.25); reason.append("Schnittfläche über Mindestwert")
     else:
@@ -251,7 +250,8 @@ def score_hydro_impact(cell, station, overlap, context) -> dict:
         score += 0.25; reason.append("Intensität relevant")
     else:
         reason.append("Intensität nicht relevant")
-    if duration >= MIN_DURATION_MIN:
+    min_duration = _runtime_float("HYDRO_MIN_DURATION_MIN", MIN_DURATION_MIN)
+    if duration >= min_duration:
         score += min(duration / 60.0, 0.15); reason.append("Dauer relevant")
     else:
         reason.append("Dauer zu kurz")
@@ -273,7 +273,7 @@ def _load_catchments() -> list[dict[str, Any]]:
 
 
 def evaluate_hydro_impact(objects: list, timestamp: str | None = None) -> list[dict]:
-    if not hydro_enabled() or not static_data_available():
+    if not hydro_enabled() or not static_data_available() or not SHAPELY_AVAILABLE:
         return []
     network_raw = _load_json(NETWORK_INDEX_PATH, {})
     if isinstance(network_raw, dict) and isinstance(network_raw.get("by_station_id"), dict):
@@ -297,16 +297,18 @@ def evaluate_hydro_impact(objects: list, timestamp: str | None = None) -> list[d
             overlap = compute_cell_catchment_overlap(cell, feature)
             if not overlap.get("hit"):
                 continue
-            if overlap["overlap_area_km2"] < _runtime_float("HYDRO_MIN_OVERLAP_AREA_KM2", MIN_OVERLAP_AREA_KM2) or overlap["overlap_ratio_cell"] < _runtime_float("HYDRO_MIN_CELL_OVERLAP_RATIO", MIN_OVERLAP_RATIO_CELL):
+            if overlap["overlap_area_km2"] < _runtime_float("HYDRO_MIN_OVERLAP_AREA_KM2", MIN_OVERLAP_AREA_KM2) or overlap["overlap_ratio_cell"] < _runtime_float("HYDRO_MIN_OVERLAP_RATIO_CELL", MIN_OVERLAP_RATIO_CELL):
                 continue
             station_ctx = {**props, **(network.get(sid, {}) if isinstance(network, dict) else {})}
             if isinstance(overrides, dict):
                 station_ctx.update(overrides.get(sid, {}) or {})
             quality = station_ctx.get("quality")
-            if not station_ctx.get("enabled", True) or station_ctx.get("ignored") or station_ctx.get("impact_eligible") is False or quality in {"unresolved", "fallback_nearest_basin"}:
+            if not station_ctx.get("enabled", True) or station_ctx.get("ignored") or station_ctx.get("impact_eligible") is not True or quality in {"unresolved", "fallback_nearest_basin", "upstream_topology_missing"}:
                 continue
             scored = score_hydro_impact(cell, station_ctx, overlap, {"latest_hydro": latest_hydro})
-            if _intensity(cell) not in RELEVANT_INTENSITIES or _duration(cell) < MIN_DURATION_MIN:
+            relevant = _runtime_get("HYDRO_RELEVANT_INTENSITIES", list(RELEVANT_INTENSITIES))
+            relevant_set = {str(x).lower() for x in (relevant if isinstance(relevant, (list, tuple, set)) else str(relevant).split(","))}
+            if _intensity(cell) not in relevant_set or _duration(cell) < _runtime_float("HYDRO_MIN_DURATION_MIN", MIN_DURATION_MIN):
                 continue
             lag = station_ctx.get("estimated_lag_min") or station_ctx.get("lag_min") or station_ctx.get("default_lag_min") or [20, 180]
             cid = _cell_id(cell)
@@ -321,10 +323,24 @@ def evaluate_hydro_impact(objects: list, timestamp: str | None = None) -> list[d
                 "overlap_area_km2": overlap["overlap_area_km2"],
                 "overlap_ratio_cell": overlap["overlap_ratio_cell"],
                 "overlap_ratio_catchment": overlap["overlap_ratio_catchment"],
+                "duration_in_catchment_min": int(round(_duration(cell))),
                 "cell_duration_in_catchment_min": int(round(_duration(cell))),
                 "cell_intensity": _intensity(cell),
                 "cell_area_km2": overlap["cell_area_km2"],
+                "movement_direction": cell.get("motion_direction_deg") or cell.get("movement_direction"),
                 "cell_motion_direction_deg": cell.get("motion_direction_deg"),
+                "cell_type": cell.get("type") or cell.get("cell_type"),
+                "cell_lat": cell.get("lat") or cell.get("cell_lat") or cell.get("center_lat"),
+                "cell_lon": cell.get("lon") or cell.get("cell_lon") or cell.get("center_lon"),
+                "station_lat": station_ctx.get("lat") or props.get("lat"),
+                "station_lon": station_ctx.get("lon") or props.get("lon"),
+                "catchment_id": station_ctx.get("catchment_id") or props.get("catchment_id"),
+                "upstream_catchment_ids": station_ctx.get("upstream_catchment_ids") or props.get("upstream_catchment_ids") or [],
+                "source_quality": station_ctx.get("source_quality") or station_ctx.get("quality"),
+                "flow_distance_km": station_ctx.get("flow_distance_km") if station_ctx.get("flow_distance_available") else None,
+                "expected_lag_min": lag[0] if isinstance(lag, (list, tuple)) else lag,
+                "expected_lag_window_min": lag,
+                "precipitation_proxy": {"intensity": _intensity(cell), "duration_min": _duration(cell), "overlap_area_km2": overlap["overlap_area_km2"]},
                 "estimated_lag_min": lag,
                 **scored,
                 "status": "pending",
@@ -347,9 +363,6 @@ def save_hydro_impact_events(events, timestamp) -> Path:
 
 def load_pending_hydro_impacts() -> list[dict]:
     pending = []
-    if LATEST_IMPACTS_PATH.exists():
-        data = _load_json(LATEST_IMPACTS_PATH, [])
-        return [e for e in data if isinstance(e, dict) and e.get("status") == "pending"]
     for path in sorted(IMPACT_DIR.glob("hydro_impact_*.jsonl")):
         with path.open("r", encoding="utf-8") as f:
             for line in f:

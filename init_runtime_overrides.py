@@ -53,7 +53,16 @@ DEFAULTS: dict = {
     "HYDRO_API_TTL_SECONDS": 600,
     "HYDRO_MIN_OVERLAP_AREA_KM2": 1.0,
     "HYDRO_MIN_CELL_OVERLAP_RATIO": 0.05,
+    "HYDRO_MIN_OVERLAP_RATIO_CELL": 0.05,
+    "HYDRO_MIN_DURATION_MIN": 5,
+    "HYDRO_RELEVANT_INTENSITIES": ["strong", "severe", "extreme", "rot", "violett", "red", "purple", "heavy"],
     "HYDRO_DEFAULT_LAG_MIN": [20, 180],
+    "HYDRO_LAG_WINDOW_MIN": [20, 180],
+    "HYDRO_VERIFY_MIN_DELTA_Q_M3S": 0.2,
+    "HYDRO_VERIFY_MIN_DELTA_W_CM": 5,
+    "HYDRO_VERIFY_MIN_RELATIVE_DELTA_PCT": 10,
+    "HYDRO_VERIFY_MAX_GAP_MIN": 90,
+    "HYDRO_STATION_OVERRIDES": {},
     "HYDRO_STATIC_REQUIRED": False,
 
     # ── Orts-Watchlist aus config.py ableiten (Single Source of Truth) ──────

@@ -258,3 +258,14 @@ def geo_to_pixel_in_bbox(lat: float, lon: float,
     x = max(0, min(img_width  - 1, x))
     y = max(0, min(img_height - 1, y))
     return x, y
+
+
+def haversine_distance(lat1, lon1, lat2, lon2):
+    """Kilometer-Distanz zwischen zwei WGS84-Punkten (kompatibler Test-/Fallback-Helfer)."""
+    import math
+    r = 6371.0
+    p1, p2 = math.radians(float(lat1)), math.radians(float(lat2))
+    dp = math.radians(float(lat2) - float(lat1))
+    dl = math.radians(float(lon2) - float(lon1))
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.atan2(math.sqrt(a), math.sqrt(1 - a))

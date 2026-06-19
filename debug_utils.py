@@ -1,16 +1,25 @@
 # debug_utils.py
 
-import cv2
+try:
+    import cv2
+except Exception:
+    cv2 = None
 import os
-import utils
-from utils import log
+try:
+    import utils
+    from utils import log
+except Exception:
+    utils = None
+    def log(*args, **kwargs):
+        print(*args)
 
 from config import DEBUG_MODE  # Ein-/Ausschalten über config.py
 
 def save_debug_image(path, image, message=None):
     if DEBUG_MODE:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        cv2.imwrite(path, image)
+        if cv2 is not None and hasattr(cv2, "imwrite"):
+            cv2.imwrite(path, image)
         if message:
             debug_log(f"[DEBUG] {message}: {path}")
 

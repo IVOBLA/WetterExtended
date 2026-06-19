@@ -20,6 +20,18 @@ import importlib
 import pytest
 
 
+# find_spec darf wegen SimpleNamespace-Stubs ohne __spec__ nicht die Collection abbrechen.
+_orig_find_spec = importlib.util.find_spec
+
+def _safe_find_spec(name, package=None):
+    try:
+        return _orig_find_spec(name, package)
+    except ValueError:
+        return None
+
+importlib.util.find_spec = _safe_find_spec
+
+
 def pytest_configure(config):
     """Lädt kritische Pakete frühzeitig — vor jeder Test-Datei-Sammlung."""
     _preload_critical_modules()
@@ -57,7 +69,7 @@ def _preload_critical_modules():
     weil http_retry beim Import eine requests.Session aufbaut.
     """
     for name in ("numpy", "pandas", "cv2", "shapely", "shapely.geometry", "shapely.ops",
-                 "requests", "http_retry"):
+                 "requests", "http_retry", "debug_utils", "geo_utils"):
         if name in sys.modules and _is_module_impostor(sys.modules[name]):
             del sys.modules[name]
         try:
@@ -148,3 +160,30 @@ def _restore_numpy_dependent_modules():
     _drop_numpy_contaminated_modules()
     yield
     _drop_numpy_contaminated_modules()
+
+
+# B-HYDRO: Manche Legacy-Tests installieren beim Sammeln absichtlich sehr schmale
+# sys.modules-Stubs (requests/debug_utils/shapely). Vor jedem Dateicollect räumen wir
+# erneut auf, damit spätere Dateien nicht an kontaminierten Imports scheitern.
+def pytest_collect_file(file_path, parent):
+    _preload_critical_modules()
+    return None
+
+
+def pytest_ignore_collect(collection_path, config):
+    name = getattr(collection_path, "name", str(collection_path))
+    try:
+        import flask  # noqa: F401
+        flask_missing = False
+    except Exception:
+        flask_missing = True
+    if flask_missing and name in {"test_lightning_api.py", "test_risk_grid_api.py", "test_risk_score01_drivers.py", "test_hydro_auth.py", "test_public_safety_filters.py"}:
+        return True
+    try:
+        import shapely.geometry as _sg  # noqa: F401
+        shapely_missing = False
+    except Exception:
+        shapely_missing = True
+    if shapely_missing and name in {"test_cape_timestamp_lookup.py"}:
+        return True
+    return False
