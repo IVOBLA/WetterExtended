@@ -66,31 +66,50 @@ def _latest_status_by_event() -> dict[str, dict]:
     return out
 
 
-def normalized_impacts(latest_only=False):
+def _disabled_station_ids() -> set[str]:
+    overrides = runtime_config.get("HYDRO_STATION_OVERRIDES", {}) or {}
+    if not isinstance(overrides, dict):
+        return set()
+    return {str(sid) for sid, ov in overrides.items() if isinstance(ov, dict) and ov.get("enabled") is False}
+
+
+def normalized_impacts(latest_only=False, include_disabled=False):
     ver = _latest_status_by_event()
     src = latest_impacts() if latest_only else all_impacts()
+    disabled = _disabled_station_ids()
     out = []
     for e in src:
+        if str(e.get("station_id")) in disabled and not include_disabled:
+            continue
         key = str(e.get("event_id") or f"{e.get('cell_id')}:{e.get('station_id')}")
         v = ver.get(key)
-        status = (v or e).get("status", "pending")
-        out.append({**e, "score": e.get("score", e.get("impact_score")), "status": status, "verification": v or e.get("verification")})
+        disabled_station = str(e.get("station_id")) in disabled
+        status = "disabled" if disabled_station else (v or e).get("status", "pending")
+        row = {**e, "score": e.get("score", e.get("impact_score")), "status": status, "verification": v or e.get("verification")}
+        if disabled_station:
+            row["impact_active"] = False
+            row["reason"] = "station_disabled_by_admin"
+        out.append(row)
     return out
 
 
-def station_features():
+def station_features(include_disabled=False):
     idx = _static_index(); live = _json(LIVE_LATEST, {})
     overrides = runtime_config.get("HYDRO_STATION_OVERRIDES", {}) or {}
     by_id = {str(s.get("station_id")): s for s in live.get("stations", []) if isinstance(s, dict)} if isinstance(live, dict) else {}
-    active = {str(e.get("station_id")): e for e in normalized_impacts(True) if e.get("status") in {"pending","confirmed","ambiguous"}}
+    active = {str(e.get("station_id")): e for e in normalized_impacts(True, include_disabled=include_disabled) if e.get("status") in {"pending","confirmed","ambiguous"}}
     feats = []
     for sid, st in idx.items():
         st = {**st, **(overrides.get(sid, {}) if isinstance(overrides, dict) else {})}
         l = by_id.get(sid, {})
         lon = st.get("lon", l.get("lon")); lat = st.get("lat", l.get("lat"))
         if lon is None or lat is None: continue
-        ev = active.get(sid)
-        props = {"station_id": sid, "name": l.get("name") or st.get("station_name") or sid, "river": l.get("river") or st.get("river_name") or "", "q_m3s": l.get("q_m3s"), "w_cm": l.get("w_cm"), "measured_at": l.get("measured_at"), "status": ev.get("status") if ev else ("ok" if enabled() else "disabled"), "enabled": bool(st.get("enabled", True)), "active": bool(st.get("enabled", True)) and not bool(st.get("ignored", False)), "ignored": bool(st.get("ignored", False)), "impact_active": bool(ev), "last_hydro_impact": ev}
+        station_enabled = bool(st.get("enabled", True))
+        if not station_enabled and not include_disabled:
+            continue
+        ev = None if not station_enabled else active.get(sid)
+        status_value = "disabled" if not station_enabled else (ev.get("status") if ev else ("ok" if enabled() else "disabled"))
+        props = {"station_id": sid, "name": l.get("name") or st.get("station_name") or sid, "river": l.get("river") or st.get("river_name") or "", "q_m3s": l.get("q_m3s"), "w_cm": l.get("w_cm"), "measured_at": l.get("measured_at"), "status": status_value, "enabled": station_enabled, "active": station_enabled and not bool(st.get("ignored", False)), "ignored": bool(st.get("ignored", False)), "impact_active": bool(ev) if station_enabled else False, "last_hydro_impact": ev if station_enabled else None, "reason": "station_disabled_by_admin" if not station_enabled else None}
         feats.append({"type":"Feature", "geometry":{"type":"Point", "coordinates":[float(lon), float(lat)]}, "properties":props})
     return {"type":"FeatureCollection", "features": feats}
 

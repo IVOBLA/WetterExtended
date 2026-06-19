@@ -150,6 +150,25 @@ function AnimationBar({ frames, currentIdx, playing, speed,
   )
 }
 
+
+function isPublicCell(o) {
+  const missing = Number(o?.missing || 0)
+  return !!o && o.tracking_state !== 'inactive_rain' && o.silent_tracking !== true && (missing === 0 || o.tracking_state === 'reactivated')
+}
+
+function isValidForecastFeature(f) {
+  const p = f?.properties || {}
+  const c = f?.geometry?.coordinates
+  const speed = Number(p.forecast_speed_kmh ?? p.speed_kmh ?? 0)
+  return p.has_arrow !== false && p.forecast_rejected !== true && Number.isFinite(speed) && speed <= 150 && Array.isArray(c) && c.length >= 2 && c.slice(0, 2).every(pt => Array.isArray(pt) && pt.length >= 2 && Number.isFinite(Number(pt[0])) && Number.isFinite(Number(pt[1])))
+}
+
+function forecastModeLabel(p) {
+  if (p?.forecast_mode === 'ml') return 'ML'
+  if (p?.forecast_mode === 'kinematic_fallback') return `Fallback wegen Plausibilitätsprüfung${p?.forecast_reject_reason ? ': ' + p.forecast_reject_reason : ''}`
+  return 'Kinematisch'
+}
+
 // ── Forecast-Ghost-Layer ─────────────────────────────────────────────────────
 // Verschiebt die Zell-Kontur entlang des vorhergesagten Pfades und zeigt sie
 // als gestricheltes, halbtransparentes "Prognose"-Polygon. Rein clientseitig.
@@ -168,11 +187,13 @@ function _forecastPoints(o, forecast) {
       if (f) src = f
     }
   }
+  if (!isPublicCell(o)) return {}
   const pts = { 0: [o.lat, o.lon] }
   horizons.forEach(h => {
     const la = src?.[`forecast_lat_${h}`]
     const lo = src?.[`forecast_lon_${h}`]
-    if (la != null && lo != null) pts[h] = [Number(la), Number(lo)]
+    if (src?.[`forecast_rejected_${h}`] === true) return
+    if (la != null && lo != null && Number.isFinite(Number(la)) && Number.isFinite(Number(lo))) pts[h] = [Number(la), Number(lo)]
   })
   return pts
 }
@@ -200,8 +221,8 @@ function ForecastGhostLayer({ objects, forecast, leadMin }) {
   if (!leadMin || leadMin <= 0) return null
   return (
     <>
-      {objects.map(o => {
-        if (!o.contour_geo || o.contour_geo.length < 3) return null
+      {objects.filter(isPublicCell).map(o => {
+        if (!isPublicCell(o) || !o.contour_geo || o.contour_geo.length < 3) return null
         const d = _interpDelta(o, forecast, leadMin)
         if (!d) return null
         const [dLat, dLon] = d
@@ -1007,8 +1028,8 @@ export default function MapView() {
         })}
 
         {/* Zellen: frame-synchron — objects enthält bereits nur Zellen des angezeigten Frames */}
-        {objects.map(o => {
-          if (!o.contour_geo || o.contour_geo.length < 3) return null
+        {objects.filter(isPublicCell).map(o => {
+          if (!isPublicCell(o) || !o.contour_geo || o.contour_geo.length < 3) return null
           const outerPos    = o.contour_geo.map(p => [p[1], p[0]])
           const stroke      = cellStroke(o.lineage, o.tracking_state)
           const borderColor = lineageColor[o.lineage] || '#888'
@@ -1150,7 +1171,7 @@ export default function MapView() {
         {(currentIdx === frames.length - 1 || frames.length === 0) && (() => {
           const _groups = {}
           ;(forecast.features || [])
-            .filter(f => f?.properties?.has_arrow !== false)
+            .filter(isValidForecastFeature)
             .forEach(f => {
               const c = f.geometry?.coordinates
               const p = f.properties || {}
@@ -1166,7 +1187,7 @@ export default function MapView() {
                 ? [p.forecast_lat_q10, p.forecast_lon_q10] : null
               const q90 = (p.forecast_lat_q90 != null && p.forecast_lon_q90 != null)
                 ? [p.forecast_lat_q90, p.forecast_lon_q90] : null
-              if (Number.isFinite(h)) g.pts.push({ h, ll: [b[1], b[0]], speed: p.speed_kmh, q10, q90 })
+              if (Number.isFinite(h)) g.pts.push({ h, ll: [b[1], b[0]], speed: p.speed_kmh, q10, q90, modeLabel: forecastModeLabel(p), rejectReason: p.forecast_reject_reason })
               if (!['kinematic', 'kinematic_fallback'].includes(p.forecast_mode)) { g.isKin = false; g.color = p.color || g.color }
             })
           return Object.values(_groups).map((g, gi) => {
@@ -1231,6 +1252,7 @@ export default function MapView() {
                   <Popup>
                     <div>Zelle: <strong>{g.cell_id}</strong></div>
                     <div>Zugbahn {g.isKin ? '(Schaetzung)' : '(KI)'} bis +{last.h} min</div>
+                    <div>Forecast-Modus: {last.modeLabel}</div>
                     {last.speed != null && <div>{last.speed} km/h</div>}
                   </Popup>
                 </Polyline>

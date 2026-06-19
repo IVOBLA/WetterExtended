@@ -29,6 +29,18 @@ from cell_lineage_dedup import attach_ir_values_to_radar
 from geo_utils import pixel_to_geo
 
 try:
+    from prediction import is_silent_cell as _is_silent_cell
+except Exception:
+    def _is_silent_cell(obj):
+        if not isinstance(obj, dict):
+            return True
+        try:
+            missing = int(obj.get("missing", 0) or 0)
+        except Exception:
+            missing = 0
+        return obj.get("tracking_state") == "inactive_rain" or obj.get("silent_tracking") is True or (missing > 0 and obj.get("tracking_state") != "reactivated")
+
+try:
     from debug_utils import debug_log
 except Exception:
     def debug_log(msg):
@@ -159,6 +171,8 @@ def save_forecast_as_kmz(
     if current_objects:
         current_folder = kml.newfolder(name="Aktuelle Zellen")
         for obj in current_objects:
+            if _is_silent_cell(obj):
+                continue
             try:
                 lat = float(obj.get("lat"))
                 lon = float(obj.get("lon"))
@@ -234,6 +248,8 @@ def save_forecast_as_kmz(
 
         folder = kml.newfolder(name=f"Forecast +{horizon}min")
         for obj in forecast_list or []:
+            if _is_silent_cell(obj) or obj.get("forecast_rejected") is True:
+                continue
             try:
                 lat, lon = pixel_to_geo(obj["x"], obj["y"])
             except Exception:
@@ -287,7 +303,7 @@ def save_forecast_as_kmz(
             except (KeyError, TypeError, ValueError):
                 continue
             name = str(loc.get("name", "Ort"))
-            hits = loc.get("hits") or {}
+            hits = {k: v for k, v in (loc.get("hits") or {}).items() if not (isinstance(v, dict) and v.get("silent_tracking"))}
             if not hits:
                 continue
             if 0 in hits or "0" in hits:
