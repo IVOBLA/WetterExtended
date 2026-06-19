@@ -136,6 +136,42 @@ export default function Training() {
             ))}
           </div>
 
+          {readiness.inference && (
+            <div style={{
+              border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 12px',
+              marginBottom: 12, background: readiness.inference.status === 'active' ? '#f0fdf4' : readiness.inference.status === 'partial' ? '#fffbeb' : '#fef2f2',
+            }}>
+              <div style={{ fontWeight: 800, color: readiness.inference.status === 'active' ? '#16a34a' : readiness.inference.status === 'partial' ? '#92400e' : '#b91c1c' }}>
+                {readiness.inference.status === 'active' && 'ML aktiv'}
+                {readiness.inference.status === 'partial' && 'ML teilweise aktiv'}
+                {readiness.inference.status === 'fallback' && 'ML nicht aktiv – kinematischer Fallback'}
+              </div>
+              {readiness.inference.fallback_reason && (
+                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>Grund: {readiness.inference.fallback_reason}</div>
+              )}
+              <div style={{ fontSize: 12, color: '#374151', marginTop: 6 }}>
+                Aktive Horizonte: {readiness.inference.active_horizons?.length ? readiness.inference.active_horizons.join(', ') + ' min' : 'keine'}
+              </div>
+              {readiness.inference.lgbm_status_by_horizon && (
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+                  Fehlende Horizonte: {Object.entries(readiness.inference.lgbm_status_by_horizon)
+                    .filter(([, v]) => !v.complete)
+                    .map(([h]) => h)
+                    .join(', ') || 'keine'}
+                </div>
+              )}
+              {readiness.inference.missing_files?.length > 0 && (
+                <details style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
+                  <summary>Fehlende Dateien ({readiness.inference.missing_files.length})</summary>
+                  <ul style={{ margin: '6px 0 0 18px' }}>
+                    {readiness.inference.missing_files.slice(0, 12).map(f => <li key={f}><code>{f}</code></li>)}
+                    {readiness.inference.missing_files.length > 12 && <li>…</li>}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
+
           {!readiness.dataset_exists && (
             <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 4px' }}>
               Kein dataset.npz — wird beim nächsten Rebuild-Job erstellt.

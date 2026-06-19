@@ -3376,6 +3376,25 @@ def api_training_readiness():
         except Exception as _exc:
             debug_log(f"[API] training_readiness: dataset.npz lesen fehlgeschlagen: {_exc}")
 
+    try:
+        from ml_readiness import check_ml_readiness
+        inference_readiness = check_ml_readiness(write_json=True)
+    except Exception as _exc:
+        debug_log(f"[API] ml_readiness prüfen fehlgeschlagen: {_exc}")
+        inference_readiness = {
+            "checked_at_utc": None,
+            "status": "fallback",
+            "ml_available": False,
+            "fallback_reason": "readiness_check_failed",
+            "scaler_status": {},
+            "lstm_status": {},
+            "lgbm_status_by_horizon": {},
+            "active_horizons": [],
+            "missing_files": [],
+            "model_dir": os.path.join(SAVE_PATHS.get("models", "train_data/models"), "current"),
+            "dataset_sequences": current,
+        }
+
     return jsonify({
         "current_sequences":  current,
         "dataset_exists":     dataset_exists,
@@ -3390,7 +3409,31 @@ def api_training_readiness():
             "ready":    current >= lgbm_min,
         },
         "all_ready": current >= lstm_min,
+        "inference": inference_readiness,
     })
+
+
+@app.route("/api/ml_readiness")
+def api_ml_readiness():
+    """Aktueller ML-Inferenzstatus inkl. fehlender Artefakte und aktiver Horizonte."""
+    try:
+        from ml_readiness import check_ml_readiness
+        return jsonify(check_ml_readiness(write_json=True))
+    except Exception as _exc:
+        debug_log(f"[API] ml_readiness: Prüfung fehlgeschlagen: {_exc}")
+        return jsonify({
+            "checked_at_utc": None,
+            "status": "fallback",
+            "ml_available": False,
+            "fallback_reason": "readiness_check_failed",
+            "scaler_status": {},
+            "lstm_status": {},
+            "lgbm_status_by_horizon": {},
+            "active_horizons": [],
+            "missing_files": [],
+            "model_dir": os.path.join(SAVE_PATHS.get("models", "train_data/models"), "current"),
+            "dataset_sequences": None,
+        }), 200
 
 
 @app.route("/api/hailo/reload", methods=["POST"])
