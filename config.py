@@ -847,6 +847,7 @@ SAVE_PATHS = {
     "cell_filters": "train_data/cell_filters/",   # HitL: Filter + Polygon-PNGs
     "system": "train_data/system/",               # CPU/System-Monitoring
     "cell_lineage": "train_data/cell_lineage/",     # 1L.1: stabile fachliche Zell-IDs
+    "hydro": "train_data/hydro/live/",              # Kärnten Hydro-Livedaten
 }
 
 # --------------------------------------
