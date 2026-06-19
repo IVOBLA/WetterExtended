@@ -2452,7 +2452,7 @@ def api_forecast_stats():
                     mode = obj.get("forecast_mode")
                     if mode == "ml":
                         ml_count += 1
-                    elif mode in ("kinematic", "linear"):
+                    elif mode in ("kinematic", "kinematic_fallback", "mixed", "linear"):
                         kinematic_count += 1
                     total_objects += 1
                     if last_file_ts is None or file_dt > last_file_ts:
@@ -2465,6 +2465,18 @@ def api_forecast_stats():
         return jsonify({"error": str(exc), "ml_count": 0, "kinematic_count": 0})
 
     total_with_mode = ml_count + kinematic_count
+    try:
+        from ml_readiness import get_forecast_runtime_status
+        _runtime_status = get_forecast_runtime_status(write_json=False)
+    except Exception as _rt_exc:
+        _runtime_status = {"runtime_mode": "kinematic_fallback", "fallback_reason": f"runtime_status_failed: {_rt_exc}", "active_horizons": []}
+
+    _history_note = "Statistik basiert auf gespeicherten Forecasts der letzten 24h."
+    if _runtime_status.get("runtime_mode") == "ml" and ml_count == 0 and kinematic_count > 0:
+        _history_note = "Seit ML-Aktivierung wurden noch keine neuen Zell-Forecasts erzeugt oder die 24h-Historie enthält nur ältere Fallback-Forecasts."
+    elif total_objects == 0:
+        _history_note = "Keine aktuellen Objekte in der 24h-Historie; aktueller Runtime-Modus wird separat ermittelt."
+
     _resp = {
         "hours":            hours,
         "total_objects":    total_objects,
@@ -2474,11 +2486,22 @@ def api_forecast_stats():
         "kinematic_pct":    round(kinematic_count / total_with_mode * 100, 1) if total_with_mode else None,
         "last_mode":        last_mode,
         "last_ts":          last_ts,
-        "active_mode":      last_mode or "unbekannt",
+        "active_mode":      _runtime_status.get("runtime_mode") or "unbekannt",
+        "current_runtime_mode": _runtime_status.get("runtime_mode"),
+        "runtime_status": _runtime_status,
+        "historical_24h_usage": {
+            "ml_pct": round(ml_count / total_with_mode * 100, 1) if total_with_mode else None,
+            "fallback_pct": round(kinematic_count / total_with_mode * 100, 1) if total_with_mode else None,
+            "ml_count": ml_count,
+            "fallback_count": kinematic_count,
+            "evaluated_forecasts": total_with_mode,
+            "hours": hours,
+            "note": _history_note,
+        },
+        "history_note": _history_note,
         "error_breakdown_available": os.path.exists(os.path.join(_evaluation_dir(), "accuracy_history.jsonl")),
     }
-    # B116: ML-Block-Grund mitliefern (None = ML aktiv).
-    _resp["ml_blocked_reason"] = _ml_block_reason()
+    _resp["ml_blocked_reason"] = _runtime_status.get("fallback_reason") if _runtime_status.get("runtime_mode") != "ml" else None
     try:
         with open(os.path.join(_evaluation_dir(), "motion_pipeline_health.json"), "r", encoding="utf-8") as _mh_f:
             _mh = json.load(_mh_f)
@@ -3406,10 +3429,12 @@ def api_training_readiness():
             debug_log(f"[API] training_readiness: dataset.npz lesen fehlgeschlagen: {_exc}")
 
     try:
-        from ml_readiness import check_ml_readiness
+        from ml_readiness import check_ml_readiness, get_forecast_runtime_status
         inference_readiness = check_ml_readiness(write_json=True)
+        runtime_status = get_forecast_runtime_status(write_json=False)
     except Exception as _exc:
         debug_log(f"[API] ml_readiness prüfen fehlgeschlagen: {_exc}")
+        runtime_status = {"runtime_mode": "kinematic_fallback", "fallback_reason": "readiness_check_failed", "ml_model_available": False, "active_horizons": []}
         inference_readiness = {
             "checked_at_utc": None,
             "status": "fallback",
@@ -3426,9 +3451,11 @@ def api_training_readiness():
 
     latest_training = _latest_training_meta()
     forecast_mode = {
-        "ml_available": bool(inference_readiness.get("ml_available") or inference_readiness.get("status") in {"active", "partial"}),
-        "mode": "ml" if bool(inference_readiness.get("ml_available") or inference_readiness.get("status") in {"active", "partial"}) else "kinematic_fallback",
-        "fallback_reason": inference_readiness.get("fallback_reason") if not bool(inference_readiness.get("ml_available") or inference_readiness.get("status") in {"active", "partial"}) else None,
+        "ml_available": bool(runtime_status.get("ml_model_available")),
+        "mode": runtime_status.get("runtime_mode"),
+        "fallback_reason": runtime_status.get("fallback_reason"),
+        "ml_model_version": runtime_status.get("ml_model_version"),
+        "active_horizons": runtime_status.get("active_horizons", []),
     }
 
     return jsonify({
@@ -3451,6 +3478,7 @@ def api_training_readiness():
         },
         "all_ready": current >= lstm_min,
         "inference": inference_readiness,
+        "runtime_status": runtime_status,
     })
 
 
@@ -3458,8 +3486,10 @@ def api_training_readiness():
 def api_ml_readiness():
     """Aktueller ML-Inferenzstatus inkl. fehlender Artefakte und aktiver Horizonte."""
     try:
-        from ml_readiness import check_ml_readiness
-        return jsonify(check_ml_readiness(write_json=True))
+        from ml_readiness import check_ml_readiness, get_forecast_runtime_status
+        data = check_ml_readiness(write_json=True)
+        data["runtime_status"] = get_forecast_runtime_status(write_json=False)
+        return jsonify(data)
     except Exception as _exc:
         debug_log(f"[API] ml_readiness: Prüfung fehlgeschlagen: {_exc}")
         return jsonify({
@@ -3475,6 +3505,30 @@ def api_ml_readiness():
             "model_dir": os.path.join(SAVE_PATHS.get("models", "train_data/models"), "current"),
             "dataset_sequences": None,
         }), 200
+
+
+@app.route("/api/admin/forecast-runtime-status")
+def api_admin_forecast_runtime_status():
+    try:
+        from ml_readiness import get_forecast_runtime_status
+        status = get_forecast_runtime_status(write_json=False)
+    except Exception as exc:
+        return jsonify({"runtime_mode": "kinematic_fallback", "fallback_reason": str(exc)}), 200
+    last_file = None; last_mode = None
+    try:
+        files = sorted(glob.glob(os.path.join(SAVE_PATHS.get("objects", "train_data/objects"), "*.json")))
+        if files:
+            last_file = files[-1]
+            with open(last_file, encoding="utf-8") as f:
+                objs = json.load(f)
+            if isinstance(objs, list) and objs:
+                last_mode = objs[-1].get("forecast_mode")
+    except Exception:
+        pass
+    status["last_object_file"] = last_file
+    status["last_object_forecast_mode"] = last_mode
+    status["model_artifacts_present"] = bool(status.get("ml_model_valid"))
+    return jsonify(status)
 
 
 @app.route("/api/hailo/reload", methods=["POST"])

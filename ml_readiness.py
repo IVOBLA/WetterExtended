@@ -197,6 +197,92 @@ def check_ml_readiness(write_json=True, model_dir=None):
     return result
 
 
+
+def _latest_training_meta_from_disk(models_root=None):
+    import glob
+    models_root = models_root or SAVE_PATHS.get("models", "train_data/models")
+    metas = sorted(glob.glob(os.path.join(models_root, "v_*", "training_meta.json")))
+    if not metas:
+        return None
+    try:
+        with open(metas[-1], encoding="utf-8") as f:
+            meta = json.load(f)
+    except Exception:
+        return None
+    val = meta.get("validation", {}) or {}
+    return {
+        "timestamp_utc": meta.get("timestamp_utc"),
+        "status": val.get("status"),
+        "status_reason": val.get("status_reason"),
+        "promotion_status": val.get("promotion_status", val.get("status")),
+        "promotion_samples_recent": val.get("samples_recent", 0),
+        "promotion_samples_required": val.get("samples_required", 50),
+        "promotion_samples_missing": val.get("samples_missing"),
+        "low_confidence": bool(val.get("low_confidence", False)),
+    }
+
+
+def _model_version_from_path(path):
+    try:
+        resolved = os.path.realpath(path)
+        name = os.path.basename(resolved.rstrip(os.sep))
+        return name or None
+    except Exception:
+        return None
+
+
+def get_forecast_runtime_status(write_json=True, model_dir=None):
+    """Zentrale Quelle für ML-Verfügbarkeit und produktive Forecast-Laufzeitentscheidung.
+
+    Trennt bewusst die aktuelle Runtime-Entscheidung von historischen Forecast-Stats.
+    Es werden nur lokale Modell-/Metadateien geprüft; keine externen Requests.
+    """
+    readiness = check_ml_readiness(write_json=write_json, model_dir=model_dir)
+    expected = [int(h) for h in readiness.get("expected_horizons") or _runtime_horizons()]
+    active = [int(h) for h in readiness.get("active_horizons") or []]
+    missing = [h for h in expected if h not in set(active)]
+    model_path = readiness.get("model_dir") or model_dir or os.path.join(SAVE_PATHS.get("models", "train_data/models"), "current")
+    current_exists = os.path.exists(model_path)
+    current_is_link = os.path.islink(model_path)
+    resolved = os.path.realpath(model_path) if current_exists or current_is_link else None
+    valid = bool(readiness.get("ml_available"))
+    runtime_mode = "ml" if valid else "kinematic_fallback"
+    fallback_reason = readiness.get("fallback_reason")
+    if not valid and not fallback_reason:
+        fallback_reason = "missing_or_invalid_current_model"
+    latest_training = _latest_training_meta_from_disk(os.path.dirname(model_path.rstrip(os.sep)))
+    recent = (latest_training or {}).get("promotion_samples_recent", readiness.get("dataset_sequences") or 0)
+    required = (latest_training or {}).get("promotion_samples_required", 50)
+    try:
+        missing_samples = max(0, int(required) - int(recent or 0))
+    except Exception:
+        missing_samples = (latest_training or {}).get("promotion_samples_missing")
+    mode_by_horizon = {str(h): ("ml" if h in set(active) else "kinematic_fallback") for h in expected}
+    result = {
+        "checked_at_utc": readiness.get("checked_at_utc"),
+        "ml_model_available": bool(valid),
+        "ml_model_valid": bool(valid),
+        "ml_model_path": model_path,
+        "ml_model_resolved_path": resolved,
+        "ml_model_version": _model_version_from_path(model_path) if valid else None,
+        "current_symlink": os.readlink(model_path) if current_is_link else None,
+        "current_exists": bool(current_exists),
+        "active_horizons": active,
+        "missing_horizons": missing,
+        "runtime_mode": runtime_mode,
+        "fallback_reason": None if valid else fallback_reason,
+        "last_training_status": (latest_training or {}).get("status"),
+        "last_training_reason": (latest_training or {}).get("status_reason"),
+        "last_promotion_status": (latest_training or {}).get("promotion_status"),
+        "low_confidence": bool((latest_training or {}).get("low_confidence", False)),
+        "promotion_samples_recent": recent,
+        "promotion_samples_required": required,
+        "promotion_samples_missing": missing_samples,
+        "forecast_mode_by_horizon": mode_by_horizon,
+        "readiness": readiness,
+    }
+    return result
+
 def load_ml_readiness_json():
     path = os.path.join(SAVE_PATHS.get("evaluation", "train_data/evaluation"), "ml_readiness.json")
     try:

@@ -484,7 +484,7 @@ def annotate_locations(
                     _g_enabled, _g_min_rate = True, 0.02
 
                 if (_g_enabled and 0 not in hits
-                        and obj.get("forecast_mode") in ("ml", "kinematic")):
+                        and obj.get("forecast_mode") in ("ml", "mixed", "kinematic", "kinematic_fallback")):
                     _rate_ns, _rate_ew = _directional_growth_rates(obj)
                     if (_rate_ns > _g_min_rate) or (_rate_ew > _g_min_rate):
                         for h in sorted(horizons):
@@ -521,7 +521,7 @@ def annotate_locations(
                 continue
 
             # Kein Forecast-Mode → keine Forecast-Checks
-            if obj.get("forecast_mode") not in ("ml", "kinematic"):
+            if obj.get("forecast_mode") not in ("ml", "mixed", "kinematic", "kinematic_fallback"):
                 continue
 
             # ── Typ 2: SLOW_APPROACH ──────────────────────────────────────

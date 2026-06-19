@@ -20,7 +20,7 @@ def _src(path):
 def _forecast_mode_block():
     src = _src(DASHBOARD)
     match = re.search(
-        r"const mlBlocked = forecastStats\?\.ml_blocked_reason != null(?P<block>.*?)"
+        r"const runtimeStatus = forecastStats\?\.runtime_status \|\| \{}(?P<block>.*?)"
         r"const handleServiceClick =",
         src,
         re.S,
@@ -33,9 +33,8 @@ def test_dashboard_uses_ml_blocked_reason():
     src = _src(DASHBOARD)
     block = _forecast_mode_block()
 
-    assert "ml_blocked_reason" in src, "Dashboard wertet ml_blocked_reason nicht aus"
-    assert "const activeMode = mlBlocked ? 'kinematic' : forecastStats?.active_mode" in block, \
-        "active_mode darf nicht ungeprueft als aktueller Modus verwendet werden"
+    assert "current_runtime_mode" in src, "Dashboard wertet current_runtime_mode nicht aus"
+    assert "historical_24h_usage" in src, "Dashboard trennt historische Nutzung nicht vom Runtime-Status"
     assert "value={forecastModeValue}" in src, \
         "Forecast-Modus-Card muss den berechneten, blockstatusbewussten Wert nutzen"
     assert "value={forecastStats.active_mode" not in src, \
@@ -47,11 +46,11 @@ def test_dashboard_shows_fallback_when_ml_blocked():
 
     for required in (
         "mlBlocked",
-        "forecastStats.ml_blocked_reason",
-        "Aktuell blockiert",
+        "currentRuntimeMode",
+        "Fallback-Grund",
         "border-yellow",
-        "📐 Fallback",
-        "24h: ML",
+        "📐 Aktueller Modus: Fallback aktiv",
+        "Historie 24h",
     ):
         assert required in block, f"{required!r} fehlt im Forecast-Modus-Block"
 
