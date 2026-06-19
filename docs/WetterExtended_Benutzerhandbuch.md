@@ -2627,3 +2627,9 @@ Hydro-Impact bewertet nur einen **plausibler Zusammenhang** zwischen Niederschla
 ### Hydro-Impact: sichere Pegel-Attribution
 
 Der nächste Pegel ist fachlich kein gültiges Kriterium: Niederschlag unterhalb oder neben einem Pegel kann dessen Reaktion nicht plausibel erklären. WetterExtended verwendet Hydro-Impact daher nur, wenn eine Zelle das lokal hinterlegte oberliegende Einzugsgebiet des Pegels schneidet und anschließend ein plausibles Zeitfenster für eine Pegel-/Abflussreaktion geprüft wird. Die Anzeige ist immer ein vorsichtig formulierter plausibler Zusammenhang, keine amtliche Hochwasserwarnung und kein Ersatz für geprüfte amtliche Endwerte. Fehlen statische Hydro-Daten, bleibt das System lauffähig und meldet `hydro_static_missing`; ohne Live-Daten wird Cache/Fallback genutzt oder ein stabiler Fehlerstatus angezeigt.
+
+#### Hydro-Admin-Konfiguration
+
+Im Admin-Bereich sind die Hydro-Schalter und Schwellwerte runtime-konfigurierbar: `HYDRO_ENABLED`, `HYDRO_API_TTL_SECONDS`, `HYDRO_MIN_OVERLAP_AREA_KM2`, `HYDRO_MIN_OVERLAP_RATIO_CELL`, `HYDRO_MIN_DURATION_MIN`, `HYDRO_RELEVANT_INTENSITIES`, `HYDRO_DEFAULT_LAG_MIN`, `HYDRO_LAG_WINDOW_MIN`, `HYDRO_VERIFY_MIN_DELTA_Q_M3S`, `HYDRO_VERIFY_MIN_DELTA_W_CM`, `HYDRO_VERIFY_MIN_RELATIVE_DELTA_PCT`, `HYDRO_VERIFY_MAX_GAP_MIN` und `HYDRO_STATION_OVERRIDES`. Stations-Toggles speichern ausschließlich `HYDRO_STATION_OVERRIDES`; Secrets werden nicht persistiert.
+
+Statuswerte: `pending` bedeutet, dass das Zeitfenster noch nicht abgeschlossen ist. `confirmed` bedeutet nur plausibler hydrologischer Zusammenhang. `rejected` bedeutet, dass kein belastbarer Zusammenhang aus den Rohdaten ableitbar ist. `ambiguous` bedeutet eine uneindeutige Lage, etwa wegen Messlücken oder konkurrierender Zellen im selben Einzugsgebiet.

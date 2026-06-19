@@ -41,6 +41,7 @@ NETWORK_INDEX_PATH = Path(os.environ.get("HYDRO_NETWORK_INDEX_PATH", str(HYDRO_S
 LATEST_HYDRO_PATH = Path(os.environ.get("HYDRO_LATEST_PATH", str(_HYDRO_BASE / "latest_hydro.json")))
 IMPACT_DIR = Path(os.environ.get("HYDRO_IMPACT_DIR", str(_HYDRO_BASE.parent / "impact")))
 LATEST_IMPACTS_PATH = Path(os.environ.get("HYDRO_LATEST_IMPACTS_PATH", str(IMPACT_DIR / "latest_hydro_impacts.json")))
+HYDRO_IMPACT_STATE_PATH = Path(os.environ.get("HYDRO_IMPACT_STATE_PATH", str(IMPACT_DIR / "hydro_impact_state.json")))
 
 
 def _runtime_get(name: str, default: Any) -> Any:
@@ -361,8 +362,25 @@ def save_hydro_impact_events(events, timestamp) -> Path:
     return path
 
 
+def _load_hydro_impact_state() -> dict[str, Any]:
+    data = _load_json(HYDRO_IMPACT_STATE_PATH, {})
+    return data if isinstance(data, dict) else {}
+
+
+def save_hydro_impact_state(event_id: str, state: dict[str, Any]) -> None:
+    if not event_id:
+        return
+    current = _load_hydro_impact_state()
+    events = current.get("events") if isinstance(current.get("events"), dict) else {}
+    events[str(event_id)] = {**(events.get(str(event_id), {}) if isinstance(events.get(str(event_id)), dict) else {}), **state}
+    current.update({"updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"), "events": events})
+    HYDRO_IMPACT_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    HYDRO_IMPACT_STATE_PATH.write_text(json.dumps(current, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+
+
 def load_pending_hydro_impacts() -> list[dict]:
-    pending = []
+    state_events = (_load_hydro_impact_state().get("events") or {})
+    by_id: dict[str, dict[str, Any]] = {}
     for path in sorted(IMPACT_DIR.glob("hydro_impact_*.jsonl")):
         with path.open("r", encoding="utf-8") as f:
             for line in f:
@@ -370,6 +388,9 @@ def load_pending_hydro_impacts() -> list[dict]:
                     event = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if event.get("status") == "pending":
-                    pending.append(event)
-    return pending
+                event_id = str(event.get("event_id") or "")
+                if not event_id:
+                    continue
+                merged = {**event, **(state_events.get(event_id) if isinstance(state_events.get(event_id), dict) else {})}
+                by_id[event_id] = merged
+    return [event for event in by_id.values() if event.get("status") == "pending"]

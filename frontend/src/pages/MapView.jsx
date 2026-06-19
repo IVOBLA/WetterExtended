@@ -250,6 +250,11 @@ function ForecastGhostLayer({ objects, forecast, leadMin }) {
   )
 }
 
+function hydroFeatureCollection(response) {
+  const fc = response?.data || response
+  return (fc && Array.isArray(fc.features)) ? fc : { type: 'FeatureCollection', features: [] }
+}
+
 function hydroColor(status) {
   if (status === 'confirmed') return '#16a34a'
   if (status === 'ambiguous') return '#a855f7'
@@ -689,7 +694,7 @@ export default function MapView() {
       }
       if (bounds?.bounds) setRadarBounds(bounds.bounds)
       if (lightningData?.strikes) setLightning(lightningData.strikes)
-      api.get('/api/hydro/stations').then(d => setHydroStations(d || { type:'FeatureCollection', features: [] })).catch(() => setHydroStations({ type:'FeatureCollection', features: [] }))
+      api.get('/api/hydro/stations').then(d => setHydroStations(hydroFeatureCollection(d))).catch(() => setHydroStations({ type:'FeatureCollection', features: [] }))
 
       // Schritt 2: Frame-Timestamp bestimmen, objects/forecast synchron laden.
       // Auch ohne Animation wird immer der neueste Frame-Timestamp verwendet —
@@ -1002,7 +1007,7 @@ export default function MapView() {
                 pathOptions={{ color, fillColor: color, fillOpacity: p.impact_active ? 0.9 : 0.65, weight: p.impact_active ? 3 : 1 }}
                 eventHandlers={{ click: () => {
                   api.get(`/api/hydro/station/${p.station_id}/catchment`)
-                    .then(d => setHydroCatchments(prev => ({ ...prev, [p.station_id]: d })))
+                    .then(d => setHydroCatchments(prev => ({ ...prev, [p.station_id]: hydroFeatureCollection(d) })))
                     .catch(() => {})
                 } }}>
                 <Popup>
@@ -1015,7 +1020,7 @@ export default function MapView() {
                   <div>Status: {p.status || '—'}</div>
                 </Popup>
               </CircleMarker>
-              {impact.relation === 'upstream_catchment_hit' && impact.cell_lat != null && impact.cell_lon != null && (
+              {impact.relation === 'upstream_catchment_hit' && impact.cell_lat != null && impact.cell_lon != null && impact.station_lat != null && impact.station_lon != null && (
                 <Polyline positions={[[coords[1], coords[0]], [impact.cell_lat, impact.cell_lon]]} pathOptions={{ color, weight: 1, dashArray: '4,4' }} />
               )}
               {((hydroCatchments[p.station_id]?.features) || []).map((cf, i) => {

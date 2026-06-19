@@ -265,12 +265,27 @@ def fetch_hydro_live(force: bool = False) -> dict:
         return result
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
+        cached = load_latest_hydro_live(max_age_seconds=None)
+        fallback_used = cached is not None
         try:
             from debug_utils import log_api_failure
-            log_api_failure(SERVICE_NAME, HYDRO_SOURCE_URL, error, fallback_used=LATEST_FILE.exists())
+            log_api_failure(SERVICE_NAME, HYDRO_SOURCE_URL, error, fallback_used=fallback_used)
         except Exception:
             pass
-        cached = load_latest_hydro_live(max_age_seconds=None)
+        try:
+            from external_response_logger import persist_external_response
+            persist_external_response(
+                "hydro",
+                url=HYDRO_SOURCE_URL,
+                method="GET",
+                status_code=0,
+                duration_ms=(time.monotonic() - started) * 1000,
+                response_body={"ok": False, "error_type": type(exc).__name__, "cache_used": fallback_used, "fallback_used": fallback_used},
+                fallback=fallback_used,
+                error=error,
+            )
+        except Exception:
+            pass
         if cached is not None:
             result = _mark_cache(cached, error)
             _write_status(result["status"])

@@ -1,11 +1,14 @@
 import json
+import pytest
 from pathlib import Path
 
+import hydro_station_index
 from hydro_station_index import build_station_index
 
 FIX = Path(__file__).parent / "fixtures" / "hydro"
 
 
+@pytest.mark.skipif(not hydro_station_index.SHAPELY_AVAILABLE, reason="Shapely fehlt: keine produktive Hydro-Catchment-Union")
 def test_build_station_index_assigns_quality_and_outputs(tmp_path):
     status = build_station_index(
         str(FIX / "hydro_stations_sample.geojson"),
@@ -33,3 +36,17 @@ def test_missing_basins_does_not_crash(tmp_path):
     assert status["status"] == "hydro_static_missing"
     data = json.loads((tmp_path / "station_network_index.json").read_text())
     assert all(s["quality"] == "unresolved" for s in data["stations"])
+
+
+def test_shapely_missing_disables_productive_station_catchment(tmp_path, monkeypatch):
+    monkeypatch.setattr(hydro_station_index, "SHAPELY_AVAILABLE", False)
+    status = build_station_index(
+        str(FIX / "hydro_stations_sample.geojson"),
+        str(FIX / "basins_sample.geojson"),
+        str(FIX / "flowlines_sample.geojson"),
+        str(tmp_path),
+    )
+    assert status["status"] == "hydro_static_missing"
+    data = json.loads((tmp_path / "station_network_index.json").read_text())
+    assert all(s["impact_eligible"] is False for s in data["stations"])
+    assert any("hydro_geometry_unavailable" in s["reason"] for s in data["stations"])

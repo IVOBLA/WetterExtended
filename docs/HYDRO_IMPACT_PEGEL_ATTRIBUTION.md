@@ -26,3 +26,11 @@ Hydro-Impact wird ausschließlich für Stationen erzeugt, deren statischer Index
 Ohne Shapely/GEOS wird keine produktive Hydro-Attribution erzeugt (`hydro_geometry_unavailable`). Ein Bounding-Box-Fallback darf nur Diagnosezwecken dienen. Verifikationsergebnisse bleiben vorsichtig: `confirmed` bedeutet „plausibler hydrologischer Zusammenhang“, `rejected` bedeutet „kein belastbarer Zusammenhang ableitbar“, `ambiguous` steht u. a. für Messlücken oder konkurrierende Zellen, `pending` für ein noch laufendes Zeitfenster.
 
 Konfigurierbar sind u. a. `HYDRO_ENABLED`, `HYDRO_API_TTL_SECONDS`, `HYDRO_MIN_OVERLAP_AREA_KM2`, `HYDRO_MIN_OVERLAP_RATIO_CELL`, `HYDRO_MIN_DURATION_MIN`, `HYDRO_RELEVANT_INTENSITIES`, `HYDRO_DEFAULT_LAG_MIN`, `HYDRO_LAG_WINDOW_MIN`, `HYDRO_VERIFY_MIN_DELTA_Q_M3S`, `HYDRO_VERIFY_MIN_DELTA_W_CM`, `HYDRO_VERIFY_MIN_RELATIVE_DELTA_PCT`, `HYDRO_VERIFY_MAX_GAP_MIN` und `HYDRO_STATION_OVERRIDES`.
+
+## Nachbesserung: API-Vertrag, Pending-State und Fehlerprotokoll
+
+Die Hydro-GET-API verwendet ein einheitliches Envelope-Format `ok/status/data`. Frontend-Layer müssen GeoJSON deshalb defensiv als `response.data || response` lesen; fehlende oder kaputte FeatureCollections ergeben leere Layer. Linien zwischen Zelle und Pegel werden nur dargestellt, wenn sowohl Zell- als auch Stationskoordinaten vorhanden sind.
+
+Verifikationszustände werden zusätzlich in `train_data/hydro/impact/hydro_impact_state.json` persistiert. Beim Laden offener Kandidaten werden alle `hydro_impact_YYYY-MM-DD.jsonl` gelesen, nach `event_id` dedupliziert und bereits `confirmed`, `rejected` oder `ambiguous` verifizierte Events ausgeschlossen. Dadurch bleiben alte JSONL-Zeilen auditierbar, wirken aber nicht dauerhaft als konkurrierende Pending-Zellen.
+
+Hydro-Netzwerkfehler ohne HTTP-Response werden unter `train_data/external_responses/hydro/` mit `status_code=0`, Fehlertyp, Fehlermeldung sowie Cache-/Fallback-Markierung protokolliert und erscheinen damit im Debug-Export.

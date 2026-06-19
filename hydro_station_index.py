@@ -69,17 +69,9 @@ def _union_basins(features: list[dict]) -> dict | None:
     if not features:
         return None
     if not SHAPELY_AVAILABLE:
-        geoms = [f.get("geometry") for f in features if f.get("geometry")]
-        if not geoms:
-            return None
-        # Diagnose-/Export-Fallback: Impact wird später ohne Shapely nicht produktiv erzeugt.
-        polygons = []
-        for geom in geoms:
-            if geom.get("type") == "Polygon":
-                polygons.append(geom.get("coordinates") or [])
-            elif geom.get("type") == "MultiPolygon":
-                polygons.extend(geom.get("coordinates") or [])
-        return {"type": "MultiPolygon", "coordinates": polygons} if polygons else None
+        # Ohne Shapely wird bewusst keine produktive Catchment-Union erzeugt.
+        # Ein Bounding-Box-/Koordinaten-Fallback duerfte fachlich keine Attribution tragen.
+        return None
     shapes = []
     for feature in features:
         try:
@@ -126,9 +118,16 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
         upstream_ids = [uid for uid in declared_upstream if uid in basin_by_id]
         eligible_basins = [basin_by_id[uid] for uid in upstream_ids]
         union_geom = _union_basins(eligible_basins) if upstream_ids else None
-        impact_eligible = bool(union_geom and upstream_ids)
-        source_quality = "upstream_union" if impact_eligible else ("upstream_topology_missing" if basin else "hydro_static_missing")
-        reason = ["upstream_catchment_union_available", "not_station_radius_based"] if impact_eligible else [source_quality, "station_catchment_unavailable", "no_hydrological_upstream_catchment_match"]
+        impact_eligible = bool(union_geom and upstream_ids and SHAPELY_AVAILABLE)
+        if impact_eligible:
+            source_quality = "upstream_union"
+            reason = ["upstream_catchment_union_available", "not_station_radius_based"]
+        elif not SHAPELY_AVAILABLE:
+            source_quality = "hydro_geometry_unavailable"
+            reason = ["hydro_geometry_unavailable", "station_catchment_unavailable", "no_hydrological_upstream_catchment_match"]
+        else:
+            source_quality = "upstream_topology_missing" if basin else "hydro_static_missing"
+            reason = [source_quality, "station_catchment_unavailable", "no_hydrological_upstream_catchment_match"]
 
         nearest_basin_hint = None
         if basin is None and basins:
@@ -154,7 +153,7 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
             "snapped_flowline_id": str(_prop(flowline, ["flowline_id", "id"], "")) if flowline else None,
             "snap_distance_m": round(float(snap_distance), 2) if snap_distance is not None else None,
             "flow_distance_available": False, "flow_distance_km": None,
-            "station_basin": basin_id, "catchment_id": basin_id, "upstream_catchment_ids": upstream_ids, "catchment_area_km2": round(area, 3),
+            "station_basin": basin_id, "catchment_id": basin_id if impact_eligible else None, "upstream_catchment_ids": upstream_ids, "catchment_area_km2": round(area, 3),
             "default_lag_min": default_lag, "estimated_lag_min": default_lag, "enabled": impact_eligible, "impact_eligible": impact_eligible,
             "quality": quality, "source_quality": source_quality, "reason": reason, "nearest_basin_hint": nearest_basin_hint,
         }

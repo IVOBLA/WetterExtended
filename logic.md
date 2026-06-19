@@ -171,3 +171,7 @@ Pegel-Attribution erfolgt **nicht radiusbasiert**. Eine Zelle wird nur berücksi
 ### Hydro-Impact Produktionsregeln
 
 Die Hydro-Logik setzt keine Pegelzuordnung über Entfernung oder Radius um. Zulässig sind nur impact-fähige Stationen mit aus `upstream_catchment_ids` geometrisch vereinigtem oberliegendem Einzugsgebiet. Zellpolygon und Einzugsgebiet müssen sich schneiden; zusätzlich werden Mindestfläche, Zellanteil, Dauer, relevante Intensität, Zeitversatz und Verifikationsschwellen ausgewertet. Flowline-Snapping ist Diagnosemetadatum und keine Entscheidungsgrundlage. Pending-Events werden aus allen Hydro-JSONL-Dateien geladen; `latest_hydro_impacts.json` ist nur Anzeige-/Cache-Datei.
+
+#### Persistente Hydro-Verifikation
+
+Historische Hydro-Impact-JSONL-Dateien bleiben unverändert als Audit-Log erhalten. Der aktuelle Verifikationszustand wird über `hydro_impact_state.json` überlagert, sodass alte bestätigte, abgelehnte oder mehrdeutige Events nicht erneut als pending geladen werden. Messlücken größer als `HYDRO_VERIFY_MAX_GAP_MIN` führen zu `ambiguous`; konkurrierende Zellen im selben Einzugsgebiet erhalten den Reason `competing_cells_same_catchment` und werden nicht hart einer Einzelzelle zugeschrieben.
