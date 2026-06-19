@@ -99,7 +99,9 @@ def status():
     live = _json(LIVE_STATUS, {})
     impacts = normalized_impacts(False)
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-    return {"enabled": enabled(), "static_ready": bool(_static_index()), "live_ready": LIVE_LATEST.exists(), "last_fetch": live.get("updated_at") or _json(LIVE_LATEST, {}).get("fetched_at"), "last_error": live.get("last_error") or live.get("error"), "station_count": len(station_features()["features"]), "impact_pending": sum(e.get("status") == "pending" for e in impacts), "impact_confirmed_24h": sum(e.get("status") == "confirmed" and ((_dt(e.get("verified_at") or e.get("created_at")) or cutoff) >= cutoff) for e in impacts)}
+    last_error = live.get("last_error") or live.get("error")
+    live_ok = bool(live.get("ok")) and not last_error
+    return {"enabled": enabled(), "static_ready": bool(_static_index()), "live_ready": LIVE_LATEST.exists(), "live_ok": live_ok, "from_cache": bool(live.get("from_cache")), "status": "ok" if live_ok else "error", "last_fetch": live.get("updated_at") or _json(LIVE_LATEST, {}).get("fetched_at"), "last_error": last_error, "station_count": len(station_features()["features"]), "impact_pending": sum(e.get("status") == "pending" for e in impacts), "impact_confirmed_24h": sum(e.get("status") == "confirmed" and ((_dt(e.get("verified_at") or e.get("created_at")) or cutoff) >= cutoff) for e in impacts)}
 
 
 def catchment(station_id):
