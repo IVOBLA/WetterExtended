@@ -139,18 +139,21 @@ export default function Training() {
           {readiness.inference && (
             <div style={{
               border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 12px',
-              marginBottom: 12, background: readiness.inference.status === 'active' ? '#f0fdf4' : readiness.inference.status === 'partial' ? '#fffbeb' : '#fef2f2',
+              marginBottom: 12, background: readiness.runtime_status?.runtime_mode === 'ml' ? '#f0fdf4' : readiness.inference.ml_artifacts_available ? '#fffbeb' : '#fef2f2',
             }}>
-              <div style={{ fontWeight: 800, color: readiness.inference.status === 'active' ? '#16a34a' : readiness.inference.status === 'partial' ? '#92400e' : '#b91c1c' }}>
-                {readiness.inference.status === 'active' && 'ML aktiv'}
-                {readiness.inference.status === 'partial' && 'ML teilweise aktiv'}
-                {readiness.inference.status === 'fallback' && 'ML nicht aktiv – kinematischer Fallback'}
+              <div style={{ fontWeight: 800, color: readiness.runtime_status?.runtime_mode === 'ml' ? '#16a34a' : readiness.inference.ml_artifacts_available ? '#92400e' : '#b91c1c' }}>
+                {readiness.runtime_status?.runtime_mode === 'ml' && 'ML aktiv'}
+                {readiness.runtime_status?.runtime_mode !== 'ml' && readiness.inference.ml_artifacts_available && 'Modellartefakte vorhanden, aber Modell nicht aktiviert/promoted'}
+                {readiness.runtime_status?.runtime_mode !== 'ml' && !readiness.inference.ml_artifacts_available && 'ML nicht aktiv – kinematischer Fallback'}
               </div>
               {readiness.inference.fallback_reason && (
                 <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>Grund: {readiness.inference.fallback_reason}</div>
               )}
               <div style={{ fontSize: 12, color: '#374151', marginTop: 6 }}>
-                Aktive Horizonte: {readiness.inference.active_horizons?.length ? readiness.inference.active_horizons.join(', ') + ' min' : 'keine'}
+                Technische Artefakte vorhanden: {readiness.inference.ml_artifacts_available ? 'ja' : 'nein'} · Fachlich promoted: {readiness.inference.promoted ? 'ja' : 'nein'} · Produktiver Runtime-Modus: {readiness.runtime_status?.runtime_mode === 'ml' ? 'ML aktiv' : 'Fallback'}
+              </div>
+              <div style={{ fontSize: 12, color: '#374151', marginTop: 4 }}>
+                Aktive Horizonte: {readiness.runtime_status?.active_horizons?.length ? readiness.runtime_status.active_horizons.join(', ') + ' min' : 'keine'}
               </div>
               {readiness.inference.lgbm_status_by_horizon && (
                 <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
@@ -182,13 +185,15 @@ export default function Training() {
                 <div><b>Promotion-Samples:</b> {readiness.latest_training.promotion_samples_recent ?? 0} / {readiness.latest_training.promotion_samples_required ?? 50}</div>
                 <div><b>Fehlende Promotion-Samples:</b> {readiness.latest_training.promotion_samples_missing ?? '—'}</div>
                 <div><b>Low-confidence:</b> {readiness.latest_training.low_confidence ? 'ja' : 'nein'}</div>
+                <div><b>Technische Artefakte vorhanden:</b> {readiness.runtime_status?.ml_model_artifacts_valid ? 'ja' : 'nein'}</div>
+                <div><b>Fachlich promoted:</b> {readiness.runtime_status?.ml_model_promoted ? 'ja' : 'nein'}</div>
                 <div><b>ML-Modell verfügbar:</b> {readiness.runtime_status?.ml_model_available ? 'ja' : 'nein'}</div>
                 <div><b>Produktiver Runtime-Modus:</b> {readiness.runtime_status?.runtime_mode === 'ml' ? 'ML aktiv' : 'kinematischer Fallback'}</div>
                 <div><b>Modellversion:</b> {readiness.runtime_status?.ml_model_version || '—'}</div>
                 <div><b>Fallback-Grund:</b> {readiness.runtime_status?.fallback_reason || '—'}</div>
                 <div style={{ marginTop: 6, color: '#475569' }}>Promotion-Samples steuern die Qualitätssicherung bei Modellwechseln. Bei Cold Start kann ein erstes Modell als low_confidence aktiv sein.</div>
-                {readiness.latest_training?.status === 'cold_start_insufficient_samples' && readiness.runtime_status?.ml_model_available && (
-                  <div style={{ marginTop: 6, color: '#0369a1' }}>Letzter Trainingslauf wurde nicht regulär promoted, aber ein current-Modell ist vorhanden und ladefähig.</div>
+                {readiness.runtime_status?.ml_model_artifacts_valid && !readiness.runtime_status?.ml_model_promoted && (
+                  <div style={{ marginTop: 6, color: '#b45309' }}>Modellartefakte vorhanden, aber Modell nicht aktiviert/promoted.</div>
                 )}
               </div>
             </div>

@@ -70,6 +70,24 @@ MIN_SAMPLES_FOR_PROMOTION = 50
 LARGE_SAMPLE_THRESHOLD = 500
 TOLERANCE_LARGE = 1.02
 
+
+def _clean_json_value(value):
+    import math
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _clean_json_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_clean_json_value(v) for v in value]
+    return value
+
+
+def _write_training_meta(path, meta):
+    meta = _clean_json_value(meta)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False, allow_nan=False)
+    return meta
+
 _MODELS_BASE = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "train_data", "models")
 )
@@ -518,7 +536,18 @@ def _is_valid_current_model(model_dir: str | None = None) -> bool:
     if not os.path.isdir(cur):
         return False
     compat = _check_model_compatibility(cur)
-    return bool(compat.get("compatible") and _has_required_model_artifacts(cur))
+    if not bool(compat.get("compatible") and _has_required_model_artifacts(cur)):
+        return False
+    try:
+        from ml_readiness import get_forecast_runtime_status
+        runtime = get_forecast_runtime_status(write_json=False, model_dir=cur)
+        if runtime.get("runtime_mode") != "ml":
+            debug_log(f"[MODEL] current technisch vorhanden, aber nicht promoted: {runtime.get('fallback_reason')}")
+            return False
+    except Exception as exc:
+        debug_log(f"[MODEL] Promotion-Prüfung für current fehlgeschlagen: {exc}")
+        return False
+    return True
 
 
 def _status_reason(status: str, promotion_samples: int) -> str:
@@ -783,8 +812,7 @@ def retrain_all():
                 "note": "Kein Holdout-Set verfügbar (zu wenige Samples oder erster Tag)",
             },
         }
-        with open(os.path.join(version_dir, "training_meta.json"), "w", encoding="utf-8") as f:
-            json.dump(meta, f, indent=2, ensure_ascii=False)
+        meta = _write_training_meta(os.path.join(version_dir, "training_meta.json"), meta)
     except Exception:
         meta = {
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -887,6 +915,16 @@ def retrain_all():
         )
 
     low_confidence = bool(status == "cold_start_promoted_low_confidence")
+    meta["status"] = status
+    if not isinstance(meta.get("dataset"), dict):
+        meta["dataset"] = {
+            "scope": "cumulative_rolling",
+            "retention_days": DATA_RETENTION_DAYS,
+            "total_samples": int(len(X)) if getattr(X, "size", 0) else int(meta.get("num_samples", 0) or 0),
+            "train_samples": int(len(X_train_full)) if 'X_train_full' in locals() and getattr(X_train_full, "size", 0) else 0,
+            "holdout_samples": int(len(X_holdout)) if 'X_holdout' in locals() and getattr(X_holdout, "size", 0) else 0,
+            "sequence_length": ML_SEQUENCE_LENGTH,
+        }
     meta.setdefault("dataset", {
         "scope": "cumulative_rolling",
         "retention_days": DATA_RETENTION_DAYS,
@@ -907,8 +945,7 @@ def retrain_all():
         "status": status,
         "status_reason": _status_reason(status, promotion_samples),
     }
-    with open(os.path.join(version_dir, "training_meta.json"), "w", encoding="utf-8") as f:
-        json.dump(meta, f, indent=2, ensure_ascii=False)
+    meta = _write_training_meta(os.path.join(version_dir, "training_meta.json"), meta)
 
     cleanup_old_versions(keep_n=5)
     return meta

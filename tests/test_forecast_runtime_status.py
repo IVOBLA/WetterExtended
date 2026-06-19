@@ -27,6 +27,7 @@ def _valid_current(root, horizons=(10, 20)):
     for h in horizons:
         (cur / f"lgbm_h{h}_x.txt").write_text("m")
         (cur / f"lgbm_h{h}_y.txt").write_text("m")
+    (cur / "training_meta.json").write_text(json.dumps({"status":"promoted","num_samples":60,"dataset":{"total_samples":60},"validation":{"status":"promoted","samples_recent":60,"samples_required":50}}))
     return cur
 
 
@@ -88,3 +89,54 @@ def test_dashboard_stats_separate_runtime_and_history(monkeypatch, tmp_path):
     data = c.get("/api/forecast_stats?hours=24").get_json()
     assert data["current_runtime_mode"] == "ml"
     assert data["historical_24h_usage"]["fallback_pct"] == 100.0
+
+
+def _mock_artifacts(monkeypatch):
+    import ml_readiness
+    class Joblib:
+        @staticmethod
+        def load(path):
+            n = 4 if str(path).endswith("scaler_y.joblib") else 1
+            return type("Scaler", (), {"n_features_in_": n})()
+    class Booster:
+        def __init__(self, model_file): pass
+        def num_feature(self): return 1
+    monkeypatch.setattr(ml_readiness, "_opt", lambda name: Joblib if name == "joblib" else type("LGB", (), {"Booster": Booster}) if name == "lightgbm" else None)
+
+
+def test_current_artifacts_ok_but_cold_start_insufficient_is_fallback(monkeypatch, tmp_path):
+    _patch_paths(monkeypatch, tmp_path)
+    cur = _valid_current(tmp_path)
+    (cur / "training_meta.json").write_text(json.dumps({"num_samples":165,"dataset":None,"validation":{"mae_old": float("inf"), "mae_new":34.8,"samples_recent":26,"status":"cold_start_insufficient_samples"}}))
+    _mock_artifacts(monkeypatch)
+    import ml_readiness
+    rd = ml_readiness.check_ml_readiness(write_json=False)
+    st = ml_readiness.get_forecast_runtime_status(write_json=False)
+    assert rd["ml_artifacts_available"] is True
+    assert rd["ml_available"] is False
+    assert st["runtime_mode"] == "kinematic_fallback"
+    assert "current_model_not_promoted" in st["fallback_reason"]
+    assert rd["training_meta"]["validation"]["mae_old"] is None
+
+
+def test_cold_start_promoted_low_confidence_is_active(monkeypatch, tmp_path):
+    _patch_paths(monkeypatch, tmp_path)
+    cur = _valid_current(tmp_path)
+    (cur / "training_meta.json").write_text(json.dumps({"status":"cold_start_promoted_low_confidence","num_samples":165,"dataset":{"total_samples":165},"validation":{"status":"cold_start_promoted_low_confidence","low_confidence":True,"samples_recent":26,"samples_required":50}}))
+    _mock_artifacts(monkeypatch)
+    import ml_readiness
+    st = ml_readiness.get_forecast_runtime_status(write_json=False)
+    assert st["runtime_mode"] == "ml"
+    assert st["ml_model_available"] is True
+    assert st["ml_low_confidence"] is True
+
+
+def test_missing_training_meta_blocks_runtime(monkeypatch, tmp_path):
+    _patch_paths(monkeypatch, tmp_path)
+    cur = _valid_current(tmp_path)
+    (cur / "training_meta.json").unlink()
+    _mock_artifacts(monkeypatch)
+    import ml_readiness
+    st = ml_readiness.get_forecast_runtime_status(write_json=False)
+    assert st["runtime_mode"] == "kinematic_fallback"
+    assert st["fallback_reason"] == "missing_training_meta"
