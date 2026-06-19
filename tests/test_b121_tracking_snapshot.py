@@ -32,6 +32,7 @@ def _install_import_stubs():
     if "utils" not in sys.modules:
         utils_stub = types.ModuleType("utils")
         utils_stub.generate_id = lambda *args, **kwargs: "TESTID"
+        utils_stub.log = lambda *args, **kwargs: None
         sys.modules["utils"] = utils_stub
     if "utils_weather" not in sys.modules:
         weather_stub = types.ModuleType("utils_weather")

@@ -15,6 +15,8 @@ Technische Hinweise:
 import pytest
 
 np = pytest.importorskip("numpy")
+if not hasattr(np, "zeros"):
+    pytest.skip("benötigt ein echtes numpy-Paket", allow_module_level=True)
 pytest.importorskip("cv2")
 pytest.importorskip("shapely")
 
