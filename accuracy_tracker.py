@@ -24,7 +24,7 @@ import json
 import math
 import os
 from datetime import datetime, timedelta
-from typing import Optional, Dict, List, Tuple, Any
+from typing import Optional, Dict, List, Tuple, Any, Set
 
 from config import (
     SAVE_PATHS,
@@ -108,6 +108,24 @@ def _jsonl_append(path: str, rec: dict) -> None:
             f.write(json.dumps(clean, ensure_ascii=False, allow_nan=False) + "\n")
 
 
+
+def _detail_key(rec: dict) -> tuple:
+    return (
+        rec.get("forecast_created_at_utc"), rec.get("target_timestamp_utc"), rec.get("horizon_min"),
+        rec.get("object_id") or rec.get("cell_id"), rec.get("cell_id"),
+        rec.get("forecast_lat"), rec.get("forecast_lon"), rec.get("actual_lat"), rec.get("actual_lon"),
+        rec.get("match_type"),
+    )
+
+
+def _append_detail_once(path: str, rec: dict, seen: Set[tuple]) -> bool:
+    key = _detail_key(rec)
+    if key in seen:
+        return False
+    seen.add(key)
+    _jsonl_append(path, rec)
+    return True
+
 def _match_type(raw: str) -> str:
     return {"nn": "nearest", "miss": "none"}.get(raw, raw or "none")
 
@@ -176,11 +194,18 @@ def _match_actual(obj: dict, target_objs: list, horizon_min: int
         return None, math.inf, "miss"
 
     oid = str(obj.get("id"))
+    cell_id = str(obj.get("cell_id", obj.get("id", "")))
 
     id_match = next((o for o in target_objs if str(o.get("id")) == oid), None)
     if id_match is not None and id_match.get("lat") is not None and id_match.get("lon") is not None:
         d = _haversine_km(fc_lat, fc_lon, float(id_match["lat"]), float(id_match["lon"]))
         return id_match, d, "id"
+
+    if cell_id:
+        cell_match = next((o for o in target_objs if str(o.get("cell_id", o.get("id", ""))) == cell_id), None)
+        if cell_match is not None and cell_match.get("lat") is not None and cell_match.get("lon") is not None:
+            d = _haversine_km(fc_lat, fc_lon, float(cell_match["lat"]), float(cell_match["lon"]))
+            return cell_match, d, "cell_id"
 
     best = None
     best_d = math.inf
@@ -247,6 +272,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
     direction_errors = []
     speed_errors = []
     details = []
+    detail_keys_seen: Set[tuple] = set()
 
     def _bucket(store, key):
         k = str(key or "unknown")
@@ -330,7 +356,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
                     _bucket(by_source, _source_for(_o))["no_target_frame"] += 1
                     _bucket(by_match, "none")["no_target_frame"] += 1
                     rec = _detail_record(_o, ts, target_ts, horizon_min, None, None, "none", True, False, horizon_min)
-                    details.append(rec); _jsonl_append(DETAILS_FILE, rec)
+                    details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
             continue
 
         target_objs = _load_objects(target_path)
@@ -343,7 +369,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
                     _bucket(by_source, _source_for(_o))["no_target_frame"] += 1
                     _bucket(by_match, "none")["no_target_frame"] += 1
                     rec = _detail_record(_o, ts, target_ts, horizon_min, None, None, "none", True, False, horizon_min)
-                    details.append(rec); _jsonl_append(DETAILS_FILE, rec)
+                    details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
             continue
 
         for obj in objs:
@@ -364,7 +390,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
                 missed += 1
                 _bm["missed"] += 1; _bs["missed"] += 1; _bt["missed"] += 1
                 rec = _detail_record(obj, ts, target_ts, horizon_min, None, None, _match_src, False, False, horizon_min)
-                details.append(rec); _jsonl_append(DETAILS_FILE, rec)
+                details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
                 continue
 
             try:
@@ -390,7 +416,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
             rec = _detail_record(obj, ts, target_ts, horizon_min, matched, dist_km, _match_src, False, False, horizon_min, ex, ey)
             if rec.get("direction_error_deg") is not None: direction_errors.append(float(rec["direction_error_deg"]))
             if rec.get("speed_error_kmh") is not None: speed_errors.append(float(rec["speed_error_kmh"]))
-            details.append(rec); _jsonl_append(DETAILS_FILE, rec)
+            details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
             if dist_km <= VERIFICATION_TOLERANCE_KM:
                 hits += 1
                 _bm["hits"] += 1; _bs["hits"] += 1; _bt["hits"] += 1

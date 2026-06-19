@@ -126,6 +126,9 @@ def is_valid_forecast_error_detail(row: dict, *, now_utc: datetime | None = None
         return False, "invalid_detail"
     if _is_synthetic_cell_one(row) or any(_truthy(row.get(k)) for k in ("test_fixture", "synthetic", "dummy")):
         return False, "synthetic_or_test_fixture"
+    marker = str(row.get("source_path") or row.get("path") or row.get("file_path") or row.get("fixture_path") or row.get("source") or "")
+    if "tests/tmp" in marker or "pytest" in marker or "/tests/" in marker or marker.startswith("tests/"):
+        return False, "synthetic_or_test_fixture"
 
     forecast_created = _parse_ts(row.get("forecast_created_at_utc"))
     verified_at = _parse_ts(row.get("verified_at_utc"))
@@ -161,6 +164,36 @@ def _invalid_example(row: dict, reason: str) -> dict:
     out["reason"] = reason
     return out
 
+
+
+def detail_key(row: dict) -> tuple:
+    """Stable identity for one forecast-verification detail row."""
+    return (
+        row.get("forecast_created_at_utc"),
+        row.get("target_timestamp_utc"),
+        row.get("horizon_min"),
+        row.get("object_id") or row.get("cell_id"),
+        row.get("cell_id"),
+        _f(row.get("forecast_lat")),
+        _f(row.get("forecast_lon")),
+        _f(row.get("actual_lat")),
+        _f(row.get("actual_lon")),
+        row.get("match_type"),
+    )
+
+
+def _dedupe_details(rows: list[dict]) -> tuple[list[dict], int]:
+    seen = set()
+    out = []
+    duplicates = 0
+    for row in rows:
+        key = detail_key(row)
+        if key in seen:
+            duplicates += 1
+            continue
+        seen.add(key)
+        out.append(row)
+    return out, duplicates
 
 def _filter_valid_details(rows: list[dict], *, now_utc: datetime | None = None) -> tuple[list[dict], dict[str, int], list[dict]]:
     valid = []
@@ -202,7 +235,7 @@ def build_forecast_error_diagnosis(*, details_path: str | Path = DETAILS_FILE, a
     details_path = Path(details_path); history_path = Path(accuracy_history_path)
     base = {
         "checked_at_utc": _now(), "hours": hours, "status": "ok",
-        "sample_counts": {"details": 0, "details_total": 0, "details_valid": 0, "details_invalid": 0, "verified_short": 0, "verified_total": 0},
+        "sample_counts": {"details": 0, "details_total": 0, "details_raw": 0, "details_valid": 0, "details_valid_before_dedup": 0, "details_deduped": 0, "duplicates_removed": 0, "details_invalid": 0, "verified_short": 0, "verified_total": 0, "invalid_detail_counts": {}},
         "invalid_detail_counts": {}, "invalid_detail_examples": [],
         "primary_findings": [], "recommendations": [], "severity": "ok", "root_cause_candidates": [],
         "mode_comparison": {}, "source_comparison": {}, "match_type_comparison": {},
@@ -212,14 +245,15 @@ def build_forecast_error_diagnosis(*, details_path: str | Path = DETAILS_FILE, a
         base.update({"status": "missing", "severity": "watch", "recommendations": ["B211 muss zuerst Daten sammeln."]})
         return base
     all_details = _read_jsonl(details_path, hours, ("verified_at_utc", "target_timestamp_utc", "forecast_created_at_utc"))
-    details, invalid_detail_counts, invalid_examples = _filter_valid_details(all_details)
+    valid_before_dedup, invalid_detail_counts, invalid_examples = _filter_valid_details(all_details)
+    details, duplicates_removed = _dedupe_details(valid_before_dedup)
     history = _read_jsonl(history_path, hours, ("timestamp_utc",)) if history_path.exists() else []
     base["invalid_detail_counts"] = invalid_detail_counts
     base["invalid_detail_examples"] = invalid_examples
     short = [r for r in details if (_f(r.get("horizon_min")) or 9999) <= SHORT_HORIZON_MAX_MIN]
     verified = [r for r in details if _f(r.get("forecast_error_km")) is not None]
     verified_short = [r for r in short if _f(r.get("forecast_error_km")) is not None]
-    base["sample_counts"] = {"details": len(details), "details_total": len(all_details), "details_valid": len(details), "details_invalid": len(all_details) - len(details), "verified_short": len(verified_short), "verified_total": len(verified)}
+    base["sample_counts"] = {"details": len(details), "details_total": len(all_details), "details_raw": len(all_details), "details_valid": len(details), "details_valid_before_dedup": len(valid_before_dedup), "details_deduped": len(details), "duplicates_removed": duplicates_removed, "details_invalid": len(all_details) - len(valid_before_dedup), "invalid_detail_counts": invalid_detail_counts, "verified_short": len(verified_short), "verified_total": len(verified)}
     if not details:
         _add(base["root_cause_candidates"], "low_sample_count", "watch", 0.3, {"details_valid": 0})
         base.update({

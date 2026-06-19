@@ -2344,6 +2344,10 @@ def api_forecast_error_breakdown():
     def _detail_validation_payload(diag):
         return {
             "details_total": diag.get("sample_counts", {}).get("details_total", 0),
+            "details_raw": diag.get("sample_counts", {}).get("details_raw", diag.get("sample_counts", {}).get("details_total", 0)),
+            "details_valid_before_dedup": diag.get("sample_counts", {}).get("details_valid_before_dedup", diag.get("sample_counts", {}).get("details_valid", 0)),
+            "details_deduped": diag.get("sample_counts", {}).get("details_deduped", diag.get("sample_counts", {}).get("details_valid", 0)),
+            "duplicates_removed": diag.get("sample_counts", {}).get("duplicates_removed", 0),
             "details_valid": diag.get("sample_counts", {}).get("details_valid", 0),
             "details_invalid": diag.get("sample_counts", {}).get("details_invalid", 0),
             "invalid_detail_counts": diag.get("invalid_detail_counts", {}),

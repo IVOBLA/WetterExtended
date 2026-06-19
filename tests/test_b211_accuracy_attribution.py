@@ -81,3 +81,25 @@ def test_debug_export_includes_forecast_error_details(tmp_path):
     z, _, _ = debug_export.create_debug_export_zip(base_dir=tmp_path, tmp_path=tmp_path / "out.zip", now=datetime(2026,1,1,tzinfo=timezone.utc))
     with zipfile.ZipFile(z) as zf:
         assert any(n.endswith("forecast_error_details.jsonl") for n in zf.namelist())
+
+
+def test_match_actual_prefers_cell_id_over_nearest(monkeypatch):
+    monkeypatch.setattr(accuracy_tracker, "VERIFICATION_MAX_SEARCH_RADIUS_KM", 50.0)
+    obj = {"id": "source", "cell_id": "stable", "forecast_lat_10": 46.0, "forecast_lon_10": 14.0}
+    target_objs = [
+        {"id": "near", "cell_id": "other", "lat": 46.0001, "lon": 14.0001},
+        {"id": "far", "cell_id": "stable", "lat": 46.1, "lon": 14.1},
+    ]
+    matched, _, match_type = accuracy_tracker._match_actual(obj, target_objs, 10)
+    assert match_type == "cell_id"
+    assert matched["cell_id"] == "stable"
+
+
+def test_match_actual_nearest_respects_max_radius(monkeypatch):
+    monkeypatch.setattr(accuracy_tracker, "VERIFICATION_MAX_SEARCH_RADIUS_KM", 1.0)
+    obj = {"id": "source", "cell_id": "source", "forecast_lat_10": 46.0, "forecast_lon_10": 14.0}
+    target_objs = [{"id": "far", "cell_id": "other", "lat": 47.0, "lon": 15.0}]
+    matched, dist, match_type = accuracy_tracker._match_actual(obj, target_objs, 10)
+    assert matched is None
+    assert match_type == "miss"
+    assert dist == accuracy_tracker.math.inf

@@ -129,3 +129,36 @@ def test_no_test_fixture_written_to_runtime_eval_dir(tmp_path):
     _write_jsonl(p, [_row(dummy=True)])
     after = runtime.read_text(encoding="utf-8") if runtime.exists() else None
     assert after == before
+
+
+def test_duplicate_details_count_once_for_mae(tmp_path):
+    p = tmp_path / "forecast_error_details.jsonl"
+    duplicate = _row(1, err=1.0, forecast_lat=46.0, forecast_lon=14.0, actual_lat=46.01, actual_lon=14.01)
+    high = _row(2, err=9.0, forecast_lat=46.0, forecast_lon=14.0, actual_lat=46.09, actual_lon=14.09)
+    _write_jsonl(p, [duplicate, dict(duplicate), high])
+
+    diag = build_forecast_error_diagnosis(details_path=p, accuracy_history_path=tmp_path / "h.jsonl")
+
+    assert diag["sample_counts"]["details_raw"] == 3
+    assert diag["sample_counts"]["details_valid_before_dedup"] == 3
+    assert diag["sample_counts"]["details_deduped"] == 2
+    assert diag["sample_counts"]["duplicates_removed"] == 1
+    assert diag["match_type_comparison"]["id"]["mae_km"] == 5.0
+
+
+def test_no_target_frame_counts_coverage_but_not_mae(tmp_path):
+    p = tmp_path / "forecast_error_details.jsonl"
+    no_target = _row(1, err=None, no_target_frame=True, match_type="none")
+    valid = _row(2, err=2.0)
+    _write_jsonl(p, [no_target, valid])
+
+    diag = build_forecast_error_diagnosis(details_path=p, accuracy_history_path=tmp_path / "h.jsonl")
+
+    assert diag["coverage_diagnosis"]["no_target_frame"] == 1
+    assert diag["sample_counts"]["verified_total"] == 1
+    assert diag["match_type_comparison"]["id"]["mae_km"] == 2.0
+
+
+def test_rejects_pytest_path_marker_as_fixture():
+    row = _row(source_path="tests/tmp/pytest-123/forecast_error_details.jsonl")
+    assert is_valid_forecast_error_detail(row, now_utc=NOW)[1] == "synthetic_or_test_fixture"
