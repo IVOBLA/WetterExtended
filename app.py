@@ -3400,6 +3400,41 @@ def _latest_training_meta():
         "low_confidence": bool(val.get("low_confidence", False)),
     }
 
+
+@app.route("/api/training/start", methods=["POST"])
+def api_training_start():
+    """Startet die konfigurierte Trainingspipeline asynchron im Hintergrund."""
+    try:
+        from training_control import start_training_background
+        started, payload = start_training_background(source="manual")
+        if not started:
+            return jsonify(payload), 409
+        debug_log(f"[API] Manueller Trainingsstart: {payload.get('run_id')}")
+        return jsonify(payload)
+    except Exception as exc:
+        debug_log(f"[API] Manueller Trainingsstart Fehler: {exc}\n{traceback.format_exc()}")
+        return jsonify({"started": False, "message": f"Training konnte nicht gestartet werden: {exc}"}), 500
+
+
+@app.route("/api/training/status")
+def api_training_status():
+    """Liefert Status, Fehler und letztes Meta des laufenden/letzten Trainings."""
+    try:
+        from training_control import get_training_status
+        return jsonify(get_training_status())
+    except Exception as exc:
+        debug_log(f"[API] Trainingsstatus Fehler: {exc}")
+        return jsonify({
+            "running": False,
+            "run_id": None,
+            "started_at": None,
+            "finished_at": None,
+            "last_status": "failed",
+            "last_error": str(exc),
+            "progress_message": "Trainingsstatus konnte nicht gelesen werden",
+            "latest_training_meta": None,
+        }), 500
+
 @app.route("/api/training_readiness")
 def api_training_readiness():
     """

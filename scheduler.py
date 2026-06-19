@@ -40,7 +40,7 @@ from config import (
 )
 from dataset_builder import build_dataset
 from debug_utils import debug_log
-from model_training import retrain_all
+from training_control import run_training_with_lock
 import runtime_config
 import api_circuit_breaker
 import size_regressor as _size_reg_mod
@@ -76,7 +76,11 @@ def run_retrain_job(job_name: str):
     runtime_config.reload_overrides()
     debug_log(f"[SCHEDULER] Job {job_name} gestartet")
     try:
-        meta = retrain_all()
+        result = run_training_with_lock(source=f"scheduler:{job_name}")
+        if result.get("running"):
+            debug_log(f"[SCHEDULER] Job {job_name} übersprungen: Es läuft bereits ein Training")
+            return
+        meta = result.get("meta", {})
         trained_lstm = meta.get("lstm", {}).get("trained") if isinstance(meta, dict) else False
         trained_lgbm = meta.get("lgbm", {}).get("trained") if isinstance(meta, dict) else False
         debug_log(
@@ -85,17 +89,6 @@ def run_retrain_job(job_name: str):
         )
     except Exception as exc:
         debug_log(f"[SCHEDULER] Job {job_name} Fehler: {exc}")
-
-    # NEU: Schwere-Datensatz + Modelle (Regen/Boeen) mittrainieren
-    try:
-        from severity_dataset import build_severity_dataset
-        from severity_training import train_severity_models
-        ds = build_severity_dataset()
-        debug_log(f"[SCHEDULER] severity_dataset: {ds}")
-        tr = train_severity_models()
-        debug_log(f"[SCHEDULER] severity_training: {tr}")
-    except Exception as exc:
-        debug_log(f"[SCHEDULER] Schwere-Training Fehler: {exc}")
 
 
 def run_convlstm_weekly_job():
