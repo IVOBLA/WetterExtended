@@ -393,8 +393,12 @@ def save_hydro_impact_state(event_id: str, state: dict[str, Any]) -> None:
     HYDRO_IMPACT_STATE_PATH.write_text(json.dumps(current, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
 
 
+VERIFIED_HYDRO_IMPACT_STATUSES = {"confirmed", "rejected", "ambiguous"}
+
+
 def load_pending_hydro_impacts() -> list[dict]:
-    state_events = (_load_hydro_impact_state().get("events") or {})
+    raw_state_events = _load_hydro_impact_state().get("events")
+    state_events = raw_state_events if isinstance(raw_state_events, dict) else {}
     by_id: dict[str, dict[str, Any]] = {}
     for path in sorted(IMPACT_DIR.glob("hydro_impact_*.jsonl")):
         with path.open("r", encoding="utf-8") as f:
@@ -406,6 +410,15 @@ def load_pending_hydro_impacts() -> list[dict]:
                 event_id = str(event.get("event_id") or "")
                 if not event_id:
                     continue
-                merged = {**event, **(state_events.get(event_id) if isinstance(state_events.get(event_id), dict) else {})}
-                by_id[event_id] = merged
-    return [event for event in by_id.values() if event.get("status") == "pending"]
+                state = state_events.get(event_id)
+                if not isinstance(state, dict):
+                    state = {}
+                if state.get("status") in VERIFIED_HYDRO_IMPACT_STATUSES:
+                    by_id.pop(event_id, None)
+                    continue
+                merged = {**event, **state}
+                if merged.get("status") == "pending":
+                    by_id[event_id] = merged
+                else:
+                    by_id.pop(event_id, None)
+    return list(by_id.values())
