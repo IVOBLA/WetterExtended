@@ -196,6 +196,10 @@ def build_health(hours: int = 24, base_dir: str | Path = "."):
         },
         "detail_validation": {
             "details_total": forecast_error_diagnosis.get("sample_counts", {}).get("details_total", 0),
+            "details_raw": forecast_error_diagnosis.get("sample_counts", {}).get("details_raw", forecast_error_diagnosis.get("sample_counts", {}).get("details_total", 0)),
+            "details_valid_before_dedup": forecast_error_diagnosis.get("sample_counts", {}).get("details_valid_before_dedup", forecast_error_diagnosis.get("sample_counts", {}).get("details_valid", 0)),
+            "details_deduped": forecast_error_diagnosis.get("sample_counts", {}).get("details_deduped", forecast_error_diagnosis.get("sample_counts", {}).get("details_valid", 0)),
+            "duplicates_removed": forecast_error_diagnosis.get("sample_counts", {}).get("duplicates_removed", 0),
             "details_valid": forecast_error_diagnosis.get("sample_counts", {}).get("details_valid", 0),
             "details_invalid": forecast_error_diagnosis.get("sample_counts", {}).get("details_invalid", 0),
             "invalid_detail_counts": forecast_error_diagnosis.get("invalid_detail_counts", {}),
