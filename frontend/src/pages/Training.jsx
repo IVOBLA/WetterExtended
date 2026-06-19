@@ -80,7 +80,7 @@ export default function Training() {
               <>
                 <div style={{ fontSize: 72, lineHeight: 1 }}>✅</div>
                 <div style={{ fontWeight: 700, fontSize: 18, color: '#16a34a', marginTop: 6 }}>
-                  Bereit für Training!
+                  Bereit für Trainingslauf (Dataset-Schwelle erreicht)!
                 </div>
                 <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
                   {readiness.current_sequences} Sequenzen gesammelt
@@ -172,14 +172,28 @@ export default function Training() {
             </div>
           )}
 
+
+          {readiness.latest_training && (
+            <div style={{ border: '1px solid #bfdbfe', borderRadius: 8, padding: '10px 12px', marginBottom: 12, background: '#eff6ff' }}>
+              <div style={{ fontWeight: 800, color: '#1d4ed8', marginBottom: 6 }}>Modell-Aktivierung / Promotion</div>
+              <div style={{ fontSize: 12, color: '#1f2937', lineHeight: 1.6 }}>
+                <div><b>Letzter Trainingsstatus:</b> {readiness.latest_training.status || '—'}</div>
+                <div><b>Erklärung:</b> {readiness.latest_training.status_reason || 'Keine Erklärung verfügbar.'}</div>
+                <div><b>Promotion-Samples:</b> {readiness.latest_training.promotion_samples_recent ?? 0} / {readiness.latest_training.promotion_samples_required ?? 50}</div>
+                <div><b>Fehlende Promotion-Samples:</b> {readiness.latest_training.promotion_samples_missing ?? '—'}</div>
+                <div><b>Low-confidence:</b> {readiness.latest_training.low_confidence ? 'ja' : 'nein'}</div>
+                <div><b>Forecast-Modus:</b> {readiness.forecast_mode?.mode === 'ml' ? 'ML aktiv' : 'kinematischer Fallback'}</div>
+              </div>
+            </div>
+          )}
+
           {!readiness.dataset_exists && (
             <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 4px' }}>
               Kein dataset.npz — wird beim nächsten Rebuild-Job erstellt.
             </p>
           )}
           <p style={{ fontSize: 11, color: '#9ca3af', margin: 0, lineHeight: 1.5 }}>
-            Kumulativ gesammelt (max. 90 Tage) · Nach Training kein Reset ·
-            Wächst nur bei aktiven Gewitterzellen
+            Das Training verwendet den kumulativen gültigen Datensatz innerhalb der Aufbewahrungszeit. Nach einem Training werden die Samples nicht zurückgesetzt. Es werden nicht nur neue Samples seit dem letzten Training verwendet. Die Aktivierung eines Modells erfolgt separat über Promotion-/Validierungssamples.
           </p>
         </div>
       )}
@@ -204,8 +218,7 @@ export default function Training() {
           />
           <p className="text-xs text-gray-500 mt-1">
             LightGBM- und LSTM-Modelle werden zusätzlich zum Nightly-Retrain
-            alle N Stunden neu trainiert, wenn genug neue Samples vorliegen.
-            Empfohlen: 6 h.
+            alle N Stunden neu trainiert, wenn genug kumulative Dataset-Sequenzen vorhanden sind. Das Training verwendet den gesamten gültigen Datensatz innerhalb der Aufbewahrungszeit, nicht nur neue Samples seit dem letzten Lauf. Ob das Modell aktiv wird, entscheidet danach die Promotion-Logik. Empfohlen: 6 h.
           </p>
         </div>
         <div></div>

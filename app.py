@@ -3352,6 +3352,31 @@ def api_local_training():
     })
 
 
+
+def _latest_training_meta():
+    metas = sorted(glob.glob(os.path.join(SAVE_PATHS.get("models", "train_data/models"), "v_*/training_meta.json")))
+    if not metas:
+        return None
+    try:
+        with open(metas[-1], encoding="utf-8") as f:
+            meta = json.load(f)
+    except Exception:
+        return None
+    ds = meta.get("dataset", {}) or {}
+    val = meta.get("validation", {}) or {}
+    return {
+        "timestamp_utc": meta.get("timestamp_utc"),
+        "status": val.get("status"),
+        "status_reason": val.get("status_reason"),
+        "dataset_total_samples": ds.get("total_samples", meta.get("num_samples")),
+        "train_samples": ds.get("train_samples"),
+        "holdout_samples": ds.get("holdout_samples", (meta.get("holdout") or {}).get("samples")),
+        "promotion_samples_recent": val.get("samples_recent"),
+        "promotion_samples_required": val.get("samples_required", 50),
+        "promotion_samples_missing": val.get("samples_missing"),
+        "low_confidence": bool(val.get("low_confidence", False)),
+    }
+
 @app.route("/api/training_readiness")
 def api_training_readiness():
     """
@@ -3399,7 +3424,19 @@ def api_training_readiness():
             "dataset_sequences": current,
         }
 
+    latest_training = _latest_training_meta()
+    forecast_mode = {
+        "ml_available": bool(inference_readiness.get("ml_available") or inference_readiness.get("status") in {"active", "partial"}),
+        "mode": "ml" if bool(inference_readiness.get("ml_available") or inference_readiness.get("status") in {"active", "partial"}) else "kinematic_fallback",
+        "fallback_reason": inference_readiness.get("fallback_reason") if not bool(inference_readiness.get("ml_available") or inference_readiness.get("status") in {"active", "partial"}) else None,
+    }
+
     return jsonify({
+        "training_scope": "cumulative_rolling",
+        "retention_days": getattr(cfg, "DATA_RETENTION_DAYS", None),
+        "dataset_sequences_total": current,
+        "latest_training": latest_training,
+        "forecast_mode": forecast_mode,
         "current_sequences":  current,
         "dataset_exists":     dataset_exists,
         "lstm": {
