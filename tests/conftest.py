@@ -119,15 +119,21 @@ def _isolate_evaluation_writes(tmp_path, monkeypatch):
 
 def _drop_numpy_contaminated_modules():
     """
-    B127: Entfernt ein mit numpy-Stub kontaminiertes `prediction`/`model_training`
-    aus sys.modules. Tests wie test_lstm_feature_mismatch.py importieren `prediction`
-    mit einem numpy-Stub (asarray liefert die Eingabe unverändert) und stellen das
-    gecachte Modul nicht wieder her. Erkennung: echtes numpy hat `ndarray`, die
-    Stubs nicht. So importiert der nächste Test das Modul wieder mit echtem numpy.
+    B127/B219: Entfernt kontaminierte `prediction`/`model_training`-Imports.
+
+    Neben numpy-Stub-Importen legen einzelne Tests `sys.modules["model_training"]`
+    als SimpleNamespace-Stub an. Bleibt dieser Stub im Modulcache, schlagen spätere
+    Tests beim Zugriff auf echte Hilfsfunktionen wie `_build_lstm`,
+    `_get_training_horizons` oder `_masked_mse` fehl. Deshalb werden sowohl
+    offensichtliche Modul-Impostoren als auch numpy-kontaminierte echte Module nach
+    jedem Test aus dem Cache entfernt.
     """
     for _name in ("prediction", "model_training"):
         _mod = sys.modules.get(_name)
         if _mod is None:
+            continue
+        if _is_module_impostor(_mod):
+            del sys.modules[_name]
             continue
         _np = getattr(_mod, "np", None)
         if _np is not None and not hasattr(_np, "ndarray"):
@@ -136,6 +142,7 @@ def _drop_numpy_contaminated_modules():
 
 @pytest.fixture(autouse=True)
 def _restore_numpy_dependent_modules():
-    """B127: nach jedem Test kontaminierte numpy-abhängige Module bereinigen."""
+    """B127/B219: vor und nach jedem Test kontaminierte Module bereinigen."""
+    _drop_numpy_contaminated_modules()
     yield
     _drop_numpy_contaminated_modules()
