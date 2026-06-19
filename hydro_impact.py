@@ -17,7 +17,10 @@ from typing import Any
 
 from config import SAVE_PATHS
 
-SHAPELY_AVAILABLE = importlib.util.find_spec("shapely") is not None
+try:
+    SHAPELY_AVAILABLE = importlib.util.find_spec("shapely") is not None
+except (ImportError, ValueError):
+    SHAPELY_AVAILABLE = False
 if SHAPELY_AVAILABLE:
     from shapely.geometry import Polygon, shape
     from shapely.ops import transform
@@ -40,8 +43,29 @@ IMPACT_DIR = Path(os.environ.get("HYDRO_IMPACT_DIR", str(_HYDRO_BASE.parent / "i
 LATEST_IMPACTS_PATH = Path(os.environ.get("HYDRO_LATEST_IMPACTS_PATH", str(IMPACT_DIR / "latest_hydro_impacts.json")))
 
 
+def _runtime_get(name: str, default: Any) -> Any:
+    try:
+        import runtime_config
+        return runtime_config.get(name, default)
+    except Exception:
+        return default
+
+def _runtime_bool(name: str, default: bool) -> bool:
+    value = _runtime_get(name, default)
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "no", "off"}
+    return bool(value)
+
+def _runtime_float(name: str, default: float) -> float:
+    try:
+        return float(_runtime_get(name, default))
+    except Exception:
+        return float(default)
+
 def hydro_enabled() -> bool:
-    return os.environ.get(HYDRO_ENABLED_ENV, "true").strip().lower() not in {"0", "false", "no", "off"}
+    if HYDRO_ENABLED_ENV in os.environ:
+        return str(os.environ.get(HYDRO_ENABLED_ENV, "true")).strip().lower() not in {"0", "false", "no", "off"}
+    return _runtime_bool("HYDRO_ENABLED", True)
 
 
 def static_data_available() -> bool:
@@ -208,18 +232,20 @@ def _duration(cell: dict[str, Any]) -> float:
 
 
 def score_hydro_impact(cell, station, overlap, context) -> dict:
-    reason: list[str] = ["Zelle schneidet oberliegendes Einzugsgebiet"]
+    reason: list[str] = ["cell_intersects_upstream_catchment", "not_station_radius_based", "time_lag_window_applied", "plausibler Zusammenhang"]
     score = 0.0
     area = float(overlap.get("overlap_area_km2", 0.0))
     ratio_cell = float(overlap.get("overlap_ratio_cell", 0.0))
     duration = _duration(cell)
     intensity = _intensity(cell)
 
-    if area >= MIN_OVERLAP_AREA_KM2:
+    min_area = _runtime_float("HYDRO_MIN_OVERLAP_AREA_KM2", MIN_OVERLAP_AREA_KM2)
+    min_ratio = _runtime_float("HYDRO_MIN_CELL_OVERLAP_RATIO", MIN_OVERLAP_RATIO_CELL)
+    if area >= min_area:
         score += min(area / 20.0, 0.25); reason.append("Schnittfläche über Mindestwert")
     else:
         reason.append("Schnittfläche unter Mindestwert")
-    if ratio_cell >= MIN_OVERLAP_RATIO_CELL:
+    if ratio_cell >= min_ratio:
         score += min(ratio_cell, 0.25); reason.append("Relevanter Zellanteil im Einzugsgebiet")
     if intensity in RELEVANT_INTENSITIES:
         score += 0.25; reason.append("Intensität relevant")
@@ -249,7 +275,16 @@ def _load_catchments() -> list[dict[str, Any]]:
 def evaluate_hydro_impact(objects: list, timestamp: str | None = None) -> list[dict]:
     if not hydro_enabled() or not static_data_available():
         return []
-    network = _load_json(NETWORK_INDEX_PATH, {})
+    network_raw = _load_json(NETWORK_INDEX_PATH, {})
+    if isinstance(network_raw, dict) and isinstance(network_raw.get("by_station_id"), dict):
+        network = network_raw["by_station_id"]
+    elif isinstance(network_raw, dict) and isinstance(network_raw.get("stations"), list):
+        network = {str(s.get("station_id")): s for s in network_raw.get("stations", []) if isinstance(s, dict)}
+    elif isinstance(network_raw, list):
+        network = {str(s.get("station_id")): s for s in network_raw if isinstance(s, dict)}
+    else:
+        network = network_raw if isinstance(network_raw, dict) else {}
+    overrides = _runtime_get("HYDRO_STATION_OVERRIDES", {}) or {}
     latest_hydro = _load_json(LATEST_HYDRO_PATH, {})
     created = _parse_time(timestamp)
     events = []
@@ -262,13 +297,17 @@ def evaluate_hydro_impact(objects: list, timestamp: str | None = None) -> list[d
             overlap = compute_cell_catchment_overlap(cell, feature)
             if not overlap.get("hit"):
                 continue
-            if overlap["overlap_area_km2"] < MIN_OVERLAP_AREA_KM2 or overlap["overlap_ratio_cell"] < MIN_OVERLAP_RATIO_CELL:
+            if overlap["overlap_area_km2"] < _runtime_float("HYDRO_MIN_OVERLAP_AREA_KM2", MIN_OVERLAP_AREA_KM2) or overlap["overlap_ratio_cell"] < _runtime_float("HYDRO_MIN_CELL_OVERLAP_RATIO", MIN_OVERLAP_RATIO_CELL):
                 continue
             station_ctx = {**props, **(network.get(sid, {}) if isinstance(network, dict) else {})}
+            if isinstance(overrides, dict):
+                station_ctx.update(overrides.get(sid, {}) or {})
+            if not station_ctx.get("enabled", True) or station_ctx.get("ignored") or station_ctx.get("impact_eligible") is False or station_ctx.get("quality") == "unresolved":
+                continue
             scored = score_hydro_impact(cell, station_ctx, overlap, {"latest_hydro": latest_hydro})
             if _intensity(cell) not in RELEVANT_INTENSITIES or _duration(cell) < MIN_DURATION_MIN:
                 continue
-            lag = station_ctx.get("estimated_lag_min") or station_ctx.get("lag_min") or [20, 180]
+            lag = station_ctx.get("estimated_lag_min") or station_ctx.get("lag_min") or station_ctx.get("default_lag_min") or [20, 180]
             cid = _cell_id(cell)
             events.append({
                 "event_id": f"hydro_{created.strftime('%Y%m%d_%H%M%S')}_cell{cid}_station{sid}",

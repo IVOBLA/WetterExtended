@@ -2619,3 +2619,7 @@ gezählt, aber nicht blockiert.
 Die Zähler werden in `train_data/evaluation/api_budget.json` persistiert und um
 00:00 UTC automatisch zurückgesetzt. Den aktuellen Stand liefert `GET /api/api_budget`
 (je Gruppe: verbraucht, Budget, Rest, überschritten).
+
+## Hydro-Impact / Pegel-Attribution
+
+Hydro-Impact bewertet nur einen **plausibler Zusammenhang** zwischen Niederschlagszellen und Pegeln. Die Zuordnung ist **nicht radiusbasiert**, sondern benötigt das **oberliegendes Einzugsgebiet** und einen hydrologischen **Zeitversatz**. Die Anzeige ist **keine amtliche Hochwasserwarnung**; Live-Pegel sind Rohdaten/Indikatoren und keine geprüften Endwerte. Statische Hydro-Daten werden lokal unter `train_data/hydro/static/generated/` erwartet; bei fehlenden Daten meldet das System `hydro_static_missing` und erzeugt keinen Hydro-Impact.

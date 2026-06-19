@@ -19,7 +19,10 @@ def test_build_station_index_assigns_quality_and_outputs(tmp_path):
     assert stations["S1"]["catchment_id"] == "B1"
     assert stations["S1"]["quality"] in {"exact", "snapped"}
     assert stations["S2"]["catchment_id"] == "B2"
-    assert stations["S3"]["quality"] == "fallback_nearest_basin"
+    assert stations["S3"]["quality"] == "unresolved"
+    assert stations["S3"]["impact_eligible"] is False
+    assert "no_hydrological_upstream_catchment_match" in stations["S3"]["reason"]
+    assert stations["S3"]["nearest_basin_hint"]
     assert (tmp_path / "hydro_stations.geojson").exists()
     assert (tmp_path / "station_catchments.geojson").exists()
     assert (tmp_path / "hydro_static_status.json").exists()

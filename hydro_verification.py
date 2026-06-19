@@ -199,6 +199,42 @@ def classify_hydro_response(event, hydro_series) -> dict:
     return {"status": "rejected", "confidence": "medium", "reason": reason}
 
 
+
+def _already_verified_event_ids() -> set[str]:
+    done: set[str] = set()
+    if not HYDRO_VERIFICATION_PATH.exists():
+        return done
+    for line in HYDRO_VERIFICATION_PATH.read_text(encoding="utf-8").splitlines():
+        try:
+            row = json.loads(line)
+        except Exception:
+            continue
+        if row.get("status") in {"confirmed", "rejected", "ambiguous"} and row.get("event_id"):
+            done.add(str(row.get("event_id")))
+    return done
+
+def _update_event_status(result: dict[str, Any]) -> None:
+    try:
+        from hydro_impact import LATEST_IMPACTS_PATH
+        paths = [LATEST_IMPACTS_PATH]
+        event_id = str(result.get("event_id"))
+        for path in paths:
+            data = _load_json(path, [])
+            if not isinstance(data, list):
+                continue
+            changed = False
+            for event in data:
+                if isinstance(event, dict) and str(event.get("event_id")) == event_id:
+                    event["status"] = result.get("status")
+                    event["verification"] = result
+                    event["confidence"] = result.get("confidence", event.get("confidence"))
+                    changed = True
+            if changed:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    except Exception:
+        pass
+
 def save_hydro_verification(result) -> None:
     HYDRO_VERIFICATION_PATH.parent.mkdir(parents=True, exist_ok=True)
     with HYDRO_VERIFICATION_PATH.open("a", encoding="utf-8") as f:
@@ -208,7 +244,10 @@ def save_hydro_verification(result) -> None:
 def verify_pending_hydro_impacts(now: datetime | None = None) -> list[dict]:
     current = _parse_time(now) or datetime.now(timezone.utc)
     results = []
+    done = _already_verified_event_ids()
     for event in load_pending_hydro_impacts():
+        if str(event.get("event_id")) in done:
+            continue
         event_at = _event_time(event)
         lag = _lag_window(event)
         if not event_at:
@@ -233,6 +272,9 @@ def verify_pending_hydro_impacts(now: datetime | None = None) -> list[dict]:
             "extra_windows_min": {str(w): compute_hydro_delta(event.get("station_id"), event_at, w) for w in HYDRO_EXTRA_WINDOWS_MIN} if event_at and classified["status"] != "pending" else {},
         }
         save_hydro_verification(result)
+        if result["status"] != "pending":
+            _update_event_status(result)
+            done.add(str(result.get("event_id")))
         results.append(result)
     return results
 

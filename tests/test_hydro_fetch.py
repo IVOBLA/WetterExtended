@@ -66,3 +66,33 @@ def test_fetch_hydro_live_success_writes_latest_and_snapshot(tmp_path, monkeypat
     assert (tmp_path / "latest_hydro.json").exists()
     assert (tmp_path / "hydro_status.json").exists()
     assert list(tmp_path.glob("hydro_*.json"))
+
+
+def test_normalize_hydro_payload_reads_kaernten_geojson_fields():
+    raw = {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [13.5, 46.7]},
+            "properties": {
+                "id": "K1",
+                "pegelname": "Pegel Kärnten",
+                "gewaesser": "Gail",
+                "letzter_wert_q": "12,5",
+                "letzter_wert_w": "123",
+                "letzter_wert_q_date": "2026-06-19T10:15:00Z",
+                "kennwerte": {"hq1": "20", "hq10": "50", "hq30": "80", "hq100": "120"},
+            },
+        }],
+    }
+
+    station = hydro_fetch.normalize_hydro_payload(raw)["stations"][0]
+
+    assert station["station_id"] == "K1"
+    assert station["q_m3s"] == 12.5
+    assert station["w_cm"] == 123.0
+    assert station["measured_at"] == "2026-06-19T10:15:00Z"
+    assert station["hq1"] == 20.0
+    assert station["hq10"] == 50.0
+    assert station["hq30"] == 80.0
+    assert station["hq100"] == 120.0

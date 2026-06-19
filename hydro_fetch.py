@@ -19,7 +19,7 @@ HYDRO_SOURCE_URL = "https://info.ktn.gv.at/asp/hydro/daten/json/hdkaernten_abflu
 SERVICE_NAME = "hydro_kaernten"
 SOURCE_NAME = "hydro_kaernten"
 RAW_DATA_NOTICE = "ungeprüfte Rohdaten / Live-Indikator"
-DEFAULT_TTL_SECONDS = int(os.getenv("HYDRO_LIVE_TTL_SECONDS", "600"))
+DEFAULT_TTL_SECONDS = int(os.getenv("HYDRO_API_TTL_SECONDS", os.getenv("HYDRO_LIVE_TTL_SECONDS", "600")))
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("HYDRO_LIVE_TIMEOUT_SECONDS", "15"))
 
 _BASE_DIR = Path(SAVE_PATHS.get("hydro", "train_data/hydro/live"))
@@ -123,23 +123,24 @@ def normalize_hydro_payload(raw: dict) -> dict:
     fetched_at = _iso_z()
     stations = []
     for item in _station_items(raw):
+        kennwerte = item.get("kennwerte") if isinstance(item.get("kennwerte"), dict) else {}
         station_id = _pick(item, ("station_id", "id", "kennzahl", "hzbnr", "nummer", "station"))
-        name = _pick(item, ("name", "station_name", "pegelname", "messstelle", "bezeichnung"))
+        name = _pick(item, ("name", "station_name", "pegelname", "messstelle", "bezeichnung", "pegel"))
         river = _pick(item, ("river", "gewaesser", "gewässer", "fluss", "waterbody"))
-        measured_at = _pick(item, ("measured_at", "timestamp", "zeit", "datum", "datetime", "messzeit"))
+        measured_at = _pick(item, ("letzter_wert_q_date", "letzter_wert_w_date", "measured_at", "timestamp", "zeit", "datum", "datetime", "messzeit"))
         stations.append({
             "station_id": str(station_id) if station_id is not None else "",
             "name": str(name) if name is not None else "",
             "river": str(river) if river is not None else "",
             "lon": _to_float(_pick(item, ("lon", "lng", "longitude", "x"))),
             "lat": _to_float(_pick(item, ("lat", "latitude", "y"))),
-            "q_m3s": _to_float(_pick(item, ("q_m3s", "q", "abfluss", "durchfluss"))),
-            "w_cm": _to_float(_pick(item, ("w_cm", "w", "wasserstand", "pegelstand"))),
-            "measured_at": str(measured_at) if measured_at is not None else None,
-            "hq1": _to_float(_pick(item, ("hq1", "hq_1"))),
-            "hq10": _to_float(_pick(item, ("hq10", "hq_10"))),
-            "hq30": _to_float(_pick(item, ("hq30", "hq_30"))),
-            "hq100": _to_float(_pick(item, ("hq100", "hq_100"))),
+            "q_m3s": _to_float(_pick(item, ("letzter_wert_q", "q_m3s", "q", "abfluss", "durchfluss"))),
+            "w_cm": _to_float(_pick(item, ("letzter_wert_w", "w_cm", "w", "wasserstand", "pegelstand"))),
+            "measured_at": str(measured_at) if measured_at not in (None, "") else None,
+            "hq1": _to_float(_pick(kennwerte, ("hq1", "hq_1")) if kennwerte else _pick(item, ("hq1", "hq_1"))),
+            "hq10": _to_float(_pick(kennwerte, ("hq10", "hq_10")) if kennwerte else _pick(item, ("hq10", "hq_10"))),
+            "hq30": _to_float(_pick(kennwerte, ("hq30", "hq_30")) if kennwerte else _pick(item, ("hq30", "hq_30"))),
+            "hq100": _to_float(_pick(kennwerte, ("hq100", "hq_100")) if kennwerte else _pick(item, ("hq100", "hq_100"))),
             "raw": item,
         })
     return {
@@ -150,6 +151,24 @@ def normalize_hydro_payload(raw: dict) -> dict:
         "status": {"ok": True, "from_cache": False, "station_count": len(stations), "error": None},
     }
 
+
+
+def _runtime_int(name: str, default: int) -> int:
+    try:
+        import runtime_config
+        return int(runtime_config.get(name, default))
+    except Exception:
+        return int(default)
+
+def _runtime_bool(name: str, default: bool) -> bool:
+    try:
+        import runtime_config
+        value = runtime_config.get(name, default)
+    except Exception:
+        value = default
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "no", "off"}
+    return bool(value)
 
 def load_latest_hydro_live(max_age_seconds: int | None = None) -> dict | None:
     data = _read_json(LATEST_FILE)
@@ -205,8 +224,12 @@ def _mark_cache(data: dict, error: str | None = None) -> dict:
 
 
 def fetch_hydro_live(force: bool = False) -> dict:
+    if not _runtime_bool("HYDRO_ENABLED", True):
+        status = {"ok": False, "from_cache": False, "station_count": 0, "error": "hydro_disabled"}
+        _write_status(status)
+        return {"fetched_at": _iso_z(), "source": SOURCE_NAME, "raw_data_notice": RAW_DATA_NOTICE, "stations": [], "status": status}
     if not force:
-        cached = load_latest_hydro_live(max_age_seconds=DEFAULT_TTL_SECONDS)
+        cached = load_latest_hydro_live(max_age_seconds=_runtime_int("HYDRO_API_TTL_SECONDS", DEFAULT_TTL_SECONDS))
         if cached is not None:
             result = _mark_cache(cached)
             _write_status(result["status"])
