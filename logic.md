@@ -163,3 +163,7 @@ Polygon-basiert; vier Treffertypen (Priorität current > slow > forecast/growth)
 > Hinweis: Survival/Decay (P-T06), Stale-Kennzeichnung (P-T09) und
 > `growth_approach` (P-M05) sind projekteigene Erweiterungen, methodisch angelehnt an
 > die TRT-Lebenszyklus-/Extrapolationskonzepte (Hering et al. 2004).
+
+## Hydro-Impact-Logik
+
+Pegel-Attribution erfolgt **nicht radiusbasiert**. Eine Zelle wird nur berücksichtigt, wenn ihr Polygon das **oberliegendes Einzugsgebiet** einer Station schneidet und anschließend ein plausibler hydrologischer **Zeitversatz** angewendet wird. Ergebnisse heißen stets **plausibler Zusammenhang** und sind **keine amtliche Hochwasserwarnung**. Fehlen lokale statische Daten, bleibt das System lauffähig und setzt `hydro_static_missing`.

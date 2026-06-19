@@ -90,7 +90,7 @@ def station_features():
         lon = st.get("lon", l.get("lon")); lat = st.get("lat", l.get("lat"))
         if lon is None or lat is None: continue
         ev = active.get(sid)
-        props = {"station_id": sid, "name": l.get("name") or st.get("station_name") or sid, "river": l.get("river") or st.get("river_name") or "", "q_m3s": l.get("q_m3s"), "w_cm": l.get("w_cm"), "measured_at": l.get("measured_at"), "status": ev.get("status") if ev else ("ok" if enabled() else "disabled"), "enabled": bool(st.get("enabled", True)), "impact_active": bool(ev), "last_hydro_impact": ev}
+        props = {"station_id": sid, "name": l.get("name") or st.get("station_name") or sid, "river": l.get("river") or st.get("river_name") or "", "q_m3s": l.get("q_m3s"), "w_cm": l.get("w_cm"), "measured_at": l.get("measured_at"), "status": ev.get("status") if ev else ("ok" if enabled() else "disabled"), "enabled": bool(st.get("enabled", True)), "active": bool(st.get("enabled", True)) and not bool(st.get("ignored", False)), "ignored": bool(st.get("ignored", False)), "impact_active": bool(ev), "last_hydro_impact": ev}
         feats.append({"type":"Feature", "geometry":{"type":"Point", "coordinates":[float(lon), float(lat)]}, "properties":props})
     return {"type":"FeatureCollection", "features": feats}
 
@@ -101,7 +101,8 @@ def status():
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     last_error = live.get("last_error") or live.get("error")
     live_ok = bool(live.get("ok")) and not last_error
-    return {"enabled": enabled(), "static_ready": bool(_static_index()), "live_ready": LIVE_LATEST.exists(), "live_ok": live_ok, "from_cache": bool(live.get("from_cache")), "status": "ok" if live_ok else "error", "last_fetch": live.get("updated_at") or _json(LIVE_LATEST, {}).get("fetched_at"), "last_error": last_error, "station_count": len(station_features()["features"]), "impact_pending": sum(e.get("status") == "pending" for e in impacts), "impact_confirmed_24h": sum(e.get("status") == "confirmed" and ((_dt(e.get("verified_at") or e.get("created_at")) or cutoff) >= cutoff) for e in impacts)}
+    static_ready = bool(_static_index())
+    return {"enabled": enabled(), "hydro_enabled": enabled(), "static_ready": static_ready, "static_status": "ok" if static_ready else "hydro_static_missing", "hydro_static_missing": not static_ready, "live_ready": LIVE_LATEST.exists(), "live_ok": live_ok, "from_cache": bool(live.get("from_cache")), "cache_used": bool(live.get("from_cache")), "status": "ok" if live_ok else "error", "last_fetch": live.get("updated_at") or _json(LIVE_LATEST, {}).get("fetched_at"), "last_error": last_error, "station_count": len(station_features()["features"]), "impact_pending": sum(e.get("status") == "pending" for e in impacts), "impact_confirmed_24h": sum(e.get("status") == "confirmed" and ((_dt(e.get("verified_at") or e.get("created_at")) or cutoff) >= cutoff) for e in impacts)}
 
 
 def catchment(station_id):
