@@ -276,10 +276,9 @@ def build_dataset(model_save_dir=None):
     X = np.asarray(X_rows, dtype=float)
     y_raw = np.asarray(y_rows, dtype=float)
 
-    effective_model_dir = model_save_dir or os.path.join(
-        SAVE_PATHS.get("models", "train_data/models"), "current"
-    )
-    os.makedirs(effective_model_dir, exist_ok=True)
+    effective_model_dir = model_save_dir
+    if effective_model_dir is not None:
+        os.makedirs(effective_model_dir, exist_ok=True)
     os.makedirs(SAVE_PATHS["dataset"], exist_ok=True)
 
     scaler_X = StandardScaler()
@@ -301,8 +300,9 @@ def build_dataset(model_save_dir=None):
     scaler_y.n_features_in_ = y_raw.shape[1]
     y_scaled = (y_raw - _col_mean) / _col_std
 
-    joblib.dump(scaler_X, os.path.join(effective_model_dir, "scaler_X.joblib"))
-    joblib.dump(scaler_y, os.path.join(effective_model_dir, "scaler_y.joblib"))
+    if effective_model_dir is not None:
+        joblib.dump(scaler_X, os.path.join(effective_model_dir, "scaler_X.joblib"))
+        joblib.dump(scaler_y, os.path.join(effective_model_dir, "scaler_y.joblib"))
 
     np.savez(
         os.path.join(SAVE_PATHS["dataset"], "dataset.npz"),

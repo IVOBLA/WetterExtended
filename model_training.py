@@ -64,7 +64,11 @@ if (
 else:
     Sequential = load_model = Input = LSTM = Dense = Dropout = EarlyStopping = ModelCheckpoint = Adam = None
 
-from config import ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, SAVE_PATHS
+from config import DATA_RETENTION_DAYS, MIN_SEQUENCES_LSTM, ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, SAVE_PATHS
+
+MIN_SAMPLES_FOR_PROMOTION = 50
+LARGE_SAMPLE_THRESHOLD = 500
+TOLERANCE_LARGE = 1.02
 
 _MODELS_BASE = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "train_data", "models")
@@ -96,9 +100,25 @@ def _list_versions():
     return sorted([name for name in os.listdir(base) if name.startswith("v_") and os.path.isdir(os.path.join(base, name))])
 
 
+def _current_target_version():
+    current = _current_models_dir()
+    try:
+        if os.path.islink(current):
+            target = os.path.realpath(current)
+            if os.path.isdir(target):
+                return os.path.basename(target)
+        if os.path.isdir(current) and os.path.basename(os.path.realpath(current)).startswith("v_"):
+            return os.path.basename(os.path.realpath(current))
+    except Exception:
+        return None
+    return None
+
+
 def cleanup_old_versions(keep_n=5):
     versions = _list_versions()
-    for old in versions[:-keep_n]:
+    active = _current_target_version()
+    deletable = [v for v in versions if v != active]
+    for old in deletable[:-keep_n]:
         old_path = _version_models_dir(old)
         for root, dirs, files in os.walk(old_path, topdown=False):
             for f in files:
@@ -116,6 +136,10 @@ def _atomic_switch_current(version_id):
 
     # os.replace() kann atomar nur Symlinks/Dateien auf Dateisystem-Ebene ersetzen.
     # Ein echtes Verzeichnis als Ziel führt auf Linux zu IsADirectoryError.
+    if os.path.islink(current_link) and not os.path.exists(current_link):
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        os.rename(current_link, os.path.join(base_dir, f"current_broken_{ts}"))
+
     if os.path.exists(current_link) and not os.path.islink(current_link):
         debug_log(f"[TRAINING] current ist ein echtes Verzeichnis — konvertiere zu Symlink")
         import shutil
@@ -470,6 +494,51 @@ def _quarantine_incompatible_current(reason: str) -> None:
         debug_log(f"[MODEL] B116: Quarantäne fehlgeschlagen: {exc}")
 
 
+
+def _has_required_model_artifacts(model_dir: str) -> bool:
+    if not os.path.isdir(model_dir):
+        return False
+    if not (os.path.exists(os.path.join(model_dir, "scaler_X.joblib")) and os.path.exists(os.path.join(model_dir, "scaler_y.joblib"))):
+        return False
+    has_lstm = os.path.exists(os.path.join(model_dir, "weather_lstm.keras"))
+    has_lgbm = any(
+        os.path.exists(os.path.join(model_dir, f"lgbm_h{h}_{axis}.txt"))
+        for h in _get_training_horizons()
+        for axis in ("x", "y")
+    )
+    return has_lstm or has_lgbm
+
+
+def _is_valid_current_model(model_dir: str | None = None) -> bool:
+    cur = model_dir or _current_models_dir()
+    if not os.path.lexists(cur):
+        return False
+    if os.path.islink(cur) and not os.path.exists(cur):
+        return False
+    if not os.path.isdir(cur):
+        return False
+    compat = _check_model_compatibility(cur)
+    return bool(compat.get("compatible") and _has_required_model_artifacts(cur))
+
+
+def _status_reason(status: str, promotion_samples: int) -> str:
+    missing = max(0, MIN_SAMPLES_FOR_PROMOTION - int(promotion_samples or 0))
+    mapping = {
+        "cold_start_promoted_low_confidence": f"Erstes ML-Modell wurde aktiviert, obwohl erst {promotion_samples} von {MIN_SAMPLES_FOR_PROMOTION} aktuellen Promotion-/Validierungs-Samples vorhanden sind. Das Modell ist nutzbar, aber mit niedriger Vertrauensstufe markiert.",
+        "cold_start_insufficient_samples": "Erstaktivierung blockiert: kein brauchbarer Modellkandidat vorhanden oder Training nicht erfolgreich abgeschlossen.",
+        "cold_start_rejected_invalid_model": "Erstes Modell wurde nicht aktiviert, weil Modellartefakte fehlen, inkompatibel sind oder das Training ungültig war.",
+        "rejected_low_samples": f"Neuer Trainingslauf wurde nicht promoted: nur {promotion_samples} von {MIN_SAMPLES_FOR_PROMOTION} aktuellen Promotion-/Validierungs-Samples vorhanden. Das aktive Modell bleibt unverändert.",
+        "promoted": "Modell wurde aktiviert.",
+        "rejected": "Neues Modell war nicht besser als das aktive Modell.",
+        "rejected_incompatible": "Modell ist inkompatibel zu aktuellen Horizonten oder Features.",
+        "rejected_invalid_holdout": "Holdout-Prüfung ungültig. Modell wurde nicht aktiviert.",
+        "no_data": "Kein nutzbarer Datensatz für diesen Trainingslauf vorhanden.",
+    }
+    text = mapping.get(status, status)
+    if missing and status not in {"cold_start_promoted_low_confidence", "rejected_low_samples"}:
+        text += f" Es fehlen {missing} Promotion-/Validierungs-Samples."
+    return text
+
 def load_lstm(model_dir=None):
     if load_model is None:
         return None
@@ -697,6 +766,14 @@ def retrain_all():
                 "samples": intensification_result.get("samples", 0),
                 "positive_samples": intensification_result.get("positive_samples", 0),
             },
+            "dataset": {
+                "scope": "cumulative_rolling",
+                "retention_days": DATA_RETENTION_DAYS,
+                "total_samples": int(len(X)) if has_data else 0,
+                "train_samples": int(len(X_train_full)) if has_data else 0,
+                "holdout_samples": int(len(X_holdout)) if has_data else 0,
+                "sequence_length": ML_SEQUENCE_LENGTH,
+            },
             "holdout": _compute_holdout_metrics(
                 X_holdout, y_holdout,
                 version_dir,
@@ -721,7 +798,7 @@ def retrain_all():
 
     new_eval = evaluate_on_recent(version_dir)
     current_dir = _current_models_dir()
-    has_current = os.path.isdir(current_dir)
+    has_current = _is_valid_current_model(current_dir)
     old_eval = evaluate_on_recent(current_dir) if has_current else {"mae_total": float("inf"), "mae_by_horizon": {}, "samples": 0}
 
     # Fix P07: harte Promotion-Regeln
@@ -730,10 +807,7 @@ def retrain_all():
     #   - new_eval muss >= 50 verifizierbare Samples haben.
     #   - Eine Verbesserungstoleranz von 2 % wird nur akzeptiert, wenn
     #     mindestens 500 Samples vorliegen — ansonsten muss new < old strikt sein.
-    _MIN_SAMPLES_FOR_PROMOTION = 50
-    _LARGE_SAMPLE_THRESHOLD    = 500
-    _TOLERANCE_LARGE           = 1.02   # 2 % schlechter erlaubt bei >500 Samples
-    _new_samples = int(new_eval.get("samples", 0) or 0)
+    promotion_samples = int(new_eval.get("samples", 0) or 0)
     _mae_new     = float(new_eval.get("mae_total", float("inf")))
     _mae_old     = float(old_eval.get("mae_total", float("inf")))
 
@@ -747,44 +821,39 @@ def retrain_all():
             f"Retraining mit passenden Horizonten/Features erforderlich."
         )
     elif not has_current:
-        # P24: Cold-Start nur mit ausreichend Validierungssamples.
-        # B116: _MIN_SAMPLES_FOR_PROMOTION bleibt unverändert und schützt die
-        # Promotion; wenn kein kompatibles current existiert, sammelt der Retrain
-        # sichtbar weiter, bis ein valider Cold-Start möglich ist.
-        if _new_samples >= _MIN_SAMPLES_FOR_PROMOTION:
-            status = "promoted"
+        trained_ok = bool(meta.get("lstm", {}).get("trained") or meta.get("lgbm", {}).get("trained"))
+        dataset_ok = int(meta.get("dataset", {}).get("total_samples", meta.get("num_samples", 0)) or 0) >= int(MIN_SEQUENCES_LSTM)
+        holdout = meta.get("holdout", {})
+        holdout_mae = holdout.get("mae_px")
+        holdout_ok = holdout.get("samples", 0) == 0 or (isinstance(holdout_mae, (int, float)) and holdout_mae < float("inf"))
+        artifacts_ok = _has_required_model_artifacts(version_dir)
+        if trained_ok and dataset_ok and artifacts_ok and holdout_ok:
+            status = "cold_start_promoted_low_confidence" if promotion_samples < MIN_SAMPLES_FOR_PROMOTION else "promoted"
             _atomic_switch_current(timestamp)
-            debug_log(
-                f"[TRAINING] PROMOTED {timestamp} "
-                f"(cold-start, samples={_new_samples})"
-            )
+            debug_log(f"[TRAINING] Cold-Start aktiviert {timestamp} (promotion_samples={promotion_samples}, low_confidence={promotion_samples < MIN_SAMPLES_FOR_PROMOTION})")
         else:
-            status = "cold_start_insufficient_samples"
-            debug_log(
-                f"[TRAINING] Cold-Start-Promotion ABGELEHNT: "
-                f"samples={_new_samples} < {_MIN_SAMPLES_FOR_PROMOTION}. "
-                f"Kinematischer Fallback bleibt aktiv (B116: Retrain sammelt weiter)."
-            )
+            status = "cold_start_rejected_invalid_model" if trained_ok else "cold_start_insufficient_samples"
+            debug_log(f"[TRAINING] Cold-Start ABGELEHNT: trained={trained_ok}, dataset_ok={dataset_ok}, artifacts={artifacts_ok}, holdout_ok={holdout_ok}")
     elif getattr(X, "size", 0) == 0:
         status = "no_data"
         debug_log(
             f"[TRAINING] SKIPPED promotion {timestamp} "
             f"(no_data — current bleibt erhalten)"
         )
-    elif _new_samples < _MIN_SAMPLES_FOR_PROMOTION:
+    elif promotion_samples < MIN_SAMPLES_FOR_PROMOTION:
         status = "rejected_low_samples"
         debug_log(
             f"[TRAINING] REJECTED {timestamp} "
-            f"(samples={_new_samples} < {_MIN_SAMPLES_FOR_PROMOTION} — "
+            f"(samples={promotion_samples} < {MIN_SAMPLES_FOR_PROMOTION} — "
             f"keine Promotion ohne ausreichende Validierung)"
         )
-    elif _new_samples >= _LARGE_SAMPLE_THRESHOLD and _mae_new < _mae_old * _TOLERANCE_LARGE:
+    elif promotion_samples >= LARGE_SAMPLE_THRESHOLD and _mae_new < _mae_old * TOLERANCE_LARGE:
         status = "promoted"
         _atomic_switch_current(timestamp)
         debug_log(
             f"[TRAINING] PROMOTED {timestamp} (large-sample tolerance: "
             f"mae_new={_mae_new:.4f} vs mae_old={_mae_old:.4f}, "
-            f"samples={_new_samples})"
+            f"samples={promotion_samples})"
         )
     elif _mae_new < _mae_old:
         # P30: Holdout-MAE prüfen — muss endlich sein (Training ohne Fehler abgeschlossen)
@@ -807,23 +876,36 @@ def retrain_all():
             debug_log(
                 f"[TRAINING] PROMOTED {timestamp} "
                 f"(mae_new={_mae_new:.4f} < mae_old={_mae_old:.4f}, "
-                f"samples={_new_samples}, holdout_mae_px={_holdout_mae})"
+                f"samples={promotion_samples}, holdout_mae_px={_holdout_mae})"
             )
     else:
         status = "rejected"
         debug_log(
             f"[TRAINING] REJECTED {timestamp} "
             f"(mae_new={_mae_new:.4f} vs mae_old={_mae_old:.4f}, "
-            f"samples={_new_samples})"
+            f"samples={promotion_samples})"
         )
 
+    low_confidence = bool(status == "cold_start_promoted_low_confidence")
+    meta.setdefault("dataset", {
+        "scope": "cumulative_rolling",
+        "retention_days": DATA_RETENTION_DAYS,
+        "total_samples": int(len(X)) if getattr(X, "size", 0) else 0,
+        "train_samples": 0,
+        "holdout_samples": 0,
+        "sequence_length": ML_SEQUENCE_LENGTH,
+    })
     meta["validation"] = {
         "mae_old": old_eval.get("mae_total"),
         "mae_new": new_eval.get("mae_total"),
         "mae_by_horizon_old": old_eval.get("mae_by_horizon", {}),
         "mae_by_horizon_new": new_eval.get("mae_by_horizon", {}),
-        "samples_recent": new_eval.get("samples", 0),
+        "samples_recent": promotion_samples,
+        "samples_required": MIN_SAMPLES_FOR_PROMOTION,
+        "samples_missing": max(0, MIN_SAMPLES_FOR_PROMOTION - promotion_samples),
+        "low_confidence": low_confidence,
         "status": status,
+        "status_reason": _status_reason(status, promotion_samples),
     }
     with open(os.path.join(version_dir, "training_meta.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2, ensure_ascii=False)

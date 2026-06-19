@@ -37,6 +37,16 @@ export default function Progress() {
   })
   const aucSeries = versions.map((v, i) => ({ idx: i + 1, auc: v.intensification?.auc }))
 
+  const statusReason = (v) => v.validation?.status_reason || ({
+    cold_start_promoted_low_confidence: 'Erstes ML-Modell wurde aktiviert, aber wegen weniger Promotion-Samples mit niedriger Vertrauensstufe markiert.',
+    cold_start_insufficient_samples: 'Erstaktivierung blockiert: zu wenige aktuelle Promotion-/Validierungs-Samples und kein brauchbarer Modellkandidat.',
+    rejected_low_samples: 'Nicht promoted: zu wenige aktuelle Promotion-/Validierungs-Samples. Aktives Modell bleibt unverändert.',
+    promoted: 'Modell aktiv geschaltet.',
+    rejected: 'Schlechter als Vorgänger.',
+    rejected_incompatible: 'Inkompatibel zu aktueller Konfiguration.',
+    rejected_invalid_holdout: 'Holdout ungültig.',
+  }[v.validation?.status] || '—')
+
   function Chart({ title, data, lines }) {
     return (
       <div className="card mb-4">
@@ -152,23 +162,34 @@ export default function Progress() {
           <div className="card">
             <h3 className="text-lg font-medium mb-2">Versionen</h3>
             <p className="text-xs text-gray-500 mb-2">
-              Jede Zeile = ein Trainings-Lauf. <b>Samples</b> = Anzahl Trainingsbeispiele.
+              Jede Zeile = ein Trainings-Lauf. <b>Dataset-Samples</b> = Trainingsbeispiele im kumulativen Dataset.
+              <b> Train-Samples</b> = tatsächlich für Training genutzte Samples. <b> Holdout-Samples</b> = zurückgehaltene Vergleichsdaten.
+              <b> Promotion-Samples</b> = aktuelle Validierungs-/Vergleichssamples für Aktivierung oder Modellwechsel.
               <b> MAE total</b> = gemittelter absoluter Fehler über alle Horizonte (niedriger = besser).
               <b> Status</b>: <span className="text-green-700">promoted</span> = Modell ist aktiv,
               <span className="text-gray-500"> rejected</span> = schlechter als Vorgänger.
             </p>
             <table className="w-full text-sm">
               <thead><tr className="border-b">
-                <th className="text-left p-1">Timestamp</th><th className="text-left p-1">Samples</th>
-                <th className="text-left p-1">MAE total</th><th className="text-left p-1">Status</th>
+                <th className="text-left p-1">Timestamp</th><th className="text-left p-1">Dataset-Samples</th>
+                <th className="text-left p-1">Train-Samples</th><th className="text-left p-1">Holdout-Samples</th>
+                <th className="text-left p-1">Promotion-Samples</th><th className="text-left p-1">Promotion benötigt</th>
+                <th className="text-left p-1">Low confidence</th><th className="text-left p-1">MAE total</th>
+                <th className="text-left p-1">Status</th><th className="text-left p-1">Erklärung</th>
               </tr></thead>
               <tbody>
                 {versions.map((v, i) => (
                   <tr key={i} className="border-b">
                     <td className="p-1">{v.timestamp_utc}</td>
-                    <td className="p-1">{v.num_samples}</td>
+                    <td className="p-1">{v.dataset?.total_samples ?? v.num_samples ?? '—'}</td>
+                    <td className="p-1">{v.dataset?.train_samples ?? '—'}</td>
+                    <td className="p-1">{v.dataset?.holdout_samples ?? v.holdout?.samples ?? '—'}</td>
+                    <td className="p-1">{v.validation?.samples_recent ?? '—'}</td>
+                    <td className="p-1">{v.validation?.samples_required ?? '—'}</td>
+                    <td className="p-1">{v.validation?.low_confidence ? 'ja' : 'nein'}</td>
                     <td className="p-1">{v.validation?.mae_new?.toFixed?.(4) ?? '—'}</td>
                     <td className="p-1">{v.validation?.status ?? '—'}</td>
+                    <td className="p-1">{statusReason(v)}</td>
                   </tr>
                 ))}
               </tbody>
