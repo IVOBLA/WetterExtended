@@ -17,7 +17,11 @@ Fix P08:
     FORECAST_ARROW_STYLE werden respektiert.
 """
 
+import json
 import math
+from pathlib import Path
+
+import config
 
 import simplekml
 from cell_lineage_dedup import attach_ir_values_to_radar
@@ -65,6 +69,53 @@ def _resolve_horizon_value(d: dict, horizon, default):
         return d[sh]
     return default
 
+
+
+def _load_hydro_kmz_data():
+    try:
+        import hydro_api
+        return hydro_api.station_features(), hydro_api.normalized_impacts(True), hydro_api
+    except Exception as exc:
+        debug_log(f"[KMZ] Hydro-Layer übersprungen: {exc}")
+        return {"features": []}, [], None
+
+
+def _add_hydro_layers(kml):
+    stations, impacts, hydro_api_mod = _load_hydro_kmz_data()
+    features = stations.get("features", []) if isinstance(stations, dict) else []
+    if not features and not impacts:
+        return
+    folder = kml.newfolder(name="Hydro-Impact")
+    impact_by_station = {str(e.get("station_id")): e for e in impacts if isinstance(e, dict)}
+    for feat in features:
+        props = feat.get("properties") or {}
+        coords = (feat.get("geometry") or {}).get("coordinates") or []
+        if len(coords) < 2:
+            continue
+        sid = str(props.get("station_id"))
+        impact = impact_by_station.get(sid) or props.get("last_hydro_impact") or {}
+        affected = impact.get("status") in {"pending", "confirmed", "ambiguous"}
+        pnt = folder.newpoint(name=("Betroffener Pegel " if affected else "Hydro-Pegel ") + str(props.get("name") or sid), coords=[(coords[0], coords[1])])
+        pnt.description = "\n".join([
+            f"Station: {props.get('name') or sid}",
+            f"Gewässer: {props.get('river') or '—'}",
+            f"Q m³/s: {props.get('q_m3s', '—')}",
+            f"W cm: {props.get('w_cm', '—')}",
+            f"Messzeit: {props.get('measured_at') or '—'}",
+            f"Impact-Status: {impact.get('status') or props.get('status') or '—'}",
+            f"Cell-ID: {impact.get('cell_id') or '—'}",
+        ])
+        pnt.style.iconstyle.icon.href = "http://maps.google.com/mapfiles/kml/shapes/water.png"
+        pnt.style.iconstyle.scale = 1.1 if affected else 0.8
+        pnt.style.iconstyle.color = _hex_to_kml_color('#f97316' if impact.get('status') == 'pending' else '#16a34a' if impact.get('status') == 'confirmed' else '#a855f7' if impact.get('status') == 'ambiguous' else '#0ea5e9')
+        if getattr(config, "HYDRO_KMZ_INCLUDE_CATCHMENTS", False) and hydro_api_mod:
+            for cf in hydro_api_mod.catchment(sid).get("features", [])[:1]:
+                ring = ((cf.get("geometry") or {}).get("coordinates") or [[]])[0]
+                if 3 <= len(ring) <= 500:
+                    poly = folder.newpolygon(name=f"Einzugsgebiet-Hinweis {sid}", outerboundaryis=[(c[0], c[1]) for c in ring])
+                    poly.style.polystyle.color = _hex_to_kml_color('#0ea5e9', alpha=25)
+                    poly.style.linestyle.color = _hex_to_kml_color('#0ea5e9', alpha=160)
+                    poly.style.linestyle.width = 1
 
 def save_forecast_as_kmz(
     forecasts_by_horizon: dict,
@@ -322,6 +373,8 @@ def save_forecast_as_kmz(
                     arrow.style.linestyle.width = 2
             except Exception as _ir_kml_exc:
                 debug_log(f"[KMZ] IR-Cell {ir.get('ir_id','?')} fehlgeschlagen: {_ir_kml_exc}")
+
+    _add_hydro_layers(kml)
 
     kml.savekmz(output_path)
     debug_log(f"Vorhersage als KMZ gespeichert: {output_path}")
