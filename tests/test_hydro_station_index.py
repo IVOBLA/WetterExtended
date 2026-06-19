@@ -89,3 +89,47 @@ def test_station_inside_basin_without_upstream_topology_is_not_impact_eligible(t
         "contour_geo": [[13.9, 46.5], [14.1, 46.5], [14.1, 46.7], [13.9, 46.7]],
     }
     assert hydro_impact.evaluate_hydro_impact([cell_in_same_basin], "2026-06-19T12:00:00Z") == []
+
+
+@pytest.mark.skipif(not hydro_station_index.SHAPELY_AVAILABLE, reason="Shapely fehlt: keine produktive Hydro-Catchment-Union")
+def test_upstream_catchment_ids_create_valid_geometric_union_and_impacts(tmp_path, monkeypatch):
+    status = build_station_index(
+        str(FIX / "hydro_stations_upstream_union.geojson"),
+        str(FIX / "basins_adjacent_union.geojson"),
+        None,
+        str(tmp_path),
+    )
+
+    assert status["status"] == "ok"
+    catchments = json.loads((tmp_path / "station_catchments.geojson").read_text(encoding="utf-8"))
+    assert len(catchments["features"]) == 1
+
+    feature = catchments["features"][0]
+    props = feature["properties"]
+    assert props["station_id"] == "S_UNION"
+    assert set(props["upstream_catchment_ids"]) == {"B1", "B2"}
+    assert props["impact_eligible"] is True
+
+    basins = json.loads((FIX / "basins_adjacent_union.geojson").read_text(encoding="utf-8"))["features"]
+    basin_shapes = [hydro_station_index.shape(basin["geometry"]) for basin in basins]
+    union_shape = hydro_station_index.shape(feature["geometry"])
+    expected_union = hydro_station_index.unary_union(basin_shapes)
+    assert union_shape.equals_exact(expected_union, tolerance=1e-9)
+    assert union_shape.area == pytest.approx(sum(basin.area for basin in basin_shapes), rel=1e-9)
+    assert all(union_shape.covers(basin) for basin in basin_shapes)
+
+    monkeypatch.setattr(hydro_impact, "CATCHMENTS_PATH", tmp_path / "station_catchments.geojson")
+    monkeypatch.setattr(hydro_impact, "NETWORK_INDEX_PATH", tmp_path / "station_network_index.json")
+    monkeypatch.setattr(hydro_impact, "LATEST_HYDRO_PATH", tmp_path / "latest_hydro.json")
+    monkeypatch.setenv("HYDRO_ENABLED", "true")
+
+    cells = [
+        {"id": "B1", "contour_geo": [[13.02, 46.02], [13.08, 46.02], [13.08, 46.08], [13.02, 46.08]], "intensity": "strong", "duration_min": 30},
+        {"id": "B2", "contour_geo": [[13.12, 46.02], [13.18, 46.02], [13.18, 46.08], [13.12, 46.08]], "intensity": "strong", "duration_min": 30},
+        {"id": "OUT", "contour_geo": [[13.30, 46.02], [13.36, 46.02], [13.36, 46.08], [13.30, 46.08]], "intensity": "strong", "duration_min": 30},
+    ]
+    events = hydro_impact.evaluate_hydro_impact(cells, "2026-06-19_09-00-00")
+
+    assert {event["cell_id"] for event in events} == {"B1", "B2"}
+    assert all(event["station_id"] == "S_UNION" for event in events)
+    assert all(set(event["upstream_catchment_ids"]) == {"B1", "B2"} for event in events)

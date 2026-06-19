@@ -1,0 +1,4 @@
+{"type":"FeatureCollection","features":[
+  {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[13.0,46.0],[13.1,46.0],[13.1,46.1],[13.0,46.1],[13.0,46.0]]]},"properties":{"catchment_id":"B1","catchment_area_km2":85.0}},
+  {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[13.1,46.0],[13.2,46.0],[13.2,46.1],[13.1,46.1],[13.1,46.0]]]},"properties":{"catchment_id":"B2","catchment_area_km2":85.0}}
+]}
