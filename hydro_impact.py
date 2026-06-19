@@ -302,7 +302,8 @@ def evaluate_hydro_impact(objects: list, timestamp: str | None = None) -> list[d
             station_ctx = {**props, **(network.get(sid, {}) if isinstance(network, dict) else {})}
             if isinstance(overrides, dict):
                 station_ctx.update(overrides.get(sid, {}) or {})
-            if not station_ctx.get("enabled", True) or station_ctx.get("ignored") or station_ctx.get("impact_eligible") is False or station_ctx.get("quality") == "unresolved":
+            quality = station_ctx.get("quality")
+            if not station_ctx.get("enabled", True) or station_ctx.get("ignored") or station_ctx.get("impact_eligible") is False or quality in {"unresolved", "fallback_nearest_basin"}:
                 continue
             scored = score_hydro_impact(cell, station_ctx, overlap, {"latest_hydro": latest_hydro})
             if _intensity(cell) not in RELEVANT_INTENSITIES or _duration(cell) < MIN_DURATION_MIN:

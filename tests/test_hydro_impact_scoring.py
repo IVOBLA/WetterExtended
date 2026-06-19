@@ -59,3 +59,18 @@ def test_evaluate_creates_pending_event_only_for_upstream_catchment_hit(tmp_path
     assert events[0]["relation"] == "upstream_catchment_hit"
     assert events[0]["status"] == "pending"
     assert events[0]["verification"] is None
+
+
+def test_evaluate_rejects_legacy_nearest_basin_fallback_station(tmp_path, monkeypatch):
+    catchments = {"type": "FeatureCollection", "features": [_feature("123", 13.0, 46.0, 13.2, 46.2)]}
+    cpath = tmp_path / "station_catchments.geojson"
+    npath = tmp_path / "station_network_index.json"
+    cpath.write_text(json.dumps(catchments), encoding="utf-8")
+    npath.write_text(json.dumps({"123": {"enabled": True, "quality": "fallback_nearest_basin", "estimated_lag_min": [30, 120]}}), encoding="utf-8")
+    monkeypatch.setattr(hydro_impact, "CATCHMENTS_PATH", cpath)
+    monkeypatch.setattr(hydro_impact, "NETWORK_INDEX_PATH", npath)
+    monkeypatch.setattr(hydro_impact, "LATEST_HYDRO_PATH", tmp_path / "latest_hydro.json")
+    monkeypatch.setenv("HYDRO_ENABLED", "true")
+    cell = {"id": 42, "contour_geo": [[13.0, 46.0], [13.2, 46.0], [13.2, 46.2], [13.0, 46.2], [13.0, 46.0]], "intensity": "strong", "duration_min": 15}
+
+    assert hydro_impact.evaluate_hydro_impact([cell], "2026-06-19_09-00-00") == []
