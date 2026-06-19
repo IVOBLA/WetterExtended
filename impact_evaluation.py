@@ -63,9 +63,53 @@ def evaluate_impact(objects, timestamp):
 
         obj["impact"] = impact
 
+    _integrate_hydro_impact(objects, timestamp)
+
 
 def load_json_if_exists(path):
     if os.path.exists(path):
         with open(path, "r") as f:
             return json.load(f)
     return None
+
+
+def _integrate_hydro_impact(objects, timestamp):
+    """Optionale Hydro-Impact-Integration ohne harte Laufzeit-Abhängigkeit."""
+    from hydro_impact import (
+        evaluate_hydro_impact,
+        hydro_enabled,
+        save_hydro_impact_events,
+        static_data_available,
+    )
+
+    if not hydro_enabled():
+        for obj in objects:
+            obj.setdefault("impact", {})["hydro"] = False
+            obj["impact"]["hydro_status"] = "disabled"
+        return
+
+    if not static_data_available():
+        for obj in objects:
+            obj.setdefault("impact", {})["hydro"] = False
+            obj["impact"]["hydro_status"] = "missing_static_data"
+        return
+
+    try:
+        events = evaluate_hydro_impact(objects, timestamp)
+        if events:
+            save_hydro_impact_events(events, timestamp)
+        by_cell = {}
+        for event in events:
+            by_cell.setdefault(str(event.get("cell_id")), []).append(event)
+        for obj in objects:
+            cell_events = by_cell.get(str(obj.get("id", obj.get("cell_id", obj.get("track_id", "unknown")))), [])
+            obj.setdefault("impact", {})["hydro"] = bool(cell_events)
+            if cell_events:
+                obj["impact"]["hydro_events"] = cell_events
+                obj["impact"]["score"] = obj["impact"].get("score", 0) + max(e.get("impact_score", 0) for e in cell_events)
+            else:
+                obj["impact"]["hydro_status"] = "no_upstream_catchment_hit"
+    except Exception:
+        for obj in objects:
+            obj.setdefault("impact", {})["hydro"] = False
+            obj["impact"]["hydro_status"] = "error"
