@@ -239,7 +239,7 @@ def build_forecast_error_diagnosis(*, details_path: str | Path = DETAILS_FILE, a
         "invalid_detail_counts": {}, "invalid_detail_examples": [],
         "primary_findings": [], "recommendations": [], "severity": "ok", "root_cause_candidates": [],
         "mode_comparison": {}, "source_comparison": {}, "match_type_comparison": {},
-        "direction_diagnosis": {}, "speed_diagnosis": {}, "coverage_diagnosis": {}, "worst_forecasts": [],
+        "direction_diagnosis": {}, "speed_diagnosis": {}, "coverage_diagnosis": {}, "forecast_reject_reasons": {}, "worst_forecasts": [],
     }
     if not details_path.exists():
         base.update({"status": "missing", "severity": "watch", "recommendations": ["B211 muss zuerst Daten sammeln."]})
@@ -253,6 +253,12 @@ def build_forecast_error_diagnosis(*, details_path: str | Path = DETAILS_FILE, a
     short = [r for r in details if (_f(r.get("horizon_min")) or 9999) <= SHORT_HORIZON_MAX_MIN]
     verified = [r for r in details if _f(r.get("forecast_error_km")) is not None]
     verified_short = [r for r in short if _f(r.get("forecast_error_km")) is not None]
+    reject_counts: dict[str, int] = {}
+    for row in details:
+        reason = row.get("forecast_reject_reason") or row.get("forecast_reject_reason_horizon")
+        if reason:
+            reject_counts[str(reason)] = reject_counts.get(str(reason), 0) + 1
+    base["forecast_reject_reasons"] = reject_counts
     base["sample_counts"] = {"details": len(details), "details_total": len(all_details), "details_raw": len(all_details), "details_valid": len(details), "details_valid_before_dedup": len(valid_before_dedup), "details_deduped": len(details), "duplicates_removed": duplicates_removed, "details_invalid": len(all_details) - len(valid_before_dedup), "invalid_detail_counts": invalid_detail_counts, "verified_short": len(verified_short), "verified_total": len(verified)}
     if not details:
         _add(base["root_cause_candidates"], "low_sample_count", "watch", 0.3, {"details_valid": 0})

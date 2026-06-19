@@ -166,6 +166,48 @@ def _jwt_auth_check():
 
 
 # ---------- Helper ----------
+
+def is_silent_cell(o) -> bool:
+    if not isinstance(o, dict):
+        return True
+    try:
+        missing = int(o.get("missing", 0) or 0)
+    except Exception:
+        missing = 0
+    return (
+        o.get("tracking_state") == "inactive_rain"
+        or o.get("silent_tracking") is True
+        or (missing > 0 and o.get("tracking_state") != "reactivated")
+    )
+
+
+def _has_valid_contour(o: dict) -> bool:
+    contour_geo = o.get("contour_geo")
+    if isinstance(contour_geo, list) and len(contour_geo) >= 3:
+        return True
+    contour = o.get("contour")
+    return isinstance(contour, list) and len(contour) >= 3
+
+
+def is_public_cell(o) -> bool:
+    if not isinstance(o, dict) or is_silent_cell(o):
+        return False
+    try:
+        lat = float(o.get("lat")); lon = float(o.get("lon"))
+    except Exception:
+        return False
+    import math as _math_public_cell
+    return _math_public_cell.isfinite(lat) and _math_public_cell.isfinite(lon) and _has_valid_contour(o)
+
+
+def _current_user_is_admin() -> bool:
+    try:
+        import auth as _auth_mod
+        user = _auth_mod.get_current_user()
+    except Exception:
+        user = None
+    return bool(user and ROLE_LEVEL.get(user.get("role", ""), 0) >= ROLE_LEVEL["admin"])
+
 def _git_info():
     try:
         b = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True).strip()
@@ -1155,6 +1197,11 @@ def api_download_objects():
 def api_objects():
     ts = request.args.get("ts")  # z.B. ?ts=2025-05-19_19-21-00
     data = _objects_for_ts(ts)
+    include_silent = request.args.get("include_silent") == "1"
+    if include_silent and not _current_user_is_admin():
+        return jsonify({"error": "include_silent erfordert Admin-Berechtigung"}), 403
+    if isinstance(data, list) and not include_silent:
+        data = [o for o in data if is_public_cell(o)]
     # Phase E: IR-Tracks anhängen wenn include_ir=1
     from flask import request as _flask_req_ir
     if _flask_req_ir.args.get("include_ir") == "1":
@@ -1298,6 +1345,8 @@ def api_forecast():
     ts = request.args.get("ts")  # Frame-Sync: gleicher Timestamp wie Radarbild
     feats = []
     for o in _objects_for_ts(ts):
+        if not is_public_cell(o):
+            continue
         if o.get("lat") is None or o.get("lon") is None:
             continue
         # B78-FIX: speed_kmh direkt aus Objekt — bereits korrekt mit UPSCALE_FACTOR
@@ -1322,6 +1371,13 @@ def api_forecast():
             fx = o.get(f"forecast_lon_{h}")
             if fy is None or fx is None:
                 continue
+            try:
+                from prediction import validate_forecast_point as _validate_fc_point
+                _ok_fc, _reason_fc, _metrics_fc = _validate_fc_point(o, h, fy, fx, o.get(f"forecast_mode_{h}", o.get("forecast_mode", "kinematic")))
+                if not _ok_fc:
+                    continue
+            except Exception:
+                _metrics_fc = {}
             # Kein Pfeil wenn Forecast-Position identisch mit Zell-Position
             _dist_deg = _math.hypot(float(fx) - o["lon"], float(fy) - o["lat"])
             has_arrow = _dist_deg > 0.001   # < 0.001° ≈ < 100m → kein sinnvoller Pfeil
@@ -1336,7 +1392,10 @@ def api_forecast():
                     "color":           color,
                     "weight":          style.get("weight", 2),
                     "dash":            style.get("dash", ""),
-                    "forecast_mode":   o.get("forecast_mode", "kinematic"),
+                    "forecast_mode":   o.get(f"forecast_mode_{h}", o.get("forecast_mode", "kinematic")),
+                    "forecast_rejected": False,
+                    "forecast_reject_reason": o.get(f"forecast_reject_reason_{h}"),
+                    "forecast_speed_kmh": o.get(f"forecast_speed_kmh_{h}") or (_metrics_fc or {}).get("forecast_speed_kmh"),
                     "kinematic_source": o.get("kinematic_source"),
                     "has_arrow":       has_arrow,
                     "is_slow_arrow":   is_slow,
@@ -5002,7 +5061,10 @@ def api_hydro_status():
 @app.route("/api/hydro/stations")
 def api_hydro_stations():
     import hydro_api
-    return jsonify(hydro_api.station_features())
+    include_disabled = request.args.get("include_disabled") == "1"
+    if include_disabled and not _current_user_is_admin():
+        return jsonify({"error": "include_disabled erfordert Admin-Berechtigung"}), 403
+    return jsonify(hydro_api.station_features(include_disabled=include_disabled))
 
 @app.route("/api/hydro/impacts")
 def api_hydro_impacts():
@@ -5018,7 +5080,7 @@ def api_hydro_impacts_latest():
 @app.route("/api/hydro/station/<station_id>")
 def api_hydro_station(station_id):
     import hydro_api
-    for f in hydro_api.station_features().get("features", []):
+    for f in hydro_api.station_features(include_disabled=_current_user_is_admin()).get("features", []):
         if str((f.get("properties") or {}).get("station_id")) == str(station_id):
             return jsonify(f)
     return jsonify({"error": "Hydro-Station nicht gefunden", "station_id": station_id}), 404
@@ -5045,18 +5107,39 @@ def api_hydro_verify():
 
 @app.route("/api/hydro/stations/<station_id>", methods=["PATCH"])
 def api_hydro_station_patch(station_id):
-    import hydro_api, runtime_config
+    import re as _re_hydro_patch
+    import runtime_config
+    sid = str(station_id or "")
+    if not _re_hydro_patch.fullmatch(r"[A-Za-z0-9_.:-]{1,80}", sid):
+        return jsonify({"error": "Ungültige station_id"}), 400
     data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON-Objekt erwartet"}), 400
+    allowed = {"enabled", "default_lag_min", "estimated_lag_min"}
+    unknown = sorted(set(data) - allowed)
+    if unknown:
+        return jsonify({"error": "Unbekannte Felder", "fields": unknown}), 400
     key = "HYDRO_STATION_OVERRIDES"
     overrides = dict(runtime_config.get(key, {}) or {})
-    cur = dict(overrides.get(str(station_id), {}) or {})
-    for k in ("enabled", "default_lag_min", "estimated_lag_min"):
+    cur = dict(overrides.get(sid, {}) or {})
+    changed = []
+    if "enabled" in data:
+        if not isinstance(data["enabled"], bool):
+            return jsonify({"error": "enabled muss bool sein"}), 400
+        cur["enabled"] = data["enabled"]; changed.append("enabled")
+    for k in ("default_lag_min", "estimated_lag_min"):
         if k in data:
-            cur[k] = data[k]
-    overrides[str(station_id)] = cur
-    all_cfg = runtime_config.all_effective(); all_cfg[key] = overrides
-    runtime_config.save(all_cfg)
-    return jsonify({"ok": True, "station_id": station_id, "overrides": cur})
+            try:
+                val = float(data[k])
+            except (TypeError, ValueError):
+                return jsonify({"error": f"{k} muss eine Zahl sein"}), 400
+            if not 0 <= val <= 720:
+                return jsonify({"error": f"{k} außerhalb 0–720"}), 400
+            cur[k] = int(val) if val.is_integer() else val
+            changed.append(k)
+    overrides[sid] = cur
+    runtime_config.patch({key: overrides})
+    return jsonify({"ok": True, "station_id": sid, "overrides": cur, "changed_keys": changed})
 
 if __name__ == "__main__":
     # Fix P04: Standardmäßig nur auf 127.0.0.1 lauschen.

@@ -2,7 +2,7 @@ import glob
 import json
 import os
 from datetime import datetime
-from math import asin, atan2, cos, pi, radians, sin, sqrt
+from math import asin, atan2, cos, isfinite, pi, radians, sin, sqrt
 
 import importlib
 import importlib.util
@@ -50,6 +50,7 @@ from config import (
     SAVE_PATHS,
     UPSCALE_FACTOR as _UF,
     MAX_CELL_SPEED_KMH as _STATIC_MAX_CELL_SPEED_KMH,
+    BBOX_KAERNTEN_EXTENDED as _STATIC_BBOX_KAERNTEN_EXTENDED,
     STEERING_BLEND_ENABLED as _STATIC_STEERING_BLEND_ENABLED,
     STEERING_BLEND_MAX_ACTIVE_FRAMES as _STATIC_STEERING_BLEND_MAX_ACTIVE_FRAMES,
     STEERING_BLEND_MIN_ANGLE_DEG as _STATIC_STEERING_BLEND_MIN_ANGLE_DEG,
@@ -62,6 +63,81 @@ try:
 except Exception:
     _runtime_cfg = None
 
+
+
+
+def is_silent_cell(obj: dict) -> bool:
+    if not isinstance(obj, dict):
+        return True
+    try:
+        missing = int(obj.get("missing", 0) or 0)
+    except Exception:
+        missing = 0
+    return (
+        obj.get("tracking_state") == "inactive_rain"
+        or obj.get("silent_tracking") is True
+        or (missing > 0 and obj.get("tracking_state") != "reactivated")
+    )
+
+
+def _runtime_float_value(name: str, default: float) -> float:
+    try:
+        return float(_runtime_cfg.get(name, default) if _runtime_cfg else default)
+    except Exception:
+        return float(default)
+
+
+def _runtime_int_value(name: str, default: int) -> int:
+    try:
+        return int(_runtime_cfg.get(name, default) if _runtime_cfg else default)
+    except Exception:
+        return int(default)
+
+
+def _forecast_bbox_with_tolerance() -> dict:
+    tol = _runtime_float_value("FORECAST_BBOX_TOLERANCE_DEG", 0.08)
+    bbox = _runtime_cfg.get("BBOX_KAERNTEN_EXTENDED", _STATIC_BBOX_KAERNTEN_EXTENDED) if _runtime_cfg else _STATIC_BBOX_KAERNTEN_EXTENDED
+    return {
+        "north": float(bbox.get("north", _STATIC_BBOX_KAERNTEN_EXTENDED["north"])) + tol,
+        "south": float(bbox.get("south", _STATIC_BBOX_KAERNTEN_EXTENDED["south"])) - tol,
+        "east": float(bbox.get("east", _STATIC_BBOX_KAERNTEN_EXTENDED["east"])) + tol,
+        "west": float(bbox.get("west", _STATIC_BBOX_KAERNTEN_EXTENDED["west"])) - tol,
+    }
+
+
+def validate_forecast_point(obj: dict, horizon, lat, lon, mode="ml") -> tuple[bool, str | None, dict]:
+    """Zentrale Plausibilitätsprüfung für öffentliche Forecast-Zielpunkte."""
+    if is_silent_cell(obj):
+        return False, "silent_cell_not_public", {}
+    try:
+        h = float(horizon)
+        flat, flon = float(lat), float(lon)
+    except Exception:
+        return False, "ml_forecast_non_finite", {}
+    if h <= 0 or not (isfinite(flat) and isfinite(flon)):
+        return False, "ml_forecast_non_finite", {}
+    bbox = _forecast_bbox_with_tolerance()
+    if not (bbox["south"] <= flat <= bbox["north"] and bbox["west"] <= flon <= bbox["east"]):
+        return False, "ml_forecast_outside_bbox", {}
+    if str(mode).lower() == "ml" and obj.get("reactivated_from_inactive") is True:
+        frames = int(obj.get("reactivation_frames", obj.get("active_frames_since_reactivation", 0)) or 0)
+        warmup = max(0, _runtime_int_value("ML_REACTIVATION_WARMUP_FRAMES", 3))
+        if frames < warmup:
+            return False, "reactivation_warmup", {}
+    origin_lat = obj.get("lat")
+    origin_lon = obj.get("lon")
+    try:
+        olat, olon = float(origin_lat), float(origin_lon)
+    except Exception:
+        return False, "ml_forecast_non_finite", {}
+    if not (isfinite(olat) and isfinite(olon)):
+        return False, "ml_forecast_non_finite", {}
+    disp_km = _haversine_km(olat, olon, flat, flon)
+    speed_kmh = disp_km / (h / 60.0)
+    max_speed = _runtime_float_value("FORECAST_MAX_SPEED_KMH", _runtime_float_value("MAX_CELL_SPEED_KMH", _STATIC_MAX_CELL_SPEED_KMH))
+    if speed_kmh > max_speed + 1e-6:
+        return False, "ml_forecast_speed_exceeds_limit", {"forecast_displacement_km": disp_km, "forecast_speed_kmh": speed_kmh}
+    return True, None, {"forecast_displacement_km": disp_km, "forecast_speed_kmh": speed_kmh}
 
 def _lgbm_feat_ok(model, frame) -> bool:
     """B116: Prüft LightGBM-Featurebreite vor predict(), um Fatal-Logspam zu vermeiden."""
@@ -1129,19 +1205,51 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                     })
                 continue
 
-            _ml_horizon_count += 1
-            # ML-Modell trainiert auf pre-upscale obj["x"]/ ["y"] → _UF anwenden
+            # ML-Modell trainiert auf pre-upscale obj["x"]/ ["y"] → _UF anwenden.
+            # Der Zielpunkt wird vor jeder Veröffentlichung streng plausibilisiert.
             x_pred = float(_x_raw) * _UF
             y_pred = float(_y_raw) * _UF
             lat, lon = pixel_to_geo(x_pred, y_pred)
+            _valid_ml, _reject_reason, _metrics = validate_forecast_point(obj, horizon, lat, lon, mode="ml")
+            if not _valid_ml:
+                _kin = _temp_fc.get(horizon) or []
+                if _kin:
+                    k = _kin[0]
+                    obj[f"forecast_x_{horizon}"] = k["x"]
+                    obj[f"forecast_y_{horizon}"] = k["y"]
+                    obj[f"forecast_lat_{horizon}"] = k["lat"]
+                    obj[f"forecast_lon_{horizon}"] = k["lon"]
+                    obj[f"forecast_displacement_km_{horizon}"] = k.get("forecast_displacement_km")
+                    obj[f"forecast_speed_kmh_{horizon}"] = k.get("forecast_speed_kmh")
+                    obj[f"forecast_mode_{horizon}"] = "kinematic_fallback"
+                    obj[f"forecast_rejected_{horizon}"] = True
+                    obj[f"forecast_reject_reason_{horizon}"] = _reject_reason
+                    obj[f"kinematic_source_{horizon}"] = obj.get("kinematic_source")
+                    obj[f"of_available_{horizon}"] = int(obj.get("of_available", 0) or 0)
+                    _fallback_entry = dict(k)
+                    _fallback_entry.update({
+                        "forecast_mode": "kinematic_fallback",
+                        "forecast_mode_horizon": "kinematic_fallback",
+                        "forecast_rejected": True,
+                        "forecast_reject_reason": _reject_reason,
+                        "radar_age_min": round(_radar_age_min, 1),
+                        "effective_lead_min": round(float(horizon) - _radar_age_min, 1),
+                        "stale": (float(horizon) - _radar_age_min) <= 0.0,
+                    })
+                    forecasts[horizon].append(_fallback_entry)
+                continue
+
+            _ml_horizon_count += 1
             obj[f"forecast_x_{horizon}"] = x_pred
             obj[f"forecast_y_{horizon}"] = y_pred
             obj[f"forecast_lat_{horizon}"] = float(lat)
             obj[f"forecast_lon_{horizon}"] = float(lon)
-            _ml_disp_km = _haversine_km(_safe_float(obj.get("lat", 0.0)), _safe_float(obj.get("lon", 0.0)), lat, lon)
+            _ml_disp_km = float(_metrics.get("forecast_displacement_km", 0.0))
             obj[f"forecast_displacement_km_{horizon}"] = round(_ml_disp_km, 3)
-            obj[f"forecast_speed_kmh_{horizon}"] = round(_ml_disp_km / (float(horizon) / 60.0), 3) if float(horizon) > 0 else 0.0
+            obj[f"forecast_speed_kmh_{horizon}"] = round(float(_metrics.get("forecast_speed_kmh", 0.0)), 3)
             obj[f"forecast_mode_{horizon}"] = "ml"
+            obj[f"forecast_rejected_{horizon}"] = False
+            obj[f"forecast_reject_reason_{horizon}"] = None
             obj[f"kinematic_source_{horizon}"] = None
             obj[f"of_available_{horizon}"] = int(obj.get("of_available", 0) or 0)
             if prediction_q10 is not None and prediction_q90 is not None:

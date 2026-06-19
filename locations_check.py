@@ -401,7 +401,7 @@ def annotate_locations(
     except ImportError:
         _PX_TO_KMH = 10.0          # Fallback falls config nicht importierbar
 
-    objects = list(objects)
+    objects = [o for o in list(objects) if not (isinstance(o, dict) and (o.get("tracking_state") == "inactive_rain" or o.get("silent_tracking") is True or (int(o.get("missing", 0) or 0) > 0 and o.get("tracking_state") != "reactivated")))]
     if not objects or not locations:
         return []
 
