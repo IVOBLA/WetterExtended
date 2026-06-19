@@ -182,7 +182,14 @@ export default function Training() {
                 <div><b>Promotion-Samples:</b> {readiness.latest_training.promotion_samples_recent ?? 0} / {readiness.latest_training.promotion_samples_required ?? 50}</div>
                 <div><b>Fehlende Promotion-Samples:</b> {readiness.latest_training.promotion_samples_missing ?? '—'}</div>
                 <div><b>Low-confidence:</b> {readiness.latest_training.low_confidence ? 'ja' : 'nein'}</div>
-                <div><b>Forecast-Modus:</b> {readiness.forecast_mode?.mode === 'ml' ? 'ML aktiv' : 'kinematischer Fallback'}</div>
+                <div><b>ML-Modell verfügbar:</b> {readiness.runtime_status?.ml_model_available ? 'ja' : 'nein'}</div>
+                <div><b>Produktiver Runtime-Modus:</b> {readiness.runtime_status?.runtime_mode === 'ml' ? 'ML aktiv' : 'kinematischer Fallback'}</div>
+                <div><b>Modellversion:</b> {readiness.runtime_status?.ml_model_version || '—'}</div>
+                <div><b>Fallback-Grund:</b> {readiness.runtime_status?.fallback_reason || '—'}</div>
+                <div style={{ marginTop: 6, color: '#475569' }}>Promotion-Samples steuern die Qualitätssicherung bei Modellwechseln. Bei Cold Start kann ein erstes Modell als low_confidence aktiv sein.</div>
+                {readiness.latest_training?.status === 'cold_start_insufficient_samples' && readiness.runtime_status?.ml_model_available && (
+                  <div style={{ marginTop: 6, color: '#0369a1' }}>Letzter Trainingslauf wurde nicht regulär promoted, aber ein current-Modell ist vorhanden und ladefähig.</div>
+                )}
               </div>
             </div>
           )}

@@ -38,4 +38,4 @@ def test_uses_forecast_features_grouping():
                 "frontend/src/pages/MapFullscreen.jsx"):
         txt = _read(rel)
         assert "forecast.features" in txt
-        assert "p.forecast_mode !== 'kinematic'" in txt
+        assert "!['kinematic', 'kinematic_fallback'].includes(p.forecast_mode)" in txt

@@ -358,29 +358,24 @@ export default function Dashboard() {
     ? `${disk.used_gb} / ${disk.total_gb} GB — ${disk.free_gb} GB frei`
     : null
 
-  const mlBlocked = forecastStats?.ml_blocked_reason != null
-  const activeMode = mlBlocked ? 'kinematic' : forecastStats?.active_mode
+  const runtimeStatus = forecastStats?.runtime_status || {}
+  const historicalUsage = forecastStats?.historical_24h_usage || {}
+  const currentRuntimeMode = forecastStats?.current_runtime_mode || runtimeStatus.runtime_mode
+  const mlBlocked = currentRuntimeMode !== 'ml'
 
-  const forecastModeValue = mlBlocked
-    ? '📐 Fallback'
-    : activeMode === 'ml'
-      ? '🤖 ML'
-      : activeMode === 'kinematic'
-        ? '📐 Fallback'
-        : '—'
+  const forecastModeValue = currentRuntimeMode === 'ml'
+    ? '🤖 Aktueller Modus: ML aktiv'
+    : currentRuntimeMode === 'kinematic_fallback'
+      ? '📐 Aktueller Modus: Fallback aktiv'
+      : 'Aktueller Modus: —'
 
-  const forecastModeSubtitle = mlBlocked
-    ? `Aktuell blockiert: ${forecastStats.ml_blocked_reason}` +
-      (forecastStats.ml_pct != null
-        ? ` · 24h: ML ${forecastStats.ml_pct}% / Fallback ${forecastStats.kinematic_pct}%`
-        : '')
-    : forecastStats?.ml_pct != null
-      ? `ML ${forecastStats.ml_pct}% / Fallback ${forecastStats.kinematic_pct}% (24h)`
-      : 'Noch keine Zellen'
+  const forecastModeSubtitle = currentRuntimeMode === 'ml'
+    ? `Modellversion: ${runtimeStatus.ml_model_version || '—'} · Horizonte: ${(runtimeStatus.active_horizons || []).join(', ') || '—'} min · Historie 24h: ML ${historicalUsage.ml_pct ?? '—'}% / Fallback ${historicalUsage.fallback_pct ?? '—'}% · ${historicalUsage.evaluated_forecasts ?? 0} Forecasts · ${historicalUsage.note || 'Statistik basiert auf gespeicherten Forecasts der letzten 24h.'}`
+    : `Fallback-Grund: ${runtimeStatus.fallback_reason || forecastStats?.ml_blocked_reason || '—'} · Modellversion: ${runtimeStatus.ml_model_version || '—'} · Historie 24h: ML ${historicalUsage.ml_pct ?? '—'}% / Fallback ${historicalUsage.fallback_pct ?? '—'}% · ${historicalUsage.evaluated_forecasts ?? 0} Forecasts`
 
-  const forecastModeColorClass = mlBlocked || activeMode === 'kinematic'
+  const forecastModeColorClass = mlBlocked
     ? 'border-l-4 border-yellow-400'
-    : ''
+    : 'border-l-4 border-green-500'
 
   const handleServiceClick = (svc) => {
     setSelectedService(prev => prev === svc ? '' : svc)

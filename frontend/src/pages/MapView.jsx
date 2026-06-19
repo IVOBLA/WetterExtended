@@ -1112,7 +1112,7 @@ export default function MapView() {
               const q90 = (p.forecast_lat_q90 != null && p.forecast_lon_q90 != null)
                 ? [p.forecast_lat_q90, p.forecast_lon_q90] : null
               if (Number.isFinite(h)) g.pts.push({ h, ll: [b[1], b[0]], speed: p.speed_kmh, q10, q90 })
-              if (p.forecast_mode !== 'kinematic') { g.isKin = false; g.color = p.color || g.color }
+              if (!['kinematic', 'kinematic_fallback'].includes(p.forecast_mode)) { g.isKin = false; g.color = p.color || g.color }
             })
           return Object.values(_groups).map((g, gi) => {
             const sorted = g.pts.slice().sort((x, y) => x.h - y.h)
