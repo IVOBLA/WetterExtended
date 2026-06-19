@@ -156,28 +156,48 @@ def compute_hydro_delta(station_id, start_time, window_min) -> dict:
     }
 
 
-def _has_competitors(event: dict[str, Any]) -> bool:
-    t0 = _event_time(event)
-    if not t0:
+def _same_hydro_context(event: dict[str, Any], other: dict[str, Any]) -> bool:
+    """Vergleicht Konkurrenz im selben fachlichen Hydro-Kontext."""
+    if str(other.get("station_id")) != str(event.get("station_id")):
         return False
-    station_id = str(event.get("station_id"))
+    event_catchment = event.get("catchment_id")
+    other_catchment = other.get("catchment_id")
+    if event_catchment is not None and other_catchment is not None:
+        return str(event_catchment) == str(other_catchment)
+    return True
+
+
+def _response_windows_overlap(event: dict[str, Any], other: dict[str, Any]) -> bool:
+    event_time = _event_time(event)
+    other_time = _event_time(other)
+    if not event_time or not other_time:
+        return False
+    event_lag = _lag_window(event)
+    other_lag = _lag_window(other)
+    event_start = event_time + timedelta(minutes=event_lag[0])
+    event_end = event_time + timedelta(minutes=event_lag[1])
+    other_start = other_time + timedelta(minutes=other_lag[0])
+    other_end = other_time + timedelta(minutes=other_lag[1])
+    return event_start <= other_end and other_start <= event_end
+
+
+def _has_competitors(event: dict[str, Any], candidates: list[dict[str, Any]] | None = None) -> bool:
     cell_id = str(event.get("cell_id"))
-    for other in load_pending_hydro_impacts():
-        if str(other.get("station_id")) != station_id or str(other.get("cell_id")) == cell_id:
+    for other in (candidates if candidates is not None else load_pending_hydro_impacts()):
+        if str(other.get("cell_id")) == cell_id:
             continue
-        ot = _event_time(other)
-        if ot and abs((ot - t0).total_seconds()) <= max(_lag_window(event)[1], _lag_window(other)[1]) * 60:
+        if _same_hydro_context(event, other) and _response_windows_overlap(event, other):
             return True
     return False
 
 
-def classify_hydro_response(event, hydro_series) -> dict:
+def classify_hydro_response(event, hydro_series, competing_candidates: list[dict[str, Any]] | None = None) -> dict:
     """Klassifiziert vorsichtig: plausibel bestätigt, nicht bestätigt oder mehrdeutig."""
     reason: list[str] = []
     if hydro_series.get("raw_data_status") in {"missing", "gap"}:
         reason.append("Hydro-Rohdaten fehlen oder enthalten eine relevante Messlücke")
         return {"status": "ambiguous", "confidence": "low", "interpretation": "uneindeutig wegen Messlücke / konkurrierender Zellen", "reason": reason}
-    if _has_competitors(event):
+    if _has_competitors(event, competing_candidates):
         reason.extend(["competing_cells_same_catchment", "Mehrere konkurrierende Zellen im Einzugsgebiet erkannt"])
         return {"status": "ambiguous", "confidence": "low", "interpretation": "uneindeutig wegen Messlücke / konkurrierender Zellen", "reason": reason}
     dq = hydro_series.get("delta_q_m3s")
@@ -252,7 +272,8 @@ def verify_pending_hydro_impacts(now: datetime | None = None) -> list[dict]:
     current = _parse_time(now) or datetime.now(timezone.utc)
     results = []
     done = _already_verified_event_ids()
-    for event in load_pending_hydro_impacts():
+    pending_events = load_pending_hydro_impacts()
+    for event in pending_events:
         if str(event.get("event_id")) in done:
             continue
         event_at = _event_time(event)
@@ -265,7 +286,7 @@ def verify_pending_hydro_impacts(now: datetime | None = None) -> list[dict]:
             classified = {"status": "pending", "confidence": "low", "interpretation": "Verifikation steht noch aus", "reason": ["Erwartetes Zeitfenster noch nicht abgeschlossen"]}
         else:
             observed = compute_hydro_delta(event.get("station_id"), event_at + timedelta(minutes=lag[0]), lag[1] - lag[0])
-            classified = classify_hydro_response(event, observed)
+            classified = classify_hydro_response(event, observed, pending_events)
         result = {
             "event_id": event.get("event_id"),
             "station_id": str(event.get("station_id")),
