@@ -14,13 +14,19 @@ export default function Training() {
   const [msg, setMsg]                     = useState('')
   const [localTraining, setLocalTraining] = useState(true)
   const [readiness, setReadiness]         = useState(null)
+  const [trainingStatus, setTrainingStatus] = useState(null)
+  const [startError, setStartError] = useState('')
 
   useEffect(() => {
     // B99: Countdown — Live-Refresh alle 60 s (sinkt sichtbar bei Sturmereignissen)
     const fetchReadiness = () =>
       api.get('/api/training_readiness').then(setReadiness).catch(() => {})
+    const fetchTrainingStatus = () =>
+      api.get('/api/training/status').then(setTrainingStatus).catch(() => setTrainingStatus({ backend_unreachable: true, running: false }))
     fetchReadiness()
+    fetchTrainingStatus()
     const _rdTimer = setInterval(fetchReadiness, 60_000)
+    const _statusTimer = setInterval(fetchTrainingStatus, 5_000)
 
     api.get('/api/training')
       .then(d => {
@@ -33,8 +39,28 @@ export default function Training() {
       .then(d => setLocalTraining(d.local_training !== false))
       .catch(() => {})
 
-    return () => clearInterval(_rdTimer)  // B99: Timer beim Unmount stoppen
+    return () => {
+      clearInterval(_rdTimer)  // B99: Timer beim Unmount stoppen
+      clearInterval(_statusTimer)
+    }
   }, [])
+
+  const startTraining = async () => {
+    setStartError('')
+    try {
+      const data = await api.post('/api/training/start', {})
+      setMsg(data.message || 'Training wurde gestartet')
+      const status = await api.get('/api/training/status')
+      setTrainingStatus(status)
+    } catch (e) {
+      const text = e?.message || 'Unbekannter Fehler'
+      setStartError(text)
+      setMsg('Fehler: ' + text)
+      try {
+        setTrainingStatus(await api.get('/api/training/status'))
+      } catch (_) {}
+    }
+  }
 
   const save = async () => {
     try {
@@ -65,6 +91,42 @@ export default function Training() {
           {msg}
         </div>
       )}
+
+      <div className="card mb-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Manuelles Training</h2>
+            <p className="text-sm text-gray-600">Startet dieselbe serverseitige Trainingspipeline wie der Scheduler im Hintergrund.</p>
+          </div>
+          <button
+            className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={Boolean(trainingStatus?.running) || !readiness?.all_ready || Boolean(trainingStatus?.backend_unreachable)}
+            onClick={startTraining}
+          >
+            Training jetzt starten
+          </button>
+        </div>
+        {trainingStatus?.backend_unreachable && <div className="text-sm text-red-700 mt-3">Backend nicht erreichbar — manueller Start ist deaktiviert.</div>}
+        {!readiness?.all_ready && <div className="text-sm text-amber-700 mt-3">Dataset-Schwelle noch nicht erreicht — Button deaktiviert.</div>}
+        {trainingStatus?.running && (
+          <div className="text-sm text-blue-800 mt-3">
+            <b>Training läuft im Hintergrund.</b> Startzeit: {trainingStatus.started_at || '—'} · Run-ID: {trainingStatus.run_id || '—'} · Schritt: {trainingStatus.progress_message || '—'}
+          </div>
+        )}
+        {trainingStatus && !trainingStatus.running && (
+          <div className="text-sm text-gray-800 mt-3 leading-6">
+            <div><b>Letzter Status:</b> {trainingStatus.last_status || '—'} · <b>Beendet:</b> {trainingStatus.finished_at || '—'}</div>
+            <div><b>Modell aktiviert:</b> {['promoted', 'cold_start_promoted_low_confidence'].includes(trainingStatus.latest_training_meta?.validation?.status || trainingStatus.latest_training_meta?.status) ? 'ja' : 'nein'} · <b>Runtime-Modus:</b> {readiness?.runtime_status?.runtime_mode === 'ml' ? 'ML' : 'Fallback'}</div>
+            <div><b>Promotion-Samples:</b> {trainingStatus.latest_training_meta?.validation?.samples_recent ?? readiness?.latest_training?.promotion_samples_recent ?? '—'} · <b>Low confidence:</b> {(trainingStatus.latest_training_meta?.validation?.low_confidence || readiness?.latest_training?.low_confidence) ? 'ja' : 'nein'}</div>
+            <div><a className="text-blue-700 underline" href="/progress">Zur Progress-Versionstabelle</a></div>
+          </div>
+        )}
+        {(startError || trainingStatus?.last_error) && (
+          <div className="bg-red-50 border border-red-300 text-red-800 p-2 rounded mt-3 text-sm">
+            Fehler: {startError || trainingStatus.last_error}
+          </div>
+        )}
+      </div>
 
       {/* B99: Trainingsbereitschaft — Live-Countdown */}
       {readiness && (
