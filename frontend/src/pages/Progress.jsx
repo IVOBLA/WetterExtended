@@ -26,6 +26,7 @@ export default function Progress() {
 
   const mlActive      = fcStats ? (fcStats.ml_blocked_reason == null) : null
   const blockedReason = fcStats?.ml_blocked_reason || null
+  const runtimeStatus = fcStats?.runtime_status || {}
 
   const horizons = [10, 20, 30, 40, 60]
   const lstmSeries = versions.map((v, i) => ({ idx: i + 1, val_loss: v.lstm?.val_loss }))
@@ -88,6 +89,9 @@ export default function Progress() {
           </p>
           {!mlActive && blockedReason && (
             <p className="mt-1 text-xs"><b>Grund:</b> {blockedReason}</p>
+          )}
+          {runtimeStatus.current_exists && runtimeStatus.ml_model_artifacts_valid && !runtimeStatus.ml_model_promoted && (
+            <p className="mt-1 text-xs font-semibold text-red-700">WARNUNG: current zeigt auf eine nicht-promoted Version.</p>
           )}
           {!mlActive && versions.length > 0 && (
             <p className="mt-1 text-xs">

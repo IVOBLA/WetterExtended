@@ -885,6 +885,15 @@ def predict_positions(objects: list, timestamp: str, stations: list):
     except Exception as _rt_exc:
         _runtime_status = {"runtime_mode": "kinematic_fallback", "fallback_reason": f"runtime_status_failed: {_rt_exc}", "active_horizons": []}
 
+    if _runtime_status.get("runtime_mode") != "ml":
+        reason = _runtime_status.get("fallback_reason") or "runtime_status_not_ml"
+        _warn_ml_fallback_once(reason, None)
+        for _obj in objects:
+            _obj["forecast_mode"] = "kinematic_fallback"
+            _obj["fallback_reason"] = reason
+            _obj["forecast_fallback_reason"] = reason
+        return _kinematic_fallback(objects)
+
     # P-T08: Partielle Horizont-Abdeckung. Ein Horizont ist ML-fähig, wenn x- UND
     # y-Modell vorhanden sind. has_lgbm = mindestens ein Horizont (statt alle).
     _lgbm_horizons = [
