@@ -28,7 +28,7 @@ def test_critical_import_verification_present():
     src = _install_sh()
     assert "B178" in src
     assert "Kritische Module NICHT importierbar" in src
-    for mod in ("pysteps", "scipy", "cv2", "lightgbm"):
+    for mod in ("pysteps", "scipy", "cv2", "lightgbm", "filterpy", "apscheduler", "flask", "simplekml"):
         assert mod in src, f"Verifikation nennt {mod} nicht"
 
 
@@ -60,7 +60,8 @@ def test_pysteps_lucaskanade_function_check_is_offline():
             f"pySTEPS-Funktionstest enthält unerwarteten externen Aufruf: {forbidden}"
 
 
-def test_requirements_still_lists_pysteps():
+def test_requirements_still_lists_runtime_and_test_collection_deps():
     with open(os.path.join(_ROOT, "requirements.txt"), encoding="utf-8") as f:
         req = f.read().lower()
-    assert "pysteps" in req
+    for dep in ("pysteps", "filterpy", "apscheduler", "flask", "simplekml"):
+        assert dep in req, f"requirements.txt listet {dep} nicht"

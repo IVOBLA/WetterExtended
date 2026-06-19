@@ -935,7 +935,7 @@ if pip_install_safe -r "$TARGET/requirements.txt" $PIWHEELS_EXTRA; then
     # B178: Kritische wissenschaftliche Abhängigkeiten verifizieren — ein still
     # fehlgeschlagener Build (z. B. pysteps/scipy auf aarch64) darf nicht unbemerkt
     # bleiben (zieldefinition: install.sh muss den Zustand am Raspberry prüfen).
-    _CRIT_IMPORTS="numpy scipy pysteps cv2 lightgbm shapely rasterio filterpy"
+    _CRIT_IMPORTS="numpy scipy pysteps cv2 lightgbm shapely rasterio filterpy apscheduler flask simplekml"
     _MISSING_IMPORTS=""
     for _mod in $_CRIT_IMPORTS; do
         if ! "$VENV/bin/python3" -c "import $_mod" 2>/dev/null; then
@@ -947,7 +947,7 @@ if pip_install_safe -r "$TARGET/requirements.txt" $PIWHEELS_EXTRA; then
         note_manual "source $VENV/bin/activate && pip install --upgrade pip wheel setuptools && pip install$_MISSING_IMPORTS"
         note_manual "pysteps baut auf aarch64 ggf. nur via Git: pip install git+https://github.com/pySTEPS/pysteps"
     else
-        check_ok "Kritische Module importierbar (numpy/scipy/pysteps/cv2/lightgbm/shapely/rasterio/filterpy)."
+        check_ok "Kritische Module importierbar (numpy/scipy/pysteps/cv2/lightgbm/shapely/rasterio/filterpy/apscheduler/flask/simplekml)."
     fi
     if [[ -z "$_MISSING_IMPORTS" ]]; then
         log_info "Teste pySTEPS Lucas-Kanade Funktion..."

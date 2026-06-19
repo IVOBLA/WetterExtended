@@ -19,6 +19,7 @@ if not hasattr(np, "zeros"):
     pytest.skip("benötigt ein echtes numpy-Paket", allow_module_level=True)
 pytest.importorskip("cv2")
 pytest.importorskip("shapely")
+pytest.importorskip("filterpy")
 
 import object_tracking
 

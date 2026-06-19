@@ -5,6 +5,8 @@ from zoneinfo import ZoneInfo
 import zipfile
 
 import pytest
+
+pytest.importorskip("apscheduler")
 import skywarn_export_snapshot as skywarn
 
 try:
