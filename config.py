@@ -1060,3 +1060,17 @@ INTENSITY_BANDS_DEFAULT = [
     ["rot_wrap", [165, 100,  80], [179, 255, 255], "#cc0000"],
     ["violett",  [125, 100,  80], [155, 255, 255], "#9900cc"],
 ]
+
+# --------------------------------------
+# Hydrologie / Hydro-Impact
+# --------------------------------------
+HYDRO_ENABLED = True
+HYDRO_STATIC_DIR = "train_data/hydro/static"
+HYDRO_LIVE_DIR = "train_data/hydro/live"
+HYDRO_IMPACT_DIR = "train_data/hydro/impact"
+HYDRO_STATIONS_URL = "https://info.ktn.gv.at/asp/hydro/daten/json/hdkaernten_abfluss_lite.json"
+HYDRO_API_TTL_SECONDS = 600
+HYDRO_MIN_OVERLAP_AREA_KM2 = 1.0
+HYDRO_MIN_CELL_OVERLAP_RATIO = 0.05
+HYDRO_DEFAULT_LAG_MIN = [20, 180]
+HYDRO_STATIC_REQUIRED = False

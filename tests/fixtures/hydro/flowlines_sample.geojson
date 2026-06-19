@@ -1,0 +1,4 @@
+{"type":"FeatureCollection","features":[
+ {"type":"Feature","geometry":{"type":"LineString","coordinates":[[13.9,46.6],[14.1,46.6]]},"properties":{"flowline_id":"F1"}},
+ {"type":"Feature","geometry":{"type":"LineString","coordinates":[[14.55,46.9],[14.95,46.9]]},"properties":{"flowline_id":"F2"}}
+]}

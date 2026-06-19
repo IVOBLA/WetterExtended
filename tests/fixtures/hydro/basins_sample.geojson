@@ -1,0 +1,4 @@
+{"type":"FeatureCollection","features":[
+ {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[13.8,46.4],[14.2,46.4],[14.2,46.8],[13.8,46.8],[13.8,46.4]]]},"properties":{"catchment_id":"B1","upstream_catchment_ids":["B1"],"catchment_area_km2":120.5}},
+ {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[14.5,46.7],[15.0,46.7],[15.0,47.1],[14.5,47.1],[14.5,46.7]]]},"properties":{"catchment_id":"B2","upstream_catchment_ids":["B2","B1"],"catchment_area_km2":210.0}}
+]}

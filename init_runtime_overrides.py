@@ -48,6 +48,14 @@ DEFAULTS: dict = {
     "IR_LEAD_TIME_LABELS_INCLUDE_NEGATIVES": True,
     "IR_LEAD_TIME_LABELS_DEDUP_BY_CELL_ID": True,
 
+    # ── Hydrologie / Hydro-Impact ───────────────────────────────────────────
+    "HYDRO_ENABLED": True,
+    "HYDRO_API_TTL_SECONDS": 600,
+    "HYDRO_MIN_OVERLAP_AREA_KM2": 1.0,
+    "HYDRO_MIN_CELL_OVERLAP_RATIO": 0.05,
+    "HYDRO_DEFAULT_LAG_MIN": [20, 180],
+    "HYDRO_STATIC_REQUIRED": False,
+
     # ── Orts-Watchlist aus config.py ableiten (Single Source of Truth) ──────
     "LOCATIONS_WATCHLIST": _json_safe(_config.LOCATIONS_WATCHLIST),
 
