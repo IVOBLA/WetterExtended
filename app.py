@@ -91,6 +91,10 @@ _ADMIN_WRITE_PREFIXES = (
     "/api/email_config",
     "/api/sms_config",
     "/api/notification",
+    "/api/hydro/reload-static",
+    "/api/hydro/fetch-live",
+    "/api/hydro/verify",
+    "/api/hydro/stations/",
 )
 # P1-1: GET/HEAD auf diesen Präfixen erfordern mind. viewer-Level (eingeloggt).
 # Bewusst NICHT enthalten (öffentliche Karte): /api/objects, /api/forecast,
@@ -4961,6 +4965,71 @@ def api_size_regressor_status():
         "model_path": sr.SIZE_MODEL_PATH,
     })
 
+
+# ── Hydro-Impact API ───────────────────────────────────────────────────────
+@app.route("/api/hydro/status")
+def api_hydro_status():
+    import hydro_api
+    return jsonify(hydro_api.status())
+
+@app.route("/api/hydro/stations")
+def api_hydro_stations():
+    import hydro_api
+    return jsonify(hydro_api.station_features())
+
+@app.route("/api/hydro/impacts")
+def api_hydro_impacts():
+    import hydro_api
+    return jsonify(hydro_api.normalized_impacts(False))
+
+@app.route("/api/hydro/impacts/latest")
+def api_hydro_impacts_latest():
+    import hydro_api
+    fields = ("cell_id", "station_id", "score", "confidence", "status", "reason", "estimated_lag_min", "relation")
+    return jsonify([{k: e.get(k) for k in fields} for e in hydro_api.normalized_impacts(True)])
+
+@app.route("/api/hydro/station/<station_id>")
+def api_hydro_station(station_id):
+    import hydro_api
+    for f in hydro_api.station_features().get("features", []):
+        if str((f.get("properties") or {}).get("station_id")) == str(station_id):
+            return jsonify(f)
+    return jsonify({"error": "Hydro-Station nicht gefunden", "station_id": station_id}), 404
+
+@app.route("/api/hydro/station/<station_id>/catchment")
+def api_hydro_station_catchment(station_id):
+    import hydro_api
+    return jsonify(hydro_api.catchment(station_id))
+
+@app.route("/api/hydro/reload-static", methods=["POST"])
+def api_hydro_reload_static():
+    from hydro_static_import import build_static_hydro
+    return jsonify(build_static_hydro())
+
+@app.route("/api/hydro/fetch-live", methods=["POST"])
+def api_hydro_fetch_live():
+    from hydro_fetch import fetch_hydro_live
+    return jsonify(fetch_hydro_live(force=True))
+
+@app.route("/api/hydro/verify", methods=["POST"])
+def api_hydro_verify():
+    from hydro_verification import verify_pending_hydro_impacts
+    return jsonify({"results": verify_pending_hydro_impacts()})
+
+@app.route("/api/hydro/stations/<station_id>", methods=["PATCH"])
+def api_hydro_station_patch(station_id):
+    import hydro_api, runtime_config
+    data = request.get_json(silent=True) or {}
+    key = "HYDRO_STATION_OVERRIDES"
+    overrides = dict(runtime_config.get(key, {}) or {})
+    cur = dict(overrides.get(str(station_id), {}) or {})
+    for k in ("enabled", "default_lag_min", "estimated_lag_min"):
+        if k in data:
+            cur[k] = data[k]
+    overrides[str(station_id)] = cur
+    all_cfg = runtime_config.all_effective(); all_cfg[key] = overrides
+    runtime_config.save(all_cfg)
+    return jsonify({"ok": True, "station_id": station_id, "overrides": cur})
 
 if __name__ == "__main__":
     # Fix P04: Standardmäßig nur auf 127.0.0.1 lauschen.

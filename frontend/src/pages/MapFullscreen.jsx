@@ -160,6 +160,14 @@ function BottomBar({ frames, currentIdx, playing, speed, onSetIdx, onPlay, onPau
   )
 }
 
+function hydroColor(status) {
+  if (status === 'confirmed') return '#16a34a'
+  if (status === 'ambiguous') return '#a855f7'
+  if (status === 'pending') return '#f97316'
+  if (status === 'rejected') return '#6b7280'
+  return '#0ea5e9'
+}
+
 function StatusChip({ radarTiming, fmtTime, onExpand, loading }) {
   const active = radarTiming?.cells_active
   return (
@@ -201,6 +209,8 @@ export default function MapFullscreen() {
   const [riskGridError, setRiskGridError] = useState(false)
   const [irCells,       setIrCells]       = useState([])
   const [lightningAge,   setLightningAge]   = useState(15)  // Minuten
+  const [hydroStations, setHydroStations] = useState({ type:'FeatureCollection', features: [] })
+  const [hydroCatchments, setHydroCatchments] = useState({})
   const [frames,       setFrames]       = useState([])
   const [currentIdx,   setCurrentIdx]   = useState(-1)
   const [playing,      setPlaying]      = useState(false)
@@ -287,6 +297,7 @@ export default function MapFullscreen() {
       }
       if (bounds?.bounds) setRadarBounds(bounds.bounds)
       if (lightningData?.strikes) setLightning(lightningData.strikes)
+      api.get('/api/hydro/stations').then(d => setHydroStations(d || { type:'FeatureCollection', features: [] })).catch(() => setHydroStations({ type:'FeatureCollection', features: [] }))
 
       // Schritt 2: Frame-Timestamp bestimmen, objects/forecast synchron laden
       let latestTs = null
@@ -577,6 +588,40 @@ export default function MapFullscreen() {
             zIndex={200}
           />
         )}
+
+
+        {(hydroStations.features || []).map(f => {
+          const p = f.properties || {}
+          const coords = f.geometry?.coordinates || []
+          if (coords.length < 2) return null
+          const impact = p.last_hydro_impact || {}
+          const color = hydroColor(p.status)
+          return (
+            <React.Fragment key={'hydro_' + p.station_id}>
+              <CircleMarker center={[coords[1], coords[0]]} radius={p.impact_active ? 8 : 5}
+                pathOptions={{ color, fillColor: color, fillOpacity: p.impact_active ? 0.9 : 0.65, weight: p.impact_active ? 3 : 1 }}
+                eventHandlers={{ click: () => api.get(`/api/hydro/station/${p.station_id}/catchment`).then(d => setHydroCatchments(prev => ({ ...prev, [p.station_id]: d }))).catch(() => {}) }}>
+                <Popup>
+                  <div><strong>{p.name || p.station_id}</strong></div>
+                  <div>Gewässer: {p.river || '—'}</div>
+                  <div>Q: {p.q_m3s ?? '—'} m³/s</div>
+                  <div>W: {p.w_cm ?? '—'} cm</div>
+                  <div>Messzeit: {p.measured_at || '—'}</div>
+                  <div>letzter Hydro-Impact: {impact.cell_id ? `${impact.cell_id} (${impact.status})` : '—'}</div>
+                  <div>Status: {p.status || '—'}</div>
+                </Popup>
+              </CircleMarker>
+              {impact.relation === 'upstream_catchment_hit' && impact.cell_lat != null && impact.cell_lon != null && (
+                <Polyline positions={[[coords[1], coords[0]], [impact.cell_lat, impact.cell_lon]]} pathOptions={{ color, weight: 1, dashArray: '4,4' }} />
+              )}
+              {((hydroCatchments[p.station_id]?.features) || []).map((cf, i) => {
+                const ring = cf.geometry?.coordinates?.[0]
+                if (!ring || ring.length < 3) return null
+                return <Polygon key={`hydro_catch_${p.station_id}_${i}`} positions={ring.map(c => [c[1], c[0]])} pathOptions={{ color, weight: 1, fillOpacity: 0.03 }} />
+              })}
+            </React.Fragment>
+          )
+        })}
 
         {objects.map(o => {
           if (!o.contour_geo || o.contour_geo.length < 3) return null

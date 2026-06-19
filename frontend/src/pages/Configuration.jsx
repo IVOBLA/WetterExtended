@@ -106,6 +106,17 @@ const PARAM_GROUPS = [
     ],
   },
   {
+    label: '🌊 Hydro-Impact',
+    params: [
+      { key: 'HYDRO_ENABLED', type: 'boolean', default: true, desc: 'Hydro-Impact-Layer und Bewertung aktivieren/deaktivieren.', example: true },
+      { key: 'HYDRO_API_TTL_SECONDS', type: 'number', default: 600, unit: 's', desc: 'Cache-/Aktualisierungs-TTL fuer Hydro-Live-Daten.', example: 600 },
+      { key: 'HYDRO_MIN_OVERLAP_AREA_KM2', type: 'number', default: 1.0, unit: 'km²', desc: 'Mindest-Schnittflaeche zwischen Zelle und Einzugsgebiet.', example: 1.0 },
+      { key: 'HYDRO_MIN_CELL_OVERLAP_RATIO', type: 'number', default: 0.03, desc: 'Mindestanteil der Zellflaeche im Einzugsgebiet.', example: 0.03 },
+      { key: 'HYDRO_DEFAULT_LAG_MIN', type: 'json-array', default: '[20,180]', desc: 'Standard-Zeitfenster fuer Pegelreaktionen in Minuten.', example: '[20,180]' },
+      { key: 'HYDRO_STATION_OVERRIDES', type: 'json-object', default: '{}', desc: 'Stations-Overrides, z.B. Aktivierung/Deaktivierung pro station_id.', example: JSON.stringify({ '123': { enabled: false } }, null, 2) },
+    ],
+  },
+  {
     label: '🔬 Erweitert / Sonstiges',
     params: [
       { key: 'FRAME_INTERVAL_MIN',        type: 'number', default: 2.0, unit: 'min', desc: 'Nominales Radar-Frame-Intervall in Minuten. Basis für Geschwindigkeitsberechnung.', example: 2.0 },
@@ -166,9 +177,11 @@ export default function Configuration() {
   const [msg, setMsg] = useState('')
   const [showHelp, setShowHelp] = useState(false)
   const [search, setSearch] = useState('')
+  const [hydroStations, setHydroStations] = useState([])
 
   useEffect(() => {
     api.get('/api/config').then(d => setText(JSON.stringify(d, null, 2))).catch(() => {})
+    api.get('/api/hydro/stations').then(d => setHydroStations((d.features || []).map(f => f.properties || {}))).catch(() => setHydroStations([]))
   }, [])
 
   async function save() {
@@ -193,6 +206,24 @@ export default function Configuration() {
   return (
     <div className="max-w-5xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Konfiguration</h1>
+
+
+      <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+        <h2 className="text-sm font-semibold text-gray-700 mb-2">🌊 Hydro-Impact Admin</h2>
+        <div className="flex flex-wrap gap-2 mb-3">
+          <button className="btn" onClick={() => api.post('/api/hydro/fetch-live', {}).then(() => setMsg('✅ Live-Hydro geladen.')).catch(e => setMsg('❌ Fehler: ' + e.message))}>Live-Hydro jetzt laden</button>
+          <button className="btn" onClick={() => api.post('/api/hydro/reload-static', {}).then(() => setMsg('✅ Static-Hydro neu eingelesen.')).catch(e => setMsg('❌ Fehler: ' + e.message))}>Static-Hydro neu einlesen</button>
+          <button className="btn" onClick={() => api.post('/api/hydro/verify', {}).then(() => setMsg('✅ Pending-Verifikation geprüft.')).catch(e => setMsg('❌ Fehler: ' + e.message))}>Pending Verifikation prüfen</button>
+        </div>
+        <div className="max-h-48 overflow-auto border rounded">
+          {hydroStations.length === 0 ? <div className="p-2 text-xs text-gray-500">Keine Hydro-Stationen geladen.</div> : hydroStations.map(st => (
+            <label key={st.station_id} className="flex items-center justify-between gap-2 px-2 py-1 border-b text-xs">
+              <span><strong>{st.name || st.station_id}</strong> · {st.river || '—'}</span>
+              <input type="checkbox" checked={st.enabled !== false} onChange={e => api.patch(`/api/hydro/stations/${st.station_id}`, { enabled: e.target.checked }).then(() => setMsg('✅ Station aktualisiert.')).catch(err => setMsg('❌ Fehler: ' + err.message))} />
+            </label>
+          ))}
+        </div>
+      </div>
 
       {/* Editor-Block */}
       <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
