@@ -114,6 +114,16 @@ except Exception as exc:
         return None
 
 lgb = _optional_import("lightgbm")
+_PREDICT_ML_WARNED_REASONS = set()
+
+
+def _warn_ml_fallback_once(reason, detail=None):
+    key = reason or "missing_ml_artifacts"
+    if key in _PREDICT_ML_WARNED_REASONS:
+        return
+    _PREDICT_ML_WARNED_REASONS.add(key)
+    suffix = f" ({detail})" if detail else ""
+    debug_log(f"[PREDICT] Fehlende Scaler/Modelle: {key}{suffix}; nutze kinematischen Fallback.")
 
 try:
     from debug_utils import debug_log
@@ -863,7 +873,23 @@ def predict_positions(objects: list, timestamp: str, stations: list):
     }
     has_lstm = lstm_model is not None
     if scaler_X is None or scaler_y is None or (not has_lgbm and not has_lstm):
-        debug_log("[PREDICT] Fehlende Scaler/Modelle, nutze linearen Fallback.")
+        reason = "missing_ml_artifacts"
+        detail = None
+        if scaler_X is None or scaler_y is None:
+            reason = "missing_or_invalid_scalers"
+        elif not has_lgbm and not has_lstm:
+            reason = "missing_ml_artifacts"
+        try:
+            from ml_readiness import load_ml_readiness_json
+            _rd = load_ml_readiness_json()
+            if _rd and _rd.get("fallback_reason"):
+                detail = _rd.get("fallback_reason")
+        except Exception:
+            pass
+        _warn_ml_fallback_once(reason, detail)
+        for _obj in objects:
+            _obj["forecast_mode"] = "kinematic"
+            _obj["fallback_reason"] = reason
         return _kinematic_fallback(objects)
 
     if has_lgbm and len(_lgbm_horizons) < len(_horizons):
