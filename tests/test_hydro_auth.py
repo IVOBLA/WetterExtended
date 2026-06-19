@@ -1,5 +1,4 @@
 import pytest
-pytest.importorskip("flask")
 
 @pytest.fixture
 def client():
