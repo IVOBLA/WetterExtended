@@ -594,6 +594,21 @@ def main_loop():
                 accumulate_severity_maxima(objects)
             except Exception as _e_sevacc:
                 debug_log(f"[P-S01] accumulate_severity_maxima Fehler: {_e_sevacc}")
+
+            # Hydro-Impact: nur oberliegendes Einzugsgebiet + Zeitversatz, keine Distanz-Attribution.
+            try:
+                import runtime_config as _hydro_runtime
+                if _hydro_runtime.get("HYDRO_ENABLED", True):
+                    from hydro_fetch import fetch_hydro_live
+                    from impact_evaluation import evaluate_impact
+                    fetch_hydro_live(force=False)
+                    evaluate_impact(objects, timestamp)
+                else:
+                    for _obj in objects:
+                        _obj.setdefault("impact", {})["hydro"] = False
+                        _obj["impact"]["hydro_status"] = "hydro_disabled"
+            except Exception as _hydro_exc:
+                debug_log(f"[HYDRO] Produktivlauf übersprungen: {_hydro_exc}")
             debug_log(f"Gefundene Objekte: {len(objects)}")
             # ── Strukturiertes Cell-Log (JSONL) ──────────────────────────
             _cell_log_path = os.path.join(

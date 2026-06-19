@@ -128,3 +128,12 @@ def catchment(station_id):
     fc = _json(STATIC_GENERATED / "station_catchments.geojson", {"type":"FeatureCollection","features":[]})
     feats = [f for f in fc.get("features", []) if str((f.get("properties") or {}).get("station_id")) == str(station_id)]
     return {"type":"FeatureCollection", "features": feats}
+
+
+def catchments_all():
+    fc = _json(STATIC_GENERATED / "station_catchments.geojson", {"type": "FeatureCollection", "features": []})
+    if not isinstance(fc, dict):
+        return {"type": "FeatureCollection", "features": []}
+    fc.setdefault("type", "FeatureCollection")
+    fc.setdefault("features", [])
+    return fc

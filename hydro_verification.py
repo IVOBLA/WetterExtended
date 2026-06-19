@@ -176,10 +176,10 @@ def classify_hydro_response(event, hydro_series) -> dict:
     reason: list[str] = []
     if hydro_series.get("raw_data_status") in {"missing", "gap"}:
         reason.append("Hydro-Rohdaten fehlen oder enthalten eine relevante Messlücke")
-        return {"status": "ambiguous", "confidence": "low", "reason": reason}
+        return {"status": "ambiguous", "confidence": "low", "interpretation": "uneindeutig wegen Messlücke / konkurrierender Zellen", "reason": reason}
     if _has_competitors(event):
         reason.append("Mehrere konkurrierende Zellen im Einzugsgebiet erkannt")
-        return {"status": "ambiguous", "confidence": "low", "reason": reason}
+        return {"status": "ambiguous", "confidence": "low", "interpretation": "uneindeutig wegen Messlücke / konkurrierender Zellen", "reason": reason}
     dq = hydro_series.get("delta_q_m3s")
     dw = hydro_series.get("delta_w_cm")
     rq = hydro_series.get("relative_delta_q_pct")
@@ -193,10 +193,10 @@ def classify_hydro_response(event, hydro_series) -> dict:
             reason.append("Pegelanstieg im erwarteten Zeitfenster")
         reason.append("Bewertung beschreibt nur einen plausiblen Zusammenhang, keine Kausalitätsbehauptung")
         confidence = "high" if q_hit and w_hit else "medium"
-        return {"status": "confirmed", "confidence": confidence, "reason": reason}
+        return {"status": "confirmed", "confidence": confidence, "interpretation": "plausibler hydrologischer Zusammenhang", "reason": reason}
     reason.append("Kein relevanter Pegel- oder Abflussanstieg im erwarteten Zeitfenster")
     reason.append("Zusammenhang nicht bestätigt")
-    return {"status": "rejected", "confidence": "medium", "reason": reason}
+    return {"status": "rejected", "confidence": "medium", "interpretation": "kein belastbarer Zusammenhang ableitbar", "reason": reason}
 
 
 
@@ -252,10 +252,10 @@ def verify_pending_hydro_impacts(now: datetime | None = None) -> list[dict]:
         lag = _lag_window(event)
         if not event_at:
             observed = compute_hydro_delta(event.get("station_id"), current, 1)
-            classified = {"status": "ambiguous", "confidence": "low", "reason": ["Ereigniszeit fehlt"]}
+            classified = {"status": "ambiguous", "confidence": "low", "interpretation": "uneindeutig wegen fehlender Ereigniszeit", "reason": ["Ereigniszeit fehlt"]}
         elif current < event_at + timedelta(minutes=lag[1]):
             observed = {}
-            classified = {"status": "pending", "confidence": "low", "reason": ["Erwartetes Zeitfenster noch nicht abgeschlossen"]}
+            classified = {"status": "pending", "confidence": "low", "interpretation": "Verifikation steht noch aus", "reason": ["Erwartetes Zeitfenster noch nicht abgeschlossen"]}
         else:
             observed = compute_hydro_delta(event.get("station_id"), event_at + timedelta(minutes=lag[0]), lag[1] - lag[0])
             classified = classify_hydro_response(event, observed)
@@ -268,6 +268,7 @@ def verify_pending_hydro_impacts(now: datetime | None = None) -> list[dict]:
             "lag_window_min": lag,
             "observed": {k: observed.get(k) for k in ("q_before_m3s", "q_after_max_m3s", "delta_q_m3s", "w_before_cm", "w_after_max_cm", "delta_w_cm")},
             "confidence": classified["confidence"],
+            "interpretation": classified.get("interpretation", "plausibler Zusammenhang wird vorsichtig bewertet"),
             "reason": classified["reason"],
             "extra_windows_min": {str(w): compute_hydro_delta(event.get("station_id"), event_at, w) for w in HYDRO_EXTRA_WINDOWS_MIN} if event_at and classified["status"] != "pending" else {},
         }
