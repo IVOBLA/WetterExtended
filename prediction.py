@@ -885,15 +885,6 @@ def predict_positions(objects: list, timestamp: str, stations: list):
     except Exception as _rt_exc:
         _runtime_status = {"runtime_mode": "kinematic_fallback", "fallback_reason": f"runtime_status_failed: {_rt_exc}", "active_horizons": []}
 
-    if _runtime_status.get("runtime_mode") != "ml":
-        reason = _runtime_status.get("fallback_reason") or "runtime_status_not_ml"
-        _warn_ml_fallback_once(reason, None)
-        for _obj in objects:
-            _obj["forecast_mode"] = "kinematic_fallback"
-            _obj["fallback_reason"] = reason
-            _obj["forecast_fallback_reason"] = reason
-        return _kinematic_fallback(objects)
-
     # P-T08: Partielle Horizont-Abdeckung. Ein Horizont ist ML-fähig, wenn x- UND
     # y-Modell vorhanden sind. has_lgbm = mindestens ein Horizont (statt alle).
     _lgbm_horizons = [
@@ -906,6 +897,21 @@ def predict_positions(objects: list, timestamp: str, stations: list):
         "q90": has_lgbm and all(f"lgbm_h{h}_{axis}_q90" in lgbm_models for h in _lgbm_horizons for axis in ["x", "y"]),
     }
     has_lstm = lstm_model is not None
+
+    # Die Readiness-Datei ist ein Schutz gegen den normalen Produktivfall ohne
+    # promoviertes Modell. Geladene Artefakte bleiben aber maßgeblich: Tests und
+    # manuelle Recovery-Läufe können gültige Scaler/Modelle bereitstellen, während
+    # ml_readiness.json noch einen Cold-Start meldet. In diesem Fall nicht global
+    # abbrechen, sondern die verfügbare (auch partielle) ML-Abdeckung unten nutzen.
+    if _runtime_status.get("runtime_mode") != "ml" and scaler_X is None and scaler_y is None and not has_lgbm and not has_lstm:
+        reason = _runtime_status.get("fallback_reason") or "runtime_status_not_ml"
+        _warn_ml_fallback_once(reason, None)
+        for _obj in objects:
+            _obj["forecast_mode"] = "kinematic_fallback"
+            _obj["fallback_reason"] = reason
+            _obj["forecast_fallback_reason"] = reason
+        return _kinematic_fallback(objects)
+
     if scaler_X is None or scaler_y is None or (not has_lgbm and not has_lstm):
         reason = "missing_ml_artifacts"
         detail = None
