@@ -177,7 +177,7 @@ def pytest_ignore_collect(collection_path, config):
         flask_missing = False
     except Exception:
         flask_missing = True
-    if flask_missing and name in {"test_lightning_api.py", "test_risk_grid_api.py", "test_risk_score01_drivers.py", "test_hydro_auth.py", "test_public_safety_filters.py"}:
+    if flask_missing and name in {"test_lightning_api.py", "test_risk_grid_api.py", "test_risk_score01_drivers.py", "test_public_safety_filters.py"}:
         return True
     try:
         import shapely.geometry as _sg  # noqa: F401

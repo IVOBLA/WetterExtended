@@ -95,6 +95,7 @@ _ADMIN_WRITE_PREFIXES = (
     "/api/hydro/fetch-live",
     "/api/hydro/verify",
     "/api/hydro/stations/",
+    "/api/admin/hydro/",
 )
 # P1-1: GET/HEAD auf diesen Präfixen erfordern mind. viewer-Level (eingeloggt).
 # Bewusst NICHT enthalten (öffentliche Karte): /api/objects, /api/forecast,
@@ -151,8 +152,14 @@ def _jwt_auth_check():
     if request.path.startswith("/assets/") or request.path in ("/favicon.ico",):
         return
 
-    user = get_current_user()
+    try:
+        import auth as _a_mod
+        user = _a_mod.get_current_user()
+    except Exception:
+        user = None
     if user is None:
+        if request.path.startswith(("/api/hydro/", "/api/admin/hydro/")):
+            return jsonify({"ok": False, "status": "unauthorized", "error": "Nicht authentifiziert — JWT Bearer Token erforderlich"}), 401
         return jsonify({"error": "Nicht authentifiziert — JWT Bearer Token erforderlich"}), 401
 
     user_level = ROLE_LEVEL.get(user.get("role", ""), 0)
@@ -160,6 +167,8 @@ def _jwt_auth_check():
     is_admin_path = any(request.path.startswith(p) for p in _ADMIN_WRITE_PREFIXES)
 
     if is_admin_path and user_level < ROLE_LEVEL["admin"]:
+        if request.path.startswith(("/api/hydro/", "/api/admin/hydro/")):
+            return jsonify({"ok": False, "status": "forbidden", "error": "Admin-Berechtigung erforderlich (role: admin oder superadmin)"}), 403
         return jsonify({"error": "Admin-Berechtigung erforderlich (role: admin oder superadmin)"}), 403
     if not is_admin_path and user_level < ROLE_LEVEL["operator"]:
         return jsonify({"error": "Operator-Berechtigung erforderlich"}), 403
@@ -5137,53 +5146,57 @@ def api_hydro_station_catchment(station_id):
         return _hydro_json("invalid_station_id", ok=False, error="Ungültige station_id", code=400)
     return _hydro_safe(lambda: __import__("hydro_api").catchment(station_id), "hydro_catchment_error")
 
+@app.route("/api/admin/hydro/reload-static", methods=["POST"])
 @app.route("/api/hydro/reload-static", methods=["POST"])
 def api_hydro_reload_static():
     return _hydro_safe(lambda: __import__("hydro_static_import").build_static_hydro(), "hydro_static_error")
 
+@app.route("/api/admin/hydro/fetch-live", methods=["POST"])
 @app.route("/api/hydro/fetch-live", methods=["POST"])
 def api_hydro_fetch_live():
     return _hydro_safe(lambda: __import__("hydro_fetch").fetch_hydro_live(force=True), "hydro_live_error")
 
+@app.route("/api/admin/hydro/verify", methods=["POST"])
 @app.route("/api/hydro/verify", methods=["POST"])
 def api_hydro_verify():
     return _hydro_safe(lambda: {"results": __import__("hydro_verification").verify_pending_hydro_impacts(), "status": "ok"}, "hydro_verification_error")
 
+@app.route("/api/admin/hydro/stations/<station_id>", methods=["PATCH"])
 @app.route("/api/hydro/stations/<station_id>", methods=["PATCH"])
 def api_hydro_station_patch(station_id):
     import re as _re_hydro_patch
     import runtime_config
     sid = str(station_id or "")
     if not _re_hydro_patch.fullmatch(r"[A-Za-z0-9_.:-]{1,80}", sid):
-        return jsonify({"error": "Ungültige station_id"}), 400
+        return _hydro_json("invalid_station_id", ok=False, error="Ungültige station_id", code=400)
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict):
-        return jsonify({"error": "JSON-Objekt erwartet"}), 400
+        return _hydro_json("invalid_request", ok=False, error="JSON-Objekt erwartet", code=400)
     allowed = {"enabled", "default_lag_min", "estimated_lag_min"}
     unknown = sorted(set(data) - allowed)
     if unknown:
-        return jsonify({"error": "Unbekannte Felder", "fields": unknown}), 400
+        return _hydro_json("invalid_request", ok=False, error=f"Unbekannte Felder: {', '.join(unknown)}", code=400)
     key = "HYDRO_STATION_OVERRIDES"
     overrides = dict(runtime_config.get(key, {}) or {})
     cur = dict(overrides.get(sid, {}) or {})
     changed = []
     if "enabled" in data:
         if not isinstance(data["enabled"], bool):
-            return jsonify({"error": "enabled muss bool sein"}), 400
+            return _hydro_json("invalid_request", ok=False, error="enabled muss bool sein", code=400)
         cur["enabled"] = data["enabled"]; changed.append("enabled")
     for k in ("default_lag_min", "estimated_lag_min"):
         if k in data:
             try:
                 val = float(data[k])
             except (TypeError, ValueError):
-                return jsonify({"error": f"{k} muss eine Zahl sein"}), 400
+                return _hydro_json("invalid_request", ok=False, error=f"{k} muss eine Zahl sein", code=400)
             if not 0 <= val <= 720:
-                return jsonify({"error": f"{k} außerhalb 0–720"}), 400
+                return _hydro_json("invalid_request", ok=False, error=f"{k} außerhalb 0–720", code=400)
             cur[k] = int(val) if val.is_integer() else val
             changed.append(k)
     overrides[sid] = cur
     runtime_config.patch({key: overrides})
-    return jsonify({"ok": True, "station_id": sid, "overrides": cur, "changed_keys": changed})
+    return _hydro_json("ok", data={"station_id": sid, "overrides": cur, "changed_keys": changed}, ok=True)
 
 if __name__ == "__main__":
     # Fix P04: Standardmäßig nur auf 127.0.0.1 lauschen.
