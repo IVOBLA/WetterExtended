@@ -740,6 +740,66 @@ def _size_trend_vs_baseline(area, prev_area, pct_stable):
     return 0
 
 
+def _new_kalman_filter(cx, cy, vx=0.0, vy=0.0):
+    """Erzeugt einen Tracking-KalmanFilter mit den Standardmatrizen.
+
+    x/y/vx/vy sind ORIGINAL-px pro Frame und damit identisch zu den Einheiten,
+    die update_tracking_memory() in kf.x verwendet.
+    """
+    kf = KalmanFilter(dim_x=4, dim_z=2)
+    kf.x = np.array([float(cx), float(cy), float(vx), float(vy)])
+    kf.F = np.array([[1, 0, 1, 0], [0, 1, 0, 1], [0, 0, 1, 0], [0, 0, 0, 1]])
+    kf.H = np.array([[1, 0, 0, 0], [0, 1, 0, 0]])
+    kf.P = np.eye(4) * 500
+    kf.R = np.eye(2) * 10
+    kf.Q = np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0.5, 0], [0, 0, 0, 0.5]])
+    return kf
+
+
+def _is_valid_kalman_filter(kf) -> bool:
+    """Minimal robuste Strukturprüfung für wiederverwendbare KalmanFilter."""
+    if kf is None or not hasattr(kf, "predict") or not hasattr(kf, "update"):
+        return False
+    try:
+        x = np.asarray(kf.x, dtype=float).reshape(-1)
+        f = np.asarray(kf.F, dtype=float)
+        h = np.asarray(kf.H, dtype=float)
+        p = np.asarray(kf.P, dtype=float)
+        r = np.asarray(kf.R, dtype=float)
+        q = np.asarray(kf.Q, dtype=float)
+    except Exception:
+        return False
+    return (
+        x.shape[0] >= 4
+        and f.shape == (4, 4)
+        and h.shape == (2, 4)
+        and p.shape == (4, 4)
+        and r.shape == (2, 2)
+        and q.shape == (4, 4)
+    )
+
+
+def _seed_velocity_from_snapshot(prev_obj, cx, cy, previous_snapshot):
+    """Seedet vx/vy aus der letzten History, sonst aus Nachbarn, sonst 0/0.
+
+    Die zurückgegebenen Werte bleiben ORIGINAL-px pro Frame — keine Umrechnung
+    in px/min oder km/h.
+    """
+    if isinstance(prev_obj, dict):
+        history = prev_obj.get("history")
+        if isinstance(history, list) and history:
+            last_entry = history[-1]
+            if isinstance(last_entry, dict):
+                try:
+                    vx = float(last_entry.get("vx"))
+                    vy = float(last_entry.get("vy"))
+                    if np.isfinite(vx) and np.isfinite(vy):
+                        return vx, vy
+                except (TypeError, ValueError):
+                    pass
+    return _neighbor_motion_seed(cx, cy, previous_snapshot)
+
+
 def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_mask=None):
     FILTER_CONFIG = _get_filter_config_live()
     # was_active-Schwellwert — runtime-überschreibbar über Admin-Panel
@@ -1025,13 +1085,21 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
 
         if obj_id and obj_id in previous_snapshot:
             used_ids.add(obj_id)
-            kf = previous_snapshot[obj_id]["kf"]
-            kf.predict()
-            _prev_vx = float(kf.x[2])
-            _prev_vy = float(kf.x[3])
-            kf.update([original_cx, original_cy])
-            _clamp_kalman_velocity(kf, _prev_vx, _prev_vy)
-            vx, vy = kf.x[2], kf.x[3]
+            prev_obj = previous_snapshot.get(obj_id, {})
+            kf = prev_obj.get("kf") if isinstance(prev_obj, dict) else None
+            if _is_valid_kalman_filter(kf):
+                kf.predict()
+                _prev_vx = float(kf.x[2])
+                _prev_vy = float(kf.x[3])
+                kf.update([original_cx, original_cy])
+                _clamp_kalman_velocity(kf, _prev_vx, _prev_vy)
+                vx, vy = kf.x[2], kf.x[3]
+            else:
+                _seed_vx, _seed_vy = _seed_velocity_from_snapshot(
+                    prev_obj, original_cx, original_cy, previous_snapshot
+                )
+                kf = _new_kalman_filter(original_cx, original_cy, _seed_vx, _seed_vy)
+                vx, vy = _seed_vx, _seed_vy
         else:
             if obj_id is None:
                 obj_id = generate_id()
@@ -1039,13 +1107,7 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
             _seed_vx, _seed_vy = _neighbor_motion_seed(
                 original_cx, original_cy, previous_snapshot
             )
-            kf = KalmanFilter(dim_x=4, dim_z=2)
-            kf.x = np.array([original_cx, original_cy, _seed_vx, _seed_vy])
-            kf.F = np.array([[1, 0, 1, 0], [0, 1, 0, 1], [0, 0, 1, 0], [0, 0, 0, 1]])
-            kf.H = np.array([[1, 0, 0, 0], [0, 1, 0, 0]])
-            kf.P = np.eye(4) * 500
-            kf.R = np.eye(2) * 10
-            kf.Q = np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0.5, 0], [0, 0, 0, 0.5]])
+            kf = _new_kalman_filter(original_cx, original_cy, _seed_vx, _seed_vy)
             vx, vy = _seed_vx, _seed_vy
 
         # P-M03: Beim Merge gegen das flächengewichtete Mittel ALLER Parent-Kerne
