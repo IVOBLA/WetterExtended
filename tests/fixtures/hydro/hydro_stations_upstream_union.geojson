@@ -1,0 +1,3 @@
+{"type":"FeatureCollection","features":[
+  {"type":"Feature","geometry":{"type":"Point","coordinates":[13.05,46.05]},"properties":{"station_id":"S_UNION","station_name":"Pegel Union","river_name":"Drau","upstream_catchment_ids":["B1","B2"]}}
+]}
