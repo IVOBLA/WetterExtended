@@ -366,6 +366,14 @@ MAX_CELL_SPEED_KMH: float = 150.0
 # Kalman-Sprünge bei Mess-Artefakten (Plausibilitätsprüfung F14).
 MAX_SPEED_CHANGE_PER_CYCLE_KMH: float = 60.0
 
+# Steuerstrom-Abgleich fuer kinematische Forecasts. Windrichtungen aus Wetterdaten
+# sind meteorologisch (FROM); prediction.py wandelt sie in Zellbewegung (TO).
+STEERING_BLEND_ENABLED: bool = True
+STEERING_BLEND_MAX_ACTIVE_FRAMES: int = 3
+STEERING_BLEND_MIN_ANGLE_DEG: float = 60.0
+STEERING_BLEND_WEIGHT: float = 0.35
+STEERING_BLEND_MIN_WIND_KMH: float = 10.0
+
 
 def speed_kmh_from_px(vx, vy) -> float:
     """B105/P0-1: Zellgeschwindigkeit [km/h] aus vx/vy in ORIGINAL-px/Frame.
