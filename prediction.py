@@ -641,13 +641,9 @@ def _classify_tendency(obj: dict, has_ml: bool) -> None:
 def _annotate_forecast_runtime_metadata(obj: dict, runtime_status: dict) -> None:
     horizons = [int(h) for h in _get_horizons()]
     by_h = {str(h): obj.get(f"forecast_mode_{h}") or runtime_status.get("forecast_mode_by_horizon", {}).get(str(h)) for h in horizons}
-    # normalisiere Legacy-Werte
-    by_h = {k: ("kinematic_fallback" if v in ("kinematic", "linear") else v) for k, v in by_h.items()}
     modes = set(v for v in by_h.values() if v)
-    if modes == {"ml"}:
+    if "ml" in modes:
         obj["forecast_mode"] = "ml"
-    elif "ml" in modes and "kinematic_fallback" in modes:
-        obj["forecast_mode"] = "mixed"
     elif modes:
         obj["forecast_mode"] = "kinematic_fallback"
     obj["forecast_mode_by_horizon"] = by_h
@@ -1094,7 +1090,7 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                     obj[f"forecast_lon_{horizon}"] = k["lon"]
                     obj[f"forecast_displacement_km_{horizon}"] = k.get("forecast_displacement_km")
                     obj[f"forecast_speed_kmh_{horizon}"] = k.get("forecast_speed_kmh")
-                    obj[f"forecast_mode_{horizon}"] = "kinematic_fallback"
+                    obj[f"forecast_mode_{horizon}"] = "kinematic"
                     obj[f"kinematic_source_{horizon}"] = obj.get("kinematic_source")
                     obj[f"of_available_{horizon}"] = int(obj.get("of_available", 0) or 0)
                     forecasts[horizon].append({
@@ -1104,8 +1100,8 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                         "size": _safe_float(obj.get("size", 0.0)),
                         "origin_lat": _safe_float(obj.get("lat", 0.0)),
                         "origin_lon": _safe_float(obj.get("lon", 0.0)),
-                        "forecast_mode": "kinematic_fallback",
-                        "forecast_mode_horizon": "kinematic_fallback",
+                        "forecast_mode": "kinematic",
+                        "forecast_mode_horizon": "kinematic",
                         "kinematic_source": k.get("kinematic_source"),
                         "of_available": int(obj.get("of_available", 0) or 0),
                         "of_error_reason": obj.get("of_error_reason"),
@@ -1181,8 +1177,9 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                     ),
                 }
             )
-        # P-T08: obj-Level forecast_mode = "ml" nur wenn ≥1 Horizont ML war.
-        obj["forecast_mode"] = "ml" if _ml_horizon_count == len(_get_horizons()) else ("mixed" if _ml_horizon_count > 0 else "kinematic_fallback")
+        # P-T08: obj-Level forecast_mode = "ml" sobald mindestens ein Horizont ML war;
+        # die genaue ML-/Kinematik-Abdeckung steht in forecast_mode_<Horizont>.
+        obj["forecast_mode"] = "ml" if _ml_horizon_count > 0 else "kinematic_fallback"
         _annotate_forecast_runtime_metadata(obj, _runtime_status)
 
     # B108: B95-Pfad-Wetter-Berechnung wurde in den Objekt-Loop VORGEZOGEN
