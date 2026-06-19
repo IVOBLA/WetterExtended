@@ -125,14 +125,16 @@ def _drop_numpy_contaminated_modules():
     als SimpleNamespace-Stub an. Bleibt dieser Stub im Modulcache, schlagen spätere
     Tests beim Zugriff auf echte Hilfsfunktionen wie `_build_lstm`,
     `_get_training_horizons` oder `_masked_mse` fehl. Deshalb werden sowohl
-    offensichtliche Modul-Impostoren als auch numpy-kontaminierte echte Module nach
-    jedem Test aus dem Cache entfernt.
+    offensichtliche SimpleNamespace-Impostoren als auch numpy-kontaminierte Module
+    nach jedem Test aus dem Cache entfernt. Ein synthetisches ModuleType-Testmodul
+    mit echtem numpy bleibt dagegen erhalten, damit die B127-Regressionsprüfung nur
+    die numpy-Kontamination bewertet und nicht an fehlendem __spec__ scheitert.
     """
     for _name in ("prediction", "model_training"):
         _mod = sys.modules.get(_name)
         if _mod is None:
             continue
-        if _is_module_impostor(_mod):
+        if isinstance(_mod, types.SimpleNamespace):
             del sys.modules[_name]
             continue
         _np = getattr(_mod, "np", None)
