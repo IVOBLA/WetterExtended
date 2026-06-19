@@ -2,7 +2,7 @@ import glob
 import json
 import os
 from datetime import datetime
-from math import asin, cos, pi, radians, sin, sqrt
+from math import asin, atan2, cos, pi, radians, sin, sqrt
 
 import importlib
 import importlib.util
@@ -49,6 +49,12 @@ from config import (
     TENDENCY_COMPACT_CORE_RATIO_DELTA as _TENDENCY_COMPACT_CORE_TH,
     SAVE_PATHS,
     UPSCALE_FACTOR as _UF,
+    MAX_CELL_SPEED_KMH as _STATIC_MAX_CELL_SPEED_KMH,
+    STEERING_BLEND_ENABLED as _STATIC_STEERING_BLEND_ENABLED,
+    STEERING_BLEND_MAX_ACTIVE_FRAMES as _STATIC_STEERING_BLEND_MAX_ACTIVE_FRAMES,
+    STEERING_BLEND_MIN_ANGLE_DEG as _STATIC_STEERING_BLEND_MIN_ANGLE_DEG,
+    STEERING_BLEND_WEIGHT as _STATIC_STEERING_BLEND_WEIGHT,
+    STEERING_BLEND_MIN_WIND_KMH as _STATIC_STEERING_BLEND_MIN_WIND_KMH,
 )
 
 try:
@@ -185,6 +191,58 @@ def _safe_float(value):
     except (TypeError, ValueError):
         return 0.0
 
+
+
+def _motion_dir_deg_from_vxy(vx_px_min, vy_px_min):
+    """Bewegungsrichtung IN die die Zelle zieht, Grad: 0=N, 90=E."""
+    vx = _safe_float(vx_px_min)
+    vy = _safe_float(vy_px_min)
+    if abs(vx) < 1e-9 and abs(vy) < 1e-9:
+        return None
+    return (atan2(vx, -vy) * 180.0 / pi + 360.0) % 360.0
+
+
+def _vxy_from_motion_dir_speed(direction_to_deg, speed_kmh=None, normierter_speed=None):
+    """Vektor aus Bewegungsrichtung (TO) und Speed. y ist bildtypisch nach Süden positiv."""
+    speed = _safe_float(speed_kmh if speed_kmh is not None else normierter_speed)
+    rad = radians(_safe_float(direction_to_deg) % 360.0)
+    if speed_kmh is not None:
+        speed = speed * float(_UF or 1.0) / 60.0
+    return sin(rad) * speed, -cos(rad) * speed
+
+
+def _angle_diff_deg(a, b):
+    """Kleinste Winkeldifferenz in Grad (0..180)."""
+    return abs(((_safe_float(a) - _safe_float(b) + 180.0) % 360.0) - 180.0)
+
+
+def _wind_from_cos_sin_to_deg(cos_value, sin_value):
+    """Meteorologische Windrichtung FROM aus cos/sin in Bewegungsrichtung TO wandeln."""
+    c = _safe_float(cos_value)
+    s = _safe_float(sin_value)
+    if abs(c) < 1e-9 and abs(s) < 1e-9:
+        return None
+    direction_from = (atan2(s, c) * 180.0 / pi + 360.0) % 360.0
+    return (direction_from + 180.0) % 360.0
+
+
+def _steering_motion_vector_from_obj(obj):
+    """Lokalen 500/700-hPa-Steuerstrom als Zellbewegungsvektor ableiten; keine Requests."""
+    min_wind = float(_runtime_cfg.get("STEERING_BLEND_MIN_WIND_KMH", _STATIC_STEERING_BLEND_MIN_WIND_KMH) if _runtime_cfg else _STATIC_STEERING_BLEND_MIN_WIND_KMH)
+    candidates = [
+        ("500hpa", obj.get("wind_500_speed"), obj.get("wind_500_dir_cos"), obj.get("wind_500_dir_sin")),
+        ("700hpa", obj.get("wind_700hpa"), obj.get("wind_dir_cos"), obj.get("wind_dir_sin")),
+    ]
+    for level, speed, c, s in candidates:
+        speed = _safe_float(speed)
+        if speed < min_wind:
+            continue
+        direction_to = _wind_from_cos_sin_to_deg(c, s)
+        if direction_to is None:
+            continue
+        vx, vy = _vxy_from_motion_dir_speed(direction_to, speed_kmh=speed)
+        return {"level": level, "speed_kmh": speed, "direction_to_deg": direction_to, "vx": vx, "vy": vy}
+    return None
 
 def _append_kinematic(obj: dict, forecasts: dict) -> None:
     """
@@ -330,6 +388,72 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
     # angewandt (beim optischen Fluss nicht relevant, da feldbasiert/sprung-robust).
     if _merge_guard_applied and not src.startswith("optflow"):
         src = f"{src}+mguard"
+
+    obj["steering_available"] = 0
+    obj["steering_level_used"] = None
+    obj["steering_direction_to_deg"] = None
+    obj["steering_angle_diff_deg"] = None
+    obj["steering_blend_applied"] = 0
+
+    _steering = _steering_motion_vector_from_obj(obj)
+    if _steering is not None:
+        obj["steering_available"] = 1
+        obj["steering_level_used"] = _steering["level"]
+        obj["steering_direction_to_deg"] = round(float(_steering["direction_to_deg"]), 3)
+        _cell_dir = _motion_dir_deg_from_vxy(avg_vx, avg_vy)
+        if _cell_dir is not None:
+            _angle_diff = _angle_diff_deg(_cell_dir, _steering["direction_to_deg"])
+            obj["steering_angle_diff_deg"] = round(float(_angle_diff), 3)
+            _blend_enabled = bool(
+                _runtime_cfg.get("STEERING_BLEND_ENABLED", _STATIC_STEERING_BLEND_ENABLED)
+                if _runtime_cfg else _STATIC_STEERING_BLEND_ENABLED
+            )
+            _max_active = int(
+                _runtime_cfg.get("STEERING_BLEND_MAX_ACTIVE_FRAMES", _STATIC_STEERING_BLEND_MAX_ACTIVE_FRAMES)
+                if _runtime_cfg else _STATIC_STEERING_BLEND_MAX_ACTIVE_FRAMES
+            )
+            _min_angle = float(
+                _runtime_cfg.get("STEERING_BLEND_MIN_ANGLE_DEG", _STATIC_STEERING_BLEND_MIN_ANGLE_DEG)
+                if _runtime_cfg else _STATIC_STEERING_BLEND_MIN_ANGLE_DEG
+            )
+            _weight = float(
+                _runtime_cfg.get("STEERING_BLEND_WEIGHT", _STATIC_STEERING_BLEND_WEIGHT)
+                if _runtime_cfg else _STATIC_STEERING_BLEND_WEIGHT
+            )
+            _weight = max(0.0, min(1.0, _weight))
+            _active_frames = int(float(obj.get("active_frames", obj.get("total_active_frames", 9999)) or 0))
+            _weak_motion_basis = (
+                _active_frames <= _max_active
+                or src == "kalman_only"
+                or int(obj.get("of_available", 0) or 0) != 1
+            )
+            if _blend_enabled and _weak_motion_basis and _angle_diff > _min_angle:
+                _orig_speed = (avg_vx ** 2 + avg_vy ** 2) ** 0.5
+                _steer_vx, _steer_vy = _vxy_from_motion_dir_speed(
+                    _steering["direction_to_deg"],
+                    normierter_speed=_orig_speed,
+                )
+                avg_vx = (1.0 - _weight) * avg_vx + _weight * _steer_vx
+                avg_vy = (1.0 - _weight) * avg_vy + _weight * _steer_vy
+                _new_speed = (avg_vx ** 2 + avg_vy ** 2) ** 0.5
+                if _orig_speed > 0.0 and _new_speed > _orig_speed:
+                    _scale = _orig_speed / _new_speed
+                    avg_vx *= _scale
+                    avg_vy *= _scale
+                obj["steering_blend_applied"] = 1
+                src = f"{src}+steering"
+
+    if int(obj.get("steering_blend_applied", 0) or 0) == 1:
+        _max_speed_kmh = float(
+            _runtime_cfg.get("MAX_CELL_SPEED_KMH", _STATIC_MAX_CELL_SPEED_KMH)
+            if _runtime_cfg else _STATIC_MAX_CELL_SPEED_KMH
+        )
+        _max_px_min = max(0.0, _max_speed_kmh) * float(_UF or 1.0) / 60.0
+        _speed_px_min = (avg_vx ** 2 + avg_vy ** 2) ** 0.5
+        if _max_px_min > 0.0 and _speed_px_min > _max_px_min:
+            _scale = _max_px_min / _speed_px_min
+            avg_vx *= _scale
+            avg_vy *= _scale
 
     obj["forecast_mode"]      = "kinematic"
     obj["has_ml_forecast"]    = False
