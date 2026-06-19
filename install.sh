@@ -81,13 +81,23 @@ github_ssh_preflight() {
 # Index-Konflikte für genau diese Datei neutralisieren und danach wiederherstellen.
 RUNTIME_OVERRIDES_REL="train_data/runtime_overrides.json"
 RUNTIME_OVERRIDES_BACKUP=""
+RUNTIME_OVERRIDES_SHA_BEFORE=""
+RUNTIME_OVERRIDES_SHA_AFTER=""
 
 backup_runtime_overrides() {
     local runtime_path="$TARGET/$RUNTIME_OVERRIDES_REL"
+    local backup_dir="$TARGET/train_data/install_backups"
     if [[ -f "$runtime_path" ]]; then
-        RUNTIME_OVERRIDES_BACKUP=$(mktemp /tmp/wetterprojekt_runtime_overrides.XXXXXX.json)
-        cp "$runtime_path" "$RUNTIME_OVERRIDES_BACKUP"
-        log_info "runtime_overrides.json vor Git-Update gesichert."
+        mkdir -p "$backup_dir"
+        chmod 700 "$backup_dir" 2>/dev/null || true
+        local ts
+        ts=$(date -u +%Y%m%d_%H%M%S)
+        RUNTIME_OVERRIDES_BACKUP="$backup_dir/runtime_overrides_${ts}.json"
+        cp -p "$runtime_path" "$RUNTIME_OVERRIDES_BACKUP"
+        chmod 600 "$RUNTIME_OVERRIDES_BACKUP" 2>/dev/null || true
+        RUNTIME_OVERRIDES_SHA_BEFORE=$(sha256sum "$runtime_path" | awk '{print $1}')
+        log_info "runtime_overrides.json vor Source-Update persistent gesichert: $RUNTIME_OVERRIDES_BACKUP"
+        log_info "runtime_overrides.json SHA256 vor Upgrade: $RUNTIME_OVERRIDES_SHA_BEFORE"
     fi
 
     if [[ -d "$TARGET/.git" ]]; then
@@ -104,9 +114,14 @@ restore_runtime_overrides() {
     local runtime_path="$TARGET/$RUNTIME_OVERRIDES_REL"
     if [[ -n "$RUNTIME_OVERRIDES_BACKUP" && -f "$RUNTIME_OVERRIDES_BACKUP" ]]; then
         mkdir -p "$(dirname "$runtime_path")"
-        cp "$RUNTIME_OVERRIDES_BACKUP" "$runtime_path"
-        rm -f "$RUNTIME_OVERRIDES_BACKUP"
-        log_info "runtime_overrides.json nach Git-Update wiederhergestellt."
+        if cp "$RUNTIME_OVERRIDES_BACKUP" "$runtime_path"; then
+            chmod 600 "$runtime_path" 2>/dev/null || true
+            log_info "runtime_overrides.json aus persistentem Backup wiederhergestellt."
+        else
+            log_error "Restore von runtime_overrides.json fehlgeschlagen. Manuell ausführen:"
+            log_error "  cp '$RUNTIME_OVERRIDES_BACKUP' '$runtime_path'"
+            return 1
+        fi
     fi
 
     if [[ -d "$TARGET/.git" ]]; then
@@ -117,6 +132,44 @@ restore_runtime_overrides() {
             fi
         )
     fi
+}
+
+log_runtime_overrides_sha_after() {
+    local runtime_path="$TARGET/$RUNTIME_OVERRIDES_REL"
+    if [[ -f "$runtime_path" ]]; then
+        RUNTIME_OVERRIDES_SHA_AFTER=$(sha256sum "$runtime_path" | awk '{print $1}')
+        log_info "runtime_overrides.json SHA256 nach Upgrade: $RUNTIME_OVERRIDES_SHA_AFTER"
+    fi
+}
+
+verify_runtime_overrides_preserved() {
+    local runtime_path="$TARGET/$RUNTIME_OVERRIDES_REL"
+    [[ -n "$RUNTIME_OVERRIDES_BACKUP" && -f "$RUNTIME_OVERRIDES_BACKUP" && -f "$runtime_path" ]] || return 0
+    "$PYTHON_FOR_INIT" - "$RUNTIME_OVERRIDES_BACKUP" "$runtime_path" <<'PYVERIFY'
+import json, sys
+before_path, after_path = sys.argv[1:3]
+with open(before_path, encoding="utf-8") as f:
+    before = json.load(f)
+with open(after_path, encoding="utf-8") as f:
+    after = json.load(f)
+if not isinstance(before, dict) or not isinstance(after, dict):
+    raise SystemExit("runtime_overrides.json muss ein JSON-Objekt sein")
+for key, value in before.items():
+    if key not in after:
+        raise SystemExit(f"Bestehender Key wurde entfernt: {key}")
+    if after[key] != value:
+        raise SystemExit(f"Bestehender Key wurde verändert: {key}")
+locations = before.get("LOCATIONS_WATCHLIST")
+if locations is not None:
+    if after.get("LOCATIONS_WATCHLIST") != locations:
+        raise SystemExit("LOCATIONS_WATCHLIST wurde ersetzt oder verändert")
+    for idx, loc in enumerate(after["LOCATIONS_WATCHLIST"]):
+        if isinstance(loc, dict):
+            for field in ("email", "whatsapp"):
+                if field in locations[idx] and loc.get(field) != locations[idx].get(field):
+                    raise SystemExit(f"LOCATIONS_WATCHLIST[{idx}].{field} wurde entfernt oder verändert")
+print("runtime_overrides preserved")
+PYVERIFY
 }
 
 # --- Optionen -----------------------------------------------------------------
@@ -148,6 +201,12 @@ cleanup_lock() { rm -f "$LOCK_FILE"; }
 on_error() {
     local exit_code=$?
     log_error "Fehler in Phase: ${CURRENT_PHASE} (Exit-Code: ${exit_code})"
+    if [[ -n "${RUNTIME_OVERRIDES_BACKUP:-}" ]]; then
+        restore_runtime_overrides || {
+            log_error "Manuelle Wiederherstellung erforderlich:"
+            log_error "  cp '$RUNTIME_OVERRIDES_BACKUP' '$TARGET/$RUNTIME_OVERRIDES_REL'"
+        }
+    fi
     [[ ${#MANUAL_STEPS[@]} -gt 0 ]] && {
         echo -e "\n${YELLOW}Manuelle Schritte die noch nötig sind:${NC}"
         for s in "${MANUAL_STEPS[@]}"; do echo "$s"; done
@@ -155,6 +214,7 @@ on_error() {
     exit "$exit_code"
 }
 trap on_error ERR
+trap 'on_error' INT TERM
 trap cleanup_lock EXIT
 [[ -e "$LOCK_FILE" ]] && { log_error "Lock-Datei existiert. Läuft bereits eine Installation?"; exit 1; }
 touch "$LOCK_FILE"
@@ -413,8 +473,16 @@ if [[ "$LOCAL_INSTALL" == true ]]; then
     log_info "Lokale Installation aus: $LOCAL_SOURCE"
     if [[ "$LOCAL_SOURCE" != "$TARGET" ]]; then
         mkdir -p "$TARGET"
-        cp -a "$LOCAL_SOURCE/." "$TARGET/"
-        log_info "Quellcode nach $TARGET kopiert."
+        rsync -a --delete \
+            --exclude=/.env \
+            --exclude=/users.db \
+            --exclude=/train_data/runtime_overrides.json \
+            --exclude=/train_data/statistics/ \
+            --exclude=/train_data/dem/ \
+            --exclude=/train_data/cell_filters/ \
+            --exclude=/train_data/cell_lineage/ \
+            "$LOCAL_SOURCE/" "$TARGET/"
+        log_info "Quellcode nach $TARGET kopiert (geschützte Benutzerdaten ausgeschlossen)."
     else
         log_info "Bereits im Zielverzeichnis — kein Kopieren nötig."
     fi
@@ -490,6 +558,7 @@ else
 fi
 
 restore_runtime_overrides
+log_runtime_overrides_sha_after
 
 # ==============================================================================
 # PHASE 3b — Vollinstallation: Daten und Build löschen
@@ -1926,11 +1995,22 @@ fi
 
 # ── runtime_overrides.json mit Defaults initialisieren (merge-only) ──────────
 echo "[INSTALL] Initialisiere runtime_overrides.json mit Default-Werten..."
-if python3 "$_SCRIPT_DIR/init_runtime_overrides.py"; then
-    echo "[OK] runtime_overrides.json initialisiert."
+PYTHON_FOR_INIT="python3"
+if [[ -x "$VENV/bin/python3" ]]; then
+    PYTHON_FOR_INIT="$VENV/bin/python3"
+fi
+if "$PYTHON_FOR_INIT" "$TARGET/init_runtime_overrides.py" --path "$TARGET/train_data/runtime_overrides.json"; then
+    if verify_runtime_overrides_preserved; then
+        echo "[OK] runtime_overrides.json initialisiert und bestehende Admin-Einstellungen verifiziert."
+    else
+        log_error "runtime_overrides.json wurde unerwartet verändert — stelle Backup wieder her."
+        restore_runtime_overrides
+        exit 1
+    fi
 else
-    echo "[WARN] init_runtime_overrides.py fehlgeschlagen — bitte manuell ausführen:"
-    echo "       python3 init_runtime_overrides.py"
+    echo "[WARN] init_runtime_overrides.py fehlgeschlagen — runtime_overrides.json wurde nicht durch Defaults ersetzt."
+    echo "       Manuell prüfen: $PYTHON_FOR_INIT $TARGET/init_runtime_overrides.py --path $TARGET/train_data/runtime_overrides.json"
+    exit 1
 fi
 
 # ==============================================================================
