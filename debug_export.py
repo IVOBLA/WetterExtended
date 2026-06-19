@@ -57,6 +57,10 @@ _ALWAYS_INCLUDE_NAMES = {
 }
 _EXCLUDED_NAMES = {".admin_password"}
 _EXCLUDED_PARTS = {".git", "node_modules", "venv", ".venv", "__pycache__", "frontend/dist"}
+_HYDRO_STATIC_EXPORT_ALLOWLIST = {
+    "hydro_static_status.json",
+    "station_network_index.json",
+}
 _TIMESTAMP_PATTERNS = (
     re.compile(r"(?P<stamp>\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})"),
     re.compile(r"(?P<stamp>\d{8}_\d{6})"),
@@ -233,6 +237,8 @@ def _is_excluded(path: Path, base_dir: Path) -> bool:
         return True
     if path.suffix.lower() == ".zip" and ("/" not in rel or rel.startswith("data/")):
         return True
+    if rel.startswith("train_data/hydro/static/"):
+        return not (rel.startswith("train_data/hydro/static/generated/") and path.name in _HYDRO_STATIC_EXPORT_ALLOWLIST)
     return any(part in rel.split("/") or rel.startswith(part.rstrip("/") + "/") for part in _EXCLUDED_PARTS)
 
 
@@ -299,6 +305,9 @@ def _build_candidates_with_diagnostics(base_dir: Path, save_paths: dict | None) 
         ("forecast", Path("data/forecast"), False),
         ("evaluation", Path(save_paths.get("evaluation", "train_data/evaluation")), False),
         ("external_responses/hydro", Path(save_paths.get("hydro", "train_data/hydro/live")), False),
+        ("hydro_impact", Path("train_data/hydro/impact"), False),
+        ("hydro_static", Path("train_data/hydro/static/generated/hydro_static_status.json"), True),
+        ("external_responses/hydro", Path("train_data/external_responses/hydro"), False),
         ("admin_state", Path("train_data/system"), False),
         ("cell_lineage", Path("train_data/cell_lineage"), False),
         ("system_logs", Path("logs"), False),
@@ -337,7 +346,7 @@ def _build_candidates_with_diagnostics(base_dir: Path, save_paths: dict | None) 
                 root_rel = file_path.relative_to(full) if full.is_dir() else Path(file_path.name)
             except Exception:
                 root_rel = rel
-            if section.startswith("external_responses") or section in {"api_logs", "system_logs", "admin_state"}:
+            if section.startswith("external_responses") or section in {"api_logs", "system_logs", "admin_state", "hydro_impact", "hydro_static"}:
                 arc_rel = Path(section) / root_rel
             else:
                 arc_rel = Path(section) / rel

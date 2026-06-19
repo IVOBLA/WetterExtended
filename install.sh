@@ -594,6 +594,7 @@ if [[ "$MODE" == "full" ]]; then
     echo "NICHT geloescht werden:"
     echo "  train_data/dem/         (Copernicus DEM — grosser Einmal-Download)"
     echo "  train_data/statistics/  (Langzeitstatistik und Klimatologie-Raster)"
+    echo "  train_data/hydro/       (Hydro-Live-/Impactdaten und lokale Hydro-Geodaten)"
     echo "  .env                    (Zugangsdaten: FTP, Blitzortung, Twilio)"
     echo "  runtime_overrides.json  (Admin-Panel-Einstellungen)"
     echo "  users.db                (Benutzerkonten und Passwörter — bleiben immer erhalten)"
@@ -1018,6 +1019,11 @@ DIRS=(
     train_data/arome
     train_data/api_cache
     train_data/dem
+    train_data/hydro/static
+    train_data/hydro/static/source
+    train_data/hydro/static/generated
+    train_data/hydro/live
+    train_data/hydro/impact
     data/radar
     data
     logs
@@ -1026,6 +1032,11 @@ for d in "${DIRS[@]}"; do
     mkdir -p "$TARGET/$d"
 done
 log_info "Verzeichnisstruktur erstellt."
+
+if [[ ! -f "$TARGET/train_data/hydro/static/generated/station_catchments.geojson" || ! -f "$TARGET/train_data/hydro/static/generated/station_network_index.json" ]]; then
+    log_warn "Hydro-Impact benötigt lokale Gewässer-/Einzugsgebietsdaten."
+    log_warn "Installation wird fortgesetzt; lege GeoJSON-Quellen unter train_data/hydro/static/source/ ab und baue sie später über den Hydro-Static-Import."
+fi
 
 INITIAL_MODEL_SOURCE="$TARGET/weather_lstm_model.keras"
 INITIAL_MODEL_TARGET="$TARGET/train_data/models/current/weather_lstm.keras"

@@ -418,6 +418,32 @@ def _journalctl_unit_lines(unit, limit=500, max_bytes=_LOGS_DEFAULT_MAX_BYTES):
     return _limit_log_text_for_display(result.stdout, limit=limit, max_bytes=max_bytes)[0]
 
 
+def _hydro_log_lines(limit=500, max_bytes=_LOGS_DEFAULT_MAX_BYTES):
+    """Sammelt Hydro-Status und Hydro-Fehlerdateien für die Admin-Logansicht."""
+    chunks = []
+    hydro_paths = [
+        Path(SAVE_PATHS.get("hydro", "train_data/hydro/live")).joinpath("hydro_status.json"),
+        Path("train_data/external_responses/hydro"),
+        Path(SAVE_PATHS.get("evaluation", "train_data/evaluation")).joinpath("api_health.jsonl"),
+    ]
+    for path in hydro_paths:
+        if path.is_file():
+            try:
+                chunks.append(f"### {path}\n{path.read_text(encoding='utf-8', errors='replace')}")
+            except OSError as exc:
+                chunks.append(f"### {path}\n[hydro] nicht lesbar: {exc}")
+        elif path.is_dir():
+            for child in sorted(path.rglob("*")):
+                if child.is_file() and child.suffix.lower() in {".json", ".jsonl", ".log", ".txt"}:
+                    try:
+                        chunks.append(f"### {child}\n{child.read_text(encoding='utf-8', errors='replace')}")
+                    except OSError as exc:
+                        chunks.append(f"### {child}\n[hydro] nicht lesbar: {exc}")
+    text = "\n".join(chunks) if chunks else "[hydro] Keine Hydro-Status- oder Fehlerdateien gefunden."
+    hydro_lines = [line for line in text.splitlines() if "hydro" in line.lower() or "error" in line.lower() or "fallback" in line.lower()]
+    return _limit_log_text_for_display("\n".join(hydro_lines or text.splitlines()), limit=limit, max_bytes=max_bytes)[0]
+
+
 # ---------- JSON-APIs (von React konsumiert) ----------
 
 
@@ -2573,6 +2599,7 @@ def api_logs():
         "wetterprojekt": safe_source(lambda: _journalctl_unit_lines("wetterprojekt", limit=lines, max_bytes=max_bytes), "wetterprojekt"),
         "scheduler": safe_source(lambda: _journalctl_unit_lines("wetterprojekt-scheduler", limit=lines, max_bytes=max_bytes), "scheduler"),
         "admin": safe_source(lambda: _journalctl_unit_lines("wetterprojekt-admin", limit=lines, max_bytes=max_bytes), "admin"),
+        "hydro": safe_source(lambda: _hydro_log_lines(limit=lines, max_bytes=max_bytes), "hydro"),
         "nginx_error": safe_source(lambda: _tail_readable_file_lines("/var/log/nginx/error.log", limit=lines, max_bytes=max_bytes), "nginx_error"),
         "nginx_access": safe_source(lambda: _tail_readable_file_lines("/var/log/nginx/access.log", limit=lines, max_bytes=max_bytes), "nginx_access"),
         "limits": {
