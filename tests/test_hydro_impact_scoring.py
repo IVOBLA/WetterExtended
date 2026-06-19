@@ -77,3 +77,57 @@ def test_evaluate_rejects_legacy_nearest_basin_fallback_station(tmp_path, monkey
     cell = {"id": 42, "contour_geo": [[13.0, 46.0], [13.2, 46.0], [13.2, 46.2], [13.0, 46.2], [13.0, 46.0]], "intensity": "strong", "duration_min": 15}
 
     assert hydro_impact.evaluate_hydro_impact([cell], "2026-06-19_09-00-00") == []
+
+def test_evaluate_rejects_nearby_cell_outside_station_upstream_catchment(tmp_path, monkeypatch):
+    catchments = {
+        "type": "FeatureCollection",
+        "features": [
+            _feature("P1", 13.000, 46.000, 13.100, 46.100) | {"properties": {"station_id": "P1", "name": "Pegel A", "river": "Drau", "catchment_id": "A", "impact_eligible": True, "source_quality": "upstream_union", "quality": "exact"}},
+            _feature("P1", 13.101, 46.000, 13.201, 46.100) | {"properties": {"station_id": "P1", "name": "Pegel A", "river": "Drau", "catchment_id": "B", "impact_eligible": True, "source_quality": "upstream_union", "quality": "exact"}},
+        ],
+    }
+    cpath = tmp_path / "station_catchments.geojson"
+    npath = tmp_path / "station_network_index.json"
+    cpath.write_text(json.dumps(catchments), encoding="utf-8")
+    npath.write_text(json.dumps({
+        "P1": {
+            "impact_eligible": True,
+            "quality": "exact",
+            "lat": 46.05,
+            "lon": 13.102,
+            "station_radius_km": 25,
+            "nearest_station": True,
+            "upstream_catchment_ids": ["A"],
+            "estimated_lag_min": [30, 120],
+        }
+    }), encoding="utf-8")
+    monkeypatch.setattr(hydro_impact, "CATCHMENTS_PATH", cpath)
+    monkeypatch.setattr(hydro_impact, "NETWORK_INDEX_PATH", npath)
+    monkeypatch.setattr(hydro_impact, "LATEST_HYDRO_PATH", tmp_path / "latest_hydro.json")
+    monkeypatch.setattr(hydro_impact, "SHAPELY_AVAILABLE", True)
+
+    def fake_overlap(_cell, feature):
+        if feature["properties"].get("catchment_id") != "B":
+            return {"hit": False, "status": "no_catchment_overlap", "overlap_area_km2": 0.0, "overlap_ratio_cell": 0.0, "overlap_ratio_catchment": 0.0, "cell_area_km2": 10.0, "catchment_area_km2": 100.0}
+        return {"hit": True, "status": "ok", "overlap_area_km2": 50.0, "overlap_ratio_cell": 0.8, "overlap_ratio_catchment": 0.5, "cell_area_km2": 62.5, "catchment_area_km2": 100.0}
+
+    monkeypatch.setattr(hydro_impact, "compute_cell_catchment_overlap", fake_overlap)
+    monkeypatch.setenv("HYDRO_ENABLED", "true")
+    cell = {
+        "id": "near-but-wrong-basin",
+        "contour_geo": [[13.102, 46.010], [13.180, 46.010], [13.180, 46.090], [13.102, 46.090], [13.102, 46.010]],
+        "intensity": "strong",
+        "duration_min": 30,
+    }
+
+    impacts = hydro_impact.evaluate_hydro_impact([cell], "2026-06-19_09-00-00")
+    decisions = hydro_impact.evaluate_hydro_impact([cell], "2026-06-19_09-00-00", include_rejections=True)
+
+    assert impacts == []
+    assert len(decisions) == 1
+    assert decisions[0]["status"] == "rejected"
+    assert decisions[0]["station_id"] == "P1"
+    assert decisions[0]["catchment_id"] == "B"
+    assert "outside_upstream_catchment" in decisions[0]["reason"]
+    assert "not_nearest_station_based" in decisions[0]["reason"]
+    assert "not_station_radius_based" in decisions[0]["reason"]

@@ -273,7 +273,7 @@ def _load_catchments() -> list[dict[str, Any]]:
     return data.get("features", []) if isinstance(data, dict) else []
 
 
-def evaluate_hydro_impact(objects: list, timestamp: str | None = None) -> list[dict]:
+def evaluate_hydro_impact(objects: list, timestamp: str | None = None, include_rejections: bool = False) -> list[dict]:
     if not hydro_enabled() or not static_data_available() or not SHAPELY_AVAILABLE:
         return []
     network_raw = _load_json(NETWORK_INDEX_PATH, {})
@@ -303,6 +303,21 @@ def evaluate_hydro_impact(objects: list, timestamp: str | None = None) -> list[d
             station_ctx = {**props, **(network.get(sid, {}) if isinstance(network, dict) else {})}
             if isinstance(overrides, dict):
                 station_ctx.update(overrides.get(sid, {}) or {})
+            catchment_id = props.get("catchment_id") or station_ctx.get("catchment_id")
+            upstream_ids = station_ctx.get("upstream_catchment_ids") or props.get("upstream_catchment_ids") or []
+            upstream_id_set = {str(x) for x in upstream_ids if x is not None} if isinstance(upstream_ids, (list, tuple, set)) else {str(upstream_ids)}
+            if upstream_id_set and str(catchment_id) not in upstream_id_set:
+                if include_rejections:
+                    events.append({
+                        "cell_id": _cell_id(cell),
+                        "station_id": sid,
+                        "catchment_id": catchment_id,
+                        "upstream_catchment_ids": sorted(upstream_id_set),
+                        "relation": "no_hydro_impact",
+                        "status": "rejected",
+                        "reason": ["outside_upstream_catchment", "not_station_radius_based", "not_nearest_station_based"],
+                    })
+                continue
             quality = station_ctx.get("quality")
             if not station_ctx.get("enabled", True) or station_ctx.get("ignored") or station_ctx.get("impact_eligible") is not True or quality in {"unresolved", "fallback_nearest_basin", "upstream_topology_missing"}:
                 continue
