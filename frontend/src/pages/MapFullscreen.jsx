@@ -179,6 +179,11 @@ function forecastModeLabel(p) {
   return 'Kinematisch'
 }
 
+function hydroFeatureCollection(response) {
+  const fc = response?.data || response
+  return (fc && Array.isArray(fc.features)) ? fc : { type: 'FeatureCollection', features: [] }
+}
+
 function hydroColor(status) {
   if (status === 'confirmed') return '#16a34a'
   if (status === 'ambiguous') return '#a855f7'
@@ -316,7 +321,7 @@ export default function MapFullscreen() {
       }
       if (bounds?.bounds) setRadarBounds(bounds.bounds)
       if (lightningData?.strikes) setLightning(lightningData.strikes)
-      api.get('/api/hydro/stations').then(d => setHydroStations(d || { type:'FeatureCollection', features: [] })).catch(() => setHydroStations({ type:'FeatureCollection', features: [] }))
+      api.get('/api/hydro/stations').then(d => setHydroStations(hydroFeatureCollection(d))).catch(() => setHydroStations({ type:'FeatureCollection', features: [] }))
 
       // Schritt 2: Frame-Timestamp bestimmen, objects/forecast synchron laden
       let latestTs = null
@@ -619,7 +624,7 @@ export default function MapFullscreen() {
             <React.Fragment key={'hydro_' + p.station_id}>
               <CircleMarker center={[coords[1], coords[0]]} radius={p.impact_active ? 8 : 5}
                 pathOptions={{ color, fillColor: color, fillOpacity: p.impact_active ? 0.9 : 0.65, weight: p.impact_active ? 3 : 1 }}
-                eventHandlers={{ click: () => api.get(`/api/hydro/station/${p.station_id}/catchment`).then(d => setHydroCatchments(prev => ({ ...prev, [p.station_id]: d }))).catch(() => {}) }}>
+                eventHandlers={{ click: () => api.get(`/api/hydro/station/${p.station_id}/catchment`).then(d => setHydroCatchments(prev => ({ ...prev, [p.station_id]: hydroFeatureCollection(d) }))).catch(() => {}) }}>
                 <Popup>
                   <div><strong>{p.name || p.station_id}</strong></div>
                   <div>Gewässer: {p.river || '—'}</div>
@@ -630,7 +635,7 @@ export default function MapFullscreen() {
                   <div>Status: {p.status || '—'}</div>
                 </Popup>
               </CircleMarker>
-              {impact.relation === 'upstream_catchment_hit' && impact.cell_lat != null && impact.cell_lon != null && (
+              {impact.relation === 'upstream_catchment_hit' && impact.cell_lat != null && impact.cell_lon != null && impact.station_lat != null && impact.station_lon != null && (
                 <Polyline positions={[[coords[1], coords[0]], [impact.cell_lat, impact.cell_lon]]} pathOptions={{ color, weight: 1, dashArray: '4,4' }} />
               )}
               {((hydroCatchments[p.station_id]?.features) || []).map((cf, i) => {

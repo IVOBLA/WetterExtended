@@ -2,6 +2,11 @@ import React, { useEffect, useState } from 'react'
 import api from '../api.js'
 
 // ── Parameter-Referenz (alle runtime_config.get()-Keys der Applikation) ─────
+function hydroFeatureCollection(response) {
+  const fc = response?.data || response
+  return (fc && Array.isArray(fc.features)) ? fc : { type: 'FeatureCollection', features: [] }
+}
+
 const PARAM_GROUPS = [
   {
     label: '🗺 Risikozonen-Grid',
@@ -111,8 +116,16 @@ const PARAM_GROUPS = [
       { key: 'HYDRO_ENABLED', type: 'boolean', default: true, desc: 'Hydro-Impact-Layer und Bewertung aktivieren/deaktivieren.', example: true },
       { key: 'HYDRO_API_TTL_SECONDS', type: 'number', default: 600, unit: 's', desc: 'Cache-/Aktualisierungs-TTL fuer Hydro-Live-Daten.', example: 600 },
       { key: 'HYDRO_MIN_OVERLAP_AREA_KM2', type: 'number', default: 1.0, unit: 'km²', desc: 'Mindest-Schnittflaeche zwischen Zelle und Einzugsgebiet.', example: 1.0 },
-      { key: 'HYDRO_MIN_CELL_OVERLAP_RATIO', type: 'number', default: 0.03, desc: 'Mindestanteil der Zellflaeche im Einzugsgebiet.', example: 0.03 },
+      { key: 'HYDRO_MIN_CELL_OVERLAP_RATIO', type: 'number', default: 0.03, desc: 'Legacy-Alias fuer den Mindestanteil der Zellflaeche im Einzugsgebiet.', example: 0.03 },
+      { key: 'HYDRO_MIN_OVERLAP_RATIO_CELL', type: 'number', default: 0.05, desc: 'Mindestanteil der Zellflaeche im oberliegenden Einzugsgebiet.', example: 0.05 },
+      { key: 'HYDRO_MIN_DURATION_MIN', type: 'number', default: 5, unit: 'min', desc: 'Mindestdauer der Zelle im oberliegenden Einzugsgebiet.', example: 5 },
+      { key: 'HYDRO_RELEVANT_INTENSITIES', type: 'json-array', default: '["strong","severe","extreme"]', desc: 'Intensitaetsklassen, die fuer Hydro-Impact relevant sind.', example: JSON.stringify(['strong', 'severe', 'extreme'], null, 2) },
       { key: 'HYDRO_DEFAULT_LAG_MIN', type: 'json-array', default: '[20,180]', desc: 'Standard-Zeitfenster fuer Pegelreaktionen in Minuten.', example: '[20,180]' },
+      { key: 'HYDRO_LAG_WINDOW_MIN', type: 'json-array', default: '[20,180]', desc: 'Runtime-Zeitfenster fuer vorsichtige Hydro-Verifikation.', example: '[20,180]' },
+      { key: 'HYDRO_VERIFY_MIN_DELTA_Q_M3S', type: 'number', default: 0.2, unit: 'm³/s', desc: 'Mindest-Abflussanstieg fuer eine plausible Bestaetigung.', example: 0.2 },
+      { key: 'HYDRO_VERIFY_MIN_DELTA_W_CM', type: 'number', default: 5, unit: 'cm', desc: 'Mindest-Pegelanstieg fuer eine plausible Bestaetigung.', example: 5 },
+      { key: 'HYDRO_VERIFY_MIN_RELATIVE_DELTA_PCT', type: 'number', default: 10, unit: '%', desc: 'Relative Mindest-Aenderung fuer eine plausible Bestaetigung.', example: 10 },
+      { key: 'HYDRO_VERIFY_MAX_GAP_MIN', type: 'number', default: 90, unit: 'min', desc: 'Maximale Messluecke im Verifikationsfenster; groessere Luecken werden ambiguous.', example: 90 },
       { key: 'HYDRO_STATION_OVERRIDES', type: 'json-object', default: '{}', desc: 'Stations-Overrides, z.B. Aktivierung/Deaktivierung pro station_id.', example: JSON.stringify({ '123': { enabled: false } }, null, 2) },
     ],
   },
@@ -181,7 +194,7 @@ export default function Configuration() {
 
   useEffect(() => {
     api.get('/api/config').then(d => setText(JSON.stringify(d, null, 2))).catch(() => {})
-    api.get('/api/hydro/stations').then(d => setHydroStations((d.features || []).map(f => f.properties || {}))).catch(() => setHydroStations([]))
+    api.get('/api/hydro/stations').then(d => setHydroStations(hydroFeatureCollection(d).features.map(f => f.properties || {}))).catch(() => setHydroStations([]))
   }, [])
 
   async function save() {

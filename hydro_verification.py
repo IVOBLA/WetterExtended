@@ -16,7 +16,7 @@ from statistics import median
 from typing import Any
 
 from config import SAVE_PATHS
-from hydro_impact import IMPACT_DIR, NETWORK_INDEX_PATH, load_pending_hydro_impacts
+from hydro_impact import IMPACT_DIR, NETWORK_INDEX_PATH, load_pending_hydro_impacts, save_hydro_impact_state
 
 _HYDRO_BASE = Path(SAVE_PATHS.get("hydro", "train_data/hydro/live/"))
 HYDRO_LIVE_DIR = Path(os.environ.get("HYDRO_LIVE_DIR", str(_HYDRO_BASE)))
@@ -178,7 +178,7 @@ def classify_hydro_response(event, hydro_series) -> dict:
         reason.append("Hydro-Rohdaten fehlen oder enthalten eine relevante Messlücke")
         return {"status": "ambiguous", "confidence": "low", "interpretation": "uneindeutig wegen Messlücke / konkurrierender Zellen", "reason": reason}
     if _has_competitors(event):
-        reason.append("Mehrere konkurrierende Zellen im Einzugsgebiet erkannt")
+        reason.extend(["competing_cells_same_catchment", "Mehrere konkurrierende Zellen im Einzugsgebiet erkannt"])
         return {"status": "ambiguous", "confidence": "low", "interpretation": "uneindeutig wegen Messlücke / konkurrierender Zellen", "reason": reason}
     dq = hydro_series.get("delta_q_m3s")
     dw = hydro_series.get("delta_w_cm")
@@ -202,6 +202,12 @@ def classify_hydro_response(event, hydro_series) -> dict:
 
 def _already_verified_event_ids() -> set[str]:
     done: set[str] = set()
+    try:
+        from hydro_impact import _load_hydro_impact_state
+        state_events = (_load_hydro_impact_state().get("events") or {})
+        done.update(str(eid) for eid, row in state_events.items() if isinstance(row, dict) and row.get("status") in {"confirmed", "rejected", "ambiguous"})
+    except Exception:
+        pass
     if not HYDRO_VERIFICATION_PATH.exists():
         return done
     for line in HYDRO_VERIFICATION_PATH.read_text(encoding="utf-8").splitlines():
@@ -218,6 +224,7 @@ def _update_event_status(result: dict[str, Any]) -> None:
         from hydro_impact import LATEST_IMPACTS_PATH
         paths = [LATEST_IMPACTS_PATH]
         event_id = str(result.get("event_id"))
+        save_hydro_impact_state(event_id, {"status": result.get("status"), "verification": result, "confidence": result.get("confidence"), "verified_at": result.get("verified_at")})
         for path in paths:
             data = _load_json(path, [])
             if not isinstance(data, list):
