@@ -6,15 +6,23 @@ def _read(path):
 
 
 def test_hydro_frontend_accepts_envelope_and_direct_feature_collection():
-    for path in ["frontend/src/pages/MapView.jsx", "frontend/src/pages/MapFullscreen.jsx", "frontend/src/pages/Configuration.jsx"]:
-        src = _read(path)
-        assert "response?.data || response" in src
-        assert "Array.isArray(fc.features)" in src
+    src = "\n".join(_read(path) for path in [
+        "frontend/src/pages/MapView.jsx",
+        "frontend/src/pages/MapFullscreen.jsx",
+        "frontend/src/pages/Configuration.jsx",
+        "frontend/src/utils/hydro.js",
+    ])
+    assert "response?.data || response" in src
+    assert "Array.isArray(fc.features)" in src
 
 
 def test_hydro_frontend_lines_require_station_and_cell_coordinates():
-    src = _read("frontend/src/pages/MapView.jsx") + _read("frontend/src/pages/MapFullscreen.jsx")
-    assert "impact.cell_lat != null && impact.cell_lon != null && impact.station_lat != null && impact.station_lon != null" in src
+    src = _read("frontend/src/pages/MapView.jsx") + _read("frontend/src/pages/MapFullscreen.jsx") + _read("frontend/src/utils/hydro.js")
+    assert "hasValidHydroImpactLine(impact)" in src
+    assert "isFiniteCoordinate(impact.cell_lat)" in src
+    assert "isFiniteCoordinate(impact.cell_lon)" in src
+    assert "isFiniteCoordinate(impact.station_lat)" in src
+    assert "isFiniteCoordinate(impact.station_lon)" in src
 
 
 def test_admin_lists_all_hydro_runtime_keys():
