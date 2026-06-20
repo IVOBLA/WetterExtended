@@ -25,6 +25,16 @@ def _json(path: Path, default: Any):
     except Exception: return default
 
 
+def _read_json_strict(path: Path) -> tuple[Any | None, str | None]:
+    try:
+        with path.open(encoding="utf-8") as f:
+            return json.load(f), None
+    except FileNotFoundError:
+        return None, "missing"
+    except Exception as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+
+
 def _dt(v):
     if not v: return None
     try: return datetime.fromisoformat(str(v).replace("Z", "+00:00")).astimezone(timezone.utc)
@@ -47,6 +57,50 @@ def _static_index():
     rows = data.get("stations", data if isinstance(data, list) else []) if isinstance(data, (dict, list)) else []
     return {str(r.get("station_id")): r for r in rows if isinstance(r, dict)}
 
+
+
+def _static_health() -> dict[str, Any]:
+    status_path = STATIC_GENERATED / "hydro_static_status.json"
+    status_doc, status_error = _read_json_strict(status_path)
+    if status_error and status_error != "missing":
+        return {"ready": False, "status": "invalid_static_json", "error": status_error, "status_file": str(status_path)}
+
+    index_path = STATIC_GENERATED / "station_network_index.json"
+    index_doc, index_error = _read_json_strict(index_path)
+    if index_error and index_error != "missing":
+        return {"ready": False, "status": "invalid_static_json", "error": index_error, "status_file": str(status_path)}
+
+    raw_status = status_doc.get("status") if isinstance(status_doc, dict) else None
+    if raw_status == "invalid_static_json":
+        return {"ready": False, "status": "invalid_static_json", "error": (status_doc or {}).get("error"), "status_file": str(status_path)}
+    if raw_status == "hydro_geometry_unavailable":
+        return {"ready": False, "status": "hydro_geometry_unavailable", "error": (status_doc or {}).get("error"), "status_file": str(status_path)}
+
+    idx = _static_index()
+    if not idx:
+        return {"ready": False, "status": raw_status or "hydro_static_missing", "error": None, "status_file": str(status_path)}
+
+    reasons = set()
+    eligible = 0
+    for station in idx.values():
+        if station.get("impact_eligible") is True:
+            eligible += 1
+        for reason in station.get("reason") or []:
+            reasons.add(str(reason))
+        if station.get("source_quality"):
+            reasons.add(str(station.get("source_quality")))
+
+    if eligible > 0:
+        return {"ready": True, "status": "hydro_ready", "error": None, "status_file": str(status_path)}
+    if "hydro_geometry_unavailable" in reasons:
+        concrete = "hydro_geometry_unavailable"
+    elif "upstream_topology_missing" in reasons:
+        concrete = "upstream_topology_missing"
+    elif "station_catchment_unavailable" in reasons:
+        concrete = "station_catchment_unavailable"
+    else:
+        concrete = raw_status or "hydro_static_missing"
+    return {"ready": False, "status": concrete, "error": None, "status_file": str(status_path)}
 
 def latest_impacts() -> list[dict]:
     rows = _json(LATEST_IMPACTS, [])
@@ -122,15 +176,18 @@ def station_features(include_disabled=False):
 
 
 def status():
-    if not enabled():
-        return {"enabled": False, "hydro_enabled": False, "static_ready": bool(_static_index()), "static_status": "hydro_disabled", "hydro_static_missing": False, "live_ready": False, "live_ok": False, "from_cache": False, "cache_used": False, "status": "hydro_disabled", "last_fetch": None, "last_error": None, "station_count": 0, "impact_pending": 0, "impact_confirmed_24h": 0}
+    hydro_on = enabled()
+    static = _static_health()
+    if not hydro_on:
+        return {"enabled": False, "hydro_enabled": False, "static_ready": static["ready"], "static_status": "hydro_disabled", "hydro_static_missing": False, "static_error": static.get("error"), "live_ready": False, "live_ok": False, "from_cache": False, "cache_used": False, "status": "hydro_disabled", "last_fetch": None, "last_error": None, "station_count": 0, "impact_pending": 0, "impact_confirmed_24h": 0}
     live = _json(LIVE_STATUS, {})
+    live = live if isinstance(live, dict) else {}
     impacts = normalized_impacts(False)
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-    last_error = live.get("last_error") or live.get("error")
-    live_ok = bool(live.get("ok")) and not last_error
-    static_ready = bool(_static_index())
-    return {"enabled": enabled(), "hydro_enabled": enabled(), "static_ready": static_ready, "static_status": "ok" if static_ready else "hydro_static_missing", "hydro_static_missing": not static_ready, "live_ready": LIVE_LATEST.exists(), "live_ok": live_ok, "from_cache": bool(live.get("from_cache")), "cache_used": bool(live.get("from_cache")), "status": "ok" if live_ok else "error", "last_fetch": live.get("updated_at") or _json(LIVE_LATEST, {}).get("fetched_at"), "last_error": last_error, "station_count": len(station_features()["features"]), "impact_pending": sum(e.get("status") == "pending" for e in impacts), "impact_confirmed_24h": sum(e.get("status") == "confirmed" and ((_dt(e.get("verified_at") or e.get("created_at")) or cutoff) >= cutoff) for e in impacts)}
+    last_error = live.get("last_error") or live.get("error") or static.get("error")
+    live_ok = bool(live.get("ok")) and not (live.get("last_error") or live.get("error"))
+    overall_status = "error" if (LIVE_LATEST.exists() and (live.get("last_error") or live.get("error"))) else (static["status"] if not static["ready"] else ("hydro_ready" if live_ok or LIVE_LATEST.exists() else "error"))
+    return {"enabled": hydro_on, "hydro_enabled": hydro_on, "static_ready": static["ready"], "static_status": static["status"], "hydro_static_missing": static["status"] == "hydro_static_missing", "static_error": static.get("error"), "live_ready": LIVE_LATEST.exists(), "live_ok": live_ok, "from_cache": bool(live.get("from_cache")), "cache_used": bool(live.get("from_cache")), "status": overall_status, "last_fetch": live.get("updated_at") or _json(LIVE_LATEST, {}).get("fetched_at"), "last_error": last_error, "station_count": len(station_features()["features"]), "impact_pending": sum(e.get("status") == "pending" for e in impacts), "impact_confirmed_24h": sum(e.get("status") == "confirmed" and ((_dt(e.get("verified_at") or e.get("created_at")) or cutoff) >= cutoff) for e in impacts)}
 
 
 def catchment(station_id):

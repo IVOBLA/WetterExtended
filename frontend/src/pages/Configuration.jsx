@@ -191,10 +191,12 @@ export default function Configuration() {
   const [showHelp, setShowHelp] = useState(false)
   const [search, setSearch] = useState('')
   const [hydroStations, setHydroStations] = useState([])
+  const [hydroStatus, setHydroStatus] = useState(null)
 
   useEffect(() => {
     api.get('/api/config').then(d => setText(JSON.stringify(d, null, 2))).catch(() => {})
     api.get('/api/hydro/stations').then(d => setHydroStations(hydroFeatureCollection(d).features.map(f => f.properties || {}))).catch(() => setHydroStations([]))
+    api.get('/api/hydro/status').then(d => setHydroStatus(d?.data || d)).catch(() => setHydroStatus({ status: 'hydro_status_error' }))
   }, [])
 
   async function save() {
@@ -223,6 +225,11 @@ export default function Configuration() {
 
       <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
         <h2 className="text-sm font-semibold text-gray-700 mb-2">🌊 Hydro-Impact Admin</h2>
+        <div className="mb-3 rounded border bg-gray-50 p-2 text-xs text-gray-700">
+          <div><strong>Status:</strong> {hydroStatus?.status || 'wird geladen'}</div>
+          <div><strong>Static:</strong> {hydroStatus?.static_status || '—'} · <strong>Live:</strong> {hydroStatus?.live_ok ? 'ok' : (hydroStatus?.live_ready ? 'nicht ok' : 'fehlt')}</div>
+          {hydroStatus?.last_error && <div className="text-red-700"><strong>Fehler:</strong> {hydroStatus.last_error}</div>}
+        </div>
         <div className="flex flex-wrap gap-2 mb-3">
           <button className="btn" onClick={() => api.post('/api/hydro/fetch-live', {}).then(() => setMsg('✅ Live-Hydro geladen.')).catch(e => setMsg('❌ Fehler: ' + e.message))}>Live-Hydro jetzt laden</button>
           <button className="btn" onClick={() => api.post('/api/hydro/reload-static', {}).then(() => setMsg('✅ Static-Hydro neu eingelesen.')).catch(e => setMsg('❌ Fehler: ' + e.message))}>Static-Hydro neu einlesen</button>
