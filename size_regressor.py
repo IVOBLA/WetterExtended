@@ -28,6 +28,7 @@ SIZE_META_PATH = "models/size_regressor_meta.json"
 SIZE_MIN_SAMPLES = 50        # Mindest-Samples für erstes Training
 SIZE_RETRAIN_EVERY = 200     # Retraining alle N neuen Samples
 SIZE_MAX_SAMPLES = 20000     # Maximales Sliding-Window für Training
+SIZE_FEATURE_SCHEMA_VERSION = 2
 
 # Radar-Bounds Fallback (werden aus config überschrieben)
 _DEFAULT_BOUNDS = {"N": 47.42, "S": 44.67, "W": 12.1, "E": 17.44}
@@ -266,7 +267,7 @@ def train_size_regressor(force: bool = False) -> dict:
     # Modell speichern
     os.makedirs(os.path.dirname(SIZE_MODEL_PATH), exist_ok=True)
     with open(SIZE_MODEL_PATH, "wb") as f:
-        pickle.dump({"area": model_area, "radius": model_radius, "feature_keys": _FEATURE_KEYS}, f)
+        pickle.dump({"area": model_area, "radius": model_radius, "feature_keys": list(_FEATURE_KEYS), "feature_schema_version": SIZE_FEATURE_SCHEMA_VERSION}, f)
 
     meta = {
         "trained_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -274,6 +275,9 @@ def train_size_regressor(force: bool = False) -> dict:
         "mae_area_km2": round(mae_area, 4),
         "mae_radius_km": round(mae_radius, 4),
         "model_version": "lgbm-phase-a",
+        "feature_schema_version": SIZE_FEATURE_SCHEMA_VERSION,
+        "feature_count": len(_FEATURE_KEYS),
+        "feature_keys": list(_FEATURE_KEYS),
     }
     with open(SIZE_META_PATH, "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
@@ -299,18 +303,101 @@ class SizeRegressor:
         self._model = None
         self._meta = {}
         self._n_since = 0   # Samples seit letztem Retraining
+        self._compatibility_status = "missing"
+        self._retrain_required = False
+        self._fallback_active = True
+        self._model_feature_count = None
+        self._current_feature_count = len(_FEATURE_KEYS)
+        self._model_schema_version = None
+        self._reason = "model_missing"
+        self._warned_incompatible = False
         self._load_model()
 
+    def _model_num_feature(self, model) -> int | None:
+        try:
+            if hasattr(model, "num_feature"):
+                return int(model.num_feature())
+        except Exception:
+            return None
+        return None
+
+    def _loaded_model_feature_counts(self, model_obj: dict, meta: dict) -> list[int]:
+        candidates = []
+        if isinstance(meta.get("feature_count"), int):
+            candidates.append(int(meta.get("feature_count")))
+        if isinstance(model_obj.get("feature_keys"), (list, tuple)):
+            candidates.append(len(model_obj.get("feature_keys")))
+        for key in ("area", "radius"):
+            n = self._model_num_feature(model_obj.get(key))
+            if n is not None:
+                candidates.append(n)
+        return candidates
+
+    def _loaded_model_feature_count(self, model_obj: dict, meta: dict) -> int | None:
+        candidates = self._loaded_model_feature_counts(model_obj, meta)
+        for n in candidates:
+            if n != len(_FEATURE_KEYS):
+                return n
+        return int(candidates[0]) if candidates else None
+
+    def _mark_feature_mismatch(self, model_features: int | None, schema_version: int | None = None) -> None:
+        self._model = None
+        self._compatibility_status = "feature_mismatch"
+        self._retrain_required = True
+        self._fallback_active = True
+        self._model_feature_count = model_features
+        self._current_feature_count = len(_FEATURE_KEYS)
+        self._model_schema_version = schema_version
+        self._reason = "size_regressor_model_feature_mismatch"
+        if not self._warned_incompatible:
+            logger.warning(
+                "[SIZE-REG] Modell inkompatibel: model_features=%s current_features=%s "
+                "-> geometrischer Fallback aktiv, Retraining erforderlich",
+                model_features, len(_FEATURE_KEYS),
+            )
+            self._warned_incompatible = True
+
     def _load_model(self) -> None:
+        self._compatibility_status = "missing"
+        self._fallback_active = True
+        self._retrain_required = False
+        self._reason = "model_missing"
         if not os.path.isfile(SIZE_MODEL_PATH):
             logger.debug("[SIZE-REG] Kein Modell vorhanden — geometrischer Fallback aktiv.")
             return
         try:
-            with open(SIZE_MODEL_PATH, "rb") as f:
-                self._model = pickle.load(f)
+            meta = {}
             if os.path.isfile(SIZE_META_PATH):
                 with open(SIZE_META_PATH, encoding="utf-8") as f:
-                    self._meta = json.load(f)
+                    meta = json.load(f)
+            with open(SIZE_MODEL_PATH, "rb") as f:
+                loaded = pickle.load(f)
+            model_feature_counts = self._loaded_model_feature_counts(loaded, meta) if isinstance(loaded, dict) else []
+            model_features = self._loaded_model_feature_count(loaded, meta) if isinstance(loaded, dict) else None
+            model_keys = loaded.get("feature_keys") if isinstance(loaded, dict) else None
+            meta_keys = meta.get("feature_keys")
+            model_schema = (loaded.get("feature_schema_version") if isinstance(loaded, dict) else None) or meta.get("feature_schema_version")
+            self._meta = meta
+            self._model_feature_count = model_features
+            self._model_schema_version = model_schema
+            if any(n != len(_FEATURE_KEYS) for n in model_feature_counts):
+                bad = next(n for n in model_feature_counts if n != len(_FEATURE_KEYS))
+                self._mark_feature_mismatch(bad, model_schema)
+                return
+            if model_keys is not None and list(model_keys) != list(_FEATURE_KEYS):
+                self._mark_feature_mismatch(model_features or len(model_keys), model_schema)
+                return
+            if meta_keys is not None and list(meta_keys) != list(_FEATURE_KEYS):
+                self._mark_feature_mismatch(model_features or len(meta_keys), model_schema)
+                return
+            if model_schema is not None and int(model_schema) != SIZE_FEATURE_SCHEMA_VERSION:
+                self._mark_feature_mismatch(model_features, model_schema)
+                return
+            self._model = loaded
+            self._compatibility_status = "compatible"
+            self._retrain_required = False
+            self._fallback_active = False
+            self._reason = None
             logger.debug(
                 f"[SIZE-REG] Modell geladen: {self._meta.get('trained_at','')} "
                 f"n={self._meta.get('n_samples',0)} "
@@ -319,14 +406,33 @@ class SizeRegressor:
         except Exception as e:
             logger.warning(f"[SIZE-REG] Modell laden fehlgeschlagen: {e}")
             self._model = None
+            self._compatibility_status = "load_error"
+            self._fallback_active = True
+            self._retrain_required = True
+            self._reason = "model_load_error"
 
     def reload(self) -> None:
         """Lädt das Modell neu (nach Training durch Scheduler)."""
         self._model = None
+        self._warned_incompatible = False
         self._load_model()
 
     def is_trained(self) -> bool:
         return self._model is not None
+
+    def status(self) -> dict:
+        return {
+            "is_trained": self.is_trained(),
+            "trained": self.is_trained(),
+            "compatibility_status": self._compatibility_status,
+            "feature_count_current": len(_FEATURE_KEYS),
+            "feature_count_model": self._model_feature_count,
+            "feature_schema_version_current": SIZE_FEATURE_SCHEMA_VERSION,
+            "feature_schema_version_model": self._model_schema_version,
+            "retrain_required": self._retrain_required,
+            "fallback_active": self._fallback_active,
+            "reason": self._reason,
+        }
 
     def predict(self, obj: dict, ts: str, km_per_px_x: float, km_per_px_y: float) -> dict:
         """
@@ -362,6 +468,22 @@ class SizeRegressor:
             record.setdefault("radius_px", radius_px)
             record.setdefault("aspect_ratio", geo["aspect_ratio"] or 1.0)
             fv = np.array([_to_feature_vector(record)], dtype=np.float32)
+            if fv.shape[1] != len(_FEATURE_KEYS):
+                self._mark_feature_mismatch(fv.shape[1], self._model_schema_version)
+                geo["size_regressor_status"] = "feature_mismatch"
+                return geo
+            model_features = None
+            if isinstance(self._model, dict):
+                for _key in ("area", "radius"):
+                    model_features = self._model_num_feature(self._model.get(_key))
+                    if model_features is not None:
+                        break
+                if model_features is None:
+                    model_features = self._loaded_model_feature_count(self._model, self._meta)
+            if model_features is not None and model_features != fv.shape[1]:
+                self._mark_feature_mismatch(model_features, self._model_schema_version)
+                geo["size_regressor_status"] = "feature_mismatch"
+                return geo
 
             area_pred = float(self._model["area"].predict(fv)[0])
             radius_pred = float(self._model["radius"].predict(fv)[0])
@@ -394,6 +516,16 @@ class SizeRegressor:
         """
         n = count_size_labels()
         if n < SIZE_MIN_SAMPLES:
+            if self._compatibility_status == "feature_mismatch":
+                self._retrain_required = True
+                self._fallback_active = True
+                self._reason = "not_enough_size_labels"
+            return
+        if self._compatibility_status == "feature_mismatch":
+            logger.debug("[SIZE-REG] Retraining wegen Feature-Mismatch wird ausgelöst...")
+            meta = train_size_regressor()
+            if "skipped" not in meta:
+                self.reload()
             return
         if self._model is None:
             # Erstes Training

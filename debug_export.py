@@ -525,6 +525,150 @@ def _write_api_logs_to_zip(zf: zipfile.ZipFile, root_name: str, base_dir: Path, 
     }
 
 
+
+def _json_status_bytes(payload: dict) -> bytes:
+    return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
+
+
+def _write_hydro_debug_structure(
+    zf: zipfile.ZipFile,
+    root_name: str,
+    base_dir: Path,
+    window_start: datetime,
+    now: datetime,
+    hours: int,
+) -> dict:
+    """Schreibt eine nachvollziehbare train_data/hydro-Struktur in den Debug-Export.
+
+    Hydro-Diagnosedaten sind optional. Fehler in einzelnen Hydro-Dateien dürfen den
+    Gesamtexport deshalb nie abbrechen; sie werden als Statusdateien im ZIP abgelegt.
+    """
+    info = {
+        "files_count": 0,
+        "external_hydro_files": 0,
+        "train_hydro_files": 0,
+        "live_available": False,
+        "hydro_status_available": False,
+        "impact_available": False,
+        "impact_count": 0,
+        "static_available": False,
+        "errors": [],
+    }
+
+    def _write(arc_rel: str, data: bytes | str):
+        if isinstance(data, str):
+            data = data.encode("utf-8")
+        zf.writestr(f"{root_name}/{arc_rel}", data)
+        info["files_count"] += 1
+        if arc_rel.startswith("train_data/hydro/"):
+            info["train_hydro_files"] += 1
+        if arc_rel.startswith("external_responses/hydro/"):
+            info["external_hydro_files"] += 1
+
+    def _copy_json(src: Path, arc_rel: str, component: str, validate: bool = True) -> bool:
+        try:
+            data = _read_redacted(src) if _is_text_file(src) else src.read_bytes()
+            if validate and src.suffix.lower() in {".json", ".jsonl"}:
+                text = data.decode("utf-8", errors="replace")
+                if src.suffix.lower() == ".json":
+                    json.loads(text)
+                else:
+                    for line in text.splitlines():
+                        if line.strip():
+                            json.loads(line)
+            _write(arc_rel, data)
+            return True
+        except Exception as exc:  # Hydro darf den Export nie abbrechen.
+            info["errors"].append({"component": component, "error": f"{type(exc).__name__}: {exc}"})
+            return False
+
+    live_dir = base_dir / "train_data" / "hydro" / "live"
+    live_files: list[Path] = []
+    if live_dir.is_dir():
+        for path in sorted(live_dir.glob("*.json")):
+            if path.name == "hydro_live_status.json":
+                continue
+            if _file_in_window(path, window_start, now, path.name in {"latest_hydro.json", "hydro_status.json"}):
+                live_files.append(path)
+    info["external_hydro_files"] += len(live_files)
+    external_hydro_dir = base_dir / "train_data" / "external_responses" / "hydro"
+    if external_hydro_dir.is_dir():
+        info["external_hydro_files"] += sum(1 for p in external_hydro_dir.glob("*.json") if _file_in_window(p, window_start, now, False))
+
+    for path in live_files:
+        ok = _copy_json(path, f"train_data/hydro/live/{path.name}", "hydro_live")
+        info["live_available"] = info["live_available"] or ok
+        info["hydro_status_available"] = info["hydro_status_available"] or (ok and path.name == "hydro_status.json")
+    if not info["live_available"]:
+        _write("train_data/hydro/live/hydro_live_status.json", _json_status_bytes({
+            "ok": True, "available": False, "reason": "no_hydro_live_data_in_export_window",
+            "source": "debug_export", "export_window_hours": hours,
+        }))
+
+    impact_dir = base_dir / "train_data" / "hydro" / "impact"
+    impact_files: list[Path] = []
+    if impact_dir.is_dir():
+        for name in ("latest_hydro_impacts.json", "hydro_impact_state.json"):
+            p = impact_dir / name
+            if p.is_file() and _file_in_window(p, window_start, now, True):
+                impact_files.append(p)
+        impact_files.extend(sorted(p for p in impact_dir.glob("hydro_impact_*.jsonl") if _file_in_window(p, window_start, now, False)))
+    copied_impacts = 0
+    for path in dict.fromkeys(impact_files):
+        if _copy_json(path, f"train_data/hydro/impact/{path.name}", "hydro_impact"):
+            copied_impacts += 1
+    info["impact_available"] = copied_impacts > 0
+    if (impact_dir / "latest_hydro_impacts.json").is_file():
+        try:
+            payload = json.loads((impact_dir / "latest_hydro_impacts.json").read_text(encoding="utf-8"))
+            info["impact_count"] = len(payload) if isinstance(payload, list) else int(payload.get("impact_count", 0) or 0)
+        except Exception as exc:
+            info["errors"].append({"component": "hydro_impact", "error": f"{type(exc).__name__}: {exc}"})
+    if not info["impact_available"]:
+        _write("train_data/hydro/impact/hydro_impact_status.json", _json_status_bytes({
+            "ok": True, "available": False, "impact_count": 0,
+            "reason": "no_hydro_impacts_in_export_window", "source": "debug_export",
+            "export_window_hours": hours,
+        }))
+        _write("train_data/hydro/impact/_empty_no_hydro_impacts.txt",
+               "No hydro impacts were present in the selected export window.\nThis is not an export error.\n")
+
+    static_file = base_dir / "train_data" / "hydro" / "static" / "generated" / "station_network_index.json"
+    static_status = base_dir / "train_data" / "hydro" / "static" / "generated" / "hydro_static_status.json"
+    static_copied = False
+    for path in (static_status, static_file):
+        if path.is_file():
+            static_copied = _copy_json(path, f"train_data/hydro/static/{path.name}", "hydro_static") or static_copied
+    info["static_available"] = static_copied
+    if not static_copied:
+        _write("train_data/hydro/static/hydro_static_status.json", _json_status_bytes({
+            "ok": True, "available": False, "reason": "hydro_static_missing_or_not_generated",
+            "source": "debug_export",
+        }))
+
+    reason = None
+    if info["errors"]:
+        reason = "hydro_export_errors"
+    elif not info["impact_available"]:
+        reason = "no_hydro_impacts_in_export_window"
+    status = {
+        "ok": not bool(info["errors"]),
+        "hydro_live_available": info["live_available"],
+        "hydro_status_available": info["hydro_status_available"],
+        "hydro_impact_available": info["impact_available"],
+        "hydro_impact_count": info["impact_count"],
+        "hydro_static_available": info["static_available"],
+        "external_responses_hydro_files": info["external_hydro_files"],
+        "train_data_hydro_files": info["train_hydro_files"] + 1,
+        "reason": reason,
+        "errors": info["errors"],
+    }
+    _write("train_data/hydro/status/hydro_export_status.json", _json_status_bytes(status))
+    if info["errors"]:
+        _write("train_data/hydro/status/hydro_export_errors.json", _json_status_bytes({"ok": False, "errors": info["errors"]}))
+    return info
+
+
 def _expected_sections_present(files_by_section: dict[str, int]) -> list[str]:
     expected = {
         "radar": "radar",
@@ -638,6 +782,12 @@ def create_debug_export_zip(
                 included_roots.add("api_logs")
                 redacted_files.extend(api_log_info["redacted_files"])
 
+            hydro_info = _write_hydro_debug_structure(zf, root_name, base_dir, window_start, now, hours)
+            if hydro_info["files_count"]:
+                total_files += hydro_info["files_count"]
+                files_by_section["hydro"] = files_by_section.get("hydro", 0) + hydro_info["files_count"]
+                included_roots.add("train_data")
+
             manifest = {
                 "created_at": now.isoformat(timespec="seconds"),
                 "window_start": window_start.isoformat(timespec="seconds"),
@@ -671,6 +821,7 @@ def create_debug_export_zip(
                 "excluded_files_count": diagnostics["excluded_files_count"] + len(excluded_files),
                 "max_files": max_files,
                 "max_total_bytes": max_total_bytes,
+                "hydro_export": hydro_info,
             }
             manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
             zf.writestr(f"{root_name}/manifest.json", manifest_bytes)

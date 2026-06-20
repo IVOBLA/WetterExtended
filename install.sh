@@ -1038,6 +1038,40 @@ if [[ ! -f "$TARGET/train_data/hydro/static/generated/station_catchments.geojson
     log_warn "Installation wird fortgesetzt; lege GeoJSON-Quellen unter train_data/hydro/static/source/ ab und baue sie später über den Hydro-Static-Import."
 fi
 
+# Size-Regressor-Kompatibilität prüfen, ohne Trainings-/Hydro-/Langzeitdaten zu löschen.
+SIZE_REG_MODEL="$TARGET/models/size_regressor.pkl"
+SIZE_REG_META="$TARGET/models/size_regressor_meta.json"
+if [[ -f "$SIZE_REG_MODEL" || -f "$SIZE_REG_META" ]]; then
+    _SIZE_MODEL_FEATURES=""
+    _SIZE_SCHEMA_VERSION=""
+    if [[ -f "$SIZE_REG_META" ]]; then
+        _SIZE_MODEL_FEATURES=$("$VENV/bin/python3" - <<'PY' "$SIZE_REG_META" 2>/dev/null || true
+import json, sys
+try:
+    meta=json.load(open(sys.argv[1], encoding='utf-8'))
+    print(meta.get('feature_count') or (len(meta.get('feature_keys')) if isinstance(meta.get('feature_keys'), list) else ''))
+except Exception:
+    print('')
+PY
+)
+        _SIZE_SCHEMA_VERSION=$("$VENV/bin/python3" - <<'PY' "$SIZE_REG_META" 2>/dev/null || true
+import json, sys
+try:
+    print(json.load(open(sys.argv[1], encoding='utf-8')).get('feature_schema_version') or '')
+except Exception:
+    print('')
+PY
+)
+    fi
+    if [[ -n "$_SIZE_MODEL_FEATURES" && "$_SIZE_MODEL_FEATURES" != "15" ]]; then
+        log_warn "Size-Regressor inkompatibel: model_features=${_SIZE_MODEL_FEATURES} current_features=15."
+        log_warn "Geometrischer Fallback aktiv. Retraining wird bei genug Labels gestartet."
+    elif [[ -n "$_SIZE_SCHEMA_VERSION" && "$_SIZE_SCHEMA_VERSION" != "2" ]]; then
+        log_warn "Size-Regressor Feature-Schema-Version abweichend: model_schema=${_SIZE_SCHEMA_VERSION} current_schema=2."
+        log_warn "Geometrischer Fallback aktiv, falls die Runtime das Modell als inkompatibel erkennt."
+    fi
+fi
+
 INITIAL_MODEL_SOURCE="$TARGET/weather_lstm_model.keras"
 INITIAL_MODEL_TARGET="$TARGET/train_data/models/current/weather_lstm.keras"
 if [[ -f "$INITIAL_MODEL_SOURCE" ]]; then
