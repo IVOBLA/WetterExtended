@@ -49,7 +49,11 @@ async function _handleResponse(r, url) {
   }
   if (!r.ok) {
     const err = await r.json().catch(() => ({}));
-    throw new Error(err.error || `${url}: ${r.status}`);
+    const e = new Error(err.error || `${url}: ${r.status}`);
+    e.status = r.status;
+    e.url = url;
+    e.payload = err;
+    throw e;
   }
   return r.json();
 }
@@ -103,7 +107,11 @@ const api = {
     }
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
-      throw new Error(err.error || `${url}: ${r.status}`);
+      const e = new Error(err.error || `${url}: ${r.status}`);
+      e.status = r.status;
+      e.url = url;
+      e.payload = err;
+      throw e;
     }
     const disposition = r.headers.get('content-disposition') || '';
     const match = disposition.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);

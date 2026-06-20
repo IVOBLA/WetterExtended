@@ -1418,6 +1418,8 @@ if command -v nginx &>/dev/null; then
 # Überschreitung → HTTP 429 (Too Many Requests).
 limit_req_zone \$binary_remote_addr zone=wetter_api:10m rate=60r/m;
 limit_req_zone \$binary_remote_addr zone=wetter_auth:10m rate=10r/m;
+# Eigene grosszuegige Zone fuer geschuetzte Admin-Export-Polls/Downloads.
+limit_req_zone \$binary_remote_addr zone=wetter_admin_export:10m rate=30r/m;
 
 server {
     listen 80;
@@ -1457,11 +1459,16 @@ server {
     }
 
     # Debug-Export kann auf kleinen Raspberry-Pi-Systemen laenger laufen.
-    # Exakte Location muss vor der allgemeinen /api/-Location stehen.
-    location = /api/admin/export/last-24h.zip {
-        # Admin-Export gezielt nicht durch das normale API-Rate-Limit bremsen:
-        # der Endpunkt bleibt durch Flask/JWT-Rollen geschützt.
-        proxy_pass         http://127.0.0.1:5000/api/admin/export/last-24h.zip;
+    # Exakte Locations muessen vor der allgemeinen /api/-Location stehen, damit
+    # Admin-Export-Polling nicht mit Karten-/Radar-/Forecast-Bursts in wetter_api konkurriert.
+    # Auth/Rollenpruefung bleibt unveraendert in Flask/JWT aktiv.
+    location ~ ^/api/admin/export/(last-24h/parts|status|download|part|last-24h\.zip)$ {
+        # Geschuetzte Admin-Export-Endpunkte bekommen eine eigene grosszuegige
+        # Zone statt der engen Karten-API-Zone.
+        limit_req zone=wetter_admin_export burst=120 nodelay;
+        limit_req_status 429;
+
+        proxy_pass         http://127.0.0.1:5000$request_uri;
         proxy_http_version 1.1;
         proxy_set_header   Host              \$host;
         proxy_set_header   X-Real-IP         \$remote_addr;

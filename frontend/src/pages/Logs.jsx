@@ -1,6 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react'
 import api from '../api.js'
 
+const EXPORT_STATUS_POLL_MIN_MS = 3000
+const EXPORT_STATUS_POLL_MAX_MS = 30000
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+function isRateLimitError(error) {
+  return error?.status === 429 || /(^|[^0-9])429([^0-9]|$)/.test(String(error?.message || ''))
+}
+
+function nextExportBackoffMs(currentMs) {
+  return Math.min(Math.max(currentMs * 2, EXPORT_STATUS_POLL_MIN_MS), EXPORT_STATUS_POLL_MAX_MS)
+}
+
 function severityColor(reason = '') {
   if (reason.includes('timeout'))                                    return 'text-orange-600'
   if (reason.includes('http-5'))                                     return 'text-red-700'
@@ -36,6 +49,7 @@ function Logs() {
   }
 
   async function loadHealth() {
+    if (exportingRef.current) return
     try {
       const [raw, agg] = await Promise.all([
         api.get(`/api/api_health_raw?hours=${hours}&n=200`),
@@ -88,14 +102,24 @@ function Logs() {
       if (start.status === 'building') {
         setExportMsg({ ok: true, text: 'Export wird im Hintergrund erstellt …' })
         const deadline = Date.now() + 15 * 60 * 1000  // max. 15 min
-        // Poll-Schleife: kurze Requests (≪ nginx-Timeout), kein Block des Backends.
+        // Poll-Schleife: leichte Requests mit Mindestabstand; 429 ist nur
+        // temporaere nginx-Last und darf den bereits gestarteten Build nicht beenden.
+        let pollDelayMs = EXPORT_STATUS_POLL_MIN_MS
         // eslint-disable-next-line no-constant-condition
         while (true) {
-          await new Promise((r) => setTimeout(r, 2000))
-          const st = await api.get(`/api/admin/export/status?token=${encodeURIComponent(token)}`)
-          if (st.status === 'ready') { meta = st; break }
-          if (st.status === 'error') {
-            throw new Error(`Export-Build fehlgeschlagen: ${st.detail || 'unbekannt'}`)
+          await sleep(pollDelayMs)
+          try {
+            const st = await api.get(`/api/admin/export/status?token=${encodeURIComponent(token)}&nocache=true`)
+            pollDelayMs = EXPORT_STATUS_POLL_MIN_MS
+            if (st.status === 'ready') { meta = st; break }
+            if (st.status === 'error') {
+              throw new Error(`Export-Build fehlgeschlagen: ${st.detail || 'unbekannt'}`)
+            }
+            setExportMsg({ ok: true, text: 'Export wird im Hintergrund erstellt …' })
+          } catch (e) {
+            if (!isRateLimitError(e)) throw e
+            setExportMsg({ ok: true, text: 'Server ausgelastet / Rate-Limit, versuche erneut...' })
+            pollDelayMs = nextExportBackoffMs(pollDelayMs)
           }
           if (Date.now() > deadline) {
             throw new Error('Export-Build überschritt 15 Minuten — abgebrochen.')
@@ -363,7 +387,7 @@ function Logs() {
       {/* P47: Manueller Abruf externer Dienste */}
       <div className="card mt-4">
         <h2 className="text-base font-semibold mb-3">🔄 Externe Dienste manuell auslösen</h2>
-        <ManualFetchPanel />
+        <ManualFetchPanel paused={exporting} />
       </div>
 
       {/* Cache-Status */}
@@ -440,22 +464,25 @@ function CacheStatusTable() {
   )
 }
 
-function ManualFetchPanel() {
+function ManualFetchPanel({ paused = false }) {
   const [available, setAvailable] = useState([])
   const [runs, setRuns] = useState({})
   const [error, setError] = useState(null)
 
-  const load = () => api.get('/api/system/job_status?nocache=true')
+  const load = () => {
+    if (paused) return Promise.resolve()
+    return api.get('/api/system/job_status?nocache=true')
     .then((d) => { setAvailable(d.available || []); setRuns(d.runs || {}) })
     .catch(() => {})
+  }
 
   useEffect(() => {
-    load()
+    if (!paused) load()
     const anyRunning = Object.values(runs).some((r) => r.state === 'running')
-    const iv = setInterval(load, anyRunning ? 2000 : 8000)
+    const iv = setInterval(load, paused ? 30000 : (anyRunning ? 5000 : 10000))
     return () => clearInterval(iv)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(Object.values(runs).map((r) => r.state))])
+  }, [paused, JSON.stringify(Object.values(runs).map((r) => r.state))])
 
   const trigger = (jobId) => {
     setError(null)
