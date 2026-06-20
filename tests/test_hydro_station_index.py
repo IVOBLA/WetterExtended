@@ -21,10 +21,17 @@ def test_build_station_index_assigns_quality_and_outputs(tmp_path):
     data = json.loads((tmp_path / "station_network_index.json").read_text())
     stations = {s["station_id"]: s for s in data["stations"]}
     assert stations["S1"]["catchment_id"] == "B1"
-    assert stations["S1"]["quality"] in {"exact", "snapped"}
+    assert stations["S1"]["quality"] == "exact"
+    assert stations["S1"]["topology_source"] == "conservative_declared_upstream_catchments"
+    assert stations["S1"]["upstream_source_quality"] == "declared_upstream_catchment_ids_valid"
+    assert stations["S1"]["flow_distance_available"] is False
+    assert stations["S1"]["flow_distance_km"] is None
     assert stations["S2"]["catchment_id"] == "B2"
     assert stations["S3"]["quality"] == "unresolved"
     assert stations["S3"]["impact_eligible"] is False
+    assert stations["S3"]["topology_source"] == "none"
+    assert stations["S3"]["flow_distance_available"] is False
+    assert stations["S3"]["flow_distance_km"] is None
     assert "no_hydrological_upstream_catchment_match" in stations["S3"]["reason"]
     assert stations["S3"]["nearest_basin_hint"]
     assert (tmp_path / "hydro_stations.geojson").exists()
@@ -68,6 +75,10 @@ def test_station_inside_basin_without_upstream_topology_is_not_impact_eligible(t
     assert station["station_basin"] == "B_ONLY"
     assert station["catchment_id"] is None
     assert station["upstream_catchment_ids"] == []
+    assert station["topology_source"] == "none"
+    assert station["upstream_source_quality"] == "missing"
+    assert station["flow_distance_available"] is False
+    assert station["flow_distance_km"] is None
     assert station["impact_eligible"] is False
     assert station["enabled"] is False
     assert "upstream_topology_missing" in station["reason"]
@@ -109,6 +120,10 @@ def test_upstream_catchment_ids_create_valid_geometric_union_and_impacts(tmp_pat
     assert props["station_id"] == "S_UNION"
     assert set(props["upstream_catchment_ids"]) == {"B1", "B2"}
     assert props["impact_eligible"] is True
+    assert props["topology_source"] == "conservative_declared_upstream_catchments"
+    assert props["upstream_source_quality"] == "declared_upstream_catchment_ids_valid"
+    assert props["flow_distance_available"] is False
+    assert props["flow_distance_km"] is None
 
     basins = json.loads((FIX / "basins_adjacent_union.geojson").read_text(encoding="utf-8"))["features"]
     basin_shapes = [hydro_station_index.shape(basin["geometry"]) for basin in basins]
@@ -133,3 +148,50 @@ def test_upstream_catchment_ids_create_valid_geometric_union_and_impacts(tmp_pat
     assert {event["cell_id"] for event in events} == {"B1", "B2"}
     assert all(event["station_id"] == "S_UNION" for event in events)
     assert all(set(event["upstream_catchment_ids"]) == {"B1", "B2"} for event in events)
+
+
+def test_flowline_snapping_alone_is_diagnostic_and_not_impact_eligible(tmp_path, monkeypatch):
+    monkeypatch.setattr(hydro_station_index, "SHAPELY_AVAILABLE", True)
+    status = build_station_index(
+        str(FIX / "hydro_stations_basin_only.geojson"),
+        str(FIX / "basins_without_upstream.geojson"),
+        str(FIX / "flowlines_sample.geojson"),
+        str(tmp_path),
+    )
+
+    assert status["status"] == "hydro_static_missing"
+    data = json.loads((tmp_path / "station_network_index.json").read_text(encoding="utf-8"))
+    station = data["by_station_id"]["S_BASIN_ONLY"]
+    assert station["snapped_flowline_id"] is not None
+    assert station["snap_distance_m"] is not None
+    assert station["impact_eligible"] is False
+    assert station["enabled"] is False
+    assert station["topology_source"] == "none"
+    assert station["upstream_source_quality"] == "missing"
+    assert station["flow_distance_available"] is False
+    assert station["flow_distance_km"] is None
+
+
+def test_invalid_declared_upstream_ids_do_not_create_impact_eligibility(tmp_path, monkeypatch):
+    monkeypatch.setattr(hydro_station_index, "SHAPELY_AVAILABLE", True)
+    stations = {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [14.0, 46.6]},
+            "properties": {"station_id": "S_INVALID_UPSTREAM", "upstream_catchment_ids": ["DOES_NOT_EXIST"]},
+        }],
+    }
+    stations_path = tmp_path / "stations_invalid_upstream.geojson"
+    stations_path.write_text(json.dumps(stations), encoding="utf-8")
+
+    build_station_index(str(stations_path), str(FIX / "basins_sample.geojson"), None, str(tmp_path))
+
+    data = json.loads((tmp_path / "station_network_index.json").read_text(encoding="utf-8"))
+    station = data["by_station_id"]["S_INVALID_UPSTREAM"]
+    assert station["upstream_catchment_ids"] == []
+    assert station["impact_eligible"] is False
+    assert station["topology_source"] == "none"
+    assert station["upstream_source_quality"] == "declared_upstream_catchment_ids_unresolved"
+    assert station["flow_distance_available"] is False
+    assert station["flow_distance_km"] is None

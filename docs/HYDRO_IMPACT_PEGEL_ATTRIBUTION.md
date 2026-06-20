@@ -16,7 +16,7 @@ Ohne oberliegende Topologie und Zeitversatz wird kein Hydro-Impact erzeugt.
 
 ## Statische Hydrologie und `impact_eligible`
 
-Statische Hydrologie liegt lokal unter `train_data/hydro/static/generated/`. Produktive Hydro-Impacts werden ausschließlich für Stationen erzeugt, deren statischer Index `impact_eligible=true` meldet. Dieses Flag bedeutet, dass die Station ausreichend mit lokaler Upstream-Topologie beschrieben ist: `upstream_catchment_ids` sind vorhanden und daraus wurde ein geometrisch vereinigtes oberliegendes Einzugsgebiet (`station_catchment`) erzeugt.
+Statische Hydrologie liegt lokal unter `train_data/hydro/static/generated/`. Produktive Hydro-Impacts werden ausschließlich für Stationen erzeugt, deren statischer Index `impact_eligible=true` meldet. Dieses Flag bedeutet aktuell konservativ: `upstream_catchment_ids` sind in den lokalen statischen Daten explizit vorhanden, gegen vorhandene Basin-Geometrien validiert und daraus wurde ein geometrisch vereinigtes oberliegendes Einzugsgebiet (`station_catchment`) erzeugt. Eine automatische gerichtete Fließtopologie aus dem Gewässernetz wird derzeit noch nicht berechnet.
 
 `impact_eligible=false` bedeutet nicht, dass eine Station fachlich unwichtig ist. Es bedeutet nur, dass WetterExtended für diese Station keinen belastbaren automatischen Hydro-Impact ableiten darf. Typische Gründe sind fehlende oder unvollständige Upstream-Topologie, fehlende Geometrien, ungültige Geometrien oder nicht erfüllte Mindestanforderungen an die statische Zuordnung. Die Station kann weiterhin angezeigt oder diagnostisch ausgewertet werden, erzeugt aber keinen produktiven Impact.
 
@@ -26,7 +26,16 @@ Das Stations-Basin beschreibt nur das direkte Basin oder die lokale Einordnung d
 
 ## Warum Flowline-Snapping nur Diagnose ist
 
-Flowline-Snapping kann zeigen, zu welcher Gewässerlinie eine Station oder ein Punkt geometrisch nahe liegt. Diese Nähe beweist aber keine vollständige Fließverbindung, keine Lage oberhalb der Station und keine passende Reisezeit. Snapping wird deshalb nur als Diagnosemetadatum verwendet und darf keine produktive Pegel-Attribution begründen.
+Flowline-Snapping kann zeigen, zu welcher Gewässerlinie eine Station oder ein Punkt geometrisch nahe liegt. Diese Nähe beweist aber keine vollständige Fließverbindung, keine Lage oberhalb der Station und keine passende Reisezeit. Snapping wird deshalb nur als Diagnosemetadatum (`snapped_flowline_id`, `snap_distance_m`) verwendet und darf keine produktive Pegel-Attribution begründen. Solange keine echte gerichtete Fließtopologie verfügbar ist, bleiben `flow_distance_available=false` und `flow_distance_km=null`.
+
+## Statusfelder für spätere Topologie
+
+Der statische Index trennt bewusst zwischen heutiger konservativer Logik und einer später ergänzbaren echten Fließtopologie:
+
+* `topology_source`: derzeit `conservative_declared_upstream_catchments`, wenn validierte `upstream_catchment_ids` die Catchment-Union tragen; sonst `none`.
+* `upstream_source_quality`: beschreibt, ob die Upstream-IDs gültig, unauflösbar oder fehlend sind.
+* `flow_distance_available`: bleibt `false`, bis eine belastbare gerichtete Fließwegdistanz berechnet wird.
+* `flow_distance_km`: bleibt `null`, solange `flow_distance_available=false` ist.
 
 ## Warum das System konservativ lieber keinen Impact erzeugt
 
