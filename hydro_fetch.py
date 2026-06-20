@@ -161,14 +161,25 @@ def _runtime_int(name: str, default: int) -> int:
         return int(default)
 
 def _runtime_bool(name: str, default: bool) -> bool:
-    try:
-        import runtime_config
-        value = runtime_config.get(name, default)
-    except Exception:
-        value = default
+    if name in os.environ:
+        value = os.environ[name]
+    else:
+        try:
+            import runtime_config
+            value = runtime_config.get(name, default)
+        except Exception:
+            value = default
     if isinstance(value, str):
         return value.strip().lower() not in {"0", "false", "no", "off"}
     return bool(value)
+
+
+def hydro_enabled(default: bool = True) -> bool:
+    return _runtime_bool("HYDRO_ENABLED", default)
+
+
+def hydro_disabled_status() -> dict:
+    return {"ok": False, "from_cache": False, "station_count": 0, "error": "hydro_disabled"}
 
 def load_latest_hydro_live(max_age_seconds: int | None = None) -> dict | None:
     data = _read_json(LATEST_FILE)
@@ -224,8 +235,8 @@ def _mark_cache(data: dict, error: str | None = None) -> dict:
 
 
 def fetch_hydro_live(force: bool = False) -> dict:
-    if not _runtime_bool("HYDRO_ENABLED", True):
-        status = {"ok": False, "from_cache": False, "station_count": 0, "error": "hydro_disabled"}
+    if not hydro_enabled(True):
+        status = hydro_disabled_status()
         _write_status(status)
         return {"fetched_at": _iso_z(), "source": SOURCE_NAME, "raw_data_notice": RAW_DATA_NOTICE, "stations": [], "status": status}
     if not force:
