@@ -15,6 +15,7 @@ import {
 import api, { abortApiRequests } from '../api.js'
 import { formatCbIrLabel, getCbThresholdState } from '../utils/cbThreshold.js'
 import { hasValidHydroImpactLine, hydroFeatureCollection } from '../utils/hydro.js'
+import { loadRiskGridAfterHealth, nextRiskGridDelayMs } from '../utils/riskGridPolling.js'
 
 /**
  * B112: first_seen-Timestamps kommen als Europe/Vienna-Lokalzeit, NICHT UTC.
@@ -241,6 +242,8 @@ export default function MapFullscreen() {
 
   const timerRef       = useRef(null)
   const pollRef        = useRef(null)
+  const riskPollRef    = useRef(null)
+  const riskPollStateRef = useRef({ riskGridBackoffMs: 0, lastLoggedRiskGridError: null })
   const isLoadingRef   = useRef(false)
   const lastImgRef     = useRef(null)
   const frameLoadTimer = useRef(null)
@@ -384,21 +387,28 @@ export default function MapFullscreen() {
     return () => { if (frameLoadTimer.current) clearTimeout(frameLoadTimer.current) }
   }, [currentIdx, frames])
 
-  // Risiko-Grid laden — alle 60 s, unabhaengig von frames/lightning
+  // Risiko-Grid laden — erst nach Flask-Health-Gate, danach 60 s oder Backoff.
   useEffect(() => {
-    function loadRisk() {
-      api.get('/api/risk_grid')
-        .then(d => {
+    let stopped = false
+    async function loadRisk() {
+      const result = await loadRiskGridAfterHealth({
+        apiClient: api,
+        state: riskPollStateRef.current,
+        onSuccess: d => {
           setRiskGrid(d.cells || [])
           setRiskGridStep(typeof d.grid_step === 'number' && d.grid_step > 0
             ? d.grid_step : 0.05)
           setRiskGridError(false)
-        })
-        .catch((err) => {
-          console.error('Risk grid failed', err)
+        },
+        onError: () => {
           setRiskGrid([])
           setRiskGridError(true)
-        })
+        },
+      })
+      if (!stopped) {
+        riskPollRef.current = setTimeout(loadRisk, nextRiskGridDelayMs(riskPollStateRef.current))
+      }
+      return result
     }
     if (showIrCells) {
       fetch('/api/objects?include_ir=1')
@@ -417,8 +427,10 @@ export default function MapFullscreen() {
       setIrCells([])
     }
     loadRisk()
-    const t = setInterval(loadRisk, 60_000)
-    return () => clearInterval(t)
+    return () => {
+      stopped = true
+      if (riskPollRef.current) clearTimeout(riskPollRef.current)
+    }
   }, [showIrCells])
 
   const fmtTime = utcStr => utcStr
