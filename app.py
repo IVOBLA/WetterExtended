@@ -8,7 +8,7 @@ import time
 import traceback
 import tempfile
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory, send_file
@@ -2513,14 +2513,13 @@ def api_forecast_stats():
     Query-Parameter: hours=<int default 24>
     """
     import glob as _gl
-    from datetime import datetime as _dt2, timedelta as _td2
     try:
         hours = max(1, min(int(request.args.get("hours", "24")), 720))
     except (ValueError, TypeError):
         hours = 24
 
     obj_dir = SAVE_PATHS.get("objects", "train_data/objects")
-    cutoff  = _dt2.utcnow() - _td2(hours=hours)
+    cutoff  = datetime.utcnow() - timedelta(hours=hours)
 
     ml_count        = 0
     kinematic_count = 0
@@ -2536,7 +2535,7 @@ def api_forecast_stats():
                 # Zeitstempel aus Dateinamen extrahieren
                 fname = os.path.basename(fpath).replace(".json", "")
                 # Format: YYYY-MM-DD_HH-MM-SS
-                file_dt = _dt2.strptime(fname, "%Y-%m-%d_%H-%M-%S")
+                file_dt = __import__("datetime").datetime.strptime(fname, "%Y-%m-%d_%H-%M-%S")
             except ValueError:
                 continue
             if file_dt < cutoff:
@@ -5160,6 +5159,14 @@ def api_hydro_fetch_live():
 @app.route("/api/hydro/verify", methods=["POST"])
 def api_hydro_verify():
     return _hydro_safe(lambda: {"results": __import__("hydro_verification").verify_pending_hydro_impacts(), "status": "ok"}, "hydro_verification_error")
+
+
+@app.route("/api/admin/hydro/stations/<path:station_id>", methods=["PATCH"])
+@app.route("/api/hydro/stations/<path:station_id>", methods=["PATCH"])
+def api_hydro_station_patch_path_rejected(station_id):
+    if "/" in str(station_id or ""):
+        return _hydro_json("not_found", ok=False, error="Station nicht gefunden", code=404)
+    return api_hydro_station_patch(station_id)
 
 @app.route("/api/admin/hydro/stations/<station_id>", methods=["PATCH"])
 @app.route("/api/hydro/stations/<station_id>", methods=["PATCH"])
