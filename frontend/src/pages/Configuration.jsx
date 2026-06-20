@@ -127,6 +127,7 @@ const PARAM_GROUPS = [
       { key: 'HYDRO_VERIFY_MIN_RELATIVE_DELTA_PCT', type: 'number', default: 10, unit: '%', desc: 'Relative Mindest-Aenderung fuer eine plausible Bestaetigung.', example: 10 },
       { key: 'HYDRO_VERIFY_MAX_GAP_MIN', type: 'number', default: 90, unit: 'min', desc: 'Maximale Messluecke im Verifikationsfenster; groessere Luecken werden ambiguous.', example: 90 },
       { key: 'HYDRO_STATION_OVERRIDES', type: 'json-object', default: '{}', desc: 'Stations-Overrides, z.B. Aktivierung/Deaktivierung pro station_id.', example: JSON.stringify({ '123': { enabled: false } }, null, 2) },
+      { key: 'HYDRO_STATIC_REQUIRED', type: 'boolean', default: false, desc: 'Erzwingt vorhandene statische Hydro-Daten, bevor Hydro-Impact aktiv genutzt wird.', example: false },
     ],
   },
   {

@@ -8,6 +8,7 @@ HYDRO_RUNTIME_KEYS = [
     "HYDRO_ENABLED",
     "HYDRO_API_TTL_SECONDS",
     "HYDRO_MIN_OVERLAP_AREA_KM2",
+    "HYDRO_MIN_CELL_OVERLAP_RATIO",
     "HYDRO_MIN_OVERLAP_RATIO_CELL",
     "HYDRO_MIN_DURATION_MIN",
     "HYDRO_RELEVANT_INTENSITIES",
@@ -18,6 +19,7 @@ HYDRO_RUNTIME_KEYS = [
     "HYDRO_VERIFY_MIN_RELATIVE_DELTA_PCT",
     "HYDRO_VERIFY_MAX_GAP_MIN",
     "HYDRO_STATION_OVERRIDES",
+    "HYDRO_STATIC_REQUIRED",
 ]
 
 
@@ -54,7 +56,7 @@ def test_admin_config_api_delivers_all_hydro_runtime_keys(monkeypatch):
     app_module = pytest.importorskip("app")
     runtime_config = pytest.importorskip("runtime_config")
     app_module.app.config.update(TESTING=True)
-    monkeypatch.setattr(app_module, "get_current_user", lambda: {"role": "admin"})
+    monkeypatch.setattr("auth.get_current_user", lambda: {"role": "admin"})
     monkeypatch.setattr(runtime_config, "_OVERRIDES", {}, raising=False)
 
     response = app_module.app.test_client().get("/api/config")
@@ -80,7 +82,7 @@ def test_hydro_station_toggle_persists_only_station_overrides_and_drops_existing
     app_module = pytest.importorskip("app")
     runtime_config = pytest.importorskip("runtime_config")
     app_module.app.config.update(TESTING=True)
-    monkeypatch.setattr(app_module, "get_current_user", lambda: {"role": "admin"})
+    monkeypatch.setattr("auth.get_current_user", lambda: {"role": "admin"})
     monkeypatch.setattr(runtime_config, "_get_path", lambda: str(tmp_path / "runtime_overrides.json"))
     runtime_config.save({
         "FORECAST_MAX_SPEED_KMH": 120,
