@@ -49,6 +49,10 @@ from config import (
     TENDENCY_COMPACT_CORE_RATIO_DELTA as _TENDENCY_COMPACT_CORE_TH,
     SAVE_PATHS,
     UPSCALE_FACTOR as _UF,
+    ML_RUNTIME_GATING_ENABLED as _STATIC_ML_RUNTIME_GATING_ENABLED,
+    ML_RUNTIME_GATING_MARGIN as _STATIC_ML_RUNTIME_GATING_MARGIN,
+    ML_RUNTIME_MIN_SAMPLES_PER_MODE as _STATIC_ML_RUNTIME_MIN_SAMPLES_PER_MODE,
+    ML_FORCE_KINEMATIC as _STATIC_ML_FORCE_KINEMATIC,
     MAX_CELL_SPEED_KMH as _STATIC_MAX_CELL_SPEED_KMH,
     BBOX_KAERNTEN_EXTENDED as _STATIC_BBOX_KAERNTEN_EXTENDED,
     STEERING_BLEND_ENABLED as _STATIC_STEERING_BLEND_ENABLED,
@@ -625,6 +629,84 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
         })
 
 
+
+def _runtime_bool_value(name: str, default: bool) -> bool:
+    try:
+        value = _runtime_cfg.get(name, default) if _runtime_cfg else default
+    except Exception:
+        value = default
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _latest_runtime_mae_by_horizon(min_samples: int | None = None) -> dict:
+    """Liest je Horizont die jüngste ausreichende ML/Kinematik-MAE-Attribution."""
+    min_samples = _runtime_int_value("ML_RUNTIME_MIN_SAMPLES_PER_MODE", _STATIC_ML_RUNTIME_MIN_SAMPLES_PER_MODE) if min_samples is None else int(min_samples)
+    path = os.path.join(SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/"), "accuracy_history.jsonl")
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+    except Exception as exc:
+        debug_log(f"[PREDICT][ML-GATE] accuracy_history nicht lesbar: {exc}")
+        return {}
+    out = {}
+    for rec in reversed(rows):
+        modes_by_h = rec.get("breakdown_by_forecast_mode") or {}
+        if not isinstance(modes_by_h, dict):
+            continue
+        for h, modes in modes_by_h.items():
+            try:
+                key = str(int(float(h)))
+            except Exception:
+                continue
+            if key in out or not isinstance(modes, dict):
+                continue
+            kin_candidates = [modes.get("kinematic"), modes.get("kinematic_fallback")]
+            kin_stats = next((m for m in kin_candidates if isinstance(m, dict) and m.get("mae_km") is not None), None)
+            ml_stats = modes.get("ml") if isinstance(modes.get("ml"), dict) else None
+            if not ml_stats or not kin_stats:
+                continue
+            ml_n = int(ml_stats.get("verified", ml_stats.get("samples", 0)) or 0)
+            kin_n = int(kin_stats.get("verified", kin_stats.get("samples", 0)) or 0)
+            if ml_n < min_samples or kin_n < min_samples:
+                continue
+            ml_mae = _safe_float(ml_stats.get("mae_km"))
+            kin_mae = _safe_float(kin_stats.get("mae_km"))
+            if ml_mae > 0 and kin_mae > 0:
+                out[key] = {"ml_mae": ml_mae, "kinematic_mae": kin_mae, "ml_samples": ml_n, "kinematic_samples": kin_n}
+    return out
+
+def _ml_runtime_gate_by_horizon(horizons, runtime_status: dict | None = None) -> dict:
+    """Entscheidet pro Horizont, ob ML zur Laufzeit besser/gleich Kinematik ist."""
+    runtime_status = runtime_status or {}
+    if _runtime_bool_value("ML_FORCE_KINEMATIC", _STATIC_ML_FORCE_KINEMATIC):
+        return {int(h): {"allow_ml": False, "reason": "force_kinematic"} for h in horizons}
+    if not _runtime_bool_value("ML_RUNTIME_GATING_ENABLED", _STATIC_ML_RUNTIME_GATING_ENABLED):
+        return {int(h): {"allow_ml": True, "reason": "gating_disabled"} for h in horizons}
+    margin = _runtime_float_value("ML_RUNTIME_GATING_MARGIN", _STATIC_ML_RUNTIME_GATING_MARGIN)
+    mae_by_h = _latest_runtime_mae_by_horizon()
+    status_text = str(runtime_status.get("runtime_mode", "")) + " " + str(runtime_status.get("fallback_reason", ""))
+    validation = runtime_status.get("training_meta", {}).get("validation", {}) if isinstance(runtime_status.get("training_meta"), dict) else {}
+    cold_or_low = bool(runtime_status.get("low_confidence") or validation.get("low_confidence") or "cold_start" in status_text or "low_confidence" in status_text)
+    out = {}
+    for h in horizons:
+        hi = int(h); stats = mae_by_h.get(str(hi))
+        if not stats:
+            reason = "insufficient_comparison_data_cold_or_low_confidence" if cold_or_low else "insufficient_comparison_data"
+            out[hi] = {"allow_ml": False, "reason": reason}
+            debug_log(f"[PREDICT][ML-GATE] h={hi}: Kinematik wegen {reason}; keine ausreichenden ML/Kinematik-MAE-Vergleichsdaten")
+            continue
+        threshold = stats["kinematic_mae"] * (1.0 - margin)
+        allow = stats["ml_mae"] <= threshold
+        reason = "ml_mae_better_or_equal" if allow else "ml_mae_worse_than_kinematic"
+        out[hi] = {"allow_ml": allow, "reason": reason, **stats, "threshold": threshold}
+        decision = "ML" if allow else "Kinematik"
+        debug_log(f"[PREDICT][ML-GATE] h={hi}: {decision}; ml_mae={stats['ml_mae']:.3f} km, kinematic_mae={stats['kinematic_mae']:.3f} km, threshold={threshold:.3f} km, margin={margin:.3f}, reason={reason}")
+    return out
+
 def _predict_lgbm_vector(models, frame, suffix=""):
     # P-T08: Voll-Länge-Vektor über ALLE konfigurierten Horizonte. Horizonte ohne
     # Modell → NaN (Layout passt zu scaler_y). Der Aufrufer ersetzt NaN-Horizonte
@@ -1008,6 +1090,8 @@ def predict_positions(objects: list, timestamp: str, stations: list):
             _obj["fallback_reason"] = reason
         return _kinematic_fallback(objects)
 
+    _runtime_ml_gate = _ml_runtime_gate_by_horizon(_horizons, _runtime_status)
+
     if has_lgbm and len(_lgbm_horizons) < len(_horizons):
         debug_log(
             f"[PREDICT] Partielle ML-Abdeckung: Modelle für {_lgbm_horizons} von "
@@ -1169,9 +1253,10 @@ def predict_positions(objects: list, timestamp: str, stations: list):
             _eff_lead = float(horizon) - _radar_age_min   # effektive Vorlaufzeit
             _stale = _eff_lead <= 0.0
 
-            # P-T08: Horizont ohne ML-Modell (NaN) → kinematischer Fallback aus
-            # _temp_fc (bereits per _append_kinematic für diesen obj befüllt).
-            if (_x_raw != _x_raw) or (_y_raw != _y_raw):   # NaN-Test
+            _gate = _runtime_ml_gate.get(int(horizon), {"allow_ml": True, "reason": "gate_missing"})
+            # P-T08: Horizont ohne ML-Modell (NaN) oder Runtime-Gate gegen ML →
+            # kinematischer Fallback aus _temp_fc (bereits per _append_kinematic befüllt).
+            if (not _gate.get("allow_ml", False)) or (_x_raw != _x_raw) or (_y_raw != _y_raw):   # NaN-Test
                 _kin = _temp_fc.get(horizon) or []
                 if _kin:
                     k = _kin[0]
@@ -1181,7 +1266,11 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                     obj[f"forecast_lon_{horizon}"] = k["lon"]
                     obj[f"forecast_displacement_km_{horizon}"] = k.get("forecast_displacement_km")
                     obj[f"forecast_speed_kmh_{horizon}"] = k.get("forecast_speed_kmh")
-                    obj[f"forecast_mode_{horizon}"] = "kinematic"
+                    _fallback_mode = "kinematic_fallback" if not _gate.get("allow_ml", False) else "kinematic"
+                    obj[f"forecast_mode_{horizon}"] = _fallback_mode
+                    obj[f"forecast_gate_reason_{horizon}"] = _gate.get("reason") if not _gate.get("allow_ml", False) else None
+                    obj[f"forecast_gate_ml_mae_{horizon}"] = _gate.get("ml_mae")
+                    obj[f"forecast_gate_kinematic_mae_{horizon}"] = _gate.get("kinematic_mae")
                     obj[f"kinematic_source_{horizon}"] = obj.get("kinematic_source")
                     obj[f"of_available_{horizon}"] = int(obj.get("of_available", 0) or 0)
                     forecasts[horizon].append({
@@ -1191,8 +1280,11 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                         "size": _safe_float(obj.get("size", 0.0)),
                         "origin_lat": _safe_float(obj.get("lat", 0.0)),
                         "origin_lon": _safe_float(obj.get("lon", 0.0)),
-                        "forecast_mode": "kinematic",
-                        "forecast_mode_horizon": "kinematic",
+                        "forecast_mode": _fallback_mode,
+                        "forecast_mode_horizon": _fallback_mode,
+                        "forecast_gate_reason": _gate.get("reason") if not _gate.get("allow_ml", False) else None,
+                        "forecast_gate_ml_mae": _gate.get("ml_mae"),
+                        "forecast_gate_kinematic_mae": _gate.get("kinematic_mae"),
                         "kinematic_source": k.get("kinematic_source"),
                         "of_available": int(obj.get("of_available", 0) or 0),
                         "of_error_reason": obj.get("of_error_reason"),
@@ -1250,6 +1342,9 @@ def predict_positions(objects: list, timestamp: str, stations: list):
             obj[f"forecast_mode_{horizon}"] = "ml"
             obj[f"forecast_rejected_{horizon}"] = False
             obj[f"forecast_reject_reason_{horizon}"] = None
+            obj[f"forecast_gate_reason_{horizon}"] = _gate.get("reason")
+            obj[f"forecast_gate_ml_mae_{horizon}"] = _gate.get("ml_mae")
+            obj[f"forecast_gate_kinematic_mae_{horizon}"] = _gate.get("kinematic_mae")
             obj[f"kinematic_source_{horizon}"] = None
             obj[f"of_available_{horizon}"] = int(obj.get("of_available", 0) or 0)
             if prediction_q10 is not None and prediction_q90 is not None:
@@ -1279,6 +1374,9 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                     "origin_lon": _safe_float(obj.get("lon", 0.0)),
                     "forecast_mode": "ml",
                     "forecast_mode_horizon": "ml",
+                    "forecast_gate_reason": _gate.get("reason"),
+                    "forecast_gate_ml_mae": _gate.get("ml_mae"),
+                    "forecast_gate_kinematic_mae": _gate.get("kinematic_mae"),
                     "kinematic_source": None,
                     "of_available": int(obj.get("of_available", 0) or 0),
                     "of_error_reason": obj.get("of_error_reason"),
