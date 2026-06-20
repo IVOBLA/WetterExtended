@@ -116,7 +116,7 @@ def test_predict_positions_marks_partial_lgbm_horizons_per_horizon(monkeypatch):
     monkeypatch.setattr(prediction, "ML_SEQUENCE_LENGTH", 1)
     monkeypatch.setattr(prediction, "ML_NUM_FEATURES", 1)
     monkeypatch.setattr(prediction, "_UF", 1.0)
-    monkeypatch.setattr(prediction, "pixel_to_geo", lambda x, y: (float(y) / 100.0, float(x) / 100.0))
+    monkeypatch.setattr(prediction, "pixel_to_geo", lambda x, y: (46.5 + float(y) / 10000.0, 14.0 + float(x) / 10000.0))
     monkeypatch.setattr(prediction, "_build_sequence", lambda *args, **kwargs: np.asarray([[0.0]], dtype=float))
     monkeypatch.setattr(prediction, "load_lstm", lambda: None)
     monkeypatch.setattr(prediction, "load_intensification_model", lambda: None)

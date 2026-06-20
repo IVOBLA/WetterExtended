@@ -52,6 +52,21 @@ def attach_ir_values_to_radar(radar: dict, ir: dict) -> None:
         radar["lineage_status"] = "radar_confirmed"
 
 
+def normalize_ir_fields_for_payload(ir: dict) -> dict:
+    """Return an IR payload copy with stable API-facing ``ir_*`` metadata fields."""
+    if not isinstance(ir, dict):
+        return ir
+    normalized = dict(ir)
+    for target, sources in IR_TO_RADAR_FIELDS.items():
+        if normalized.get(target) is not None:
+            continue
+        for source in sources:
+            if normalized.get(source) is not None:
+                normalized[target] = normalized.get(source)
+                break
+    return normalized
+
+
 def dedupe_ir_precursors_for_payload(objects: list[dict], ir_tracks: list[dict]) -> tuple[list[dict], list[dict]]:
     """Return radar objects plus only IR precursors that should stay visibly separate."""
     radar_objects = [dict(o) if isinstance(o, dict) else o for o in (objects or [])]
@@ -75,5 +90,5 @@ def dedupe_ir_precursors_for_payload(objects: list[dict], ir_tracks: list[dict])
             continue
         if cid and str(cid) in radar_by_cell_id:
             continue
-        visible_ir.append(ir)
+        visible_ir.append(normalize_ir_fields_for_payload(ir))
     return radar_objects, visible_ir
