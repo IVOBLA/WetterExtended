@@ -218,6 +218,20 @@ def _find_forbidden_paths(obj, prefix: str = "") -> list:
     return found
 
 
+def _strip_forbidden_keys(obj):
+    """Entfernt verbotene Schlüssel rekursiv vor dem Persistieren."""
+    if isinstance(obj, dict):
+        cleaned = {}
+        for k, v in obj.items():
+            if is_forbidden_override_key(k):
+                continue
+            cleaned[k] = _strip_forbidden_keys(v)
+        return cleaned
+    if isinstance(obj, list):
+        return [_strip_forbidden_keys(v) for v in obj]
+    return obj
+
+
 def forbidden_keys_in(partial: dict) -> list:
     """
     Liefert alle verbotenen Schlüsselpfade aus partial (Top-Level und verschachtelt).
@@ -245,7 +259,7 @@ def patch(partial: dict) -> dict:
             _forbidden_top = {p.split(".")[0].split("[")[0] for p in _forbidden}
             partial = {k: v for k, v in partial.items() if k not in _forbidden_top}
     with _LOCK:
-        merged = _deep_merge(_OVERRIDES, partial)
+        merged = _strip_forbidden_keys(_deep_merge(_OVERRIDES, partial))
     save(merged)
     return merged
 
