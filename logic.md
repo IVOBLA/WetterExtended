@@ -166,12 +166,26 @@ Polygon-basiert; vier Treffertypen (Priorität current > slow > forecast/growth)
 
 ## Hydro-Impact-Logik
 
-Pegel-Attribution erfolgt **nicht radiusbasiert**. Eine Zelle wird nur berücksichtigt, wenn ihr Polygon das **oberliegendes Einzugsgebiet** einer Station schneidet und anschließend ein plausibler hydrologischer **Zeitversatz** angewendet wird. Ergebnisse heißen stets **plausibler Zusammenhang** und sind **keine amtliche Hochwasserwarnung**. Fehlen lokale statische Daten, bleibt das System lauffähig und setzt `hydro_static_missing`.
+Pegel-Attribution erfolgt **nicht radiusbasiert**. Der „nächste Pegel“ ist fachlich falsch, weil räumliche Nähe keine hydrologische Verbindung beweist: Niederschlag kann neben dem relevanten Gewässer, in einem anderen Teileinzugsgebiet oder unterhalb der Messstelle liegen. Eine Zelle wird deshalb nur berücksichtigt, wenn ihr Polygon das **oberliegende Einzugsgebiet** einer Station schneidet und anschließend ein plausibler hydrologischer **Zeitversatz** angewendet wird. Ergebnisse heißen stets **plausibler Zusammenhang**; sie sind keine Kausalitätsbehauptung, **keine amtliche Hochwasserwarnung** und kein Ersatz für geprüfte amtliche Endwerte. Live-Hydro-Rohdaten sind Live-Indikatoren und keine qualitätsgesicherten amtlichen Endwerte.
 
 ### Hydro-Impact Produktionsregeln
 
-Die Hydro-Logik setzt keine Pegelzuordnung über Entfernung oder Radius um. Zulässig sind nur impact-fähige Stationen mit aus `upstream_catchment_ids` geometrisch vereinigtem oberliegendem Einzugsgebiet. Zellpolygon und Einzugsgebiet müssen sich schneiden; zusätzlich werden Mindestfläche, Zellanteil, Dauer, relevante Intensität, Zeitversatz und Verifikationsschwellen ausgewertet. Flowline-Snapping ist Diagnosemetadatum und keine Entscheidungsgrundlage. Pending-Events werden aus allen Hydro-JSONL-Dateien geladen; `latest_hydro_impacts.json` ist nur Anzeige-/Cache-Datei.
+Produktive Hydro-Impacts werden ausschließlich für Stationen erzeugt, deren statischer Index `impact_eligible=true` meldet. Dieses Flag darf nur gesetzt werden, wenn lokale Upstream-Topologie (`upstream_catchment_ids`) vorhanden ist und daraus ein geometrisch vereinigtes oberliegendes Einzugsgebiet (`station_catchment`) erzeugt wurde. `impact_eligible=false` bedeutet, dass WetterExtended für diese Station keinen belastbaren automatischen Hydro-Impact ableiten darf; die Station kann weiterhin angezeigt oder diagnostisch ausgewertet werden.
 
-#### Persistente Hydro-Verifikation
+`station_basin` allein genügt nicht, weil es nicht zwingend das gesamte oberliegende Einzugsgebiet beschreibt und ohne vollständige Upstream-Kette eine hydrologisch falsche Zuordnung begünstigen kann. Flowline-Snapping ist nur Diagnosemetadatum: Es zeigt geometrische Nähe zu einer Gewässerlinie, beweist aber keine Lage oberhalb der Station, keine vollständige Fließverbindung und keine passende Reisezeit.
 
-Historische Hydro-Impact-JSONL-Dateien bleiben unverändert als Audit-Log erhalten. Der aktuelle Verifikationszustand wird über `hydro_impact_state.json` überlagert, sodass alte bestätigte, abgelehnte oder mehrdeutige Events nicht erneut als pending geladen werden. Messlücken größer als `HYDRO_VERIFY_MAX_GAP_MIN` führen zu `ambiguous`; konkurrierende Zellen im selben Einzugsgebiet erhalten den Reason `competing_cells_same_catchment` und werden nicht hart einer Einzelzelle zugeschrieben.
+Zellpolygon und oberliegendes Einzugsgebiet müssen sich schneiden; zusätzlich werden Mindestfläche, Zellanteil, Dauer, relevante Intensität, Zeitversatz und Verifikationsschwellen ausgewertet. Fehlen lokale statische Daten, Upstream-Topologie oder Shapely/GEOS, bleibt das System lauffähig und setzt Gründe wie `hydro_static_missing` oder `hydro_geometry_unavailable`, erzeugt aber keinen produktiven Hydro-Impact. Ein Bounding-Box-Fallback darf nur Diagnosezwecken dienen.
+
+### Konservative Entscheidung bei fehlender Upstream-Topologie
+
+Wenn die Upstream-Topologie fehlt, kann das System nicht sicher unterscheiden, ob Niederschlag oberhalb, neben oder unterhalb der Messstelle gefallen ist. Ein Impact würde dann Genauigkeit vortäuschen, die die statischen Daten nicht hergeben. WetterExtended erzeugt deshalb konservativ lieber keinen Hydro-Impact als eine scheinbar präzise, aber nicht abgesicherte Pegel-Attribution.
+
+### Persistente Hydro-Verifikation
+
+`pending` bedeutet, dass das Zeitfenster noch läuft oder die Verifikation aussteht. `confirmed` bedeutet nur, dass eine Pegel-/Abflussänderung plausibel ins Zeitfenster und zu den Schwellen passt; es ist kein Kausalitätsbeweis. `rejected` bedeutet, dass aus den verfügbaren Rohdaten kein belastbarer Zusammenhang ableitbar ist. `ambiguous` bedeutet eine uneindeutige Lage, etwa wegen Messlücken, konkurrierender Zellen im selben oberliegenden Einzugsgebiet, unklarer Reaktion oder unzureichender Datenqualität.
+
+Historische Hydro-Impact-JSONL-Dateien bleiben unverändert als Audit-Log erhalten. Der aktuelle Verifikationszustand wird über `hydro_impact_state.json` überlagert, sodass alte bestätigte, abgelehnte oder mehrdeutige Events nicht erneut als pending geladen werden. Pending-Events werden aus allen Hydro-JSONL-Dateien geladen; `latest_hydro_impacts.json` ist nur Anzeige-/Cache-Datei. Messlücken größer als `HYDRO_VERIFY_MAX_GAP_MIN` führen zu `ambiguous`; konkurrierende Zellen im selben oberliegenden Einzugsgebiet erhalten den Reason `competing_cells_same_catchment` und werden nicht hart einer Einzelzelle zugeschrieben.
+
+### Hydro-Konfiguration
+
+Konfigurierbar sind `HYDRO_ENABLED`, `HYDRO_API_TTL_SECONDS`, `HYDRO_MIN_OVERLAP_AREA_KM2`, `HYDRO_MIN_OVERLAP_RATIO_CELL`, `HYDRO_MIN_DURATION_MIN`, `HYDRO_RELEVANT_INTENSITIES`, `HYDRO_DEFAULT_LAG_MIN`, `HYDRO_LAG_WINDOW_MIN`, `HYDRO_VERIFY_MIN_DELTA_Q_M3S`, `HYDRO_VERIFY_MIN_DELTA_W_CM`, `HYDRO_VERIFY_MIN_RELATIVE_DELTA_PCT`, `HYDRO_VERIFY_MAX_GAP_MIN` und `HYDRO_STATION_OVERRIDES`. Runtime-Overrides ersetzen nicht die fachliche Anforderung an `impact_eligible=true`.
