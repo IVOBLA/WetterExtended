@@ -5050,14 +5050,15 @@ def api_size_regressor_status():
                 meta = json.load(f)
         except Exception:
             pass
-    return jsonify({
-        "trained": r.is_trained(),
+    status = r.status() if hasattr(r, "status") else {"is_trained": r.is_trained(), "trained": r.is_trained()}
+    status.update({
         "n_labels": sr.count_size_labels(),
         "min_samples": sr.SIZE_MIN_SAMPLES,
         "model_meta": meta,
         "labels_path": sr.SIZE_LABELS_PATH,
         "model_path": sr.SIZE_MODEL_PATH,
     })
+    return jsonify(status)
 
 
 # ── Hydro-Impact API ───────────────────────────────────────────────────────
