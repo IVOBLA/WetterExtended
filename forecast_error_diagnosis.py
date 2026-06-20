@@ -111,24 +111,38 @@ def _truthy(value: Any) -> bool:
     return False
 
 
-def _is_synthetic_cell_one(row: dict) -> bool:
-    if str(row.get("object_id") or "") != "cell-1":
-        return False
-    return all(_f(row.get(k)) == v for k, v in (
-        ("forecast_lat", 47.0), ("actual_lat", 47.0), ("origin_lat", 47.0),
-        ("forecast_lon", 15.0), ("actual_lon", 15.0), ("origin_lon", 15.0),
-    ))
+def _has_synthetic_cell_id(row: dict) -> bool:
+    return any(str(row.get(k) or "").startswith("cell-") for k in ("object_id", "cell_id"))
+
+
+def _has_sentinel_coordinates(row: dict) -> bool:
+    coord_prefixes = ("forecast", "actual", "origin")
+    return any(_f(row.get(f"{prefix}_lat")) == 47.0 and _f(row.get(f"{prefix}_lon")) == 15.0 for prefix in coord_prefixes)
+
+
+def _has_test_fixture_marker(row: dict) -> bool:
+    marker = str(row.get("source_path") or row.get("path") or row.get("file_path") or row.get("fixture_path") or row.get("source") or "")
+    normalized = marker.replace("\\", "/").lower()
+    return "pytest" in normalized or "tests/fixtures" in normalized or normalized.startswith("tests/fixtures")
+
+
+def _has_inconsistent_error(row: dict) -> bool:
+    err_km = _f(row.get("forecast_error_km"))
+    err_x = _f(row.get("forecast_error_x_px"))
+    err_y = _f(row.get("forecast_error_y_px"))
+    return err_km == 0.0 and ((err_x is not None and err_x != 0.0) or (err_y is not None and err_y != 0.0))
 
 
 def is_valid_forecast_error_detail(row: dict, *, now_utc: datetime | None = None) -> tuple[bool, str | None]:
     """Validate one forecast-error detail row before B214 root-cause analysis."""
     if not isinstance(row, dict):
         return False, "invalid_detail"
-    if _is_synthetic_cell_one(row) or any(_truthy(row.get(k)) for k in ("test_fixture", "synthetic", "dummy")):
-        return False, "synthetic_or_test_fixture"
-    marker = str(row.get("source_path") or row.get("path") or row.get("file_path") or row.get("fixture_path") or row.get("source") or "")
-    if "tests/tmp" in marker or "pytest" in marker or "/tests/" in marker or marker.startswith("tests/"):
-        return False, "synthetic_or_test_fixture"
+    if _has_test_fixture_marker(row) or _truthy(row.get("test_fixture")):
+        return False, "excluded_test_fixture"
+    if _has_synthetic_cell_id(row) or _has_sentinel_coordinates(row) or any(_truthy(row.get(k)) for k in ("synthetic", "dummy")):
+        return False, "excluded_synthetic"
+    if _has_inconsistent_error(row):
+        return False, "excluded_inconsistent_error"
 
     forecast_created = _parse_ts(row.get("forecast_created_at_utc"))
     verified_at = _parse_ts(row.get("verified_at_utc"))
@@ -235,7 +249,7 @@ def build_forecast_error_diagnosis(*, details_path: str | Path = DETAILS_FILE, a
     details_path = Path(details_path); history_path = Path(accuracy_history_path)
     base = {
         "checked_at_utc": _now(), "hours": hours, "status": "ok",
-        "sample_counts": {"details": 0, "details_total": 0, "details_raw": 0, "details_valid": 0, "details_valid_before_dedup": 0, "details_deduped": 0, "duplicates_removed": 0, "details_invalid": 0, "verified_short": 0, "verified_total": 0, "invalid_detail_counts": {}},
+        "sample_counts": {"details": 0, "details_total": 0, "details_raw": 0, "details_valid": 0, "details_valid_before_dedup": 0, "details_deduped": 0, "duplicates_removed": 0, "details_invalid": 0, "excluded_synthetic": 0, "excluded_inconsistent_error": 0, "excluded_test_fixture": 0, "verified_short": 0, "verified_total": 0, "invalid_detail_counts": {}},
         "invalid_detail_counts": {}, "invalid_detail_examples": [],
         "primary_findings": [], "recommendations": [], "severity": "ok", "root_cause_candidates": [],
         "mode_comparison": {}, "source_comparison": {}, "match_type_comparison": {},
@@ -259,7 +273,7 @@ def build_forecast_error_diagnosis(*, details_path: str | Path = DETAILS_FILE, a
         if reason:
             reject_counts[str(reason)] = reject_counts.get(str(reason), 0) + 1
     base["forecast_reject_reasons"] = reject_counts
-    base["sample_counts"] = {"details": len(details), "details_total": len(all_details), "details_raw": len(all_details), "details_valid": len(details), "details_valid_before_dedup": len(valid_before_dedup), "details_deduped": len(details), "duplicates_removed": duplicates_removed, "details_invalid": len(all_details) - len(valid_before_dedup), "invalid_detail_counts": invalid_detail_counts, "verified_short": len(verified_short), "verified_total": len(verified)}
+    base["sample_counts"] = {"details": len(details), "details_total": len(all_details), "details_raw": len(all_details), "details_valid": len(details), "details_valid_before_dedup": len(valid_before_dedup), "details_deduped": len(details), "duplicates_removed": duplicates_removed, "details_invalid": len(all_details) - len(valid_before_dedup), "excluded_synthetic": invalid_detail_counts.get("excluded_synthetic", 0), "excluded_inconsistent_error": invalid_detail_counts.get("excluded_inconsistent_error", 0), "excluded_test_fixture": invalid_detail_counts.get("excluded_test_fixture", 0), "invalid_detail_counts": invalid_detail_counts, "verified_short": len(verified_short), "verified_total": len(verified)}
     if not details:
         _add(base["root_cause_candidates"], "low_sample_count", "watch", 0.3, {"details_valid": 0})
         base.update({
