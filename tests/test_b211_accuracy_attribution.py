@@ -103,3 +103,23 @@ def test_match_actual_nearest_respects_max_radius(monkeypatch):
     assert matched is None
     assert match_type == "miss"
     assert dist == accuracy_tracker.math.inf
+
+
+def test_evaluate_for_horizon_excludes_synthetic_objects(monkeypatch, tmp_path):
+    obj_dir, ev = _setup(monkeypatch, tmp_path)
+    _write_obj(obj_dir / "2026-01-01_00-00-00.json", [
+        {"id":"cell-1","cell_id":"cell-1","lat":47.0,"lon":15.0,"forecast_lat_10":47.0,"forecast_lon_10":15.0,"forecast_x_10":100,"forecast_y_10":100,"forecast_mode":"ml","kinematic_source":"fixture"},
+        {"id":"WX-1","cell_id":"RMS-1","lat":46.0,"lon":14.0,"forecast_lat_10":46.01,"forecast_lon_10":14.01,"forecast_x_10":10,"forecast_y_10":10,"forecast_mode":"ml","kinematic_source":"optflow_fm5.0"},
+    ])
+    _write_obj(obj_dir / "2026-01-01_00-10-00.json", [
+        {"id":"cell-1","cell_id":"cell-1","lat":47.0,"lon":15.0,"x":30,"y":30},
+        {"id":"WX-1","cell_id":"RMS-1","lat":46.011,"lon":14.012,"x":3,"y":3},
+    ])
+
+    res = accuracy_tracker.evaluate_for_horizon(10, since_hours=24)
+    rows = [json.loads(l) for l in (ev / "forecast_error_details.jsonl").read_text().splitlines()]
+
+    assert res["samples"] == 1
+    assert res["verified"] == 1
+    assert rows[0]["object_id"] == "WX-1"
+    assert rows[0]["cell_id"] == "RMS-1"

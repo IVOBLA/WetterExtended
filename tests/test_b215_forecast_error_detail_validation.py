@@ -19,8 +19,8 @@ def _row(i=0, err=1.0, created=None, target=None, verified=None, **extra):
         "target_timestamp_utc": target.isoformat().replace("+00:00", "Z"),
         "verified_at_utc": verified.isoformat().replace("+00:00", "Z"),
         "horizon_min": 10,
-        "object_id": f"cell-{100+i}",
-        "cell_id": f"cell-{100+i}",
+        "object_id": f"WX-{100+i}",
+        "cell_id": f"WX-{100+i}",
         "forecast_mode": "ml",
         "kinematic_source": "optflow_fm5.0",
         "of_available": 1,
@@ -73,7 +73,7 @@ def test_rejects_verified_before_target_beyond_time_tolerance():
 
 def test_rejects_synthetic_cell_one_fixture():
     row = _row(object_id="cell-1", forecast_lat=47.0, actual_lat=47.0, origin_lat=47.0, forecast_lon=15.0, actual_lon=15.0, origin_lon=15.0)
-    assert is_valid_forecast_error_detail(row, now_utc=NOW)[1] == "synthetic_or_test_fixture"
+    assert is_valid_forecast_error_detail(row, now_utc=NOW)[1] == "excluded_synthetic"
 
 
 def test_rejects_forecast_created_in_future():
@@ -161,4 +161,31 @@ def test_no_target_frame_counts_coverage_but_not_mae(tmp_path):
 
 def test_rejects_pytest_path_marker_as_fixture():
     row = _row(source_path="tests/tmp/pytest-123/forecast_error_details.jsonl")
-    assert is_valid_forecast_error_detail(row, now_utc=NOW)[1] == "synthetic_or_test_fixture"
+    assert is_valid_forecast_error_detail(row, now_utc=NOW)[1] == "excluded_test_fixture"
+
+
+def test_rejects_any_cell_prefix_and_keeps_real_prefixes():
+    assert is_valid_forecast_error_detail(_row(object_id="cell-999", cell_id="WX-999"), now_utc=NOW)[1] == "excluded_synthetic"
+    assert is_valid_forecast_error_detail(_row(object_id="WX-999", cell_id="RMS-999"), now_utc=NOW) == (True, None)
+
+
+def test_rejects_sentinel_coordinates_and_inconsistent_error():
+    assert is_valid_forecast_error_detail(_row(object_id="WX-S", cell_id="WX-S", forecast_lat=47.0, forecast_lon=15.0), now_utc=NOW)[1] == "excluded_synthetic"
+    assert is_valid_forecast_error_detail(_row(object_id="WX-E", cell_id="WX-E", forecast_error_km=0.0, forecast_error_x_px=2.0, forecast_error_y_px=0.0), now_utc=NOW)[1] == "excluded_inconsistent_error"
+
+
+def test_diagnosis_exposes_exclusion_counters_and_keeps_real_data(tmp_path):
+    p = tmp_path / "forecast_error_details.jsonl"
+    rows = [_row(i, object_id=f"WX-{i}", cell_id=f"RMS-{i}") for i in range(10)]
+    rows.extend([
+        _row(20, object_id="cell-20", cell_id="cell-20"),
+        _row(21, source_path="tests/fixtures/forecast_error_details.jsonl"),
+        _row(22, forecast_error_km=0.0, forecast_error_x_px=1.0, forecast_error_y_px=0.0),
+    ])
+    _write_jsonl(p, rows)
+    diag = build_forecast_error_diagnosis(details_path=p, accuracy_history_path=tmp_path / "h.jsonl")
+    assert diag["status"] == "ok"
+    assert diag["sample_counts"]["details_valid"] == 10
+    assert diag["sample_counts"]["excluded_synthetic"] == 1
+    assert diag["sample_counts"]["excluded_test_fixture"] == 1
+    assert diag["sample_counts"]["excluded_inconsistent_error"] == 1

@@ -186,6 +186,28 @@ def _find_target_frame(by_ts: Dict[datetime, str],
     return best_path
 
 
+
+def _is_synthetic_object(obj: dict) -> bool:
+    if not isinstance(obj, dict):
+        return True
+    if any(str(obj.get(k) or "").startswith("cell-") for k in ("id", "cell_id")):
+        return True
+    lat = _safe_float(obj.get("lat"))
+    lon = _safe_float(obj.get("lon"))
+    return lat == 47.0 and lon == 15.0
+
+
+def _forecast_has_sentinel_coordinates(obj: dict, horizon_min: int) -> bool:
+    f_lat = _safe_float(obj.get(f"forecast_lat_{horizon_min}"))
+    f_lon = _safe_float(obj.get(f"forecast_lon_{horizon_min}"))
+    o_lat = _safe_float(obj.get("origin_lat", obj.get("lat")))
+    o_lon = _safe_float(obj.get("origin_lon", obj.get("lon")))
+    return (f_lat == 47.0 and f_lon == 15.0) or (o_lat == 47.0 and o_lon == 15.0)
+
+
+def _is_real_forecast_object(obj: dict, horizon_min: int) -> bool:
+    return not _is_synthetic_object(obj) and not _forecast_has_sentinel_coordinates(obj, horizon_min)
+
 def _match_actual(obj: dict, target_objs: list, horizon_min: int
                   ) -> Tuple[Optional[dict], float, str]:
     fc_lat = obj.get(f"forecast_lat_{horizon_min}")
@@ -210,6 +232,8 @@ def _match_actual(obj: dict, target_objs: list, horizon_min: int
     best = None
     best_d = math.inf
     for cand in target_objs:
+        if _is_synthetic_object(cand):
+            continue
         lat = cand.get("lat")
         lon = cand.get("lon")
         if lat is None or lon is None:
@@ -345,13 +369,14 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
             1 for o in objs
             if o.get(f"forecast_lat_{horizon_min}") is not None
             and o.get(f"forecast_lon_{horizon_min}") is not None
+            and _is_real_forecast_object(o, horizon_min)
         )
 
         if target_path is None:
             no_target_frame += forecast_count_this_frame
             n_total += forecast_count_this_frame
             for _o in objs:
-                if _o.get(f"forecast_lat_{horizon_min}") is not None and _o.get(f"forecast_lon_{horizon_min}") is not None:
+                if _o.get(f"forecast_lat_{horizon_min}") is not None and _o.get(f"forecast_lon_{horizon_min}") is not None and _is_real_forecast_object(_o, horizon_min):
                     _bucket(by_mode, _mode_for(_o))["no_target_frame"] += 1
                     _bucket(by_source, _source_for(_o))["no_target_frame"] += 1
                     _bucket(by_match, "none")["no_target_frame"] += 1
@@ -359,12 +384,12 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
                     details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
             continue
 
-        target_objs = _load_objects(target_path)
+        target_objs = [o for o in _load_objects(target_path) if not _is_synthetic_object(o)]
         if not target_objs:
             no_target_frame += forecast_count_this_frame
             n_total += forecast_count_this_frame
             for _o in objs:
-                if _o.get(f"forecast_lat_{horizon_min}") is not None and _o.get(f"forecast_lon_{horizon_min}") is not None:
+                if _o.get(f"forecast_lat_{horizon_min}") is not None and _o.get(f"forecast_lon_{horizon_min}") is not None and _is_real_forecast_object(_o, horizon_min):
                     _bucket(by_mode, _mode_for(_o))["no_target_frame"] += 1
                     _bucket(by_source, _source_for(_o))["no_target_frame"] += 1
                     _bucket(by_match, "none")["no_target_frame"] += 1
@@ -378,6 +403,8 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
             f_lat = obj.get(f"forecast_lat_{horizon_min}")
             f_lon = obj.get(f"forecast_lon_{horizon_min}")
             if any(v is None for v in (fx, fy, f_lat, f_lon)):
+                continue
+            if not _is_real_forecast_object(obj, horizon_min):
                 continue
 
             matched, dist_km, _match_src = _match_actual(obj, target_objs, horizon_min)
