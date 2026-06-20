@@ -31,6 +31,7 @@ from config import (
     VERIFICATION_TOLERANCE_KM,
     VERIFICATION_TIME_TOLERANCE_S,
     VERIFICATION_MAX_SEARCH_RADIUS_KM,
+    FRAME_INTERVAL_MIN,
 )
 from debug_utils import debug_log
 
@@ -173,14 +174,21 @@ def _detail_record(obj: dict, ts: datetime, target_ts: datetime, horizon_min: in
         "missed": bool((not no_target_frame) and matched is None),
     }
 
+def _effective_target_tolerance_s(time_tol_s: int) -> int:
+    """Deckt ARSO-Frames mit nominalem Halbtakt ab, ohne die Config-Toleranz zu senken."""
+    frame_half_s = int(round(float(FRAME_INTERVAL_MIN) * 60.0 / 2.0))
+    return max(int(time_tol_s), frame_half_s)
+
+
 def _find_target_frame(by_ts: Dict[datetime, str],
                        target_ts: datetime,
                        time_tol_s: int) -> Optional[str]:
+    effective_tol_s = _effective_target_tolerance_s(time_tol_s)
     best_path = None
-    best_delta = time_tol_s + 1
+    best_delta = effective_tol_s + 1
     for ts, path in by_ts.items():
         delta = abs((ts - target_ts).total_seconds())
-        if delta <= time_tol_s and delta < best_delta:
+        if delta <= effective_tol_s and delta < best_delta:
             best_delta = delta
             best_path = path
     return best_path
