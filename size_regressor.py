@@ -74,7 +74,7 @@ def geometric_size(
 _FEATURE_KEYS = [
     "area_px", "radius_px", "aspect_ratio",
     "cape_jkg", "wind_speed_kmh", "wind_dir_deg",
-    "temp_2m", "cloud_height_m",
+    "temp_2m", "cloud_height_m", "cloud_height_missing",
     "lat", "lon",
     "hour_sin", "hour_cos",   # zyklische Tageszeit
     "doy_sin", "doy_cos",     # zyklischer Jahrestag
@@ -84,7 +84,8 @@ _FEATURE_KEYS = [
 def _to_feature_vector(record: dict) -> list[float]:
     """
     Baut einen Feature-Vektor aus einem Label-Record oder Objekt-Dict.
-    Fehlende Werte werden mit 0.0 ersetzt.
+    Explizit fehlende Features werden als NaN plus *_missing-Flag codiert,
+    damit LightGBM sie nicht als echte 0.0 lernt.
     """
     # Zeitfeatures aus ts oder jetzt
     ts_str = record.get("ts", "")
@@ -95,6 +96,16 @@ def _to_feature_vector(record: dict) -> list[float]:
     hour_rad = 2 * math.pi * dt.hour / 24.0
     doy_rad = 2 * math.pi * dt.timetuple().tm_yday / 365.0
 
+    def _num(value, default=0.0, missing=False):
+        if missing or value is None:
+            return float("nan")
+        return float(value)
+
+    cloud_missing = bool(record.get("cloud_height_missing") or record.get("cloud_top_height_missing"))
+    cloud_height = record.get("cloud_height_m")
+    if cloud_height is None:
+        cloud_height = record.get("cloud_top_height_m")
+
     vals = {
         "area_px": float(record.get("area_px") or record.get("area") or 0),
         "radius_px": float(record.get("radius_px") or record.get("size") or 0),
@@ -103,7 +114,8 @@ def _to_feature_vector(record: dict) -> list[float]:
         "wind_speed_kmh": float(record.get("wind_speed_kmh") or record.get("wind_speed_700hPa") or 0),
         "wind_dir_deg": float(record.get("wind_dir_deg") or record.get("wind_dir_700hPa") or 0),
         "temp_2m": float(record.get("temp_2m") or record.get("arome_t2m") or 15.0),
-        "cloud_height_m": float(record.get("cloud_height_m") or record.get("cloud_top_height_m") or 0),
+        "cloud_height_m": _num(cloud_height, missing=cloud_missing),
+        "cloud_height_missing": 1.0 if cloud_missing else 0.0,
         "lat": float(record.get("lat") or 46.6),
         "lon": float(record.get("lon") or 14.3),
         "hour_sin": math.sin(hour_rad),
@@ -135,7 +147,8 @@ def record_size_label(obj: dict, ts: str) -> None:
         "wind_speed_kmh": obj.get("wind_speed_kmh") or obj.get("wind_speed_700hPa"),
         "wind_dir_deg": obj.get("wind_dir_deg") or obj.get("wind_dir_700hPa"),
         "temp_2m": obj.get("temp_2m") or obj.get("arome_t2m"),
-        "cloud_height_m": obj.get("cloud_height_m") or obj.get("cloud_top_height_m"),
+        "cloud_height_m": obj.get("cloud_height_m") if obj.get("cloud_height_m") is not None else obj.get("cloud_top_height_m"),
+        "cloud_height_missing": obj.get("cloud_height_missing") or obj.get("cloud_top_height_missing") or 0,
         "lat": obj.get("lat"),
         "lon": obj.get("lon"),
     }

@@ -23,6 +23,10 @@ _OUT_FILE       = os.path.join(
     SAVE_PATHS.get("evaluation", "train_data/evaluation/").rstrip("/"),
     "atmosphere_latest.json",
 )
+_QUALITY_FILE   = os.path.join(
+    SAVE_PATHS.get("evaluation", "train_data/evaluation/").rstrip("/"),
+    "atmosphere_feature_quality.json",
+)
 
 # icon_d2 liefert keinen nativen lifted_index — nur regional verfügbare Parameter
 # Open-Meteo icon_d2 AROME-Parameter — alle verifiziert, liefern echte Werte
@@ -39,7 +43,8 @@ _AROME_PARAMS = ",".join([
 # Open-Meteo API-Spec, Stand 2026-05).
 _WIND_PARAMS = (
     "wind_speed_700hPa,wind_direction_700hPa,"
-    "temperature_500hPa,temperature_700hPa"
+    "temperature_500hPa,temperature_700hPa,"
+    "wind_speed_300hPa,wind_direction_300hPa,geopotential_height_300hPa"
 )
 _GFS_URL = "https://api.open-meteo.com/v1/gfs"
 _GFS_CONV_PARAMS = (
@@ -57,12 +62,25 @@ def _nearest_hour_str() -> str:
     return datetime.now(ZoneInfo(_TZ)).strftime("%Y-%m-%dT%H:00")
 
 
-def _extract_slot(hourly: dict, key: str, target: str) -> float:
+def _extract_slot_optional(hourly: dict, key: str, target: str) -> float | None:
     times = hourly.get("time", [])
     vals  = hourly.get(key, [])
     idx   = times.index(target) if target in times else 0
     v = vals[idx] if idx < len(vals) else None
+    return float(v) if v is not None else None
+
+
+def _extract_slot(hourly: dict, key: str, target: str) -> float:
+    v = _extract_slot_optional(hourly, key, target)
     return float(v) if v is not None else 0.0
+
+
+def _rounded_or_none(value: float | None, ndigits: int = 1):
+    return round(value, ndigits) if value is not None else None
+
+
+def _missing_flag(value: float | None) -> int:
+    return 1 if value is None else 0
 
 
 def _bulk_get(url: str, label: str) -> list | None:
@@ -136,6 +154,26 @@ def _gewitterpotenzial(li: float) -> str:
         return "mäßig"
     return "niedrig"
 
+
+
+def _build_feature_quality(locations: list[dict]) -> dict:
+    numeric_keys = sorted({
+        k for loc in locations for k, v in loc.items()
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and not k.endswith("_missing")
+    })
+    constant_zero = []
+    for key in numeric_keys:
+        vals = [loc.get(key) for loc in locations if loc.get(key) is not None]
+        if vals and all(float(v) == 0.0 for v in vals):
+            constant_zero.append(key)
+    return {
+        "ts_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "constant_zero_features": constant_zero,
+        "missing_counts": {
+            k: sum(1 for loc in locations if loc.get(k) in (1, 1.0, True))
+            for k in sorted({mk for loc in locations for mk in loc if mk.endswith("_missing")})
+        },
+    }
 
 def fetch_atmospheric_snapshot() -> dict:
     """
@@ -229,7 +267,8 @@ def fetch_atmospheric_snapshot() -> dict:
         # 700 hPa Wind + T500/T700 + 300 hPa Wind aus Pressure-Response
         w_speed = w_dir_cos = w_dir_sin = 0.0
         t500_c = t700_c = cin_jkg = pw_mm = 0.0
-        w_speed_300 = w_dir_300_cos = w_dir_300_sin = geo_300 = 0.0
+        w_speed_300 = w_dir_300_raw = geo_300 = None
+        w_dir_300_cos = w_dir_300_sin = None
         if wind_data and i < len(wind_data):
             h = wind_data[i].get("hourly", {})
             w_speed = _extract_slot(h, "wind_speed_700hPa",    target_time)
@@ -242,12 +281,13 @@ def fetch_atmospheric_snapshot() -> dict:
             w_dir_sin = round(sin(rad), 4)
 
             # 300 hPa Level (Höhenwinde für IR-Cell-Tracking)
-            w_speed_300   = _extract_slot(h, "wind_speed_300hPa",       target_time)
-            w_dir_300_raw = _extract_slot(h, "wind_direction_300hPa",   target_time)
-            geo_300       = _extract_slot(h, "geopotential_height_300hPa", target_time)
-            rad_300       = radians(w_dir_300_raw)
-            w_dir_300_cos = round(cos(rad_300), 4)
-            w_dir_300_sin = round(sin(rad_300), 4)
+            w_speed_300   = _extract_slot_optional(h, "wind_speed_300hPa",       target_time)
+            w_dir_300_raw = _extract_slot_optional(h, "wind_direction_300hPa",   target_time)
+            geo_300       = _extract_slot_optional(h, "geopotential_height_300hPa", target_time)
+            if w_dir_300_raw is not None:
+                rad_300       = radians(w_dir_300_raw)
+                w_dir_300_cos = round(cos(rad_300), 4)
+                w_dir_300_sin = round(sin(rad_300), 4)
         # LI/CIN/PW von GFS
         if gfs_data and i < len(gfs_data):
             h_gfs = gfs_data[i].get("hourly", {})
@@ -273,10 +313,13 @@ def fetch_atmospheric_snapshot() -> dict:
             "wind_700hpa":      round(w_speed, 1),
             "wind_dir_cos":     w_dir_cos,
             "wind_dir_sin":     w_dir_sin,
-            "wind_300hpa":      round(w_speed_300, 1),
+            "wind_300hpa":      _rounded_or_none(w_speed_300, 1),
+            "wind_300hpa_missing": _missing_flag(w_speed_300),
             "wind_dir_300_cos": w_dir_300_cos,
             "wind_dir_300_sin": w_dir_300_sin,
-            "geopotential_300hpa": round(geo_300, 0),
+            "wind_dir_300_missing": _missing_flag(w_dir_300_raw),
+            "geopotential_300hpa": _rounded_or_none(geo_300, 0),
+            "geopotential_300hpa_missing": _missing_flag(geo_300),
             "potential":        _gewitterpotenzial(li),
             # NEU: konvektive Diagnose
             "t500_c":           round(t500_c, 1),
@@ -294,13 +337,17 @@ def fetch_atmospheric_snapshot() -> dict:
         _latlons = [(loc["lat"], loc["lon"]) for loc in result_locations]
         _cloud_heights = fetch_cloud_height_for_points(_latlons)
         for loc in result_locations:
-            loc["cloud_height_m"] = _cloud_heights.get((loc["lat"], loc["lon"]), 0.0)
-        debug_log(f"[ATMOSPHERE] Wolkenhöhe: {[round(loc['cloud_height_m']) for loc in result_locations]} m")
+            _cloud_height = _cloud_heights.get((loc["lat"], loc["lon"]))
+            loc["cloud_height_m"] = _cloud_height if _cloud_height is not None else None
+            loc["cloud_height_missing"] = _missing_flag(_cloud_height)
+        debug_log(f"[ATMOSPHERE] Wolkenhöhe: {[loc['cloud_height_m'] for loc in result_locations]} m")
     except Exception as _ch_exc:
         debug_log(f"[ATMOSPHERE] Wolkenhöhe fehlgeschlagen: {_ch_exc}")
         for loc in result_locations:
-            loc.setdefault("cloud_height_m", 0.0)
+            loc.setdefault("cloud_height_m", None)
+            loc["cloud_height_missing"] = 1
 
+    quality = _build_feature_quality(result_locations)
     result = {
         "ts_utc":    datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "locations": result_locations,
@@ -310,6 +357,8 @@ def fetch_atmospheric_snapshot() -> dict:
     try:
         with open(_OUT_FILE, "w", encoding="utf-8") as f:
             json.dump(result, f, indent=2, ensure_ascii=False)
+        with open(_QUALITY_FILE, "w", encoding="utf-8") as f:
+            json.dump(quality, f, indent=2, ensure_ascii=False)
         debug_log(f"[ATMOSPHERE] Snapshot gespeichert: {len(result_locations)} Orte")
     except Exception as exc:
         debug_log(f"[ATMOSPHERE] Speichern fehlgeschlagen: {exc}")
