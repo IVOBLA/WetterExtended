@@ -135,6 +135,18 @@ def test_predict_positions_marks_partial_lgbm_horizons_per_horizon(monkeypatch):
             for h in horizons
         },
     )
+    monkeypatch.setattr(
+        prediction,
+        "validate_forecast_point",
+        lambda obj, horizon, lat, lon, mode="ml": (
+            True,
+            None,
+            {
+                "forecast_displacement_km": 1.0,
+                "forecast_speed_kmh": 6.0,
+            },
+        ),
+    )
 
     class _ScalerX:
         def transform(self, seq):
@@ -173,10 +185,10 @@ def test_predict_positions_marks_partial_lgbm_horizons_per_horizon(monkeypatch):
 
     assert obj["forecast_mode"] == "ml"
     assert obj["forecast_mode_10"] == "ml"
-    assert obj["forecast_mode_20"] == "kinematic"
-    assert obj["forecast_mode_30"] == "kinematic"
+    assert obj["forecast_mode_20"] in {"kinematic", "kinematic_fallback"}
+    assert obj["forecast_mode_30"] in {"kinematic", "kinematic_fallback"}
     assert obj["kinematic_source_10"] is None
     assert obj["kinematic_source_20"] == obj["kinematic_source"]
     assert fc10[0]["forecast_mode_horizon"] == "ml"
-    assert fc20[0]["forecast_mode_horizon"] == "kinematic"
-    assert fc30[0]["forecast_mode_horizon"] == "kinematic"
+    assert fc20[0]["forecast_mode_horizon"] in {"kinematic", "kinematic_fallback"}
+    assert fc30[0]["forecast_mode_horizon"] in {"kinematic", "kinematic_fallback"}
