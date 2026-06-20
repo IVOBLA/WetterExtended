@@ -24,6 +24,7 @@ from config import (BBOX_KAERNTEN_EXTENDED, SAVE_PATHS, LIVE_LOOP_INTERVAL_S,
                     LOOP_INTERVAL_NACHBEOBACHTUNG_S)
 from cloud_height_from_eumetview import assign_cloud_top_height
 from optical_flow_features import assign_optical_flow_to_objects
+from radar_frame_selection import remember_valid_radar_path, select_optflow_prev_radar_path
 from fetch_arome_openmeteo import assign_arome_to_objects
 from fetch_synoptic_features import assign_synoptic_features
 from orographic_module import assign_orographic_scores
@@ -293,6 +294,7 @@ def main_loop():
     image_path = "data/latest.png"
 
     _prev_radar_path = None
+    _last_valid_radar_path = None
     _prev_location_hit_names: set = set()  # F47: Auto-Entwarnung
     # B121: _last_cells_active_ts aus Snapshot initialisieren damit nach einem
     # Neustart der adaptive Loop nicht sofort in den 900s-Ast fällt, obwohl kurz
@@ -505,10 +507,18 @@ def main_loop():
                     _obj.setdefault("ir_only_precursor",  0.0)
 
             curr_scaled_path = os.path.join("data", "radar", f"radar_{timestamp}.png")
+            _optflow_prev_path = select_optflow_prev_radar_path(
+                _prev_radar_path,
+                _last_valid_radar_path,
+            )
             objects = assign_optical_flow_to_objects(
                 objects,
-                prev_radar_path=_prev_radar_path,
+                prev_radar_path=_optflow_prev_path,
                 curr_radar_path=curr_scaled_path,
+            )
+            _last_valid_radar_path = remember_valid_radar_path(
+                curr_scaled_path,
+                _last_valid_radar_path,
             )
             _prev_radar_path = curr_scaled_path
             objects = assign_arome_to_objects(objects, timestamp)
