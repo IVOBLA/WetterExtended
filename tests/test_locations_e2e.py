@@ -123,13 +123,35 @@ def test_api_objects_endpoint():
     assert isinstance(body, list)
 
 
-def test_api_forecast_endpoint():
-    if not _flask_alive():
-        pytest.skip("Flask läuft nicht lokal — Endpoint-Test übersprungen")
-    import urllib.request
-    with urllib.request.urlopen("http://localhost:5000/api/forecast", timeout=3) as r:
-        body = json.loads(r.read())
-    assert isinstance(body, (list, dict))
+def test_api_forecast_endpoint(monkeypatch):
+    pytest.importorskip("flask")
+    import app as wetter_app
+
+    obj = {
+        "id": "WX-TEST-FORECAST",
+        "lat": 46.70,
+        "lon": 14.10,
+        "x": 100.0,
+        "y": 200.0,
+        "vx": 1.0,
+        "vy": 0.5,
+        "speed_kmh": 20.0,
+        "forecast_lat_10": 46.71,
+        "forecast_lon_10": 14.12,
+        "forecast_mode_10": "kinematic",
+        "contour_geo": [[14.09, 46.69], [14.11, 46.69], [14.10, 46.71]],
+    }
+    monkeypatch.setattr(wetter_app, "_objects_for_ts", lambda ts=None: [obj])
+    monkeypatch.setattr(wetter_app.runtime_config, "get", lambda key, default=None: [10] if key == "ML_FORECAST_HORIZONS_MIN" else default)
+
+    client = wetter_app.app.test_client()
+    response = client.get("/api/forecast")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert isinstance(body, dict)
+    assert body["type"] == "FeatureCollection"
+    assert isinstance(body["features"], list)
 
 
 # ---------------------------------------------------------------------------

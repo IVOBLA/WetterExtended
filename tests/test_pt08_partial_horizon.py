@@ -122,6 +122,19 @@ def test_predict_positions_marks_partial_lgbm_horizons_per_horizon(monkeypatch):
     monkeypatch.setattr(prediction, "load_intensification_model", lambda: None)
     monkeypatch.setattr(prediction, "_load_intensity_regressors", lambda: (None, None))
     monkeypatch.setattr(prediction, "_load_atmosphere_snapshot", lambda: {})
+    monkeypatch.setattr(
+        prediction,
+        "_ml_runtime_gate_by_horizon",
+        lambda horizons, runtime_status=None: {
+            int(h): {
+                "allow_ml": True,
+                "reason": "test_ml_allowed",
+                "ml_mae": 1.0,
+                "kinematic_mae": 2.0,
+            }
+            for h in horizons
+        },
+    )
 
     class _ScalerX:
         def transform(self, seq):
