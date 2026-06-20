@@ -784,6 +784,17 @@ TRAINING_SCHEDULE = {
 ML_IGNORE_FLAG = -1
 
 # --------------------------------------
+# ML-Runtime-Gating
+# --------------------------------------
+# ML-Forecasts dürfen produktiv nur pro Horizont genutzt werden, wenn die
+# jüngste verifizierte ML-MAE mindestens so gut ist wie der kinematische Pfad.
+ML_RUNTIME_GATING_ENABLED = True
+ML_RUNTIME_GATING_MARGIN = 0.0
+ML_RUNTIME_MIN_SAMPLES_PER_MODE = 20
+ML_FORCE_KINEMATIC = False
+
+
+# --------------------------------------
 # Vorhersage-Verifikation (Closed-Loop)
 # --------------------------------------
 # Räumliche Toleranz: Vorhersage gilt als Treffer wenn tatsächliche Zelle
