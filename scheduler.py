@@ -525,7 +525,8 @@ def run_skywarn_export_snapshot_job():
 def run_hydro_verify_job():
     """Regelmäßige Hydro-Live-Aktualisierung und vorsichtige Pending-Verifikation."""
     try:
-        if not runtime_config.get("HYDRO_ENABLED", True):
+        from hydro_fetch import hydro_enabled
+        if not hydro_enabled(True):
             debug_log("[SCHEDULER] Hydro deaktiviert — kein Request, keine Verifikation")
             return
         from hydro_fetch import fetch_hydro_live

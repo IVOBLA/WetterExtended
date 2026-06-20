@@ -275,6 +275,20 @@ def _compute_wind_shear(obj: dict) -> tuple:
     )
 
 
+def _apply_hydro_productive_run(objects, timestamp):
+    """Wendet Hydro-Impact im Produktivlauf an, ohne Requests bei deaktiviertem Hydro."""
+    from hydro_fetch import hydro_enabled
+    if hydro_enabled(True):
+        from hydro_fetch import fetch_hydro_live
+        from impact_evaluation import evaluate_impact
+        fetch_hydro_live(force=False)
+        evaluate_impact(objects, timestamp)
+    else:
+        for _obj in objects:
+            _obj.setdefault("impact", {})["hydro"] = False
+            _obj["impact"]["hydro_status"] = "hydro_disabled"
+
+
 def main_loop():
     image_path = "data/latest.png"
 
@@ -597,16 +611,7 @@ def main_loop():
 
             # Hydro-Impact: nur oberliegendes Einzugsgebiet + Zeitversatz, keine Distanz-Attribution.
             try:
-                import runtime_config as _hydro_runtime
-                if _hydro_runtime.get("HYDRO_ENABLED", True):
-                    from hydro_fetch import fetch_hydro_live
-                    from impact_evaluation import evaluate_impact
-                    fetch_hydro_live(force=False)
-                    evaluate_impact(objects, timestamp)
-                else:
-                    for _obj in objects:
-                        _obj.setdefault("impact", {})["hydro"] = False
-                        _obj["impact"]["hydro_status"] = "hydro_disabled"
+                _apply_hydro_productive_run(objects, timestamp)
             except Exception as _hydro_exc:
                 debug_log(f"[HYDRO] Produktivlauf übersprungen: {_hydro_exc}")
             debug_log(f"Gefundene Objekte: {len(objects)}")

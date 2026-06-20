@@ -32,7 +32,14 @@ def _dt(v):
 
 
 def enabled() -> bool:
-    return bool(runtime_config.get("HYDRO_ENABLED", getattr(config, "HYDRO_ENABLED", True)))
+    try:
+        from hydro_fetch import hydro_enabled
+        return hydro_enabled(getattr(config, "HYDRO_ENABLED", True))
+    except Exception:
+        value = runtime_config.get("HYDRO_ENABLED", getattr(config, "HYDRO_ENABLED", True))
+        if isinstance(value, str):
+            return value.strip().lower() not in {"0", "false", "no", "off"}
+        return bool(value)
 
 
 def _static_index():
@@ -115,6 +122,8 @@ def station_features(include_disabled=False):
 
 
 def status():
+    if not enabled():
+        return {"enabled": False, "hydro_enabled": False, "static_ready": bool(_static_index()), "static_status": "hydro_disabled", "hydro_static_missing": False, "live_ready": False, "live_ok": False, "from_cache": False, "cache_used": False, "status": "hydro_disabled", "last_fetch": None, "last_error": None, "station_count": 0, "impact_pending": 0, "impact_confirmed_24h": 0}
     live = _json(LIVE_STATUS, {})
     impacts = normalized_impacts(False)
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
