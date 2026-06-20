@@ -108,14 +108,32 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
         name = str(_prop(st, ["station_name", "name", "bez", "Bezeichnung"], sid))
         river = str(_prop(st, ["river_name", "river", "gewaesser", "Gewässer"], ""))
         if not pt:
-            index.append({"station_id": sid, "station_name": name, "river_name": river, "enabled": False, "impact_eligible": False, "quality": "unresolved", "source_quality": "station_point_missing", "reason": ["station_catchment_unavailable"], "default_lag_min": default_lag})
+            index.append({
+                "station_id": sid, "station_name": name, "river_name": river,
+                "enabled": False, "impact_eligible": False, "quality": "unresolved",
+                "source_quality": "station_point_missing",
+                "topology_source": "none",
+                "upstream_source_quality": "station_point_missing",
+                "flow_distance_available": False, "flow_distance_km": None,
+                "reason": ["station_catchment_unavailable"], "default_lag_min": default_lag,
+            })
             continue
         lon, lat = pt
         containing = [b for b in basins if geometry_contains_point(b.get("geometry") or {}, lon, lat)]
         basin = containing[0] if containing else None
         basin_id = _basin_id(basin) if basin else None
+        # Aktuell wird keine automatische Fließtopologie aus dem Gewässernetz berechnet.
+        # Produktive Attribution nutzt konservativ nur explizit gelieferte upstream_catchment_ids;
+        # Flowline-Snapping unten ist ausschließlich Diagnose und liefert keine Fließwegdistanz.
         declared_upstream = _as_list(_prop(st, ["upstream_catchment_ids", "upstream_ids"], None)) or _as_list(_prop(basin or {}, ["upstream_catchment_ids", "upstream_ids"], None))
         upstream_ids = [uid for uid in declared_upstream if uid in basin_by_id]
+        topology_source = "conservative_declared_upstream_catchments" if upstream_ids else "none"
+        if upstream_ids:
+            upstream_source_quality = "declared_upstream_catchment_ids_valid"
+        elif declared_upstream:
+            upstream_source_quality = "declared_upstream_catchment_ids_unresolved"
+        else:
+            upstream_source_quality = "missing"
         eligible_basins = [basin_by_id[uid] for uid in upstream_ids]
         union_geom = _union_basins(eligible_basins) if upstream_ids else None
         impact_eligible = bool(union_geom and upstream_ids and SHAPELY_AVAILABLE)
@@ -138,6 +156,9 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
             nearest_basin_hint = {"catchment_id": _basin_id(nearest), "distance_m": round(float(basin_dist(nearest)), 2), "note": "unverbindlicher Hinweis; nicht impact_eligible"}
 
         flowline = None; snap_distance = None
+        # Diagnose-Snapping: identifiziert die nächstgelegene Flowline, begründet aber weder
+        # impact_eligible noch flow_distance_km. Eine echte Fließwegdistanz darf erst nach
+        # Einführung einer belastbaren gerichteten Fließtopologie gesetzt werden.
         if flowlines:
             candidates = []
             for fl in flowlines:
@@ -146,13 +167,14 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
                     candidates.append((point_to_linestring_distance_m(lon, lat, geom.get("coordinates") or []), fl))
             if candidates:
                 snap_distance, flowline = min(candidates, key=lambda x: x[0])
-        quality = ("snapped" if impact_eligible and snap_distance is not None else "exact") if impact_eligible else "unresolved"
+        quality = "exact" if impact_eligible else "unresolved"
         area = polygon_area_km2(union_geom or {}) if union_geom else 0.0
         item = {
             "station_id": sid, "station_name": name, "river_name": river, "lon": lon, "lat": lat,
             "snapped_flowline_id": str(_prop(flowline, ["flowline_id", "id"], "")) if flowline else None,
             "snap_distance_m": round(float(snap_distance), 2) if snap_distance is not None else None,
             "flow_distance_available": False, "flow_distance_km": None,
+            "topology_source": topology_source, "upstream_source_quality": upstream_source_quality,
             "station_basin": basin_id, "catchment_id": basin_id if impact_eligible else None, "upstream_catchment_ids": upstream_ids, "catchment_area_km2": round(area, 3),
             "default_lag_min": default_lag, "estimated_lag_min": default_lag, "enabled": impact_eligible, "impact_eligible": impact_eligible,
             "quality": quality, "source_quality": source_quality, "reason": reason, "nearest_basin_hint": nearest_basin_hint,
