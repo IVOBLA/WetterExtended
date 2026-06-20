@@ -98,12 +98,21 @@ def test_frontend_defensive_filters_present():
     assert 'forecast_rejected' in txt
 
 
+
+def test_hydro_station_patch_requires_admin_auth(monkeypatch):
+    pytest.importorskip("flask")
+    import app as app_module
+    app_module.app.config.update(TESTING=True)
+    monkeypatch.setattr('auth.get_current_user', lambda: None)
+    c = app_module.app.test_client()
+    assert c.patch('/api/hydro/stations/S1', json={'enabled': False}).status_code == 401
+
 def test_hydro_station_patch_persists_only_station_overrides(monkeypatch, tmp_path):
     pytest.importorskip("flask")
     import app as app_module
     import runtime_config
     app_module.app.config.update(TESTING=True)
-    monkeypatch.setattr(app_module, 'get_current_user', lambda: {'role': 'admin'})
+    monkeypatch.setattr('auth.get_current_user', lambda: {'role': 'admin'})
     monkeypatch.setattr(runtime_config, '_get_path', lambda: str(tmp_path / 'runtime_overrides.json'))
     runtime_config.save({'FORECAST_MAX_SPEED_KMH': 120, 'GITHUB_VERIFY_CONFIG': {'token': 'must-not-grow'}})
     c = app_module.app.test_client()
@@ -119,7 +128,7 @@ def test_hydro_station_patch_rejects_invalid_fields_and_station_id(monkeypatch):
     pytest.importorskip("flask")
     import app as app_module
     app_module.app.config.update(TESTING=True)
-    monkeypatch.setattr(app_module, 'get_current_user', lambda: {'role': 'admin'})
+    monkeypatch.setattr('auth.get_current_user', lambda: {'role': 'admin'})
     c = app_module.app.test_client()
     assert c.patch('/api/hydro/stations/S1', json={'enabled': 'false'}).status_code == 400
     assert c.patch('/api/hydro/stations/bad/path', json={'enabled': False}).status_code == 404
