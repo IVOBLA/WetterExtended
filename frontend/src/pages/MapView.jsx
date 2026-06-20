@@ -7,6 +7,7 @@ import {
 } from 'react-leaflet'
 import api, { abortApiRequests } from '../api.js'
 import { formatCbIrLabel, getCbThresholdState } from '../utils/cbThreshold.js'
+import { hasValidHydroImpactLine, hydroFeatureCollection } from '../utils/hydro.js'
 import {
   MAP_CENTER_KAERNTEN,
   MAP_ZOOM_DEFAULT,
@@ -250,10 +251,6 @@ function ForecastGhostLayer({ objects, forecast, leadMin }) {
   )
 }
 
-function hydroFeatureCollection(response) {
-  const fc = response?.data || response
-  return (fc && Array.isArray(fc.features)) ? fc : { type: 'FeatureCollection', features: [] }
-}
 
 function hydroColor(status) {
   if (status === 'confirmed') return '#16a34a'
@@ -1020,7 +1017,7 @@ export default function MapView() {
                   <div>Status: {p.status || '—'}</div>
                 </Popup>
               </CircleMarker>
-              {impact.relation === 'upstream_catchment_hit' && impact.cell_lat != null && impact.cell_lon != null && impact.station_lat != null && impact.station_lon != null && (
+              {hasValidHydroImpactLine(impact) && (
                 <Polyline positions={[[coords[1], coords[0]], [impact.cell_lat, impact.cell_lon]]} pathOptions={{ color, weight: 1, dashArray: '4,4' }} />
               )}
               {((hydroCatchments[p.station_id]?.features) || []).map((cf, i) => {
