@@ -92,13 +92,36 @@ def _load_hydro_kmz_data():
         return {"features": []}, [], None
 
 
+def _hydro_reason_mentions_catchment(impact: dict) -> bool:
+    reasons = impact.get("reason") or impact.get("reasons") or []
+    if isinstance(reasons, str):
+        reasons = [reasons]
+    reason_text = " ".join(str(r).lower() for r in reasons if r)
+    return "catchment" in reason_text or "einzugsgebiet" in reason_text
+
+
+def _is_valid_hydro_kmz_impact(impact: dict, props: dict) -> bool:
+    if not isinstance(impact, dict) or not impact:
+        return False
+    if impact.get("status") not in {"pending", "confirmed", "ambiguous"}:
+        return False
+    if impact.get("impact_eligible") is False or props.get("impact_eligible") is False:
+        return False
+    if not _hydro_reason_mentions_catchment(impact):
+        return False
+    relation = impact.get("relation")
+    if relation and relation != "upstream_catchment_hit":
+        return False
+    return True
+
+
 def _add_hydro_layers(kml):
     stations, impacts, hydro_api_mod = _load_hydro_kmz_data()
     features = stations.get("features", []) if isinstance(stations, dict) else []
     if not features and not impacts:
         return
-    folder = kml.newfolder(name="Hydro-Impact")
     impact_by_station = {str(e.get("station_id")): e for e in impacts if isinstance(e, dict)}
+    placemarks = []
     for feat in features:
         props = feat.get("properties") or {}
         coords = (feat.get("geometry") or {}).get("coordinates") or []
@@ -106,22 +129,35 @@ def _add_hydro_layers(kml):
             continue
         sid = str(props.get("station_id"))
         impact = impact_by_station.get(sid) or props.get("last_hydro_impact") or {}
-        affected = impact.get("status") in {"pending", "confirmed", "ambiguous"}
-        pnt = folder.newpoint(name=("Betroffener Pegel " if affected else "Hydro-Pegel ") + str(props.get("name") or sid), coords=[(coords[0], coords[1])])
+        if not _is_valid_hydro_kmz_impact(impact, props):
+            continue
+        placemarks.append((sid, props, coords, impact))
+    if not placemarks:
+        return
+    folder = kml.newfolder(name="Hydro-Impact")
+    for sid, props, coords, impact in placemarks:
+        pnt = folder.newpoint(name="Betroffener Pegel " + str(props.get("name") or sid), coords=[(coords[0], coords[1])])
         pnt.description = "\n".join([
+            "Hinweis: plausibler Zusammenhang aus Hydro-Impact-Prüfung.",
+            "Keine amtliche Hochwasserwarnung; Live-Pegel sind Rohdaten/Indikatoren.",
             f"Station: {props.get('name') or sid}",
             f"Gewässer: {props.get('river') or '—'}",
             f"Q m³/s: {props.get('q_m3s', '—')}",
             f"W cm: {props.get('w_cm', '—')}",
             f"Messzeit: {props.get('measured_at') or '—'}",
-            f"Impact-Status: {impact.get('status') or props.get('status') or '—'}",
+            f"Impact-Status: {impact.get('status') or '—'}",
             f"Cell-ID: {impact.get('cell_id') or '—'}",
         ])
         pnt.style.iconstyle.icon.href = "http://maps.google.com/mapfiles/kml/shapes/water.png"
-        pnt.style.iconstyle.scale = 1.1 if affected else 0.8
-        pnt.style.iconstyle.color = _hex_to_kml_color('#f97316' if impact.get('status') == 'pending' else '#16a34a' if impact.get('status') == 'confirmed' else '#a855f7' if impact.get('status') == 'ambiguous' else '#0ea5e9')
+        pnt.style.iconstyle.scale = 1.1
+        pnt.style.iconstyle.color = _hex_to_kml_color('#f97316' if impact.get('status') == 'pending' else '#16a34a' if impact.get('status') == 'confirmed' else '#a855f7')
         if getattr(config, "HYDRO_KMZ_INCLUDE_CATCHMENTS", False) and hydro_api_mod:
-            for cf in hydro_api_mod.catchment(sid).get("features", [])[:1]:
+            try:
+                catchments = hydro_api_mod.catchment(sid).get("features", [])[:1]
+            except Exception as exc:
+                debug_log(f"[KMZ] Hydro-Einzugsgebiet für {sid} übersprungen: {exc}")
+                catchments = []
+            for cf in catchments:
                 ring = ((cf.get("geometry") or {}).get("coordinates") or [[]])[0]
                 if 3 <= len(ring) <= 500:
                     poly = folder.newpolygon(name=f"Einzugsgebiet-Hinweis {sid}", outerboundaryis=[(c[0], c[1]) for c in ring])
