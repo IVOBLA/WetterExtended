@@ -252,6 +252,8 @@ USAGE
 
 # --- Argument-Parsing ---------------------------------------------------------
 CURRENT_PHASE="Phase 1 — Argument-Parsing"
+# B222: Original-Aufrufargumente sichern (für Selbst-Neustart nach Source-Update).
+_ORIG_ARGV=("$@")
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --version)        GIT_TAG="$2"; shift 2 ;;
@@ -467,6 +469,16 @@ fi
 CURRENT_PHASE="Phase 3 — Source holen"
 log_step "Phase 3 — Source holen"
 
+# B222: Stand des eigenen Skripts VOR dem Source-Update festhalten. Aktualisiert
+# das Update install.sh selbst, muss der Rest des Laufs mit dem NEUEN Skript
+# erfolgen — sonst führt der laufende Bash-Prozess das alte Skript zu Ende aus.
+_SELF_PATH="$TARGET/install.sh"
+if [[ -f "$_SELF_PATH" ]]; then
+    _SELF_HASH_BEFORE="$(sha256sum "$_SELF_PATH" | awk '{print $1}')"
+else
+    _SELF_HASH_BEFORE="absent"
+fi
+
 backup_runtime_overrides
 
 if [[ "$LOCAL_INSTALL" == true ]]; then
@@ -555,6 +567,20 @@ else
     git clone --branch "$_GIT_REF" "$REPO" "$TARGET"
     cd "$TARGET"
     log_info "Repository geklont ($_GIT_REF): $(git rev-parse --short HEAD)"
+fi
+
+# B222: Hat sich install.sh durch das Source-Update geändert, mit dem NEUEN
+# Skript neu starten (re-exec). Doppelt abgesichert: Hash-Vergleich verhindert
+# unnötigen Neustart, Umgebungsflag verhindert Endlosschleife.
+if [[ -f "$_SELF_PATH" ]]; then
+    _SELF_HASH_AFTER="$(sha256sum "$_SELF_PATH" | awk '{print $1}')"
+else
+    _SELF_HASH_AFTER="absent"
+fi
+if [[ "${WETTER_INSTALL_REEXEC:-0}" != "1" && "$_SELF_HASH_BEFORE" != "$_SELF_HASH_AFTER" ]]; then
+    log_warn "install.sh wurde durch das Source-Update verändert — Neustart mit aktualisiertem Skript (re-exec)."
+    export WETTER_INSTALL_REEXEC=1
+    exec bash "$_SELF_PATH" "${_ORIG_ARGV[@]}"
 fi
 
 restore_runtime_overrides
