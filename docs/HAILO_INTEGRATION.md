@@ -2756,3 +2756,16 @@ Phase A (Stabilisierung) — **erledigt**.
   `$request_uri` zur Laufzeit korrekt).
 - Neuer Regressions-Test prüft den gesamten Here-Doc-Body auf unescapte Bash-Variablen
   (`tests/test_b221_nginx_heredoc_no_unescaped_vars.py`) → bewacht die komplette Bug-Klasse.
+
+## B222 — install.sh startet nach Selbst-Update neu (re-exec) (2026-06-21)
+Phase A (Stabilisierung) — **erledigt**.
+- Symptom: Ein in `main` gemergter install.sh-Fix (z.B. B221 nginx `$request_uri`)
+  wirkte im selben Lauf NICHT — Phase 7d brach weiter mit `request_uri:
+  unbound variable` (alte Zeile 1445) ab, obwohl der Fix auf Platte lag.
+- Ursache: install.sh aktualisiert sich in Phase 3 selbst (`git pull` /
+  `git reset --hard`). Der laufende Bash-Prozess führt das ALTE Skript zu Ende aus
+  (Datei-Inode beim Start geöffnet); der Fix greift erst beim nächsten Aufruf.
+- Fix: Nach dem Source-Update SHA256-Vergleich des eigenen Skripts vor/nach Update;
+  bei Änderung Neustart via `exec bash "$TARGET/install.sh" "$@"`. Endlosschutz:
+  Umgebungsflag `WETTER_INSTALL_REEXEC` + Hash-Gleichheit.
+- Test: `tests/test_b222_install_self_reexec.py` (Mechanik, Position, `bash -n`).
