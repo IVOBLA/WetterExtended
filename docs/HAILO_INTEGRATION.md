@@ -2769,3 +2769,13 @@ Phase A (Stabilisierung) — **erledigt**.
   bei Änderung Neustart via `exec bash "$TARGET/install.sh" "$@"`. Endlosschutz:
   Umgebungsflag `WETTER_INSTALL_REEXEC` + Hash-Gleichheit.
 - Test: `tests/test_b222_install_self_reexec.py` (Mechanik, Position, `bash -n`).
+
+## B223 — Test-Fix: Admin-Export-Status-Tests patchen Auth unvollständig (2026-06-21)
+Phase A (Stabilisierung) — **erledigt**. Reiner Test-Fix, keine Produktionsänderung.
+- Symptom: 3 Tests in `tests/test_admin_export_rate_limit.py` schlugen mit 401 fehl
+  (erwartet 200/500/403).
+- Ursache: `/api/admin/export/status` (GET) fällt unter `_SENSITIVE_READ_PREFIXES`;
+  der `before_request`-Gate `_jwt_auth_check` nutzt `auth.get_current_user` (B107).
+  Die Tests patchten nur `app.get_current_user` → Gate liefert 401 vor dem Body.
+- Fix: Helfer `_login()` patcht `app` UND `auth` (Muster aus `test_b162_export_async.py`).
+- Auth-Verhalten der Produktion ist korrekt und unverändert.

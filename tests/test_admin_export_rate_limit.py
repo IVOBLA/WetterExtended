@@ -18,6 +18,15 @@ def client(tmp_path, monkeypatch):
     return app_module.app.test_client()
 
 
+def _login(monkeypatch, user):
+    """B223: Der before_request-Gate (_jwt_auth_check) nutzt auth.get_current_user,
+    der Endpoint-Body app.get_current_user — beide müssen gepatcht werden."""
+    import app as app_module
+    import auth as auth_module
+    monkeypatch.setattr(app_module, "get_current_user", lambda: user)
+    monkeypatch.setattr(auth_module, "get_current_user", lambda: user)
+
+
 def test_frontend_status_429_is_retryable_with_backoff():
     src = Path("frontend/src/pages/Logs.jsx").read_text(encoding="utf-8")
     assert "EXPORT_STATUS_POLL_MIN_MS = 3000" in src
@@ -74,7 +83,7 @@ def test_status_endpoint_is_lightweight_for_existing_token(client, monkeypatch):
     from pathlib import Path as P
 
     user = {"role": "admin", "sub": "1"}
-    monkeypatch.setattr(app_module, "get_current_user", lambda: user)
+    _login(monkeypatch, user)
     token = "building-token"
     app_module._EXPORT_BUILDS.clear()
 
@@ -100,7 +109,7 @@ def test_status_500_remains_real_error(client, monkeypatch):
     from pathlib import Path as P
 
     user = {"role": "admin", "sub": "1"}
-    monkeypatch.setattr(app_module, "get_current_user", lambda: user)
+    _login(monkeypatch, user)
     token = "error-token"
     app_module._EXPORT_BUILDS.clear()
     app_module._EXPORT_BUILDS[token] = {
@@ -115,12 +124,12 @@ def test_status_500_remains_real_error(client, monkeypatch):
 
 def test_status_auth_and_unknown_token_errors(client, monkeypatch):
     import app as app_module
-    monkeypatch.setattr(app_module, "get_current_user", lambda: None)
+    _login(monkeypatch, None)
     assert client.get("/api/admin/export/status?token=x").status_code == 401
 
-    monkeypatch.setattr(app_module, "get_current_user", lambda: {"role": "viewer", "sub": "1"})
+    _login(monkeypatch, {"role": "viewer", "sub": "1"})
     assert client.get("/api/admin/export/status?token=x").status_code == 403
 
-    monkeypatch.setattr(app_module, "get_current_user", lambda: {"role": "admin", "sub": "1"})
+    _login(monkeypatch, {"role": "admin", "sub": "1"})
     app_module._EXPORT_BUILDS.clear()
     assert client.get("/api/admin/export/status?token=missing").status_code == 410
