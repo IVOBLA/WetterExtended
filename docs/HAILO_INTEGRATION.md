@@ -2779,3 +2779,15 @@ Phase A (Stabilisierung) — **erledigt**. Reiner Test-Fix, keine Produktionsän
   Die Tests patchten nur `app.get_current_user` → Gate liefert 401 vor dem Body.
 - Fix: Helfer `_login()` patcht `app` UND `auth` (Muster aus `test_b162_export_async.py`).
 - Auth-Verhalten der Produktion ist korrekt und unverändert.
+
+## B224 — Test-Fix: EWMA/Optflow-Tests gegen B219-Speed-Cap isoliert (2026-06-21)
+Phase A (Stabilisierung) — **erledigt**. Reiner Test-Fix, keine Produktionsänderung.
+- Symptom: `test_optflow_overrides_ewma_when_available` (kinematic_vx -6.0→-5.366) und
+  `test_ewma_weights_newer_frames` (vx >7.5 → 5.918/7.398) schlugen fehl.
+- Ursache: B219 klemmt `avg_vx/avg_vy` (Cap) unbedingt vor dem Setzen von
+  `kinematic_vx`. Beide Tests prüfen die ROHE Geschwindigkeit; ihre Eingaben liegen
+  über dem 120/150-km/h-Cap. (Der Wert schwankte 7.398↔5.918 durch geleakten
+  globalen `_runtime_cfg`-Cap.)
+- Fix: In beiden Tests `_runtime_float_value` für die Cap-Schlüssel via `monkeypatch`
+  neutralisieren → Test isoliert die EWMA-Gewichtung/den Optflow-Override; zugleich
+  ordnungsunabhängig. Cap-Coverage bleibt in `test_b219_kinematic_speed_cap.py`.

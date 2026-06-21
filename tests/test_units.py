@@ -152,7 +152,7 @@ def test_real_time_velocity_from_history():
 # Test 7 — P27: EWMA-Gewichtung bevorzugt neuere Intervalle
 # ---------------------------------------------------------------------------
 
-def test_ewma_weights_newer_frames():
+def test_ewma_weights_newer_frames(monkeypatch):
     """
     P27: Mit 3 Frames (2 Intervalle) muss das neuere Intervall mehr Gewicht
     erhalten als das ältere. Bei Richtungswechsel Nordost → Ost muss:
@@ -170,6 +170,14 @@ def test_ewma_weights_newer_frames():
         _append_kinematic = importlib.import_module("prediction")._append_kinematic
     except ImportError as exc:
         pytest.skip(f"prediction.py nicht importierbar: {exc}")
+
+    # B224: B219-Speed-Cap für diesen Test neutralisieren — geprüft wird die
+    # rohe Geschwindigkeit (EWMA/optflow), nicht der Cap (separat in
+    # test_b219_kinematic_speed_cap.py). Sonst klemmt der km/h-Cap die Werte.
+    import prediction as _pred
+    _orig_cap = _pred._runtime_float_value
+    monkeypatch.setattr(_pred, "_runtime_float_value",
+        lambda name, default: 1e9 if name in ("FORECAST_MAX_SPEED_KMH", "MAX_CELL_SPEED_KMH") else _orig_cap(name, default))
 
     obj = {
         "id": "ewma_test",
