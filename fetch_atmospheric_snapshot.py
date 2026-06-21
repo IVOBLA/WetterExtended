@@ -182,7 +182,16 @@ def _bulk_get_batched(url_base: str, label: str, locations: list) -> list | None
     return results if any_ok else None
 
 
-def _gewitterpotenzial(li: float) -> str:
+def _gewitterpotenzial(li: float, li_missing: int = 0, cape_missing: int = 0) -> str:
+    """B218: Robust gegen fehlende Atmosphärendaten.
+
+    Fehlen BEIDE Schlüsselgrößen (Lifted Index UND CAPE), wird ``"unbekannt"``
+    statt ``"niedrig"`` zurückgegeben — ein API-Ausfall darf reale Konvektion
+    nicht als ruhiges Wetter verdecken. Liegt mindestens eine echte Messung vor,
+    greift die unveränderte LI-Klassifikation.
+    """
+    if int(li_missing or 0) == 1 and int(cape_missing or 0) == 1:
+        return "unbekannt"
     if li < -3.0:
         return "hoch"
     if li < -1.0:
@@ -370,7 +379,7 @@ def fetch_atmospheric_snapshot() -> dict:
             "wind_dir_300_missing": _missing_flag(w_dir_300_raw),
             "geopotential_300hpa": _rounded_or_none(geo_300, 0),
             "geopotential_300hpa_missing": _missing_flag(geo_300),
-            "potential":        _gewitterpotenzial(li),
+            "potential":        _gewitterpotenzial(li, _missing_flag(li_opt), _missing_flag(cape_opt)),
             # NEU: konvektive Diagnose
             "t500_c":           round(t500_c, 1),
             "t700_c":           round(t700_c, 1),
