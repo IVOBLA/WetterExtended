@@ -549,6 +549,21 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
         avg_vy *= _scale
         obj["forecast_speed_capped"] = 1
 
+    # B220: Orographische/Stationär-Dämpfung des kinematischen Bewegungsvektors.
+    # forecast_speed_factor (orographic_module, 0.1..1.0) wurde bisher berechnet,
+    # aber NIE auf den Forecast angewandt. Wird hier VOR der Projektion auf
+    # avg_vx/avg_vy gewirkt → langsame/gebremste Zellen (Hitzegewitter, Staulagen)
+    # werden nicht mehr überprojiziert. Auf [0.1, 1.0] geklammert; 1.0 = neutral.
+    try:
+        _spd_factor = float(obj.get("forecast_speed_factor", 1.0) or 1.0)
+    except (TypeError, ValueError):
+        _spd_factor = 1.0
+    _spd_factor = max(0.1, min(1.0, _spd_factor))
+    if _spd_factor < 1.0:
+        avg_vx *= _spd_factor
+        avg_vy *= _spd_factor
+        obj["forecast_speed_damped"] = 1
+
     obj["forecast_mode"]      = "kinematic_fallback"
     obj["has_ml_forecast"]    = False
     obj["kinematic_source"]   = src
