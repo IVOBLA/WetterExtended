@@ -2714,3 +2714,13 @@ Phase A (Stabilisierung / API-Hardening) — **erledigt**.
 - Behebt die durchgängige 0.0-Atmosphäre bei Open-Meteo-429 (Root-Cause der
   Forecast-Drift-Symptomatik).
 - Voraussetzung für B218 (Potenzialbewertung robust gegen missing).
+
+## B218 — Gewitterpotenzial robust gegen Missing (2026-06-21)
+Phase A (Stabilisierung) — **erledigt**.
+- `_gewitterpotenzial` gibt `"unbekannt"` zurück, wenn LI UND CAPE fehlen
+  (B217-Missing-Flags), statt fälschlich `"niedrig"`.
+- Verhindert „ruhiges Wetter"-Fehlklassifikation bei API-Ausfall trotz realer
+  Konvektion (geosphere_cape 400–800 J/kg).
+- Neuer möglicher Ausgabewert `"unbekannt"` — Konsumenten der `potential`-
+  Spalte müssen ihn als „Daten fehlen" behandeln (siehe Review-Note).
+- Baut auf B217 auf.
