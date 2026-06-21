@@ -2732,3 +2732,14 @@ Phase A (Stabilisierung) — **erledigt**.
   `MAX_CELL_SPEED_KMH`).
 - Eliminiert 200+ km/h-Ausreißer im optischen-Fluss-/EWMA-/Kalman-Pfad.
 - Marker `forecast_speed_capped=1` am Objekt bei aktiver Klemmung.
+
+## B220 — Orographische Dämpfung im Forecast verdrahtet (2026-06-21)
+Phase A (Stabilisierung) — **erledigt**.
+- `forecast_speed_factor` (orographic_module, 0.1..1.0) wird jetzt in
+  `_append_kinematic` VOR der Projektion auf avg_vx/avg_vy angewandt — war zuvor
+  eine tote, nur im Admin-Panel angezeigte Diagnose-Größe.
+- Reduziert Überprojektion langsamer/orographisch gebremster Zellen
+  (Skywarn: nahezu stationäre Bergland-Hitzegewitter).
+- Marker `forecast_speed_damped=1` am Objekt bei aktiver Dämpfung.
+- Offener Folge-Punkt (separater Prompt): explizite Persistenz-Dämpfung bei
+  fehlendem/schwachem Steuerstrom.
