@@ -2791,3 +2791,18 @@ Phase A (Stabilisierung) — **erledigt**. Reiner Test-Fix, keine Produktionsän
 - Fix: In beiden Tests `_runtime_float_value` für die Cap-Schlüssel via `monkeypatch`
   neutralisieren → Test isoliert die EWMA-Gewichtung/den Optflow-Override; zugleich
   ordnungsunabhängig. Cap-Coverage bleibt in `test_b219_kinematic_speed_cap.py`.
+
+## B225 — Admin-API auf produktiven WSGI-Server (waitress) umgestellt (2026-06-21)
+Phase A (Stabilisierung) — **erledigt**.
+- Symptom: Admin-Panel stürzt bei häufigem Refresh ab → Re-Login; verstärkt bei
+  vielen Zellen. Log: `connect refused` zu `127.0.0.1:5000` im 30-s-Takt
+  (16:11–16:15), 8× 502.
+- Ursache: `app.run()` = single-threaded Flask-Dev-Server. Karten-Bursts blockieren
+  den GIL → Watchdog-Heartbeat-Thread (25 s) verhungert → systemd-Watchdog
+  (`WatchdogSec=60`) killt → `RestartSec=30`/`StartLimitIntervalSec=0` → Crash-Loop.
+- Fix: `waitress` (reines Python, threaded, in-Process) bedient Requests im
+  Thread-Pool; Heartbeat bleibt zuverlässig. In-Process gewählt, damit
+  `NotifyAccess=main`/`watchdog_heartbeat` unverändert gültig bleiben (kein
+  gunicorn-Fork). `ADMIN_DEBUG=1` → Flask-Debug (threaded); ohne waitress
+  `threaded=True`-Fallback. `waitress` in requirements.txt (Phase 5 installiert es).
+- Test: `tests/test_b225_admin_uses_waitress.py`.
