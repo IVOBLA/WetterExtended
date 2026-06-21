@@ -533,17 +533,21 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
                 obj["steering_blend_applied"] = 1
                 src = f"{src}+steering"
 
-    if int(obj.get("steering_blend_applied", 0) or 0) == 1:
-        _max_speed_kmh = float(
-            _runtime_cfg.get("MAX_CELL_SPEED_KMH", _STATIC_MAX_CELL_SPEED_KMH)
-            if _runtime_cfg else _STATIC_MAX_CELL_SPEED_KMH
-        )
-        _max_px_min = max(0.0, _max_speed_kmh) * float(_UF or 1.0) / 60.0
-        _speed_px_min = (avg_vx ** 2 + avg_vy ** 2) ** 0.5
-        if _max_px_min > 0.0 and _speed_px_min > _max_px_min:
-            _scale = _max_px_min / _speed_px_min
-            avg_vx *= _scale
-            avg_vy *= _scale
+    # B219: Geschwindigkeits-Cap UNBEDINGT durchsetzen (vorher nur im Steering-
+    # Blend-Zweig). Der optische-Fluss-/EWMA-/Kalman-Pfad lief ungeklemmt in die
+    # Projektion → physikalisch unmögliche 200+ km/h. Knopf: FORECAST_MAX_SPEED_KMH
+    # (Fallback MAX_CELL_SPEED_KMH) — identisch zu validate_forecast_point.
+    _max_speed_kmh = _runtime_float_value(
+        "FORECAST_MAX_SPEED_KMH",
+        _runtime_float_value("MAX_CELL_SPEED_KMH", _STATIC_MAX_CELL_SPEED_KMH),
+    )
+    _max_px_min = max(0.0, _max_speed_kmh) * float(_UF or 1.0) / 60.0
+    _speed_px_min = (avg_vx ** 2 + avg_vy ** 2) ** 0.5
+    if _max_px_min > 0.0 and _speed_px_min > _max_px_min:
+        _scale = _max_px_min / _speed_px_min
+        avg_vx *= _scale
+        avg_vy *= _scale
+        obj["forecast_speed_capped"] = 1
 
     obj["forecast_mode"]      = "kinematic_fallback"
     obj["has_ml_forecast"]    = False
