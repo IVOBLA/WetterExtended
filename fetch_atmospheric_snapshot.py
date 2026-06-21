@@ -7,7 +7,6 @@ und über /api/atmosphere im Admin-Panel angezeigt.
 
 import json
 import os
-import requests
 from datetime import datetime, timezone
 from math import atan2, cos, pi, radians, sin
 from zoneinfo import ZoneInfo
@@ -83,32 +82,68 @@ def _missing_flag(value: float | None) -> int:
     return 1 if value is None else 0
 
 
+# B217: Source-Mapping label -> (Circuit-Breaker, Cache-Namespace).
+# Label kommt aus _bulk_get_batched als "<Basis>-B<n>"; die Basis ist eindeutig.
+_BULK_SOURCE_MAP = {
+    "Open-Meteo-Atmosphere-AROME":    ("openmeteo_icon_d2",    "openmeteo:atmo_arome"),
+    "Open-Meteo-Atmosphere-Pressure": ("openmeteo_icon_global", "openmeteo:atmo_pressure"),
+    "Open-Meteo-Atmosphere-GFS":      ("openmeteo_gfs",        "openmeteo:atmo_gfs"),
+}
+
+
 def _bulk_get(url: str, label: str) -> list | None:
-    """HTTP GET, normalisiert Response zu Liste."""
+    """B217: HTTP GET über zentralen ``retry_get`` (Backoff, Retry-After-Header,
+    Circuit-Breaker) MIT Cache + Stale-While-Error-Fallback — identisch zum Pfad
+    der übrigen Open-Meteo-Fetcher (fetch_700hpa / fetch_openmeteo_extended).
+
+    Verhalten:
+      * Frischer Cache-HIT  -> kein HTTP-Request (senkt Last unter die Free-Quota).
+      * Erfolg              -> Antwort wird gecacht.
+      * 429 / CircuitOpen / Timeout -> letzter gültiger Snapshot (Stale-Cache,
+        max. 24 h) statt 0.0-Default. ML-Features bleiben plausibel.
+      * Kein Stale vorhanden -> None (wie bisher), aber sauber protokolliert.
+    """
     import time as _t_bulk
+    from api_cache import cache_key, cache_get, cache_set, get_ttl
+    try:
+        from api_cache import cache_get_stale
+    except ImportError:
+        cache_get_stale = lambda *a, **kw: None  # noqa: E731
+
+    _src = label.split("-B")[0]
+    _breaker_service, _cache_prefix = _BULK_SOURCE_MAP.get(_src, (None, None))
+
+    _ck = None
+    if _cache_prefix:
+        _ck = cache_key(_cache_prefix, url, _nearest_hour_str())
+        _cached = cache_get(_ck, ttl_seconds=get_ttl("openmeteo_atmosphere", 1800))
+        if _cached is not None:
+            debug_log(f"[ATMOSPHERE] {label} Cache-HIT — kein HTTP-Request.")
+            return [_cached] if isinstance(_cached, dict) else _cached
+
     _t0_bulk = _t_bulk.monotonic()
     try:
-        r = requests.get(url, timeout=_TIMEOUT)
+        from http_retry import retry_get
+        r = retry_get(url, service=label,
+                      breaker_service=_breaker_service, timeout=_TIMEOUT)
         _dur_bulk = (_t_bulk.monotonic() - _t0_bulk) * 1000
-        r.raise_for_status()
         data = r.json()
         log_http_response(label.lower().replace("-", "_").replace(" ", "_"),
                           "GET", r, _dur_bulk)
+        if _ck is not None:
+            cache_set(_ck, data)
         return [data] if isinstance(data, dict) else data
-    except requests.exceptions.Timeout:
-        log_api_failure(label, url, "timeout", fallback_used=True)
-    except requests.exceptions.HTTPError as exc:
-        status = getattr(exc.response, "status_code", None)
-        hint = " (möglicherweise ungültige Open-Meteo-Parameter)" if status == 400 else ""
-        log_api_failure(
-            label,
-            url,
-            f"http-{status}{hint}",
-            fallback_used=True,
-            http_status=status,
-        )
     except Exception as exc:
-        log_api_failure(label, url, f"{type(exc).__name__}: {exc}", fallback_used=True)
+        # retry_get protokolliert den Ausfall bereits (log_api_failure + Breaker).
+        # KEIN zweites log_api_failure (B159-Lehre: sonst Doppelzählung).
+        if _ck is not None:
+            _stale = cache_get_stale(_ck, max_stale_seconds=24 * 3600)
+            if _stale is not None:
+                debug_log(f"[ATMOSPHERE] {label} STALE-Cache-Fallback "
+                          f"({type(exc).__name__}) — kein 0.0-Default.")
+                return [_stale] if isinstance(_stale, dict) else _stale
+        debug_log(f"[ATMOSPHERE] {label} fehlgeschlagen "
+                  f"({type(exc).__name__}: {exc}) — kein Stale-Cache verfügbar.")
     return None
 
 
@@ -255,14 +290,24 @@ def fetch_atmospheric_snapshot() -> dict:
         lon  = loc.get("lon",  0.0)
 
         # AROME-Werte
+        # B217: echte Missing-Erkennung — _extract_slot_optional liefert None bei
+        # fehlendem Slot. Die numerische 0.0 bleibt nur für die nachgelagerte
+        # Mathematik (lapse/round) erhalten; das *_missing-Flag dokumentiert,
+        # dass es sich NICHT um eine echte 0.0-Messung handelt.
         t2m = td2m = ff10m = li = fl_h = cape_jkg = 0.0
+        t2m_opt = td2m_opt = ff10m_opt = fl_h_opt = cape_opt = None
         if arome_data and i < len(arome_data):
             h = arome_data[i].get("hourly", {})
-            t2m      = _extract_slot(h, "temperature_2m",       target_time)
-            td2m     = _extract_slot(h, "dewpoint_2m",           target_time)
-            ff10m    = _extract_slot(h, "wind_speed_10m",        target_time)
-            fl_h     = _extract_slot(h, "freezing_level_height", target_time)
-            cape_jkg = _extract_slot(h, "cape",                  target_time)
+            t2m_opt   = _extract_slot_optional(h, "temperature_2m",       target_time)
+            td2m_opt  = _extract_slot_optional(h, "dewpoint_2m",           target_time)
+            ff10m_opt = _extract_slot_optional(h, "wind_speed_10m",        target_time)
+            fl_h_opt  = _extract_slot_optional(h, "freezing_level_height", target_time)
+            cape_opt  = _extract_slot_optional(h, "cape",                  target_time)
+            t2m      = t2m_opt   if t2m_opt   is not None else 0.0
+            td2m     = td2m_opt  if td2m_opt  is not None else 0.0
+            ff10m    = ff10m_opt if ff10m_opt is not None else 0.0
+            fl_h     = fl_h_opt  if fl_h_opt  is not None else 0.0
+            cape_jkg = cape_opt  if cape_opt  is not None else 0.0
 
         # 700 hPa Wind + T500/T700 + 300 hPa Wind aus Pressure-Response
         w_speed = w_dir_cos = w_dir_sin = 0.0
@@ -289,11 +334,16 @@ def fetch_atmospheric_snapshot() -> dict:
                 w_dir_300_cos = round(cos(rad_300), 4)
                 w_dir_300_sin = round(sin(rad_300), 4)
         # LI/CIN/PW von GFS
+        # B217: Missing-Erkennung analog AROME.
+        li_opt = cin_opt = pw_opt = None
         if gfs_data and i < len(gfs_data):
             h_gfs = gfs_data[i].get("hourly", {})
-            li = _extract_slot(h_gfs, "lifted_index", target_time)
-            cin_jkg = _extract_slot(h_gfs, "convective_inhibition", target_time)
-            pw_mm = _extract_slot(h_gfs, "total_column_integrated_water_vapour", target_time)
+            li_opt  = _extract_slot_optional(h_gfs, "lifted_index", target_time)
+            cin_opt = _extract_slot_optional(h_gfs, "convective_inhibition", target_time)
+            pw_opt  = _extract_slot_optional(h_gfs, "total_column_integrated_water_vapour", target_time)
+            li      = li_opt  if li_opt  is not None else 0.0
+            cin_jkg = cin_opt if cin_opt is not None else 0.0
+            pw_mm   = pw_opt  if pw_opt  is not None else 0.0
 
         # NEU: lapse_700_500 als abgeleitete Groesse mitspeichern (kein zusaetzlicher
         # API-Call). Annahme: Druckdifferenz 700→500 hPa entspricht ~3.0 km in
@@ -328,6 +378,17 @@ def fetch_atmospheric_snapshot() -> dict:
             "pw":               round(pw_mm,   1),
             "lapse_700_500":    round(lapse_700_500, 2),
             "cape":             round(cape_jkg, 0),
+            # B217: Missing-Flags für AROME/GFS-Thermodynamik — 1 = Wert fehlt
+            # (API-Ausfall, KEINE echte 0.0-Messung). Konsument: _gewitterpotenzial
+            # (B218) sowie das Datenqualitäts-Gate.
+            "t2m_missing":       _missing_flag(t2m_opt),
+            "td2m_missing":      _missing_flag(td2m_opt),
+            "ff10m_missing":     _missing_flag(ff10m_opt),
+            "fl_height_missing": _missing_flag(fl_h_opt),
+            "cape_missing":      _missing_flag(cape_opt),
+            "li_missing":        _missing_flag(li_opt),
+            "cin_missing":       _missing_flag(cin_opt),
+            "pw_missing":        _missing_flag(pw_opt),
         })
 
     # Wolkenhöhen für alle Snapshot-Orte aus EUMETView TIFF (kein neuer API-Call

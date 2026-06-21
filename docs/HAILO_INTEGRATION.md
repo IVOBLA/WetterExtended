@@ -2702,3 +2702,15 @@ Gewitterpotenzial — ohne kostenpflichtige APIs und ohne unnötige Requests.
 - Fachhinweis: Warm-Top-Wert = grobe Untergrenze, nicht der echte Cb-Top.
 - Dateien: `cloud_height_from_eumetview.py`, `frontend/src/pages/LiveDaten.jsx`,
   `tests/test_p51_cloud_height_low_confidence.py`, Benutzerhandbuch.
+
+## B217 — Atmosphäre-Bulk-Pfad gehärtet (2026-06-21)
+Phase A (Stabilisierung / API-Hardening) — **erledigt**.
+- `fetch_atmospheric_snapshot._bulk_get` nutzt jetzt `retry_get` (Backoff,
+  Retry-After) + Circuit-Breaker + Cache + Stale-While-Error-Fallback —
+  letzter Open-Meteo-Fetcher, der noch rohes `requests.get` verwendete.
+- Circuit-Breaker geteilt mit fetch_700hpa (`openmeteo_icon_global`).
+- Fehlende AROME/GFS-Werte werden als `*_missing`-Flag geführt (t2m, td2m,
+  ff10m, fl_height, cape, li, cin, pw) statt als echte 0.0-Messung.
+- Behebt die durchgängige 0.0-Atmosphäre bei Open-Meteo-429 (Root-Cause der
+  Forecast-Drift-Symptomatik).
+- Voraussetzung für B218 (Potenzialbewertung robust gegen missing).
