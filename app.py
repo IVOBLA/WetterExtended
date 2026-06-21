@@ -5215,4 +5215,20 @@ if __name__ == "__main__":
     watchdog_heartbeat.start()          # systemd READY=1 + Watchdog-Ping alle 25 s
     _bind_host = os.getenv("ADMIN_BIND_HOST", "127.0.0.1").strip() or "127.0.0.1"
     _bind_port = int(os.getenv("ADMIN_BIND_PORT", "5000"))
-    app.run(host=_bind_host, port=_bind_port, debug=os.getenv("ADMIN_DEBUG") == "1")
+    # B225: Produktiver, nebenläufiger WSGI-Server (waitress) statt des
+    # single-threaded Flask-Dev-Servers. Der Dev-Server (app.run ohne threaded)
+    # verarbeitet Requests seriell; unter Karten-Bursts (viele Zellen → große
+    # /api/objects-/forecast-/radar_image-Antworten) blockiert der Main-Thread
+    # den GIL, der Watchdog-Heartbeat-Thread verhungert → systemd-Watchdog killt
+    # den Dienst (Restart-Loop, Re-Login). waitress läuft in-Process (Heartbeat
+    # bleibt intakt, NotifyAccess=main) und bedient Requests in einem Thread-Pool.
+    if os.getenv("ADMIN_DEBUG") == "1":
+        app.run(host=_bind_host, port=_bind_port, threaded=True, debug=True)
+    else:
+        try:
+            from waitress import serve as _serve
+            _serve(app, host=_bind_host, port=_bind_port,
+                   threads=int(os.getenv("ADMIN_THREADS", "8")))
+        except ImportError:
+            # Fallback ohne waitress: wenigstens threaded statt single-threaded.
+            app.run(host=_bind_host, port=_bind_port, threaded=True)

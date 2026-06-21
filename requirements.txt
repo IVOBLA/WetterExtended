@@ -91,3 +91,4 @@ tzdata>=2024.1
 # ipython>=8.0
 pysteps>=1.8.0
 scipy>=1.11.0
+waitress>=3.0.0
