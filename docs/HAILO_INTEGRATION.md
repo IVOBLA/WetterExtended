@@ -2724,3 +2724,11 @@ Phase A (Stabilisierung) — **erledigt**.
 - Neuer möglicher Ausgabewert `"unbekannt"` — Konsumenten der `potential`-
   Spalte müssen ihn als „Daten fehlen" behandeln (siehe Review-Note).
 - Baut auf B217 auf.
+
+## B219 — Kinematischer Geschwindigkeits-Cap unbedingt (2026-06-21)
+Phase A (Stabilisierung) — **erledigt**.
+- Cap in `_append_kinematic` aus dem `if steering_blend_applied`-Zweig herausgelöst
+  und unbedingt angewandt (Knopf `FORECAST_MAX_SPEED_KMH`, Fallback
+  `MAX_CELL_SPEED_KMH`).
+- Eliminiert 200+ km/h-Ausreißer im optischen-Fluss-/EWMA-/Kalman-Pfad.
+- Marker `forecast_speed_capped=1` am Objekt bei aktiver Klemmung.
