@@ -33,10 +33,17 @@ def _eastward_history():
     ]
 
 
-def test_optflow_overrides_ewma_when_available():
+def test_optflow_overrides_ewma_when_available(monkeypatch):
     """of_vx = -30 px/Frame (West), of_vy = +15; frame_min = 5 →
     kinematic_vx = -6.0, kinematic_vy = +3.0, source = optflow_*."""
     fn = _fn()
+    # B224: B219-Speed-Cap für diesen Test neutralisieren — geprüft wird die
+    # rohe Geschwindigkeit (EWMA/optflow), nicht der Cap (separat in
+    # test_b219_kinematic_speed_cap.py). Sonst klemmt der km/h-Cap die Werte.
+    import prediction as _pred
+    _orig_cap = _pred._runtime_float_value
+    monkeypatch.setattr(_pred, "_runtime_float_value",
+        lambda name, default: 1e9 if name in ("FORECAST_MAX_SPEED_KMH", "MAX_CELL_SPEED_KMH") else _orig_cap(name, default))
     obj = {
         "id": "of_used",
         "x": 60.0, "y": 50.0,
