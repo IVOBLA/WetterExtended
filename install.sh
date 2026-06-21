@@ -1502,7 +1502,7 @@ server {
         limit_req zone=wetter_admin_export burst=120 nodelay;
         limit_req_status 429;
 
-        proxy_pass         http://127.0.0.1:5000$request_uri;
+        proxy_pass         http://127.0.0.1:5000\$request_uri;
         proxy_http_version 1.1;
         proxy_set_header   Host              \$host;
         proxy_set_header   X-Real-IP         \$remote_addr;

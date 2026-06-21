@@ -2743,3 +2743,16 @@ Phase A (Stabilisierung) — **erledigt**.
 - Marker `forecast_speed_damped=1` am Objekt bei aktiver Dämpfung.
 - Offener Folge-Punkt (separater Prompt): explizite Persistenz-Dämpfung bei
   fehlendem/schwachem Steuerstrom.
+
+## B221 — install.sh Phase 7d: `$request_uri` im nginx-Here-Doc nicht escaped (2026-06-21)
+Phase A (Stabilisierung) — **erledigt**.
+- Symptom: `install.sh: line 1445: request_uri: unbound variable` → Phase 7d (nginx)
+  brach mit Exit-Code 1 ab (full & upgrade).
+- Ursache: Der UNQUOTED Here-Doc `<<NGINXCONF` lässt Bash jede `$VAR` expandieren;
+  nginx-Variablen werden deshalb als `\$VAR` escaped. Im Admin-Export-Block
+  (`proxy_pass http://127.0.0.1:5000$request_uri;`) fehlte der Backslash → unter
+  `set -u` Abbruch.
+- Fix: `5000$request_uri;` → `5000\$request_uri;` (konventionskonform; nginx ersetzt
+  `$request_uri` zur Laufzeit korrekt).
+- Neuer Regressions-Test prüft den gesamten Here-Doc-Body auf unescapte Bash-Variablen
+  (`tests/test_b221_nginx_heredoc_no_unescaped_vars.py`) → bewacht die komplette Bug-Klasse.
