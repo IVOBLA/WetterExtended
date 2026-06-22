@@ -2906,3 +2906,10 @@ Linienstil und Popup-Felder.
 - Ursache: `install.sh` (LOCAL/ZIP-Modus, `rsync -a --delete`) schloss `.env`, `users.db`, `runtime_overrides.json`, `statistics/`, `dem/`, `cell_filters/`, `cell_lineage/` aus, jedoch NICHT `train_data/hydro/`. Da `/train_data/` gitignored ist, löschte `--delete` beim Upgrade die Hydro-Impact-Historie (`train_data/hydro/impact/`) und die generierten Geodaten (`train_data/hydro/static/generated/`). Widersprach der Full-Modus-Zusage „NICHT geloescht: train_data/hydro/“.
 - Fix: `--exclude=/train_data/hydro/` im rsync-Block ergänzt. Kein anderer Pfad geändert; der Git-basierte Upgrade-Pfad (`git pull`/`reset`) war nie betroffen, da er gitignorierte Daten nicht anfasst.
 - Test: `tests/test_b234_install_preserves_hydro.py`.
+
+
+## B235 — Globales Cycle-Gate sperrte gesamte Hydro-Upstream-Topologie (2026-06-22)
+- Ursache: `upstream_by_basin` ist nach `build_upstream_basin_graph` bereits zyklenfrei (cycle-blocked-Kanten entfernt), doch `get_upstream_basin_ids` und das Eligibility-Gate in `hydro_station_index.py` sperrten netzweit bei `cycle_count>0`. In Produktion (638 Zyklen in AT_WATERCOURSELINK) → `impact_eligible_station_count: 0`, Feature inert trotz 4099 confidenter Kanten.
+- Fix: `build_upstream_basin_graph` exponiert `cycle_nodes`. `get_upstream_basin_ids` schließt nur noch die zyklus-beteiligte Station selbst aus (per-Station) und nutzt die bereits zyklenfreie BFS-Adjazenz. Eligibility prüft `basin_id not in cycle_nodes` statt globalem `cycle_count==0`. Fachlich konservativ: zyklenfreie Stationen erhalten eine Teilmenge des Upstream-Gebiets (Unter-, nie Über-Attribution); Zyklus-Knoten bleiben über den Basin-Downstream-Fallback unverändert.
+- Aktivierung: nach Anwendung Static-Hydro neu aufbauen (Admin „Static-Hydro neu …“ bzw. CLI-Import); `/api/hydro/status` sollte dann `impact_eligible_station_count > 0` zeigen.
+- Test: `tests/test_b235_cycle_gate_granular.py`.
