@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 import config
 from hydro_station_index import build_station_index
 
-STATUS_VALUES = {"hydro_ready","hydro_static_missing","hydro_static_download_failed","hydro_static_convert_failed","hydro_station_import_failed","station_catchment_unavailable","upstream_topology_missing","invalid_static_json","hydro_static_partial"}
+STATUS_VALUES = {"ok","hydro_ready","hydro_static_missing","hydro_static_download_failed","hydro_static_convert_failed","hydro_station_import_failed","station_catchment_unavailable","station_basin_available","station_basin_unavailable","upstream_topology_missing","invalid_static_json","hydro_static_partial"}
 
 
 def static_paths(static_dir: str | None = None) -> dict[str, str]:
@@ -293,7 +293,7 @@ def auto(static_dir: str | None=None, force: bool=False) -> dict:
         return write_status("hydro_static_convert_failed", "Hydro-Static-Konvertierung fehlgeschlagen; Installation läuft weiter.", static_dir, downloads=downloads, errors=errors, warnings=warnings)
     status=build_static_hydro(static_dir, downloads)
     status.setdefault("warnings", []).extend(warnings)
-    if status.get("status") not in {"hydro_ready","upstream_topology_missing"}: status["status"]="hydro_static_partial"
+    if status.get("status") not in {"ok","hydro_ready","upstream_topology_missing","station_basin_available","station_basin_unavailable"}: status["status"]="hydro_static_partial"
     Path(paths["status"]).write_text(json.dumps(status, indent=2, ensure_ascii=False)+"\n", encoding="utf-8")
     return status
 

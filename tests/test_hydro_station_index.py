@@ -195,3 +195,57 @@ def test_invalid_declared_upstream_ids_do_not_create_impact_eligibility(tmp_path
     assert station["upstream_source_quality"] == "declared_upstream_catchment_ids_unresolved"
     assert station["flow_distance_available"] is False
     assert station["flow_distance_km"] is None
+
+
+def test_ggn_uppercase_fields_set_station_basin_without_fake_impact(tmp_path):
+    status = build_station_index(
+        str(FIX / "hydro_stations_ggn.geojson"),
+        str(FIX / "basins_ggn_no_upstream.geojson"),
+        None,
+        str(tmp_path),
+    )
+
+    assert status["status"] != "hydro_static_missing"
+    assert status["station_basin_count"] == 1
+    assert status["enabled_station_count"] == 0
+    assert status["ok"] is False
+    assert status["topology_source"] == "none"
+    assert status["reason_summary"]["upstream_topology_missing"] is True
+
+    data = json.loads((tmp_path / "station_network_index.json").read_text(encoding="utf-8"))
+    station = data["by_station_id"]["S_GGN"]
+    assert station["station_basin"] == "GGN_B1"
+    assert station["catchment_id"] is None
+    assert station["impact_eligible"] is False
+    assert station["source_quality"] in {"upstream_topology_missing", "hydro_geometry_unavailable"}
+
+    catchments = json.loads((tmp_path / "station_catchments.geojson").read_text(encoding="utf-8"))
+    assert catchments["features"] == []
+
+
+@pytest.mark.skipif(not hydro_station_index.SHAPELY_AVAILABLE, reason="Shapely fehlt: keine produktive Hydro-Catchment-Union")
+def test_ggn_explicit_upstream_relationship_enables_real_catchment(tmp_path, monkeypatch):
+    monkeypatch.setattr(hydro_station_index, "SHAPELY_AVAILABLE", True)
+    status = build_station_index(
+        str(FIX / "hydro_stations_ggn.geojson"),
+        str(FIX / "basins_ggn_upstream.geojson"),
+        None,
+        str(tmp_path),
+    )
+
+    assert status["status"] == "ok"
+    assert status["ok"] is True
+    assert status["station_basin_count"] == 1
+    assert status["enabled_station_count"] == 1
+    assert status["topology_source"] == "ggn_basin_attributes"
+
+    data = json.loads((tmp_path / "station_network_index.json").read_text(encoding="utf-8"))
+    station = data["by_station_id"]["S_GGN"]
+    assert station["station_basin"] == "B_DOWN"
+    assert station["impact_eligible"] is True
+    assert set(station["upstream_catchment_ids"]) == {"B_DOWN", "B_UP"}
+    assert station["topology_source"] == "ggn_basin_downstream_topology"
+
+    catchments = json.loads((tmp_path / "station_catchments.geojson").read_text(encoding="utf-8"))
+    assert len(catchments["features"]) == 1
+    assert catchments["features"][0]["properties"]["source_schema"] == "GGN_DRAINAGEBASIN"

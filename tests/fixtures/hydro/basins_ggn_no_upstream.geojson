@@ -1,0 +1,1 @@
+{"type": "FeatureCollection", "features": [{"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [[[14, 46], [14.2, 46], [14.2, 46.2], [14, 46.2], [14, 46]]]}, "properties": {"HYDROID": "GGN_B1", "ID": "AT_B1", "IDENTIFIER": "ID_B1", "OUTLET": "", "RELATEDHYDROOBJECT": ""}}]}
