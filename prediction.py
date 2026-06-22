@@ -37,6 +37,7 @@ np = _optional_import("numpy")
 from config import (
     FRAME_INTERVAL_MIN as _FRAME_MIN,
     KINEMATIC_EWMA_ALPHA as _STATIC_EWMA_ALPHA,
+    KINEMATIC_MIN_INTERVAL_DISP_PX as _STATIC_MIN_INTERVAL_DISP_PX,
     ML_CELL_FEATURES as CELL_KEYS,
     ML_FORECAST_HORIZONS_MIN as _STATIC_HORIZONS,
     ML_NUM_FEATURES,
@@ -292,6 +293,14 @@ def _motion_dir_deg_from_vxy(vx_px_min, vy_px_min):
     return (atan2(vx, -vy) * 180.0 / pi + 360.0) % 360.0
 
 
+def _interval_disp_ok(dx, dy, min_disp) -> bool:
+    """B231: True wenn das Intervall genug Centroid-Bewegung fuer eine
+    verlaessliche Richtung hat. min_disp<=0 -> Filter deaktiviert."""
+    if min_disp <= 0.0:
+        return True
+    return sqrt(dx * dx + dy * dy) >= min_disp
+
+
 def _vxy_from_motion_dir_speed(direction_to_deg, speed_kmh=None, normierter_speed=None):
     """Vektor aus Bewegungsrichtung (TO) und Speed. y ist bildtypisch nach Süden positiv."""
     speed = _safe_float(speed_kmh if speed_kmh is not None else normierter_speed)
@@ -404,7 +413,11 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
                 # B115: mittleres echtes Intervall als Ersatz für dt=0-Paare
                 # (doppelte KML-Timestamps). Verhindert Kippen in den Fallback.
                 _fm_recon = _actual_frame_min(history, float(_FRAME_MIN) if _FRAME_MIN else 5.0)
+                # B231: Mindest-Displacement-Schwelle (skalierte px) gegen verrauschte
+                # Richtung quasi-stationaerer Zellen. min_disp=0 -> Filter aus.
+                _min_disp = _runtime_float_value("KINEMATIC_MIN_INTERVAL_DISP_PX", _STATIC_MIN_INTERVAL_DISP_PX)
                 _vx_list, _vy_list = [], []
+                _vx_all, _vy_all = [], []
                 for _i in range(1, n):
                     _h0, _h1 = history[_i - 1], history[_i]
                     _t0 = datetime.strptime(_h0["timestamp"], "%Y-%m-%d_%H-%M-%S")
@@ -413,8 +426,13 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
                     if _dt_min < 0.5:
                         _dt_min = _fm_recon   # B115: doppelter Timestamp → echtes Mittel
                     if _dt_min >= 0.5:   # Mindestintervall 30 s — robuster gegen gleiche Timestamps
-                        _vx_list.append((_h1["x"] - _h0["x"]) / _dt_min)
-                        _vy_list.append((_h1["y"] - _h0["y"]) / _dt_min)
+                        _dx = _h1["x"] - _h0["x"]; _dy = _h1["y"] - _h0["y"]
+                        _vx_all.append(_dx / _dt_min); _vy_all.append(_dy / _dt_min)
+                        if _interval_disp_ok(_dx, _dy, _min_disp):
+                            _vx_list.append(_dx / _dt_min); _vy_list.append(_dy / _dt_min)
+                # B231: alle Intervalle sub-threshold (stationaer) -> ungefiltert nutzen.
+                if not _vx_list:
+                    _vx_list, _vy_list = _vx_all, _vy_all
                 if _vx_list:
                     _n_v = len(_vx_list)
                     # EWMA: Index 0 = ältestes Intervall → geringstes Gewicht

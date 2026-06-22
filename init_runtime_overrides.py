@@ -133,6 +133,7 @@ DEFAULTS: dict = {
     # ── Kinematisches Tracking / EWMA (P27) ──────────────────────────────────
     "TRACK_HISTORY_LEN":    6,
     "KINEMATIC_EWMA_ALPHA": 0.6,
+    "KINEMATIC_MIN_INTERVAL_DISP_PX": 0.0,
 }
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

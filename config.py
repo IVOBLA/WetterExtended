@@ -282,6 +282,13 @@ FRAME_INTERVAL_MIN: float = 5.0
 TRACK_HISTORY_LEN: int = 6          # History-Buffer pro Zelle in Frames (min. 2, empfohlen 4–8)
 KINEMATIC_EWMA_ALPHA: float = 0.6  # EWMA-Faktor: 0.01=gleichgewichtet · 0.99=nur neuester Frame
 
+# B231: Mindest-Centroid-Displacement je History-Intervall (skalierte px).
+# Intervalle mit kleinerer Verschiebung tragen verrauschte Richtung und werden
+# aus der EWMA-Mittelung ausgeschlossen. 0.0 = Filter AUS (= Verhalten vor B231).
+# Bleiben nach Filterung 0 Intervalle -> ungefilterter Fallback (kein Regress).
+# Runtime-ueberschreibbar via runtime_overrides.json (Admin-Panel).
+KINEMATIC_MIN_INTERVAL_DISP_PX: float = 0.0
+
 # Langsam ziehende Zellen: höheres Unwetterpotential durch längere
 # Verweilzeit → erweiterter Warnradius und eigenständiger Bedrohungstyp.
 # Meteorologische Grundlage: Zellen < 15 km/h verursachen den Großteil
