@@ -65,6 +65,55 @@ def _basin_id(feature: dict) -> str:
     return str(_prop(feature, ["catchment_id", "basin_id", "id", "name"], ""))
 
 
+
+def _first_prop(feature: dict, needles: list[str]) -> Any:
+    props = feature.get("properties") or {}
+    low = {str(k).lower(): v for k, v in props.items()}
+    for needle in needles:
+        for key, value in low.items():
+            if needle.lower() in key and value not in (None, ""):
+                return value
+    return None
+
+def _downstream_id(feature: dict) -> str | None:
+    value = _prop(feature, ["nextdownstream", "next_downstream", "downstream_id", "downstream_catchment_id", "unterlieger", "unterlieger_id", "toid", "to_id"], None)
+    if value in (None, ""):
+        value = _first_prop(feature, ["nextdownstream", "downstream", "unterlieger"])
+    vals = _as_list(value)
+    return vals[0] if vals else None
+
+def _feature_id(feature: dict, default: str = "") -> str:
+    return str(_prop(feature, ["catchment_id", "basin_id", "hydro_id", "hybas_id", "gml_id", "id", "identifier", "name"], default))
+
+def _derive_upstream_ids_from_basins(basin_id: str | None, basin_by_id: dict[str, dict]) -> tuple[list[str], str, str]:
+    if not basin_id or basin_id not in basin_by_id:
+        return [], "none", "missing"
+    reverse: dict[str, set[str]] = {}
+    edge_count = 0
+    for bid, basin in basin_by_id.items():
+        ds = _downstream_id(basin)
+        if ds and ds in basin_by_id and ds != bid:
+            reverse.setdefault(ds, set()).add(bid)
+            edge_count += 1
+    if edge_count == 0:
+        return [], "none", "missing"
+    seen = {basin_id}
+    stack = [basin_id]
+    while stack:
+        cur = stack.pop()
+        for up in sorted(reverse.get(cur, set())):
+            if up not in seen:
+                seen.add(up); stack.append(up)
+    return sorted(seen), "ggn_basin_downstream_topology", "derived_from_downstream_attributes"
+
+def _infer_basin_from_flowline(flowline: dict, basin_by_id: dict[str, dict]) -> str | None:
+    for names in (["catchment_id", "basin_id", "drainagebasin", "drainage_basin_id"],):
+        val = _prop(flowline, list(names), None)
+        if val and str(val) in basin_by_id:
+            return str(val)
+    val = _first_prop(flowline, ["catchment", "basin", "drainagebasin"])
+    return str(val) if val and str(val) in basin_by_id else None
+
 def _union_basins(features: list[dict]) -> dict | None:
     if not features:
         return None
@@ -98,7 +147,7 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
         _write_json(os.path.join(output_dir, "hydro_static_status.json"), status)
         return status
 
-    basin_by_id = {_basin_id(b): b for b in basins if _basin_id(b)}
+    basin_by_id = {_feature_id(b): b for b in basins if _feature_id(b)}
     index = []
     station_features = []
     catchment_features = []
@@ -122,9 +171,6 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
         containing = [b for b in basins if geometry_contains_point(b.get("geometry") or {}, lon, lat)]
         basin = containing[0] if containing else None
         basin_id = _basin_id(basin) if basin else None
-        # Aktuell wird keine automatische Fließtopologie aus dem Gewässernetz berechnet.
-        # Produktive Attribution nutzt konservativ nur explizit gelieferte upstream_catchment_ids;
-        # Flowline-Snapping unten ist ausschließlich Diagnose und liefert keine Fließwegdistanz.
         declared_upstream = _as_list(_prop(st, ["upstream_catchment_ids", "upstream_ids"], None)) or _as_list(_prop(basin or {}, ["upstream_catchment_ids", "upstream_ids"], None))
         upstream_ids = [uid for uid in declared_upstream if uid in basin_by_id]
         topology_source = "conservative_declared_upstream_catchments" if upstream_ids else "none"
@@ -133,7 +179,8 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
         elif declared_upstream:
             upstream_source_quality = "declared_upstream_catchment_ids_unresolved"
         else:
-            upstream_source_quality = "missing"
+            derived, topology_source, upstream_source_quality = _derive_upstream_ids_from_basins(basin_id, basin_by_id)
+            upstream_ids = derived
         eligible_basins = [basin_by_id[uid] for uid in upstream_ids]
         union_geom = _union_basins(eligible_basins) if upstream_ids else None
         impact_eligible = bool(union_geom and upstream_ids and SHAPELY_AVAILABLE)
@@ -184,7 +231,9 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
         if impact_eligible:
             catchment_features.append({"type": "Feature", "geometry": union_geom, "properties": item})
     enabled = sum(1 for i in index if i.get("impact_eligible"))
-    status = {"ok": bool(enabled), "status": "ok" if enabled else "hydro_static_missing", "generated_at": datetime.now(timezone.utc).isoformat(), "station_count": len(index), "enabled_station_count": enabled}
+    matched = sum(1 for i in index if i.get("station_basin"))
+    status_value = "hydro_ready" if enabled else ("upstream_topology_missing" if matched else "hydro_static_missing")
+    status = {"ok": bool(enabled), "status": status_value, "message": "Hydro-Static bereit." if enabled else "Hydro-Static vorbereitet, aber keine belastbare Upstream-Topologie verfügbar.", "generated_at": datetime.now(timezone.utc).isoformat(), "station_count": len(index), "static_station_count": len(index), "basin_count": len(basins), "flowline_count": len(flowlines), "station_basin_match_count": matched, "impact_eligible_station_count": enabled, "enabled_station_count": enabled, "missing": [], "errors": [], "warnings": ["upstream_topology_missing"] if matched and not enabled else []}
     _write_json(os.path.join(output_dir, "station_network_index.json"), {"stations": index, "by_station_id": {str(i.get("station_id")): i for i in index}})
     _write_json(os.path.join(output_dir, "hydro_stations.geojson"), {"type": "FeatureCollection", "features": station_features})
     _write_json(os.path.join(output_dir, "station_catchments.geojson"), {"type": "FeatureCollection", "features": catchment_features})

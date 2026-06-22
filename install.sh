@@ -813,7 +813,7 @@ if [[ "$SYSTEM_DEPS_ENABLED" == true && ( "$MODE" == "full" || "${UPDATE_DEPS:-f
     APT_PKGS=(
         python3-venv python3-dev python3-pip
         git curl wget openssh-client build-essential
-        libgdal-dev gdal-bin           # für rasterio
+        libgdal-dev gdal-bin unzip     # für rasterio und Hydro-Static-OGR
         libatlas-base-dev              # NumPy BLAS auf Pi
         libopencv-dev                  # OpenCV system-libs
         libhdf5-dev                    # TensorFlow h5
@@ -1062,6 +1062,56 @@ log_info "Verzeichnisstruktur erstellt."
 if [[ ! -f "$TARGET/train_data/hydro/static/generated/station_catchments.geojson" || ! -f "$TARGET/train_data/hydro/static/generated/station_network_index.json" ]]; then
     log_warn "Hydro-Impact benötigt lokale Gewässer-/Einzugsgebietsdaten."
     log_warn "Installation wird fortgesetzt; lege GeoJSON-Quellen unter train_data/hydro/static/source/ ab und baue sie später über den Hydro-Static-Import."
+fi
+
+# ============================================================================== 
+# PHASE 6a — Hydro-Static automatisch installieren (nur Full-Modus)
+# ============================================================================== 
+if [[ "$MODE" == "full" ]]; then
+    CURRENT_PHASE="Phase 6a — Hydro-Static automatisch installieren"
+    log_step "Phase 6a — Hydro-Static automatisch installieren"
+    HYDRO_STATIC_PKGS=(gdal-bin libgdal-dev unzip)
+    log_info "Prüfe Hydro-Static-Systemwerkzeuge: ${HYDRO_STATIC_PKGS[*]} sowie curl/wget"
+    command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 || log_warn "Weder curl noch wget gefunden; Python-Download versucht trotzdem den Auto-Importer."
+    if command -v ogr2ogr >/dev/null 2>&1 && command -v ogrinfo >/dev/null 2>&1; then
+        ogr2ogr --version || true
+        ogrinfo --version || true
+    else
+        log_warn "GDAL/OGR nicht vollständig verfügbar; installiere im Full-Modus über APT, falls System-Dependencies aktiv sind."
+        if [[ "$SYSTEM_DEPS_ENABLED" == true ]]; then
+            sudo apt-get install -y "${HYDRO_STATIC_PKGS[@]}" curl wget 2>&1 | grep -E "^(Inst|Err)" || true
+        fi
+    fi
+    PYTHON="$VENV/bin/python3"
+    [[ -x "$PYTHON" ]] || PYTHON="python3"
+    log_info "Starte Hydro-Static Auto-Importer: $PYTHON hydro_static_import.py --auto"
+    if "$PYTHON" "$TARGET/hydro_static_import.py" --auto; then
+        log_info "Hydro-Static Auto-Importer abgeschlossen."
+    else
+        log_warn "Hydro-Static Auto-Importer meldete Fehler; Installation wird fortgesetzt."
+    fi
+    "$PYTHON" - <<'HYDROSTATICPY' "$TARGET/train_data/hydro/static/generated/hydro_static_status.json" || true
+import json, sys
+p=sys.argv[1]
+try:
+    s=json.load(open(p, encoding='utf-8'))
+except Exception as exc:
+    print(f"Hydro-Static Status: invalid_static_json ({exc})")
+    raise SystemExit(0)
+downloads=s.get('downloads') or {}
+dstates=','.join(sorted({str(v.get('status')) for v in downloads.values() if isinstance(v, dict)})) or 'skipped'
+print(f"Hydro-Static Status: {s.get('status')}")
+print(f"Live-Hydro Stationen: {s.get('live_station_count', s.get('station_count', 0))}")
+print(f"Statische Stationen: {s.get('static_station_count', s.get('station_count', 0))}")
+print(f"Basins: {s.get('basin_count', 0)}")
+print(f"Flowlines: {s.get('flowline_count', 0)}")
+print(f"Impact-fähige Stationen: {s.get('impact_eligible_station_count', 0)}")
+print(f"Downloads: {dstates}")
+missing=s.get('missing') or []
+if missing: print("Fehlende Dateien: " + ", ".join(map(str, missing)))
+for err in s.get('errors') or []: print(f"Hydro-Static Fehler: {err}")
+for warn in s.get('warnings') or []: print(f"Hydro-Static Hinweis: {warn}")
+HYDROSTATICPY
 fi
 
 # Size-Regressor-Kompatibilität prüfen, ohne Trainings-/Hydro-/Langzeitdaten zu löschen.

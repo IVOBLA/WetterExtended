@@ -79,3 +79,7 @@ Stations-Overrides dürfen die Laufzeitkonfiguration steuern, ersetzen aber nich
 Die Hydro-GET-API verwendet ein einheitliches Envelope-Format `ok/status/data`. Frontend-Layer müssen GeoJSON defensiv als `response.data || response` lesen; fehlende oder kaputte FeatureCollections ergeben leere Layer. Linien zwischen Zelle und Pegel werden nur dargestellt, wenn sowohl Zell- als auch Stationskoordinaten vorhanden sind.
 
 Hydro-Netzwerkfehler ohne HTTP-Response werden unter `train_data/external_responses/hydro/` mit `status_code=0`, Fehlertyp, Fehlermeldung sowie Cache-/Fallback-Markierung protokolliert und erscheinen damit im Debug-Export.
+
+## Auto-Installation der statischen Hydro-Basis
+
+Im Full-Installationsmodus erzeugt `install.sh` die statische Hydro-Basis über `hydro_static_import.py --auto`. Die Daten stammen aus offiziellen freien INSPIRE-/Kärnten-Quellen, werden lokal gecached und nach EPSG:4326 GeoJSON konvertiert. Produktiver Hydro-Impact bleibt konservativ: `impact_eligible=true` wird nur gesetzt, wenn eine belastbare Upstream-Topologie aus expliziten Upstream-Catchments oder nachvollziehbaren Downstream-/GGN-Attributen vorliegt. Fehlt diese Topologie, meldet der Status `upstream_topology_missing` und Distanz-/Snapping-Informationen dienen nur der Diagnose.
