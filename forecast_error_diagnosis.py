@@ -166,6 +166,10 @@ def is_valid_forecast_error_detail(row: dict, *, now_utc: datetime | None = None
     ):
         return False, "invalid_time_order"
 
+    match_type = str(row.get("match_type") or "").strip().lower()
+    if match_type == "nn_rejected":
+        return False, "rejected_match"
+
     if _f(row.get("forecast_error_km")) is None and not _truthy(row.get("missed")) and not _truthy(row.get("no_target_frame")):
         return False, "missing_error_metric"
     return True, None

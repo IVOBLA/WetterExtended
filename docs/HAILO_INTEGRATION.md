@@ -2821,7 +2821,7 @@ Phase A (Stabilisierung) — **erledigt**.
 
 ## B232 — nn_rejected-Zeilen kontaminierten die Fehler-Diagnose (2026-06-22)
 - Ursache (Folge von B228): `nn_rejected`-Detailzeilen übergaben `dist_km` → `_detail_record` setzte `forecast_error_km`/`match_distance_km`; `is_valid_forecast_error_detail` wertete sie als verifiziert → MAE/Worst-Listen/Attribution verfälscht.
-- Fix: `nn_rejected` übergibt `None` (wie `missed`/`none`); Diagnose schließt sie als `missing_error_metric` aus. nn_rejected-Zähler/Buckets unverändert.
+- Fix: `nn_rejected` übergibt `None` (wie `missed`/`none`); Diagnose schließt `nn_rejected` jetzt explizit als `rejected_match` aus, auch wenn alte Detailzeilen noch eine Distanz oder `missed=true` enthalten. nn_rejected-Zähler/Buckets unverändert.
 - Quelle: Codex-Inline-Review PR #783. Test: `tests/test_b232_nn_rejected_no_diag_contamination.py`.
 
 ## B233 — Phase-9-Tests verschmutzten das echte API-Tagesbudget (2026-06-22)
