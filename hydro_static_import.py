@@ -59,10 +59,72 @@ def _count_geojson(path: str) -> int:
         return 0
 
 
+
+def _config_url(name: str, fallback: str = "") -> str:
+    return str(getattr(config, name, "") or getattr(config, fallback, "") or "")
+
+
+def _download_url_to_path(url: str, paths: dict[str, str], default_name: str) -> Path:
+    name = Path(urlparse(url).path).name or default_name
+    return Path(paths["downloads"]) / name
+
+
+def _valid_cached_file(path: Path) -> bool:
+    if not path.exists() or path.stat().st_size <= 0:
+        return False
+    if path.suffix.lower() == ".zip":
+        try:
+            return zipfile.is_zipfile(path) and not zipfile.ZipFile(path).testzip()
+        except Exception:
+            return False
+    return True
+
+
+def _normalize_bbox(value: Any) -> list[float] | None:
+    if isinstance(value, dict):
+        try:
+            return [float(value["west"]), float(value["south"]), float(value["east"]), float(value["north"])]
+        except Exception:
+            return None
+    if isinstance(value, (list, tuple)) and len(value) == 4:
+        try:
+            return [float(v) for v in value]
+        except Exception:
+            return None
+    return None
+
+
+def _feature_identifier(props: dict[str, Any]) -> str:
+    candidates = ["HYDROID", "ID", "IDENTIFIER", "INSPIREID_IDENTIFIER_LOCALID", "OBJECTID"]
+    lower = {str(k).lower(): v for k, v in props.items()}
+    for key in candidates:
+        val = props.get(key)
+        if val in (None, ""):
+            val = lower.get(key.lower())
+        if val not in (None, ""):
+            return str(val)
+    return ""
+
+
+def normalize_basin_properties(path: str) -> bool:
+    p = Path(path)
+    data = json.loads(p.read_text(encoding="utf-8"))
+    changed = False
+    for idx, feature in enumerate(data.get("features") or [], start=1):
+        props = feature.setdefault("properties", {})
+        ident = _feature_identifier(props) or str(idx)
+        for key in ("catchment_id", "basin_id", "id"):
+            if props.get(key) in (None, ""):
+                props[key] = ident
+                changed = True
+    if changed:
+        p.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return True
+
 def _default_downloads(paths: dict[str, str]) -> dict[str, dict]:
     return {
-        "basins": {"url": getattr(config, "HYDRO_STATIC_BASINS_URL", ""), "path": str(Path(paths["downloads"]) / Path(getattr(config, "HYDRO_STATIC_BASINS_URL", "basins.zip")).name), "status": "skipped", "size_bytes": 0},
-        "flowlines": {"url": getattr(config, "HYDRO_STATIC_FLOWLINES_URL", ""), "path": str(Path(paths["downloads"]) / Path(getattr(config, "HYDRO_STATIC_FLOWLINES_URL", "flowlines.zip")).name), "status": "skipped", "size_bytes": 0},
+        "basins": {"url": _config_url("HYDRO_DRAINAGEBASIN_GDB_URL", "HYDRO_STATIC_BASINS_URL"), "path": str(_download_url_to_path(_config_url("HYDRO_DRAINAGEBASIN_GDB_URL", "HYDRO_STATIC_BASINS_URL"), paths, "basins.zip")), "status": "skipped", "size_bytes": 0},
+        "flowlines": {"url": _config_url("HYDRO_FLOWLINES_GDB_URL", "HYDRO_STATIC_FLOWLINES_URL"), "path": str(_download_url_to_path(_config_url("HYDRO_FLOWLINES_GDB_URL", "HYDRO_STATIC_FLOWLINES_URL"), paths, "flowlines.zip")), "status": "skipped", "size_bytes": 0},
         "watercourse": {"url": getattr(config, "HYDRO_STATIC_WATERCOURSE_URL", ""), "path": str(Path(paths["downloads"]) / Path(getattr(config, "HYDRO_STATIC_WATERCOURSE_URL", "watercourse.zip")).name), "status": "skipped", "size_bytes": 0},
     }
 
@@ -126,10 +188,12 @@ def import_station_json(url: str | None = None, static_dir: str | None = None, t
 
 
 def _download(url: str, paths: dict[str,str], key: str, force: bool=False) -> dict:
-    target = Path(paths["downloads"]) / Path(urlparse(url).path).name
+    if not url:
+        return {"url": url, "path": "", "status": "skipped", "size_bytes": 0, "error": "missing_url"}
+    target = _download_url_to_path(url, paths, f"{key}.zip")
     ttl = int(getattr(config, "HYDRO_STATIC_DOWNLOAD_TTL_DAYS", 365)) * 86400
     info = {"url": url, "path": str(target), "status": "skipped", "size_bytes": target.stat().st_size if target.exists() else 0}
-    if target.exists() and target.stat().st_size > 0 and not force and time.time() - target.stat().st_mtime < ttl:
+    if _valid_cached_file(target) and not force and time.time() - target.stat().st_mtime < ttl:
         info["status"] = "cached"; return info
     try:
         from external_response_logger import persist_requests_response, persist_external_response
@@ -137,6 +201,8 @@ def _download(url: str, paths: dict[str,str], key: str, force: bool=False) -> di
         r = retry_get(url, service="hydro_static_download", timeout=60, max_retries=1, abort_on_4xx=True, breaker_service="hydro_static_download")
         persist_requests_response("hydro", "GET", r, fallback=False)
         target.write_bytes(r.content)
+        if not _valid_cached_file(target):
+            raise RuntimeError("Download ist leer oder kein gültiges ZIP")
         info.update(status="downloaded", size_bytes=target.stat().st_size)
     except Exception as exc:
         try:
@@ -147,9 +213,9 @@ def _download(url: str, paths: dict[str,str], key: str, force: bool=False) -> di
     return info
 
 
-def download_basins(static_dir: str | None=None, force: bool=False) -> dict: return _download(getattr(config,"HYDRO_STATIC_BASINS_URL"), ensure_static_dirs(static_dir), "basins", force)
+def download_basins(static_dir: str | None=None, force: bool=False) -> dict: return _download(_config_url("HYDRO_DRAINAGEBASIN_GDB_URL", "HYDRO_STATIC_BASINS_URL"), ensure_static_dirs(static_dir), "basins", force)
 def download_flowlines(static_dir: str | None=None, force: bool=False) -> dict:
-    paths=ensure_static_dirs(static_dir); first=_download(getattr(config,"HYDRO_STATIC_FLOWLINES_URL"), paths, "flowlines", force)
+    paths=ensure_static_dirs(static_dir); first=_download(_config_url("HYDRO_FLOWLINES_GDB_URL", "HYDRO_STATIC_FLOWLINES_URL"), paths, "flowlines", force)
     return first if first["status"]!="failed" else _download(getattr(config,"HYDRO_STATIC_WATERCOURSE_URL"), paths, "watercourse", force)
 
 def _ogr_layers(src: str) -> list[str]:
@@ -158,7 +224,9 @@ def _ogr_layers(src: str) -> list[str]:
         layers=[]
         for line in out.splitlines():
             line=line.strip()
-            if line[:1].isdigit() and ":" in line: layers.append(line.split(":",1)[1].split("(",1)[0].strip())
+            if line.lower().startswith("layer:"):
+                layers.append(line.split(":",1)[1].split("(",1)[0].strip())
+            elif line[:1].isdigit() and ":" in line: layers.append(line.split(":",1)[1].split("(",1)[0].strip())
         return layers
     except Exception: return []
 
@@ -180,11 +248,14 @@ def convert_to_geojson(src: str, dst: str, kind: str, bbox: list[float] | None=N
     prefs = ["drainagebasin","catchment"] if kind=="basins" else ["watercourselink","watercourse","flowline"]
     layer = next((l for l in layers if any(p in l.lower() for p in prefs)), layers[0] if layers else None)
     cmd=["ogr2ogr","-f","GeoJSON","-t_srs","EPSG:4326",dst,dataset]
-    if bbox or getattr(config,"HYDRO_STATIC_BBOX", None): cmd += ["-spat", *map(str, bbox or getattr(config,"HYDRO_STATIC_BBOX"))]
+    spat = _normalize_bbox(bbox) or _normalize_bbox(getattr(config,"HYDRO_STATIC_BBOX", None))
+    if spat: cmd += ["-spat", *map(str, spat)]
     if layer: cmd.append(layer)
     res=subprocess.run(cmd, text=True, capture_output=True, check=False, timeout=300)
     if res.returncode != 0: raise RuntimeError((res.stderr or res.stdout or "ogr2ogr fehlgeschlagen").strip())
-    return Path(dst).exists() and Path(dst).stat().st_size > 0
+    ok = Path(dst).exists() and Path(dst).stat().st_size > 0
+    if ok and kind == "basins": normalize_basin_properties(dst)
+    return ok
 
 
 def ensure_live_json(static_dir: str | None=None) -> str:
@@ -202,12 +273,12 @@ def build_static_hydro(static_dir: str | None = None, downloads: dict | None=Non
     return status
 
 
-def auto(static_dir: str | None=None) -> dict:
+def auto(static_dir: str | None=None, force: bool=False) -> dict:
     paths=ensure_static_dirs(static_dir); downloads=_default_downloads(paths); errors=[]; warnings=[]
     try: import_station_json(ensure_live_json(static_dir), static_dir)
     except Exception as exc: errors.append(f"live_station_import: {type(exc).__name__}: {exc}")
-    downloads["basins"] = download_basins(static_dir)
-    downloads["flowlines"] = download_flowlines(static_dir)
+    downloads["basins"] = download_basins(static_dir, force=force)
+    downloads["flowlines"] = download_flowlines(static_dir, force=force)
     try:
         if downloads["basins"].get("status") != "failed": convert_to_geojson(downloads["basins"]["path"], paths["basins_source"], "basins")
         else: errors.append(downloads["basins"].get("error","basins download failed"))
@@ -240,13 +311,13 @@ def verify(static_dir: str | None=None) -> dict: return status(static_dir) if Pa
 def _main() -> int:
     import argparse
     p=argparse.ArgumentParser(description="Hydro-Static Auto-Importer")
-    p.add_argument("--static-dir", default=None); p.add_argument("--status", action="store_true"); p.add_argument("--auto", action="store_true"); p.add_argument("--download-all", action="store_true"); p.add_argument("--download-basins", action="store_true"); p.add_argument("--download-flowlines", action="store_true"); p.add_argument("--build", action="store_true"); p.add_argument("--verify", action="store_true"); p.add_argument("--import-stations"); p.add_argument("--allow-url-import", action="store_true")
+    p.add_argument("--static-dir", default=None); p.add_argument("--force", action="store_true"); p.add_argument("--status", action="store_true"); p.add_argument("--auto", action="store_true"); p.add_argument("--download-all", action="store_true"); p.add_argument("--download-basins", action="store_true"); p.add_argument("--download-flowlines", action="store_true"); p.add_argument("--build", action="store_true"); p.add_argument("--verify", action="store_true"); p.add_argument("--import-stations"); p.add_argument("--allow-url-import", action="store_true")
     a=p.parse_args(); out=None
     if a.status: out=status(a.static_dir)
-    elif a.auto: out=auto(a.static_dir)
-    elif a.download_all: paths=ensure_static_dirs(a.static_dir); out={"downloads":{"basins":download_basins(a.static_dir),"flowlines":download_flowlines(a.static_dir)}}
-    elif a.download_basins: out=download_basins(a.static_dir)
-    elif a.download_flowlines: out=download_flowlines(a.static_dir)
+    elif a.auto: out=auto(a.static_dir, force=a.force)
+    elif a.download_all: paths=ensure_static_dirs(a.static_dir); out={"downloads":{"basins":download_basins(a.static_dir, force=a.force),"flowlines":download_flowlines(a.static_dir, force=a.force)}}
+    elif a.download_basins: out=download_basins(a.static_dir, force=a.force)
+    elif a.download_flowlines: out=download_flowlines(a.static_dir, force=a.force)
     elif a.import_stations: out={"path": import_station_json(a.import_stations, a.static_dir, allow_url_import=a.allow_url_import)}
     elif a.build: out=build_static_hydro(a.static_dir)
     elif a.verify: out=verify(a.static_dir)

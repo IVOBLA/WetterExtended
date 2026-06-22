@@ -182,6 +182,7 @@ LOCAL_SOURCE=""
 INSTALL_HAILO=true
 INSTALL_NODE=true
 SYSTEM_DEPS_ENABLED=true
+FORCE_DOWNLOAD=false
 ENABLE_SERVICES=false
 ENABLE_DEBUG_EXPORT_GIT=true
 DEBUG_EXPORT_BRANCH="debug-export-latest"
@@ -273,6 +274,7 @@ while [[ $# -gt 0 ]]; do
                           shift 2 ;;
         --enable-services) ENABLE_SERVICES=true; shift ;;
         --no-system-deps) SYSTEM_DEPS_ENABLED=false; shift ;;
+        --force)          FORCE_DOWNLOAD=true; shift ;;
         --no-hailo)       INSTALL_HAILO=false; NO_HAILO=1; shift ;;
         --no-node)        INSTALL_NODE=false; NO_NODE=1; shift ;;
         --no-training)    LOCAL_TRAINING_FLAG=false; shift ;;
@@ -1070,34 +1072,39 @@ fi
 if [[ "$MODE" == "full" ]]; then
     CURRENT_PHASE="Phase 6a — Hydro-Static automatisch installieren"
     log_step "Phase 6a — Hydro-Static automatisch installieren"
-    HYDRO_STATIC_PKGS=(gdal-bin libgdal-dev unzip)
-    log_info "Prüfe Hydro-Static-Systemwerkzeuge: ${HYDRO_STATIC_PKGS[*]} sowie curl/wget"
-    command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 || log_warn "Weder curl noch wget gefunden; Python-Download versucht trotzdem den Auto-Importer."
+    HYDRO_STATIC_PKGS=(gdal-bin unzip curl jq)
+    log_info "Prüfe Hydro-Static-Systemwerkzeuge: ${HYDRO_STATIC_PKGS[*]}"
+    for _tool in curl jq unzip ogrinfo ogr2ogr; do
+        command -v "$_tool" >/dev/null 2>&1 || log_warn "Hydro-Static-Werkzeug fehlt: $_tool"
+    done
     if command -v ogr2ogr >/dev/null 2>&1 && command -v ogrinfo >/dev/null 2>&1; then
         ogr2ogr --version || true
         ogrinfo --version || true
     else
         log_warn "GDAL/OGR nicht vollständig verfügbar; installiere im Full-Modus über APT, falls System-Dependencies aktiv sind."
         if [[ "$SYSTEM_DEPS_ENABLED" == true ]]; then
-            sudo apt-get install -y "${HYDRO_STATIC_PKGS[@]}" curl wget 2>&1 | grep -E "^(Inst|Err)" || true
+            sudo apt-get install -y "${HYDRO_STATIC_PKGS[@]}" 2>&1 | grep -E "^(Inst|Err)" || true
         fi
     fi
     PYTHON="$VENV/bin/python3"
     [[ -x "$PYTHON" ]] || PYTHON="python3"
-    log_info "Starte Hydro-Static Auto-Importer: $PYTHON hydro_static_import.py --auto"
-    if "$PYTHON" "$TARGET/hydro_static_import.py" --auto; then
+    HYDRO_AUTO_ARGS=(--auto)
+    [[ "$FORCE_DOWNLOAD" == true ]] && HYDRO_AUTO_ARGS+=(--force)
+    log_info "Starte Hydro-Static Auto-Importer: $PYTHON hydro_static_import.py ${HYDRO_AUTO_ARGS[*]}"
+    if "$PYTHON" "$TARGET/hydro_static_import.py" "${HYDRO_AUTO_ARGS[@]}"; then
         log_info "Hydro-Static Auto-Importer abgeschlossen."
     else
         log_warn "Hydro-Static Auto-Importer meldete Fehler; Installation wird fortgesetzt."
     fi
-    "$PYTHON" - <<'HYDROSTATICPY' "$TARGET/train_data/hydro/static/generated/hydro_static_status.json" || true
+    set +e
+    "$PYTHON" - <<'HYDROSTATICPY' "$TARGET/train_data/hydro/static/generated/hydro_static_status.json"
 import json, sys
 p=sys.argv[1]
 try:
     s=json.load(open(p, encoding='utf-8'))
 except Exception as exc:
     print(f"Hydro-Static Status: invalid_static_json ({exc})")
-    raise SystemExit(0)
+    raise SystemExit(2)
 downloads=s.get('downloads') or {}
 dstates=','.join(sorted({str(v.get('status')) for v in downloads.values() if isinstance(v, dict)})) or 'skipped'
 print(f"Hydro-Static Status: {s.get('status')}")
@@ -1111,7 +1118,18 @@ missing=s.get('missing') or []
 if missing: print("Fehlende Dateien: " + ", ".join(map(str, missing)))
 for err in s.get('errors') or []: print(f"Hydro-Static Fehler: {err}")
 for warn in s.get('warnings') or []: print(f"Hydro-Static Hinweis: {warn}")
+if s.get("status") in {"hydro_static_download_failed", "hydro_static_convert_failed", "hydro_station_import_failed", "hydro_static_missing", "invalid_static_json"}:
+    raise SystemExit(2)
 HYDROSTATICPY
+    _HYDRO_STATUS_RC=$?
+    set -e
+    if [[ $_HYDRO_STATUS_RC -ne 0 ]]; then
+        log_warn "Hydro-Static konnte nicht vollständig automatisch eingerichtet werden."
+        note_manual "cd $TARGET && source venv/bin/activate"
+        note_manual "sudo apt-get update && sudo apt-get install -y gdal-bin unzip curl jq"
+        note_manual "python3 hydro_static_import.py --auto --force"
+        note_manual "Falls Downloads weiter fehlschlagen: curl -L -o train_data/hydro/static/source/_downloads/AT_DRAINAGEBASIN_GDB.zip https://inspire.lfrz.gv.at/000801/ds/AT_DRAINAGEBASIN_GDB.zip && python3 hydro_static_import.py --auto"
+    fi
 fi
 
 # Size-Regressor-Kompatibilität prüfen, ohne Trainings-/Hydro-/Langzeitdaten zu löschen.
