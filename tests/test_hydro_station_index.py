@@ -17,7 +17,8 @@ def test_build_station_index_assigns_quality_and_outputs(tmp_path):
         str(FIX / "flowlines_sample.geojson"),
         str(tmp_path),
     )
-    assert status["status"] == "ok"
+    assert status["ok"] is True
+    assert status["status"] == "upstream_topology_partial"
     data = json.loads((tmp_path / "station_network_index.json").read_text())
     stations = {s["station_id"]: s for s in data["stations"]}
     assert stations["S1"]["catchment_id"] == "B1"
@@ -37,6 +38,25 @@ def test_build_station_index_assigns_quality_and_outputs(tmp_path):
     assert (tmp_path / "hydro_stations.geojson").exists()
     assert (tmp_path / "station_catchments.geojson").exists()
     assert (tmp_path / "hydro_static_status.json").exists()
+
+
+@pytest.mark.skipif(not hydro_station_index.SHAPELY_AVAILABLE, reason="Shapely fehlt: keine produktive Hydro-Catchment-Union")
+def test_hydro_static_status_ok_true_keeps_detailed_status(tmp_path):
+    status = build_station_index(
+        str(FIX / "hydro_stations_upstream_union.geojson"),
+        str(FIX / "basins_adjacent_union.geojson"),
+        None,
+        str(tmp_path),
+    )
+
+    written_status = json.loads((tmp_path / "hydro_static_status.json").read_text(encoding="utf-8"))
+    assert status["ok"] is True
+    assert written_status["ok"] is True
+    assert status["status"] in {
+        "upstream_topology_partial",
+        "hydro_static_ready",
+    }
+    assert written_status["status"] == status["status"]
 
 
 def test_missing_basins_does_not_crash(tmp_path):
@@ -111,7 +131,8 @@ def test_upstream_catchment_ids_create_valid_geometric_union_and_impacts(tmp_pat
         str(tmp_path),
     )
 
-    assert status["status"] == "ok"
+    assert status["ok"] is True
+    assert status["status"] == "hydro_static_ready"
     catchments = json.loads((tmp_path / "station_catchments.geojson").read_text(encoding="utf-8"))
     assert len(catchments["features"]) == 1
 
@@ -233,8 +254,8 @@ def test_ggn_explicit_upstream_relationship_enables_real_catchment(tmp_path, mon
         str(tmp_path),
     )
 
-    assert status["status"] == "ok"
     assert status["ok"] is True
+    assert status["status"] == "hydro_static_ready"
     assert status["station_basin_count"] == 1
     assert status["enabled_station_count"] == 1
     assert status["topology_source"] == "ggn_basin_attributes"
