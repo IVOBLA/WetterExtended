@@ -36,6 +36,9 @@ BBOX_KAERNTEN_EXTENDED = {
     "west": 12.60,
 }
 
+# Einheitliche dunkelblaue Grundfarbe fuer aktuelle Zellpolygone.
+CELL_COLOR = "#0b1f5e"
+
 # --------------------------------------
 # Skywarn export snapshot (24h-Debug-Export only)
 # --------------------------------------

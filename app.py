@@ -4623,7 +4623,10 @@ def api_risk_grid():
     _FAST_CELL_KMH    = _safe_float(runtime_config.get("RISK_FAST_CELL_KMH", 30.0), 30.0)
     _STATIONARY_BOOST = _safe_float(runtime_config.get("RISK_STATIONARY_BOOST", 0.8), 0.8)
     RISK_COLORS     = {1: "#facc15", 2: "#f97316", 3: "#dc2626"}
-    IR_CELL_COLOR   = CELL_COLOR      # IR nutzt gleiche dunkelblaue Grundfarbe wie Zellpolygone
+    DEFAULT_CELL_COLOR = str(getattr(cfg, "CELL_COLOR", "#1e3a8a") or "#1e3a8a")
+    IR_CELL_COLOR = str(runtime_config.get(
+        "IR_CELL_COLOR", runtime_config.get("CELL_COLOR", DEFAULT_CELL_COLOR)
+    ) or DEFAULT_CELL_COLOR)  # IR nutzt gleiche dunkelblaue Grundfarbe wie Zellpolygone
     INT_WEIGHT  = {"leicht": 1.0, "maessig": 2.0, "stark": 3.0, "extrem": 4.0}
     INT_WEIGHT_ALT = {"leicht": 1.0, "mäßig": 2.0, "stark": 3.0, "extrem": 4.0}
 
