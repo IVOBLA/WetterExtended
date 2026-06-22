@@ -2811,3 +2811,10 @@ Phase A (Stabilisierung) — **erledigt**.
 - Ursache: Nearest-Neighbor-Matches bis zum vollen Suchradius (25 km) flossen als „verifiziert" ins MAE — auch Fehlzuordnungen zu Nachbarzellen → MAE/Drift aufgebläht.
 - Fix: strenge, runtime-pflegbare Schwelle `VERIFICATION_NN_MAX_MATCH_KM`; NN jenseits = Bucket `nn_rejected`, nicht in MAE/Hit-Rate/Drift. ID-/cell_id-Treffer distanzunabhängig gültig (Lineage). Match-Typ-Anteile geloggt.
 - Test: `tests/test_b228_nn_match_threshold.py`.
+
+## Z02 — ML-Shadow-Scoring / Re-Gating (geplant, 2026-06-22)
+- 🔲 geplant — P52: `prediction.py` Schattenfelder + Schalter `ML_SHADOW_SCORING_ENABLED`
+- 🔲 geplant — P53: `accuracy_tracker.py` Schattenverifikation → `breakdown_by_forecast_mode["ml"]`
+- 🔲 geplant — P54: Admin/Frontend Champion-vs-Challenger-`ml_mae` grafisch
+- Zweck: bricht den verifizierten Gate-Deadlock (ML gegated → kein ML-Forecast → `ml_mae`
+  eingefroren → bleibt gegated). Spezifikation: `docs/ML_SHADOW_SCORING.md`.
