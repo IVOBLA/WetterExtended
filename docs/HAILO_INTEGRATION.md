@@ -2864,3 +2864,40 @@ Phase A (Stabilisierung) — **erledigt**.
 - Ursache: Sub-Pixel-Jitter quasi-stationärer Zellen erzeugte verrauschte Richtung in der EWMA-Bewegungsableitung (`prediction._append_kinematic`).
 - Fix: `KINEMATIC_MIN_INTERVAL_DISP_PX` filtert sub-threshold Intervalle (Helper `_interval_disp_ok`). Default 0.0 = regressionsneutral; Fallback ungefiltert wenn alle Intervalle sub-threshold.
 - Test: `tests/test_b231_min_interval_disp.py`.
+
+## IR-Frühphase / Vorläufer entkoppelt vom Radar-Skip (Juni 2026)
+
+Status: ERLEDIGT
+
+Die IR108-Pipeline läuft nun radarunabhängig über `run_ir_precursor_pipeline()`.
+Wenn ARSO-Radar per 304/Content-Hash unverändert ist, prüft der Loop trotzdem
+auf ein frisches `train_data/cloud/ir108_*.tif` und aktualisiert IR-Detektionen
+sowie IR-Lineage aus dem vorhandenen EUMETView-/Cloud-Height-Cache. Dadurch
+entstehen keine zusätzlichen kostenpflichtigen APIs und keine unnötigen
+Fremdrequests; ohne frisches TIFF bricht die Pipeline sauber ab.
+
+Die Erkennung ist mehrstufig:
+- `ir_watch_candidate`: IR-Frühphase / mögliche Gewitterwolke, öffentlich nur
+  bei frischen Daten, Mindestscore und konvektivem Signal.
+- `ir_pre_cb`: stärkerer IR-Vorläufer.
+- `ir_cb_precursor`: fachlich plausibler CB-IR-Vorläufer.
+- `radar_confirmed`: Radar übernimmt die bestehende `cell_id`; der IR-Vorläufer
+  wird nicht doppelt als IR-only-Objekt angezeigt.
+
+Höhe ist jetzt Teil von Detektion, Scoring und API-Ausgabe
+(`cloud_height_m`, Confidence, Quelle, Trend, `height_stage`, Maximum). Die alte
+harte 230-K-Schwelle bleibt als CB-Stufe erhalten, ist für frühe Anzeige aber zu
+spät: Bei Standardwerten ca. 290 K Bodentemperatur, 600 m Gelände und 6,5 K/km
+Lapse Rate entspricht 230 K ungefähr 9,8 km MSL. Frühphasen beginnen daher
+konfigurierbar ab 245 K bzw. ca. 6500 m, aber Höhe allein löst weiterhin keine
+harte Gewitterwarnung aus. CB-only bleibt verbindlich: nötig ist mindestens ein
+konvektives Signal wie Cooling, Wachstum, Overshooting Top, CAPE/LI-Plausibilität,
+Risk-Grid oder späterer Radar-Match. Cirren, Frontbewölkung und alte Ambossreste
+werden so nicht als harte Gewitterwarnung eskaliert.
+
+Neue Runtime-/Admin-Werte umfassen u. a. `IR_WATCH_ENABLED`,
+`IR_PUBLIC_WATCH_VISIBLE`, BT-/Höhen-/Score-Schwellen und maximale IR-Datenalter.
+`CLOUD_HEIGHT_ALERT_THRESHOLD_M` bleibt die Anzeige-Schwelle für „CB > …“; neue
+IR-Stufen verwenden keine hartkodierte 10000-m-Grenze. Alle Zellpolygonfarben
+bleiben dunkelblau, Unterschiede erfolgen über Label, Badge, Transparenz,
+Linienstil und Popup-Felder.

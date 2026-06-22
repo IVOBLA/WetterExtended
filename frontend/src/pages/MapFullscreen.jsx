@@ -567,9 +567,9 @@ export default function MapFullscreen() {
                 onChange={e => setShowIrCells(e.target.checked)}
                 className="accent-purple-600"
                 style={{ width: 22, height: 22, flexShrink: 0 }}
-                title="CB > 10.000 m: Cumulonimbus-Wolkentops über 10.000 m MSL (BT < 230 K, MSG IR108). Rot = Overshooting Top (BT < 215 K, > 12.300 m)."
+                title="IR-Frühphase / CB: Anzeige nutzt CLOUD_HEIGHT_ALERT_THRESHOLD_M aus der API statt einer festen 10-km-Grenze. Frühphasen sind keine harte Radarwarnung."
               />
-              <span style={{ fontSize: 15 }}>🛰 CB &gt; 10.000</span>
+              <span style={{ fontSize: 15 }}>🛰 IR / CB</span>
             </label>
 
             {lastTs && (

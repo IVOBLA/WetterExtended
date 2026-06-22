@@ -47,11 +47,19 @@ from config import (
     IR_CONVECTION_BT_THRESHOLD_K,
     IR_OVERSHOOTING_TOP_BT_K,
     IR_MIN_CELL_AREA_PX,
+    IR_WATCH_BT_THRESHOLD_K, IR_PRE_CB_BT_THRESHOLD_K, IR_CB_BT_THRESHOLD_K,
+    IR_WATCH_MIN_CELL_AREA_PX, IR_PRE_CB_MIN_CELL_AREA_PX, IR_CB_MIN_CELL_AREA_PX,
+    IR_WATCH_CLOUD_HEIGHT_MIN_M, IR_PRE_CB_CLOUD_HEIGHT_MIN_M, IR_CB_CLOUD_HEIGHT_MIN_M, IR_SEVERE_CB_CLOUD_HEIGHT_MIN_M,
+    IR_WATCH_MIN_SCORE, IR_PRE_CB_MIN_SCORE, IR_CB_MIN_SCORE,
     IR_MIN_CAPE_J_KG,
     IR_MAX_LI_C,
     LAPSE_RATE,
 )
 from debug_utils import debug_log, log_api_failure
+try:
+    import runtime_config
+except Exception:
+    runtime_config = None
 
 try:
     import rasterio
@@ -78,6 +86,15 @@ def _uint8_to_bt(pixel_arr: np.ndarray) -> np.ndarray:
     bt[bt <= EUMETVIEW_NODATA_PIXEL] = np.nan
     scale = (EUMETVIEW_BT_MAX_K - EUMETVIEW_BT_MIN_K) / 255.0
     return EUMETVIEW_BT_MAX_K - scale * bt
+
+
+def _cfg(name, default):
+    if runtime_config is not None:
+        try:
+            return runtime_config.get(name, default)
+        except Exception:
+            return default
+    return default
 
 
 def _bt_to_height_m(bt_k: float, T_surface_K: float = _DEFAULT_SURFACE_K,
@@ -138,7 +155,73 @@ def _lookup_atm(lat: float, lon: float, snapshot: dict,
     return cape_val, li_val
 
 
-def detect_ir_cells(timestamp: str | None = None) -> list:
+def classify_height_stage(cloud_height_m: float) -> str:
+    h = float(cloud_height_m or 0.0)
+    if h >= float(_cfg("IR_SEVERE_CB_CLOUD_HEIGHT_MIN_M", IR_SEVERE_CB_CLOUD_HEIGHT_MIN_M)):
+        return "severe_cb"
+    if h >= float(_cfg("IR_CB_CLOUD_HEIGHT_MIN_M", IR_CB_CLOUD_HEIGHT_MIN_M)):
+        return "cb"
+    if h >= float(_cfg("IR_PRE_CB_CLOUD_HEIGHT_MIN_M", IR_PRE_CB_CLOUD_HEIGHT_MIN_M)):
+        return "pre_cb"
+    if h >= float(_cfg("IR_WATCH_CLOUD_HEIGHT_MIN_M", IR_WATCH_CLOUD_HEIGHT_MIN_M)):
+        return "watch"
+    return "low"
+
+
+def calculate_ir_convective_score(cell: dict, track: dict | None = None, met: dict | None = None) -> float:
+    height_stage = cell.get("height_stage") or classify_height_stage(cell.get("cloud_height_m", 0.0))
+    score = {"low": 0.0, "watch": 0.28, "pre_cb": 0.42, "cb": 0.58, "severe_cb": 0.68}.get(height_stage, 0.0)
+    bt_min = float(cell.get("bt_min_k", 999.0) or 999.0)
+    if bt_min <= float(_cfg("IR_CB_BT_THRESHOLD_K", IR_CB_BT_THRESHOLD_K)):
+        score += 0.18
+    elif bt_min <= float(_cfg("IR_PRE_CB_BT_THRESHOLD_K", IR_PRE_CB_BT_THRESHOLD_K)):
+        score += 0.12
+    elif bt_min <= float(_cfg("IR_WATCH_BT_THRESHOLD_K", IR_WATCH_BT_THRESHOLD_K)):
+        score += 0.08
+    if float(cell.get("overshooting_top", 0.0) or 0.0) >= 1.0:
+        score += 0.14
+    if float(cell.get("bt_trend_k_per_min", 0.0) or 0.0) <= -0.15:
+        score += 0.10
+    if float(cell.get("cloud_height_trend_m_per_min", 0.0) or 0.0) >= 60.0:
+        score += 0.10
+    if float(cell.get("area_growth_px_per_min", 0.0) or 0.0) >= 2.0:
+        score += 0.08
+    cape = cell.get("cape")
+    li = cell.get("arome_li")
+    if cape not in (None, "") and float(cape or 0.0) >= 200.0:
+        score += 0.06
+    if li not in (None, "") and float(li or 0.0) <= -0.5:
+        score += 0.06
+    if cape not in (None, "") and li not in (None, "") and float(cape or 0.0) < 50.0 and float(li or 0.0) > 3.0:
+        score -= 0.20
+    return round(max(0.0, min(1.0, score)), 3)
+
+
+def classify_ir_stage(cell: dict) -> str:
+    score = float(cell.get("ir_score", 0.0) or 0.0)
+    hstage = cell.get("height_stage") or classify_height_stage(cell.get("cloud_height_m", 0.0))
+    area = int(cell.get("area_px", 0) or 0)
+    conv = bool(float(cell.get("overshooting_top", 0.0) or 0.0) >= 1.0 or float(cell.get("bt_trend_k_per_min", 0.0) or 0.0) <= -0.15 or float(cell.get("cloud_height_trend_m_per_min", 0.0) or 0.0) >= 60.0 or float(cell.get("area_growth_px_per_min", 0.0) or 0.0) >= 2.0 or float(cell.get("cape", 0.0) or 0.0) >= 200.0 or float(cell.get("arome_li", 0.0) or 0.0) <= -0.5)
+    if hstage in {"cb", "severe_cb"} and area >= int(_cfg("IR_CB_MIN_CELL_AREA_PX", IR_CB_MIN_CELL_AREA_PX)) and score >= float(_cfg("IR_CB_MIN_SCORE", IR_CB_MIN_SCORE)) and conv:
+        return "ir_cb_precursor"
+    if hstage in {"pre_cb", "cb", "severe_cb"} and area >= int(_cfg("IR_PRE_CB_MIN_CELL_AREA_PX", IR_PRE_CB_MIN_CELL_AREA_PX)) and score >= float(_cfg("IR_PRE_CB_MIN_SCORE", IR_PRE_CB_MIN_SCORE)) and conv:
+        return "ir_pre_cb"
+    if hstage in {"watch", "pre_cb", "cb", "severe_cb"} and area >= int(_cfg("IR_WATCH_MIN_CELL_AREA_PX", IR_WATCH_MIN_CELL_AREA_PX)) and score >= float(_cfg("IR_WATCH_MIN_SCORE", IR_WATCH_MIN_SCORE)) and conv:
+        return "ir_watch_candidate"
+    return "inactive"
+
+
+def _height_context(weather_data=None, lat=None, lon=None):
+    temp = None
+    if isinstance(weather_data, dict):
+        for key in ("temperature_2m", "temp_c", "temperature", "T2m"):
+            if key in weather_data:
+                temp = float(weather_data[key]) + 273.15 if float(weather_data[key]) < 200 else float(weather_data[key]); break
+    source_temp = temp is not None
+    alt = _DEFAULT_ALT_M
+    return (temp or _DEFAULT_SURFACE_K), alt, ("local_weather_default_alt" if source_temp else "default_fallback"), (0.65 if source_temp else 0.35)
+
+def detect_ir_cells(timestamp: str | None = None, weather_data: dict | None = None) -> list:
     """
     Hauptfunktion: Liest das neueste IR108-TIFF, extrahiert konvektive Cluster
     und gibt die IR-Cell-Liste zurück (leer wenn kein TIFF).
@@ -188,7 +271,7 @@ def detect_ir_cells(timestamp: str | None = None) -> list:
                 bt = _uint8_to_bt(band)
 
             # ── Konvektive Maske (BT < Schwellwert) ──────────────────────────
-            threshold = float(IR_CONVECTION_BT_THRESHOLD_K)
+            threshold = float(_cfg("IR_WATCH_BT_THRESHOLD_K", IR_WATCH_BT_THRESHOLD_K))
             mask = (bt < threshold) & np.isfinite(bt)
 
             if not mask.any():
@@ -210,7 +293,7 @@ def detect_ir_cells(timestamp: str | None = None) -> list:
                 cluster_mask = labeled == label_num
                 area_px = int(cluster_mask.sum())
 
-                if area_px < IR_MIN_CELL_AREA_PX:
+                if area_px < int(_cfg("IR_WATCH_MIN_CELL_AREA_PX", IR_WATCH_MIN_CELL_AREA_PX)):
                     continue  # zu klein → verwerfen
 
                 # Schwerpunkt (Pixel) → Geo-Koordinaten
@@ -232,7 +315,9 @@ def detect_ir_cells(timestamp: str | None = None) -> list:
                 overshooting = 1.0 if bt_min < float(IR_OVERSHOOTING_TOP_BT_K) else 0.0
 
                 # Geschätzte Wolkenhöhe am kältesten Pixel
-                cloud_h = _bt_to_height_m(bt_min)
+                surf_k, alt_m, h_source, h_conf = _height_context(weather_data, lat_c, lon_c)
+                cloud_h = _bt_to_height_m(bt_min, surf_k, alt_m)
+                height_stage = classify_height_stage(cloud_h)
 
                 # CAPE / LI aus Snapshot
                 cape_val, li_val = _lookup_atm(lat_c, lon_c, snapshot)
@@ -240,20 +325,15 @@ def detect_ir_cells(timestamp: str | None = None) -> list:
                 # ── CAPE/LI-Filter ─────────────────────────────────────────
                 # Nur anwenden wenn Atmosphären-Daten verfügbar sind.
                 # cape_val = None → kein ATM-Ort in Reichweite → nicht filtern.
-                if cape_val is not None:
-                    if IR_MIN_CAPE_J_KG > 0 and cape_val < IR_MIN_CAPE_J_KG:
+                # Frühe IR-Watch-Kandidaten werden nicht mehr allein wegen fehlender
+                # oder schwacher CAPE/LI-Daten verworfen. Nur eine eindeutig stabile
+                # Kombination reduziert/unterbindet die öffentliche Stage über den Score.
+                if cape_val is not None and li_val is not None:
+                    if cape_val < 50.0 and li_val > 3.0:
                         debug_log(
-                            f"[IR-DET] Cluster {label_num}/{n_labels} verworfen: "
-                            f"CAPE={cape_val:.0f} < {IR_MIN_CAPE_J_KG} J/kg"
+                            f"[IR-DET] Cluster {label_num}/{n_labels}: stabile Umgebung "
+                            f"CAPE={cape_val:.0f}, LI={li_val:.2f} → Score-Abzug"
                         )
-                        continue
-                if li_val is not None:
-                    if IR_MAX_LI_C < 0 and li_val > IR_MAX_LI_C:
-                        debug_log(
-                            f"[IR-DET] Cluster {label_num}/{n_labels} verworfen: "
-                            f"LI={li_val:.2f} > {IR_MAX_LI_C} °C (zu stabil)"
-                        )
-                        continue
 
                 cells.append({
                     "ir_id":            f"ir_{cell_idx}",
@@ -264,11 +344,20 @@ def detect_ir_cells(timestamp: str | None = None) -> list:
                     "area_px":          area_px,
                     "overshooting_top": overshooting,
                     "cloud_height_m":   cloud_h,
+                    "cloud_height_confidence": h_conf,
+                    "cloud_height_source": h_source,
+                    "cloud_height_trend_m_per_min": 0.0,
+                    "max_cloud_height_m": cloud_h,
+                    "height_stage": height_stage,
+                    "first_height_alert_timestamp": timestamp if height_stage != "low" else None,
                     "cape":             round(cape_val, 1) if cape_val is not None else 0.0,
                     "arome_li":         round(li_val,  2) if li_val  is not None else 0.0,
                     "timestamp":        timestamp,
                     "tiff_file":        tiff_name,
                 })
+                cells[-1]["ir_score"] = calculate_ir_convective_score(cells[-1])
+                cells[-1]["ir_stage"] = classify_ir_stage(cells[-1])
+                cells[-1]["status"] = cells[-1]["ir_stage"]
                 cell_idx += 1
 
             debug_log(f"[IR-DET] {len(cells)} IR-Cells nach Größenfilter (>= {IR_MIN_CELL_AREA_PX} px).")

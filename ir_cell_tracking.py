@@ -24,7 +24,7 @@ from datetime import datetime
 from glob import glob
 from math import radians, cos, sin, sqrt, atan2
 
-from config import SAVE_PATHS, IR_TRACK_MAX_MISSING
+from config import SAVE_PATHS, IR_TRACK_MAX_MISSING, IR_WATCH_MIN_SCORE, IR_PRE_CB_MIN_SCORE, IR_CB_MIN_SCORE, IR_WATCH_MAX_PUBLIC_AGE_MIN, IR_PUBLIC_WATCH_VISIBLE, CLOUD_HEIGHT_ALERT_THRESHOLD_M
 
 try:
     import runtime_config
@@ -47,6 +47,43 @@ _STATE_FILE = os.path.join(_SAVE_DIR, "ir_track_state.json")
 # MSG 15 min × max. 120 km/h Verlagerung ÷ 111 km/Grad ≈ 0.27°
 _MAX_MATCH_DEG = 0.30
 
+
+
+
+def _cfg(name, default):
+    if runtime_config is not None:
+        try:
+            return runtime_config.get(name, default)
+        except Exception:
+            return default
+    return default
+
+
+def _public_label(stage: str) -> str:
+    return {
+        "ir_watch_candidate": "IR-Frühphase",
+        "ir_pre_cb": "IR-Vorläufer",
+        "ir_cb_precursor": "CB-IR-Vorläufer",
+        "radar_confirmed": "Radar bestätigt",
+    }.get(stage or "", "IR-Frühphase")
+
+
+def _age_min(ts: str | None) -> float:
+    dt = _ts_to_dt(ts) if ts else None
+    if not dt:
+        return 0.0
+    return max(0.0, (datetime.utcnow() - dt).total_seconds() / 60.0)
+
+
+def _forecast_fields(track: dict) -> dict:
+    vx = float(track.get("vx_deg_min", 0.0) or 0.0); vy = float(track.get("vy_deg_min", 0.0) or 0.0)
+    mode = "ir_track" if abs(vx) + abs(vy) > 0 else "none"
+    conf = 0.55 if mode == "ir_track" else 0.2
+    out = {"forecast_mode": mode, "forecast_confidence": conf}
+    for m in (10,20,30,40,60):
+        out[f"forecast_lat_{m}"] = round(float(track.get("lat", 0.0) or 0.0) + vy * m, 5)
+        out[f"forecast_lon_{m}"] = round(float(track.get("lon", 0.0) or 0.0) + vx * m, 5)
+    return out
 
 def _haversine_km(lat1, lon1, lat2, lon2) -> float:
     R = 6371.0
@@ -109,17 +146,36 @@ def _normalize_ir_track(track: dict, *, default_timestamp: str | None = None) ->
     track.setdefault("motion_quality", "unknown")
 
     if radar_confirmed:
+        track["ir_stage"] = "radar_confirmed"
         track["status"] = "radar_confirmed"
         track["radar_confirmed"] = True
         track["is_potential_new_cell"] = False
         track["display_as_precursor"] = False
         track["ir_only_precursor"] = 0.0
     else:
+        stage = track.get("ir_stage") or track.get("status") or "ir_watch_candidate"
+        if stage == "ir_precursor":
+            stage = "ir_cb_precursor"
+        track["ir_stage"] = stage
         track["status"] = "ir_precursor"
         track["radar_confirmed"] = False
-        track["is_potential_new_cell"] = True
-        track["display_as_precursor"] = True
+        track["is_potential_new_cell"] = stage in {"ir_watch_candidate", "ir_pre_cb", "ir_cb_precursor"}
+        track["display_as_precursor"] = stage != "inactive"
         track["ir_only_precursor"] = 1.0
+
+    track.setdefault("ir_score", 0.0)
+    track.setdefault("height_stage", "low")
+    track.setdefault("cloud_height_confidence", 0.0)
+    track.setdefault("cloud_height_source", "default_fallback")
+    track.setdefault("max_cloud_height_m", track.get("cloud_height_m", 0.0))
+    track.setdefault("first_height_alert_timestamp", ts if track.get("height_stage") != "low" else None)
+    track.update(_forecast_fields(track))
+    fresh = _age_min(track.get("source_timestamp")) <= float(_cfg("IR_WATCH_MAX_PUBLIC_AGE_MIN", IR_WATCH_MAX_PUBLIC_AGE_MIN))
+    visible = bool(_cfg("IR_PUBLIC_WATCH_VISIBLE", IR_PUBLIC_WATCH_VISIBLE)) and fresh and track.get("status") != "inactive" and float(track.get("ir_score", 0.0) or 0.0) >= float(_cfg("IR_WATCH_MIN_SCORE", IR_WATCH_MIN_SCORE)) and not track.get("radar_confirmed")
+    track["public_visible"] = bool(visible)
+    track["public_label"] = _public_label(track.get("ir_stage"))
+    track["warning_level"] = "none" if track.get("ir_stage") == "ir_watch_candidate" else "precursor"
+    track["cb_alert_threshold_m"] = float(_cfg("CLOUD_HEIGHT_ALERT_THRESHOLD_M", CLOUD_HEIGHT_ALERT_THRESHOLD_M))
 
     if _lineage_enabled() and ensure_ir_track_cell_id is not None and not track.get("cell_id"):
         try:
@@ -260,6 +316,13 @@ def update_ir_tracking(new_cells: list, timestamp: str) -> list:
                 "area_px":          cell["area_px"],
                 "overshooting_top": cell["overshooting_top"],
                 "cloud_height_m":   cell["cloud_height_m"],
+                "cloud_height_confidence": cell.get("cloud_height_confidence", track.get("cloud_height_confidence", 0.0)),
+                "cloud_height_source": cell.get("cloud_height_source", track.get("cloud_height_source", "default_fallback")),
+                "max_cloud_height_m": max(float(track.get("max_cloud_height_m", 0.0) or 0.0), float(cell.get("cloud_height_m", 0.0) or 0.0)),
+                "height_stage": cell.get("height_stage", track.get("height_stage", "low")),
+                "first_height_alert_timestamp": track.get("first_height_alert_timestamp") or cell.get("first_height_alert_timestamp"),
+                "ir_score": cell.get("ir_score", track.get("ir_score", 0.0)),
+                "ir_stage": cell.get("ir_stage", track.get("ir_stage", "ir_watch_candidate")),
                 "cape":             cell["cape"],
                 "arome_li":         cell["arome_li"],
                 "vx_deg_min":       round(vx, 6),
@@ -298,6 +361,14 @@ def update_ir_tracking(new_cells: list, timestamp: str) -> list:
             "area_px":                cell["area_px"],
             "overshooting_top":       cell["overshooting_top"],
             "cloud_height_m":         cell["cloud_height_m"],
+            "cloud_height_confidence": cell.get("cloud_height_confidence", 0.0),
+            "cloud_height_source":    cell.get("cloud_height_source", "default_fallback"),
+            "cloud_height_trend_m_per_min": 0.0,
+            "max_cloud_height_m":     cell.get("cloud_height_m", 0.0),
+            "height_stage":           cell.get("height_stage", "low"),
+            "first_height_alert_timestamp": cell.get("first_height_alert_timestamp"),
+            "ir_score":               cell.get("ir_score", 0.0),
+            "ir_stage":               cell.get("ir_stage", "ir_watch_candidate"),
             "cape":                   cell["cape"],
             "arome_li":               cell["arome_li"],
             "vx_deg_min":             0.0,

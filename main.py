@@ -50,6 +50,40 @@ _RISK_ALERT_LOG = os.path.join(
 
 
 
+def _latest_ir_tiff_fresh(max_age_min: float | None = None) -> bool:
+    import glob
+    cloud_dir = SAVE_PATHS.get("cloud", "train_data/cloud/")
+    files = sorted(glob.glob(os.path.join(cloud_dir, "ir108_*.tif")))
+    if not files:
+        return False
+    max_age = float(max_age_min if max_age_min is not None else runtime_config.get("IR_MAX_DATA_AGE_MIN", 25.0))
+    try:
+        return ((time.time() - os.path.getmtime(files[-1])) / 60.0) <= max_age
+    except OSError:
+        return False
+
+
+def run_ir_precursor_pipeline(timestamp=None, weather_data=None, allow_cached=True, reason="loop"):
+    """Radar-unabhängige IR108-Frühphasenpipeline ohne zusätzliche Fremdrequests."""
+    if not bool(runtime_config.get("IR_WATCH_ENABLED", True)):
+        debug_log(f"[IR-PIPE] deaktiviert (reason={reason})")
+        return []
+    if not _latest_ir_tiff_fresh():
+        debug_log(f"[IR-PIPE] kein frisches IR108-TIFF vorhanden (reason={reason})")
+        return []
+    if timestamp is None:
+        from datetime import datetime as _dt
+        timestamp = _dt.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
+    try:
+        cells = detect_ir_cells(timestamp=timestamp, weather_data=weather_data)
+        tracks = update_ir_tracking(cells, timestamp)
+        debug_log(f"[IR-PIPE] reason={reason}: {len(cells)} Detektionen, {len(tracks)} aktive Tracks")
+        return tracks
+    except Exception as exc:
+        debug_log(f"[IR-PIPE] Fehler reason={reason}: {type(exc).__name__}: {exc}")
+        return []
+
+
 def _legacy_ir_radar_distance_match(objects, ir_tracks):
     """Legacy-Fallback: nächster IR-Track innerhalb 40 km (B109-kompatibel)."""
     from cell_lineage import haversine_km
@@ -348,6 +382,7 @@ def main_loop():
                 debug_log("[SKIP] Radar-Circuit offen → nächster Zyklus.")
             else:
                 debug_log(f"[SKIP] Radarbild ungültig ({_skip_reason}) → nächster Zyklus.")
+            _ir_tracks = run_ir_precursor_pipeline(reason=f"radar_skip:{_skip_reason or 'not_new'}")
             # 3-Stufen-Intervall auch im Skip-Pfad (ARSO liefert kein neues Bild):
             #   < 5 min seit letzter Zelle  → 2 min  (Zellen kürzlich aktiv)
             #   < 120 min seit letzter Zelle → 5 min  (Nachbeobachtung)
@@ -443,8 +478,7 @@ def main_loop():
             # Läuft nur wenn TIFF aktuell ist (cloud_height_from_eumetview hat
             # es bereits heruntergeladen — kein zusätzlicher API-Call).
             try:
-                _ir_cells_raw = detect_ir_cells(timestamp=timestamp)
-                _ir_tracks = update_ir_tracking(_ir_cells_raw, timestamp)
+                _ir_tracks = run_ir_precursor_pipeline(timestamp=timestamp, weather_data=weather_data, reason="radar_cycle")
 
                 # IR↔Radar Lineage-Matching (1L.2): deterministisches Score-Matching
                 # mit Legacy-Distanzmatching als nicht-kritischem Fallback.

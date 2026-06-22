@@ -944,7 +944,7 @@ export default function MapView() {
             checked={showIrCells}
             onChange={e => setShowIrCells(e.target.checked)}
             className="accent-purple-600"
-            title="IR-Vorläufer / CB: Hohe Konvektionswolken aus MSG IR108 (Erkennungsschwelle BT < 230 K ≈ > 10.000 m MSL). Angezeigte Wolkentop-Höhe kann abweichen. Rot = Overshooting Top (BT < 215 K, typ. > 12.300 m)."
+            title="IR-Frühphase / IR-Vorläufer / CB: MSG IR108 mit konfigurierbarer CLOUD_HEIGHT_ALERT_THRESHOLD_M-Anzeige. Frühphasen sind keine harte Radarwarnung; Rot markiert nur Overshooting-Top-Hinweise."
           />
           <span>🛰 CB / IR-Vorläufer</span>
         </label>
