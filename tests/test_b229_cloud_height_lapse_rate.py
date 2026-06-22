@@ -2,12 +2,26 @@
 Resolve-Diagnose. Regressions- und Funktionstest."""
 import os
 import sys
+import types
 
 import pytest
+
+# Testumgebung kann ohne optionale Laufzeit-Dependencies laufen; für den
+# reinen Import-Regressionscheck genügen minimale Modul-Stubs.
+_requests_stubbed = "requests" not in sys.modules
+sys.modules.setdefault("requests", types.SimpleNamespace())
+_numpy_stubbed = "numpy" not in sys.modules
+_np_stub = types.SimpleNamespace(float32=object(), float64=object(), isnan=lambda value: False)
+sys.modules.setdefault("numpy", _np_stub)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import cloud_height_from_eumetview as chm
+
+if _numpy_stubbed:
+    sys.modules.pop("numpy", None)
+if _requests_stubbed:
+    sys.modules.pop("requests", None)
 
 
 def test_lapse_rate_is_importable_regression():

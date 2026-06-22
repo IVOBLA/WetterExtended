@@ -2807,7 +2807,7 @@ Phase A (Stabilisierung) — **erledigt**.
   `threaded=True`-Fallback. `waitress` in requirements.txt (Phase 5 installiert es).
 - Test: `tests/test_b225_admin_uses_waitress.py`.
 
-## B228 — Verifikations-Matching gehärtet: NN-Akzeptanzschwelle (2026-06-22)
-- Ursache: Nearest-Neighbor-Matches bis zum vollen Suchradius (25 km) flossen als „verifiziert" ins MAE — auch Fehlzuordnungen zu Nachbarzellen → MAE/Drift aufgebläht.
-- Fix: strenge, runtime-pflegbare Schwelle `VERIFICATION_NN_MAX_MATCH_KM`; NN jenseits = Bucket `nn_rejected`, nicht in MAE/Hit-Rate/Drift. ID-/cell_id-Treffer distanzunabhängig gültig (Lineage). Match-Typ-Anteile geloggt.
-- Test: `tests/test_b228_nn_match_threshold.py`.
+## B229 — Wolkenhöhe durchgängig None: fehlender LAPSE_RATE-Import (2026-06-22)
+- Ursache: `LAPSE_RATE` in `cloud_height_from_eumetview.py` nicht importiert → NameError im Grid-Pfad (`fetch_cloud_height_for_points`), vom nackten `except` verschluckt → alle Punkte None bei gemeldetem „Erfolg".
+- Fix: `LAPSE_RATE` aus `config` importiert; Resolve-Diagnose (Zähler resolved/out_of_extent/nodata_pixel/warm_clear/error + aufgelöst/gesamt-Log + Record in `eumetview_debug.jsonl`).
+- Test: `tests/test_b229_cloud_height_lapse_rate.py`.
