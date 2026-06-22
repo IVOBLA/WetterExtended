@@ -2806,3 +2806,8 @@ Phase A (Stabilisierung) — **erledigt**.
   gunicorn-Fork). `ADMIN_DEBUG=1` → Flask-Debug (threaded); ohne waitress
   `threaded=True`-Fallback. `waitress` in requirements.txt (Phase 5 installiert es).
 - Test: `tests/test_b225_admin_uses_waitress.py`.
+
+## B228 — Verifikations-Matching gehärtet: NN-Akzeptanzschwelle (2026-06-22)
+- Ursache: Nearest-Neighbor-Matches bis zum vollen Suchradius (25 km) flossen als „verifiziert" ins MAE — auch Fehlzuordnungen zu Nachbarzellen → MAE/Drift aufgebläht.
+- Fix: strenge, runtime-pflegbare Schwelle `VERIFICATION_NN_MAX_MATCH_KM`; NN jenseits = Bucket `nn_rejected`, nicht in MAE/Hit-Rate/Drift. ID-/cell_id-Treffer distanzunabhängig gültig (Lineage). Match-Typ-Anteile geloggt.
+- Test: `tests/test_b228_nn_match_threshold.py`.
