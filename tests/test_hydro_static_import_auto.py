@@ -78,3 +78,63 @@ def test_valid_cached_zip_is_not_reloaded(monkeypatch, tmp_path):
         zf.writestr("a.txt", "ok")
     monkeypatch.setitem(__import__("sys").modules, "http_retry", types.SimpleNamespace(retry_get=lambda *a, **k: (_ for _ in ()).throw(AssertionError("network"))))
     assert h.download_basins(str(tmp_path))["status"] == "cached"
+
+
+def _fc(features):
+    return {"type": "FeatureCollection", "features": features}
+
+
+def _poly_feature(w, s, e, n, props=None):
+    return {"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [[[w, s], [e, s], [e, n], [w, n], [w, s]]]}, "properties": props or {}}
+
+
+def _line_feature(coords, props=None):
+    return {"type": "Feature", "geometry": {"type": "LineString", "coordinates": coords}, "properties": props or {}}
+
+
+def test_empty_basins_geojson_is_validation_error(tmp_path):
+    path = tmp_path / "basins.geojson"
+    path.write_text(json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8")
+    try:
+        h.validate_geojson_output(str(path), "basins")
+    except ValueError as exc:
+        assert "leer/zu klein" in str(exc) or "keine Features" in str(exc)
+    else:
+        raise AssertionError("empty basins must fail")
+
+
+def test_wrong_extent_is_validation_error(tmp_path):
+    path = tmp_path / "basins.geojson"
+    path.write_text(json.dumps(_fc([_poly_feature(-23, 58, -18, 63, {"OBJECTID": 1})])), encoding="utf-8")
+    try:
+        h.validate_geojson_output(str(path), "basins")
+    except ValueError as exc:
+        assert "Kärnten-BBOX" in str(exc)
+    else:
+        raise AssertionError("wrong extent must fail")
+
+
+def test_feldkirchen_coverage_ok_with_basin_and_flowline(tmp_path):
+    paths = h.ensure_static_dirs(str(tmp_path))
+    Path(paths["basins_source"]).write_text(json.dumps(_fc([_poly_feature(13.8, 46.62, 14.2, 46.88, {"HYDROID": "FK-1"})])), encoding="utf-8")
+    Path(paths["flowlines_source"]).write_text(json.dumps(_fc([_line_feature([[13.82, 46.65], [14.15, 46.8]], {"name": "Tiebel"})])), encoding="utf-8")
+
+    result = h.check_coverage("feldkirchen", str(tmp_path))
+
+    assert result["coverage_ok"] is True
+    assert result["basin_features_feldkirchen"] == 1
+    assert result["flowline_features_feldkirchen"] == 1
+    assert "Tiebel" in result["sample_river_names"]
+    assert (Path(paths["generated"]) / "hydro_static_coverage.json").exists()
+
+
+def test_missing_flowlines_reports_only_flowline_error(tmp_path):
+    paths = h.ensure_static_dirs(str(tmp_path))
+    Path(paths["basins_source"]).write_text(json.dumps(_fc([_poly_feature(13.8, 46.62, 14.2, 46.88, {"HYDROID": "FK-1"})])), encoding="utf-8")
+
+    result = h.check_coverage("feldkirchen", str(tmp_path))
+
+    assert result["coverage_ok"] is False
+    assert result["basin_features_feldkirchen"] == 1
+    assert any("flowlines" in e for e in result["errors"])
+    assert "feldkirchen_basins_missing" not in result["errors"]
