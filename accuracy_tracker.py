@@ -461,7 +461,9 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
             if _match_src == "nn_rejected":
                 nn_rejected += 1
                 _bm["missed"] += 1; _bs["missed"] += 1; _bt["missed"] += 1
-                rec = _detail_record(obj, ts, target_ts, horizon_min, None, dist_km, "nn_rejected", False, False, horizon_min)
+                # B232: keine Distanz als forecast_error_km/match_distance_km schreiben,
+                # sonst zaehlt die Fehler-Diagnose die verworfene Zelle faelschlich als verifiziert.
+                rec = _detail_record(obj, ts, target_ts, horizon_min, None, None, "nn_rejected", False, False, horizon_min)
                 details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
                 continue
 
