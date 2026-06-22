@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import time
 import zipfile
 from datetime import datetime, timezone
@@ -209,17 +210,19 @@ def _load_geojson(path: str) -> dict:
 def validate_geojson_output(path: str, kind: str, bbox: list[float] | None=None) -> dict:
     data=_load_geojson(path); bbox = bbox or KAERNTEN_BBOX
     features=data.get("features") or []
-    hits=[]; line_hits=0
+    expected = {"Polygon", "MultiPolygon"} if kind == "basins" else {"LineString", "MultiLineString"}
+    hits=[]; typed_hits=0
     for f in features:
         geom=f.get("geometry") if isinstance(f, dict) else None
+        gtype=geom.get("type") if isinstance(geom, dict) else ""
         gb=_geom_bbox(geom)
-        if kind == "flowlines" and isinstance(geom, dict) and geom.get("type") in {"LineString", "MultiLineString"} and _bbox_intersects(gb, bbox):
-            line_hits += 1
-        if _bbox_intersects(gb, bbox): hits.append(f)
+        if gtype in expected and _bbox_intersects(gb, bbox):
+            typed_hits += 1
+            hits.append(f)
     if not hits:
-        raise ValueError(f"{Path(path).name} enthält keine Features in Kärnten-BBOX")
-    if kind == "flowlines" and line_hits <= 0:
-        raise ValueError("flowlines.geojson enthält keine LineString/MultiLineString-Features in Kärnten-BBOX")
+        raise ValueError(f"{Path(path).name} enthält keine {('/'.join(sorted(expected)))}-Features in Kärnten-BBOX")
+    if typed_hits <= 0:
+        raise ValueError(f"{Path(path).name} enthält keine passenden Geometrien in Kärnten-BBOX")
     return {"feature_count": len(features), "bbox_hit_count": len(hits)}
 
 
@@ -376,8 +379,9 @@ def _ogr_layers(src: str) -> list[str]:
             lower=line.lower()
             if lower.startswith("layer:") or lower.startswith("layer name:"):
                 layers.append(line.split(":",1)[1].split("(",1)[0].strip())
-            elif line[:1].isdigit() and ":" in line: layers.append(line.split(":",1)[1].split("(",1)[0].strip())
-        return layers
+            elif line[:1].isdigit() and ":" in line:
+                layers.append(line.split(":",1)[1].split("(",1)[0].strip())
+        return [l for l in layers if l]
     except Exception: return []
 
 
@@ -386,23 +390,45 @@ def _ogr_layer_geometry(src: str, layer: str) -> str:
     try:
         out = subprocess.run(["ogrinfo", "-so", src, layer], text=True, capture_output=True, check=False, timeout=60).stdout
         for line in out.splitlines():
-            if "geometry:" in line.lower():
+            lower=line.lower()
+            if "geometry:" in lower or "geometry type:" in lower:
                 return line.split(":", 1)[1].strip()
+            if "multi polygon" in lower or "multipolygon" in lower: return "Multi Polygon"
+            if "line string" in lower or "linestring" in lower: return "Line String"
+            if "polygon" in lower: return "Polygon"
     except Exception:
         pass
     return ""
 
 
-def _select_ogr_layer(dataset: str, kind: str, layers: list[str]) -> str | None:
+def _layer_matches_kind(geom: str, kind: str) -> bool:
+    g=geom.lower().replace(" ", "")
+    if not g: return True
+    return ("polygon" in g and kind == "basins") or ("linestring" in g and kind == "flowlines")
+
+
+def _ogr_bbox_feature_count(dataset: str, layer: str, bbox: list[float] | None) -> int:
+    if not bbox: return -1
+    cmd=["ogrinfo", "-so", "-spat_srs", "EPSG:4326", "-spat", *map(str, bbox), dataset, layer]
+    try:
+        out=subprocess.run(cmd, text=True, capture_output=True, check=False, timeout=60).stdout
+        for line in out.splitlines():
+            if "feature count:" in line.lower():
+                return int(line.split(":",1)[1].strip())
+    except Exception:
+        pass
+    return -1
+
+
+def _select_ogr_layer(dataset: str, kind: str, layers: list[str], bbox: list[float] | None=None) -> str | None:
     prefs = ["drainagebasin", "catchment"] if kind == "basins" else ["watercourselink", "watercourse", "flowline"]
-    candidates = sorted(layers, key=lambda l: 0 if any(p in l.lower() for p in prefs) else 1)
-    if kind != "flowlines":
-        return candidates[0] if candidates else None
-    for layer in candidates:
-        geom = _ogr_layer_geometry(dataset, layer).lower()
-        if not geom or "linestring" in geom:
-            return layer
-    return None
+    typed=[l for l in layers if _layer_matches_kind(_ogr_layer_geometry(dataset, l), kind)]
+    candidates = sorted(typed, key=lambda l: 0 if any(p in l.lower() for p in prefs) else 1)
+    if kind == "flowlines" and candidates:
+        scored=[(_ogr_bbox_feature_count(dataset, l, bbox), 0 if any(p in l.lower() for p in prefs) else 1, l) for l in candidates]
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        return scored[0][2] if scored[0][0] != 0 else None
+    return candidates[0] if candidates else None
 
 def _extract_if_zip(path: str) -> str:
     p=Path(path)
@@ -419,18 +445,32 @@ def _extract_if_zip(path: str) -> str:
 def convert_to_geojson(src: str, dst: str, kind: str, bbox: list[float] | None=None) -> bool:
     if not shutil.which("ogr2ogr") or not shutil.which("ogrinfo"): raise RuntimeError("GDAL/OGR fehlt: ogr2ogr/ogrinfo nicht gefunden")
     dataset=_extract_if_zip(src); layers=_ogr_layers(dataset)
-    layer = _select_ogr_layer(dataset, kind, layers)
-    if kind == "flowlines" and layers and not layer:
-        raise RuntimeError("Keine LineString/MultiLineString-OGR-Layer für Flowlines gefunden")
-    cmd=["ogr2ogr","-f","GeoJSON","-t_srs","EPSG:4326",dst,dataset]
-    spat = _normalize_bbox(bbox) or _normalize_bbox(getattr(config,"HYDRO_STATIC_BBOX", None))
-    if spat: cmd += ["-spat", *map(str, spat)]
-    if layer: cmd.append(layer)
-    res=subprocess.run(cmd, text=True, capture_output=True, check=False, timeout=300)
-    if res.returncode != 0: raise RuntimeError((res.stderr or res.stdout or "ogr2ogr fehlgeschlagen").strip())
-    ok = Path(dst).exists() and Path(dst).stat().st_size > 0
-    if ok and kind == "basins": normalize_basin_properties(dst)
-    return ok
+    spat = _normalize_bbox(bbox) or _normalize_bbox(getattr(config,"HYDRO_STATIC_BBOX", None)) or KAERNTEN_BBOX
+    layer = _select_ogr_layer(dataset, kind, layers, spat)
+    if layers and not layer:
+        raise RuntimeError(f"Keine passende OGR-Layer für {kind} gefunden")
+    dst_path=Path(dst); dst_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{dst_path.name}.", suffix=".tmp.geojson", dir=str(dst_path.parent))
+    os.close(fd)
+    tmp_path=Path(tmp_name)
+    try:
+        cmd=["ogr2ogr","-f","GeoJSON","-t_srs","EPSG:4326",str(tmp_path),dataset]
+        if spat: cmd += ["-spat_srs", "EPSG:4326", "-spat", *map(str, spat)]
+        if layer: cmd.append(layer)
+        res=subprocess.run(cmd, text=True, capture_output=True, check=False, timeout=300)
+        if res.returncode != 0: raise RuntimeError((res.stderr or res.stdout or "ogr2ogr fehlgeschlagen").strip())
+        if (not tmp_path.exists() or tmp_path.stat().st_size == 0) and dst_path.exists():
+            shutil.move(str(dst_path), str(tmp_path))
+        validate_geojson_output(str(tmp_path), kind, spat)
+        if kind == "basins": normalize_basin_properties(str(tmp_path))
+        os.replace(tmp_path, dst_path)
+        return True
+    except Exception:
+        try:
+            if tmp_path.exists(): tmp_path.unlink()
+        finally:
+            pass
+        raise
 
 
 def ensure_live_json(static_dir: str | None=None) -> str:
@@ -481,9 +521,7 @@ def auto(static_dir: str | None=None, force: bool=False) -> dict:
                 break
             except Exception as exc:
                 flow_convert_errors.append(f"{Path(str(info.get('path',''))).name}: {type(exc).__name__}: {exc}")
-                if Path(paths["flowlines_source"]).exists() and not _geojson_valid(paths["flowlines_source"], "flowlines"):
-                    try: Path(paths["flowlines_source"]).unlink()
-                    except Exception: pass
+                # convert_to_geojson() ist atomar; eine bestehende valide Datei darf bei Fehlern erhalten bleiben.
         else:
             if not any(a.get("url") == getattr(config, "HYDRO_STATIC_WATERCOURSE_URL", "") for a in attempts):
                 fallback = _download(getattr(config, "HYDRO_STATIC_WATERCOURSE_URL", ""), paths, "watercourse", force)
