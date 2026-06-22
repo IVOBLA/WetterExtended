@@ -495,6 +495,7 @@ if [[ "$LOCAL_INSTALL" == true ]]; then
             --exclude=/train_data/dem/ \
             --exclude=/train_data/cell_filters/ \
             --exclude=/train_data/cell_lineage/ \
+            --exclude=/train_data/hydro/ \
             "$LOCAL_SOURCE/" "$TARGET/"
         log_info "Quellcode nach $TARGET kopiert (geschützte Benutzerdaten ausgeschlossen)."
     else
