@@ -1236,6 +1236,7 @@ def api_objects():
                     t["display_as_precursor"] = True
                     t["ir_only_precursor"] = 1.0
                 t["cb_alert_threshold_m"] = _cb_thr
+            ir_tracks = [t for t in ir_tracks if t.get("public_visible", True) or t.get("radar_confirmed")]
             from cell_lineage_dedup import dedupe_ir_precursors_for_payload
             if isinstance(data, list):
                 objects, visible_ir_tracks = dedupe_ir_precursors_for_payload(data, ir_tracks)
@@ -4622,7 +4623,7 @@ def api_risk_grid():
     _FAST_CELL_KMH    = _safe_float(runtime_config.get("RISK_FAST_CELL_KMH", 30.0), 30.0)
     _STATIONARY_BOOST = _safe_float(runtime_config.get("RISK_STATIONARY_BOOST", 0.8), 0.8)
     RISK_COLORS     = {1: "#facc15", 2: "#f97316", 3: "#dc2626"}
-    IR_CELL_COLOR   = "#a855f7"   # Violett für IR-Vorläuferzellen
+    IR_CELL_COLOR   = CELL_COLOR      # IR nutzt gleiche dunkelblaue Grundfarbe wie Zellpolygone
     INT_WEIGHT  = {"leicht": 1.0, "maessig": 2.0, "stark": 3.0, "extrem": 4.0}
     INT_WEIGHT_ALT = {"leicht": 1.0, "mäßig": 2.0, "stark": 3.0, "extrem": 4.0}
 

@@ -21,6 +21,7 @@ from config import (
     RISK_WATCH_ENABLED,
     RISK_WATCH_MIN_RISK_LEVEL,
     RISK_WATCH_MAX_DATA_AGE_MIN,
+    IR_MAX_DATA_AGE_MIN, IR_WATCH_MIN_SCORE,
     SAVE_PATHS,
 )
 from debug_utils import debug_log
@@ -108,9 +109,7 @@ def risk_watch_active(
     # alte Objekte/IR-Tracks (missing==0) im Zustand und würden den kurzen Intervall
     # sonst unbegrenzt erzwingen (umgeht den 120-min-Backoff). Sind die zugrunde
     # liegenden Daten älter als RISK_WATCH_MAX_DATA_AGE_MIN → kein Risk-Watch.
-    _max_age = float(
-        runtime_config.get("RISK_WATCH_MAX_DATA_AGE_MIN", RISK_WATCH_MAX_DATA_AGE_MIN)
-    )
+    _max_age = float(runtime_config.get("IR_MAX_DATA_AGE_MIN", IR_MAX_DATA_AGE_MIN))
     _age = data_age_min if data_age_min is not None else _underlying_data_age_min()
     if _age > _max_age:
         debug_log(
@@ -123,8 +122,13 @@ def risk_watch_active(
     #     konvektiver IR-Detektion (CB) — keine sonstigen hohen Wolken.
     for ir in (ir_tracks or []):
         try:
-            if float(ir.get("ir_only_precursor", 0.0)) == 1.0:
-                debug_log("[RISK-WATCH] CB-IR-Vorläuferzelle aktiv → kurzer Intervall")
+            stage = ir.get("ir_stage") or ir.get("status")
+            score = ir.get("ir_score")
+            if score is None:
+                score = float(runtime_config.get("IR_WATCH_MIN_SCORE", IR_WATCH_MIN_SCORE))
+            score = float(score or 0.0)
+            if float(ir.get("ir_only_precursor", 0.0)) == 1.0 and (stage in {None, "ir_precursor", "ir_watch_candidate", "ir_pre_cb", "ir_cb_precursor"}) and score >= float(runtime_config.get("IR_WATCH_MIN_SCORE", IR_WATCH_MIN_SCORE)):
+                debug_log(f"[RISK-WATCH] frische IR-Frühphase/Vorläufer ({stage}) aktiv → kurzer Intervall")
                 return True
         except (TypeError, ValueError, AttributeError):
             continue
