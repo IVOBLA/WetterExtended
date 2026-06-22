@@ -800,6 +800,11 @@ ML_RUNTIME_GATING_MARGIN = 0.0
 ML_RUNTIME_MIN_SAMPLES_PER_MODE = 20
 ML_FORCE_KINEMATIC = False
 
+# P52: ML-Shadow-Scoring (Champion/Challenger). ML wird auch bei Kinematik-Gate im
+# Schatten mitberechnet+verifiziert, ohne ausgeliefert zu werden -> bricht den Gate-Deadlock.
+# False = exakt heutiges Verhalten (kein Schatten). Runtime-ueberschreibbar.
+ML_SHADOW_SCORING_ENABLED = True
+
 
 # --------------------------------------
 # Vorhersage-Verifikation (Closed-Loop)
