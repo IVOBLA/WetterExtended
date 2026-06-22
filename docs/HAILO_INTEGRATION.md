@@ -2901,3 +2901,8 @@ Neue Runtime-/Admin-Werte umfassen u. a. `IR_WATCH_ENABLED`,
 IR-Stufen verwenden keine hartkodierte 10000-m-Grenze. Alle Zellpolygonfarben
 bleiben dunkelblau, Unterschiede erfolgen über Label, Badge, Transparenz,
 Linienstil und Popup-Felder.
+
+## B234 — Upgrade-rsync löschte train_data/hydro/ (2026-06-22)
+- Ursache: `install.sh` (LOCAL/ZIP-Modus, `rsync -a --delete`) schloss `.env`, `users.db`, `runtime_overrides.json`, `statistics/`, `dem/`, `cell_filters/`, `cell_lineage/` aus, jedoch NICHT `train_data/hydro/`. Da `/train_data/` gitignored ist, löschte `--delete` beim Upgrade die Hydro-Impact-Historie (`train_data/hydro/impact/`) und die generierten Geodaten (`train_data/hydro/static/generated/`). Widersprach der Full-Modus-Zusage „NICHT geloescht: train_data/hydro/“.
+- Fix: `--exclude=/train_data/hydro/` im rsync-Block ergänzt. Kein anderer Pfad geändert; der Git-basierte Upgrade-Pfad (`git pull`/`reset`) war nie betroffen, da er gitignorierte Daten nicht anfasst.
+- Test: `tests/test_b234_install_preserves_hydro.py`.
