@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import config
+import runtime_config
 from hydro_geography import geometry_centroid, geometry_contains_point, haversine_m, point_to_linestring_distance_m, polygon_area_km2
 from hydro_upstream_graph import build_upstream_basin_graph, get_upstream_basin_ids, build_upstream_union_geometry, write_upstream_diagnostics
 
@@ -192,6 +193,14 @@ def _union_basins(features: list[dict]) -> dict | None:
         return None
     return mapping(unary_union(shapes))
 
+
+def _station_admin_enabled(station_id: str) -> bool:
+    overrides = runtime_config.get("HYDRO_STATION_OVERRIDES", getattr(config, "HYDRO_STATION_OVERRIDES", {})) or {}
+    if not isinstance(overrides, dict):
+        return True
+    override = overrides.get(str(station_id))
+    return not (isinstance(override, dict) and override.get("enabled") is False)
+
 def build_station_index(stations_geojson: str, basins_geojson: str | None, flowlines_geojson: str | None, output_dir: str | None = None) -> dict:
     output_dir = output_dir or os.path.join(getattr(config, "HYDRO_STATIC_DIR", "train_data/hydro/static"), "generated")
     default_lag = getattr(config, "HYDRO_DEFAULT_LAG_MIN", [20, 180])
@@ -225,7 +234,7 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
         if not pt:
             index.append({
                 "station_id": sid, "station_name": name, "river_name": river,
-                "enabled": False, "impact_eligible": False, "quality": "unresolved",
+                "enabled": _station_admin_enabled(sid), "visible": False, "impact_eligible": False, "quality": "unresolved",
                 "source_quality": "station_point_missing",
                 "topology_source": "none",
                 "upstream_source_quality": "station_point_missing",
@@ -293,6 +302,7 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
                 snap_distance, flowline = min(candidates, key=lambda x: x[0])
         quality = "exact" if impact_eligible else basin_match_quality
         area = polygon_area_km2(union_geom or {}) if union_geom else 0.0
+        station_enabled = _station_admin_enabled(sid)
         item = {
             "station_id": sid, "station_name": name, "river_name": river, "lon": lon, "lat": lat,
             "snapped_flowline_id": str(_prop(flowline, ["flowline_id", "id"], "")) if flowline else None,
@@ -304,23 +314,24 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
             "downstream_basin_id": _prop(basin or {}, ["downstream_basin_id"], None),
             "outlet_id": _prop(basin or {}, ["outlet_id"], None),
             "source_schema": _prop(basin or {}, ["source_schema"], None),
-            "default_lag_min": default_lag, "estimated_lag_min": default_lag, "enabled": impact_eligible, "impact_eligible": impact_eligible,
+            "default_lag_min": default_lag, "estimated_lag_min": default_lag, "enabled": station_enabled, "visible": station_enabled, "impact_eligible": impact_eligible,
             "quality": quality, "source_quality": source_quality, "reason": reason, "nearest_basin_hint": nearest_basin_hint,
         }
         index.append(item)
         station_features.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [lon, lat]}, "properties": item})
         if impact_eligible:
             catchment_features.append({"type": "Feature", "geometry": union_geom, "properties": item})
-    enabled = sum(1 for i in index if i.get("impact_eligible"))
+    impact_enabled = sum(1 for i in index if i.get("impact_eligible"))
+    visible_enabled = sum(1 for i in index if i.get("enabled") is not False and i.get("visible") is not False)
     matched = sum(1 for i in index if i.get("station_basin"))
     missing = []
     if not basins:
         missing.append("basins")
     if not stations.get("features", []):
         missing.append("stations")
-    if enabled == len(index) and enabled:
+    if impact_enabled == len(index) and impact_enabled:
         status_value = "hydro_static_ready"
-    elif enabled:
+    elif impact_enabled:
         status_value = "upstream_topology_partial"
     elif basins and matched and not flowlines:
         status_value = "flowlines_missing"
@@ -330,10 +341,10 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
         status_value = "station_basin_unavailable" if basins else "hydro_static_missing"
     reason_summary = {
         "station_basin_available": matched,
-        "upstream_topology_missing": bool(basins and matched and not enabled),
-        "impact_eligible_available": bool(enabled),
+        "upstream_topology_missing": bool(basins and matched and not impact_enabled),
+        "impact_eligible_available": bool(impact_enabled),
     }
-    status = {"ok": bool(enabled), "status": status_value, "message": "Hydro-Static bereit." if enabled else "Hydro-Static vorbereitet, aber keine belastbare Upstream-Topologie verfügbar.", "generated_at": datetime.now(timezone.utc).isoformat(), "station_count": len(index), "static_station_count": len(index), "station_basin_count": matched, "basin_count": len(basins), "flowline_count": len(flowlines), "station_basin_match_count": matched, "impact_eligible_station_count": enabled, "enabled_station_count": enabled, "topology_source": topology_source_overall, "topology_quality": upstream_graph.get("topology_quality"), "upstream_graph_node_count": len(upstream_graph.get("nodes", [])), "upstream_graph_edge_count": len(upstream_graph.get("edges", [])), "upstream_graph_confident_edge_count": upstream_graph.get("confident_edge_count", 0), "upstream_graph_cycle_count": upstream_graph.get("cycle_count", 0), "topology_errors": (["upstream_graph_cycle"] if upstream_graph.get("cycle_count", 0) else []), "topology_warnings": upstream_graph.get("diagnostics", [])[:20], "missing": missing, "reason_summary": reason_summary, "errors": [], "warnings": (["flowlines_missing"] if basins and matched and not flowlines else (["upstream_topology_missing"] if matched and not enabled else []))}
+    status = {"ok": bool(impact_enabled), "status": status_value, "message": "Hydro-Static bereit." if impact_enabled else "Hydro-Static vorbereitet, aber keine belastbare Upstream-Topologie verfügbar.", "generated_at": datetime.now(timezone.utc).isoformat(), "station_count": len(index), "static_station_count": len(index), "station_basin_count": matched, "basin_count": len(basins), "flowline_count": len(flowlines), "station_basin_match_count": matched, "impact_eligible_station_count": impact_enabled, "enabled_station_count": visible_enabled, "visible_station_count": visible_enabled, "topology_source": topology_source_overall, "topology_quality": upstream_graph.get("topology_quality"), "upstream_graph_node_count": len(upstream_graph.get("nodes", [])), "upstream_graph_edge_count": len(upstream_graph.get("edges", [])), "upstream_graph_confident_edge_count": upstream_graph.get("confident_edge_count", 0), "upstream_graph_cycle_count": upstream_graph.get("cycle_count", 0), "topology_errors": (["upstream_graph_cycle"] if upstream_graph.get("cycle_count", 0) else []), "topology_warnings": upstream_graph.get("diagnostics", [])[:20], "missing": missing, "reason_summary": reason_summary, "errors": [], "warnings": (["flowlines_missing"] if basins and matched and not flowlines else (["upstream_topology_missing"] if matched and not impact_enabled else []))}
     _write_json(os.path.join(output_dir, "station_network_index.json"), {"stations": index, "by_station_id": {str(i.get("station_id")): i for i in index}})
     _write_json(os.path.join(output_dir, "hydro_stations.geojson"), {"type": "FeatureCollection", "features": station_features})
     _write_json(os.path.join(output_dir, "station_catchments.geojson"), {"type": "FeatureCollection", "features": catchment_features})

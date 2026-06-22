@@ -55,7 +55,11 @@ def enabled() -> bool:
 def _static_index():
     data = _json(STATIC_GENERATED / "station_network_index.json", {})
     rows = data.get("stations", data if isinstance(data, list) else []) if isinstance(data, (dict, list)) else []
-    return {str(r.get("station_id")): r for r in rows if isinstance(r, dict)}
+    if not rows:
+        fc = _json(STATIC_GENERATED / "hydro_stations.geojson", {})
+        if isinstance(fc, dict):
+            rows = [{**(f.get("properties") or {}), "lon": ((f.get("geometry") or {}).get("coordinates") or [None, None])[0], "lat": ((f.get("geometry") or {}).get("coordinates") or [None, None])[1]} for f in fc.get("features", []) if isinstance(f, dict)]
+    return {str(r.get("station_id")): r for r in rows if isinstance(r, dict) and r.get("station_id") not in (None, "")}
 
 
 
@@ -190,8 +194,9 @@ def station_features(include_disabled=False):
         l = by_id.get(sid, {})
         lon = st.get("lon", l.get("lon")); lat = st.get("lat", l.get("lat"))
         if lon is None or lat is None: continue
-        station_enabled = bool(st.get("enabled", True))
-        if not station_enabled and not include_disabled:
+        explicit_disabled = isinstance(overrides, dict) and isinstance(overrides.get(sid), dict) and overrides.get(sid, {}).get("enabled") is False
+        station_enabled = not explicit_disabled
+        if explicit_disabled and not include_disabled:
             continue
         ev = None if not station_enabled else active.get(sid)
         status_value = "disabled" if not station_enabled else (ev.get("status") if ev else ("ok" if enabled() else "disabled"))

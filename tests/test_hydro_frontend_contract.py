@@ -35,3 +35,11 @@ def test_admin_lists_all_hydro_runtime_keys():
         "HYDRO_VERIFY_MAX_GAP_MIN", "HYDRO_STATION_OVERRIDES",
     ]:
         assert key in src
+
+
+def test_hydro_admin_shows_loaded_station_count_instead_of_empty_state_for_non_eligible_stations():
+    src = _read("frontend/src/pages/Configuration.jsx")
+    assert "hydroStations.length} Hydro-Stationen geladen" in src
+    assert "hydroImpactEligibleCount} impact-eligible" in src
+    assert "Upstream-Topologie fehlt noch" in src
+    assert "hydroStations.length === 0" in src
