@@ -31,9 +31,30 @@ from config import (
     VERIFICATION_TOLERANCE_KM,
     VERIFICATION_TIME_TOLERANCE_S,
     VERIFICATION_MAX_SEARCH_RADIUS_KM,
+    VERIFICATION_NN_MAX_MATCH_KM,
     FRAME_INTERVAL_MIN,
 )
 from debug_utils import debug_log
+
+try:
+    import runtime_config as _runtime_cfg
+except Exception:  # pragma: no cover
+    _runtime_cfg = None
+
+
+def _nn_max_match_km() -> float:
+    """B228: NN-Akzeptanzschwelle, runtime-ueberschreibbar (Admin-Panel)."""
+    if _runtime_cfg is not None:
+        try:
+            return float(_runtime_cfg.get("VERIFICATION_NN_MAX_MATCH_KM", VERIFICATION_NN_MAX_MATCH_KM))
+        except Exception:
+            pass
+    return float(VERIFICATION_NN_MAX_MATCH_KM)
+
+
+def _is_nn_rejected(match_src, matched, dist_km, threshold_km) -> bool:
+    """B228: True, wenn NN-Treffer die strenge Akzeptanzschwelle ueberschreitet."""
+    return match_src == "nn" and matched is not None and dist_km is not None and dist_km > threshold_km
 
 EVAL_DIR = SAVE_PATHS.get("evaluation", "train_data/evaluation/").rstrip("/")
 HISTORY_FILE = os.path.join(EVAL_DIR, "accuracy_history.jsonl")
@@ -340,6 +361,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         "missed": 0,
         "no_target_frame": 0,
         "id_lost": 0,
+        "nn_rejected": 0,
         "hit_rate": None,
         "mae_km": None,
         "rmse_km": None,
@@ -361,7 +383,8 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
     cutoff = fts[-1][1] - timedelta(hours=since_hours)
     by_ts: Dict[datetime, str] = {t: f for f, t in fts}
 
-    n_total = hits = verified = missed = no_target_frame = id_lost = 0
+    n_total = hits = verified = missed = no_target_frame = id_lost = nn_rejected = 0
+    _nn_threshold = _nn_max_match_km()
     sum_km = sum_km2 = sum_abs_px = sum_sx2 = sum_sy2 = 0.0
     for fpath, ts in fts:
         if ts < cutoff:
@@ -416,10 +439,20 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
                 continue
 
             matched, dist_km, _match_src = _match_actual(obj, target_objs, horizon_min)
+            # B228: NN-Treffer jenseits der strengen Akzeptanzschwelle = Fehlzuordnung.
+            if _is_nn_rejected(_match_src, matched, dist_km, _nn_threshold):
+                _match_src = "nn_rejected"
             n_total += 1
             _bm = _bucket(by_mode, _mode_for(obj)); _bs = _bucket(by_source, _source_for(obj)); _bt = _bucket(by_match, _match_type(_match_src))
             _bm["samples"] += 1; _bs["samples"] += 1; _bt["samples"] += 1
             ex = ey = None
+
+            if _match_src == "nn_rejected":
+                nn_rejected += 1
+                _bm["missed"] += 1; _bs["missed"] += 1; _bt["missed"] += 1
+                rec = _detail_record(obj, ts, target_ts, horizon_min, None, dist_km, "nn_rejected", False, False, horizon_min)
+                details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
+                continue
 
             if matched is None:
                 missed += 1
@@ -467,6 +500,12 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
     # coverage_rate < 0.3 → Metriken unzuverlässig (zu viele not_found frames).
     _coverage = round(verified / n_total, 4) if n_total > 0 else None
 
+    _mt_counts = {k: int(v.get("samples", 0)) for k, v in by_match.items()}
+    debug_log(
+        f"[ACCURACY][MATCH] h=+{horizon_min}m match_types={_mt_counts} "
+        f"nn_rejected={nn_rejected} (NN-Akzeptanz {_nn_threshold:.1f} km)"
+    )
+
     return {
         "horizon": horizon_min,
         "samples": n_total,
@@ -475,6 +514,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         "missed": missed,
         "no_target_frame": no_target_frame,
         "id_lost": id_lost,
+        "nn_rejected": nn_rejected,
         "hit_rate": round(hits / verified, 4) if verified else None,
         "coverage_rate": _coverage,          # verified / n_total
         "mae_km": round(sum_km / eval_n, 3) if eval_n else None,
