@@ -19,6 +19,7 @@ from typing import Optional
 
 from config import SAVE_PATHS
 from debug_utils import debug_log
+from utils import utc_iso_z
 
 # Konfiguration
 DRIFT_WINDOW_RECENT_H = int(os.getenv("DRIFT_WINDOW_RECENT_H", "24"))
@@ -118,7 +119,7 @@ def check_drift() -> dict:
         "threshold_km": DRIFT_MAE_THRESHOLD_KM,
         "recent_points": len(recent_recs),
         "baseline_points": len(baseline_recs),
-        "checked_at_utc": now.isoformat(timespec="seconds") + "Z",
+        "checked_at_utc": utc_iso_z(now),
         "message": "Zu wenige Messpunkte für Drift-Analyse.",
     }
 

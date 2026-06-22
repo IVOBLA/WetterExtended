@@ -171,3 +171,5 @@ Labels für IR-Vorläufer → Radarbestätigung werden in `train_data/cell_linea
 | B214 | Forecast-Error-Breakdown automatisch diagnostizieren: ML vs. kinematic, Richtung, Speed, Match-Type, Coverage und Worst-Forecasts | `forecast_error_diagnosis.py`, `tools/diagnose_motion_pipeline.py`, `app.py`, `drift_detector.py`, `tests/test_b214_forecast_error_diagnosis.py` | ✅ erledigt |
 
 | B215 | Forecast-Error-Detail-Validation: synthetische/zeitlich unmögliche Details aus Diagnose ausschließen und Datenbasis sichtbar machen | `forecast_error_diagnosis.py`, `tools/diagnose_motion_pipeline.py`, `app.py`, `tests/test_b215_forecast_error_detail_validation.py` | ✅ erledigt |
+
+| B227 | Ungueltige Zeitstempel mit doppelter Zeitzone (`+00:00Z`) behoben: zentraler Helper `utc_iso_z()` ersetzt `isoformat()+"Z"` auf tz-aware datetimes | `utils.py`, `drift_detector.py`, `api_health_check.py`, `tests/test_b227_utc_iso_z.py` | ✅ erledigt |

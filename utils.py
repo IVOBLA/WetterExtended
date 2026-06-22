@@ -6,6 +6,7 @@ import random
 import string
 from geopy.distance import geodesic
 import math
+from datetime import datetime, timezone
 
 def log(msg):
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
@@ -68,3 +69,21 @@ def calculate_velocity(obj_id, object_files):
         vx, vy = 0, 0
 
     return vx, vy
+
+
+
+def utc_iso_z(dt=None):
+    """Zentraler UTC-ISO-Formatter mit 'Z'-Suffix OHNE doppelte Zeitzone.
+
+    - dt=None  -> aktuelle UTC-Zeit
+    - aware    -> nach UTC konvertiert
+    - naive    -> als UTC interpretiert
+    Rueckgabe immer: 'YYYY-MM-DDTHH:MM:SSZ'  (nie '+00:00Z').
+    """
+    if dt is None:
+        dt = datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
