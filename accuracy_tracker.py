@@ -304,6 +304,35 @@ def _stat_errors(values: list, name: str) -> dict:
     return {f"median_{prefix}_error_{unit}": round(_percentile(values, 50), 3), f"p90_{prefix}_error_{unit}": round(_percentile(values, 90), 3)}
 
 
+def _accumulate_ml_shadow(by_mode, obj, horizon_min, matched, tol_km):
+    """P53: bewertet den ML-Schatten (forecast_ml_*) gegen das Champion-Actual und
+    bucht ihn AUSSCHLIESSLICH in by_mode['ml'] (Champion/global/Drift unveraendert).
+    Liefert die Schatten-Distanz (km) oder None."""
+    if matched is None:
+        return None
+    if obj.get(f"forecast_mode_{horizon_min}", obj.get("forecast_mode")) == "ml":
+        return None
+    _ml_lat = _safe_float(obj.get(f"forecast_ml_lat_{horizon_min}"))
+    _ml_lon = _safe_float(obj.get(f"forecast_ml_lon_{horizon_min}"))
+    if _ml_lat is None or _ml_lon is None:
+        return None
+    _a_lat = _safe_float(matched.get("lat"))
+    _a_lon = _safe_float(matched.get("lon"))
+    if _a_lat is None or _a_lon is None:
+        return None
+    d = _haversine_km(_ml_lat, _ml_lon, _a_lat, _a_lon)
+    if d is None:
+        return None
+    b = by_mode.setdefault("ml", {"samples": 0, "verified": 0, "hits": 0, "missed": 0, "no_target_frame": 0, "sum_km": 0.0, "sum_km2": 0.0})
+    b["samples"] += 1
+    b["verified"] += 1
+    b["sum_km"] += d
+    b["sum_km2"] += d * d
+    if d <= tol_km:
+        b["hits"] += 1
+    return d
+
+
 def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
     """
     Closed-Loop-Verifikation pro Horizont.
@@ -501,6 +530,8 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
             if dist_km <= VERIFICATION_TOLERANCE_KM:
                 hits += 1
                 _bm["hits"] += 1; _bs["hits"] += 1; _bt["hits"] += 1
+            # P53: ML-Shadow-Scoring — Challenger gegen dasselbe Actual, nur by_mode["ml"].
+            _accumulate_ml_shadow(by_mode, obj, horizon_min, matched, VERIFICATION_TOLERANCE_KM)
 
     if n_total == 0:
         debug_log(f"[ACCURACY] horizon=+{horizon_min}m: 0 verifizierbare Samples in den letzten {since_hours}h")
