@@ -22,6 +22,7 @@ from config import (
     EUMETVIEW_BT_MAX_K,
     EUMETVIEW_BT_MIN_K,
     EUMETVIEW_NODATA_PIXEL,
+    LAPSE_RATE,
     EUMETVIEW_SCAN_MODE,
     EUMETVIEW_FES_LAYER_IR108,
     EUMETVIEW_RSS_LAYER_IR108,
@@ -801,6 +802,8 @@ def fetch_cloud_height_for_points(latlons: list) -> dict:
     tif_path = tif_files[-1]
     result = {}
 
+    reasons = {"resolved": 0, "out_of_extent": 0, "nodata_pixel": 0,
+               "warm_clear": 0, "error": 0}
     try:
         with rasterio.open(tif_path) as src:
             band = src.read(1)
@@ -814,6 +817,7 @@ def fetch_cloud_height_for_points(latlons: list) -> dict:
                     row, col = rowcol(src.transform, lon, lat)
                     if not (0 <= row < src.height and 0 <= col < src.width):
                         result[(lat, lon)] = None
+                        reasons["out_of_extent"] += 1
                         continue
 
                     raw = band[row, col]
@@ -823,26 +827,49 @@ def fetch_cloud_height_for_points(latlons: list) -> dict:
                         bt_k = float(raw)
                         if np.isnan(bt_k) or bt_k <= 0 or bt_k > nan_threshold:
                             result[(lat, lon)] = None
+                            reasons["warm_clear"] += 1
                             continue
                         height_m = ((T_surface - bt_k) / (LAPSE_RATE / 1000.0)) + altitude_m
                     else:
                         pixel = int(raw)
                         if pixel <= EUMETVIEW_NODATA_PIXEL:
                             result[(lat, lon)] = None
+                            reasons["nodata_pixel"] += 1
                             continue
                         bt_k = EUMETVIEW_BT_MAX_K - ((EUMETVIEW_BT_MAX_K - EUMETVIEW_BT_MIN_K) / 255.0) * pixel
                         if bt_k > nan_threshold:
                             result[(lat, lon)] = None
+                            reasons["warm_clear"] += 1
                             continue
                         height_m = ((T_surface - bt_k) / (LAPSE_RATE / 1000.0)) + altitude_m
 
                     result[(lat, lon)] = max(0.0, round(float(height_m), 0))
-                except Exception:
+                    reasons["resolved"] += 1
+                except Exception as _pt_exc:
                     result[(lat, lon)] = None
+                    reasons["error"] += 1
+                    if reasons["error"] <= 3:
+                        debug_log(f"[CLOUD-GRID] Punkt ({lat},{lon}) Fehler: {type(_pt_exc).__name__}: {_pt_exc}")
 
     except Exception as exc:
         debug_log(f"[CLOUD-GRID] TIFF-Verarbeitung fehlgeschlagen: {exc}")
         return {ll: None for ll in latlons}
 
-    debug_log(f"[CLOUD-GRID] Wolkenhöhe für {len(latlons)} Punkte berechnet aus {os.path.basename(tif_path)}")
+    _resolved = reasons["resolved"]
+    debug_log(
+        f"[CLOUD-GRID] {_resolved}/{len(latlons)} Punkte aufgeloest aus "
+        f"{os.path.basename(tif_path)} | reasons={reasons}"
+    )
+    try:
+        os.makedirs(_EVAL_DIR, exist_ok=True)
+        with open(_EUMETVIEW_DEBUG_FILE, "a", encoding="utf-8") as _f:
+            _f.write(json.dumps({
+                "event": "cloud_grid_resolve",
+                "ts_utc": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                "tif": os.path.basename(tif_path),
+                "points_total": len(latlons),
+                "reasons": reasons,
+            }, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
     return result
