@@ -73,7 +73,7 @@ def test_station_inside_basin_without_upstream_topology_is_not_impact_eligible(t
     data = json.loads((tmp_path / "station_network_index.json").read_text(encoding="utf-8"))
     station = data["by_station_id"]["S_BASIN_ONLY"]
     assert station["station_basin"] == "B_ONLY"
-    assert station["catchment_id"] is None
+    assert station["catchment_id"] == station["station_basin"]
     assert station["upstream_catchment_ids"] == []
     assert station["topology_source"] == "none"
     assert station["upstream_source_quality"] == "missing"
@@ -82,7 +82,7 @@ def test_station_inside_basin_without_upstream_topology_is_not_impact_eligible(t
     assert station["impact_eligible"] is False
     assert station["enabled"] is False
     assert "upstream_topology_missing" in station["reason"]
-    assert "station_catchment_unavailable" in station["reason"]
+    assert "upstream_catchment_unavailable" in station["reason"]
 
     catchments = json.loads((tmp_path / "station_catchments.geojson").read_text(encoding="utf-8"))
     assert catchments["features"] == []
@@ -215,7 +215,7 @@ def test_ggn_uppercase_fields_set_station_basin_without_fake_impact(tmp_path):
     data = json.loads((tmp_path / "station_network_index.json").read_text(encoding="utf-8"))
     station = data["by_station_id"]["S_GGN"]
     assert station["station_basin"] == "GGN_B1"
-    assert station["catchment_id"] is None
+    assert station["catchment_id"] == station["station_basin"]
     assert station["impact_eligible"] is False
     assert station["source_quality"] in {"upstream_topology_missing", "hydro_geometry_unavailable"}
 

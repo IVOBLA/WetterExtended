@@ -8,6 +8,7 @@ from typing import Any
 
 import config
 from hydro_geography import geometry_centroid, geometry_contains_point, haversine_m, point_to_linestring_distance_m, polygon_area_km2
+from hydro_upstream_graph import build_upstream_basin_graph, get_upstream_basin_ids, build_upstream_union_geometry, write_upstream_diagnostics
 
 try:
     from shapely.geometry import Point, mapping, shape
@@ -208,6 +209,11 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
 
     basin_by_id = {_feature_id(b): b for b in basins if _feature_id(b)}
     basin_graph, basin_edge_count, topology_source_overall = _build_basin_graph(basin_by_id)
+    upstream_graph = build_upstream_basin_graph(basins, flowlines) if basins and flowlines else {"nodes": list(basin_by_id), "edges": [], "confident_edge_count": 0, "cycle_count": 0, "topology_quality": "flowlines_missing" if basins and not flowlines else "upstream_topology_missing", "diagnostics": []}
+    if flowlines:
+        write_upstream_diagnostics(upstream_graph, output_dir, basins)
+    if upstream_graph.get("confident_edge_count", 0) > 0:
+        topology_source_overall = "ggn_watercourselink_flowdirection"
     index = []
     station_features = []
     catchment_features = []
@@ -224,7 +230,7 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
                 "topology_source": "none",
                 "upstream_source_quality": "station_point_missing",
                 "flow_distance_available": False, "flow_distance_km": None,
-                "reason": ["station_catchment_unavailable"], "default_lag_min": default_lag,
+                "reason": ["upstream_catchment_unavailable"], "default_lag_min": default_lag,
             })
             continue
         lon, lat = pt
@@ -238,26 +244,32 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
         elif declared_upstream:
             upstream_source_quality = "declared_upstream_catchment_ids_unresolved"
         else:
-            derived, topology_source, upstream_source_quality = _derive_upstream_ids_from_basins(basin_id, basin_graph, basin_edge_count)
-            upstream_ids = derived if basin_match_quality != "nearby_unresolved" else []
+            graph_ids = get_upstream_basin_ids(basin_id, upstream_graph) if basin_match_quality != "nearby_unresolved" else []
+            if graph_ids:
+                upstream_ids = graph_ids
+                topology_source = "ggn_watercourselink_flowdirection"
+                upstream_source_quality = "upstream_graph_confident"
+            else:
+                derived, topology_source, upstream_source_quality = _derive_upstream_ids_from_basins(basin_id, basin_graph, basin_edge_count)
+                upstream_ids = derived if basin_match_quality != "nearby_unresolved" and not flowlines else []
             if basin_match_quality == "nearby_unresolved":
                 topology_source = "none"
                 upstream_source_quality = "nearby_basin_not_hydrologically_resolved"
         eligible_basins = [basin_by_id[uid] for uid in upstream_ids]
-        union_geom = _union_basins(eligible_basins) if upstream_ids else None
-        impact_eligible = bool(union_geom and upstream_ids and SHAPELY_AVAILABLE and basin_match_quality != "nearby_unresolved")
+        union_geom = build_upstream_union_geometry(upstream_ids, basin_by_id) if topology_source == "ggn_watercourselink_flowdirection" else (_union_basins(eligible_basins) if upstream_ids else None)
+        impact_eligible = bool(union_geom and upstream_ids and SHAPELY_AVAILABLE and basin_match_quality != "nearby_unresolved" and (topology_source != "ggn_watercourselink_flowdirection" or upstream_graph.get("cycle_count", 0) == 0))
         if impact_eligible:
             source_quality = "upstream_union"
             reason = ["upstream_catchment_union_available", "not_station_radius_based"]
         elif basin_match_quality == "nearby_unresolved":
             source_quality = "nearby_unresolved"
-            reason = ["nearby_basin_not_hydrologically_resolved", "station_catchment_unavailable", "no_hydrological_upstream_catchment_match"]
+            reason = ["nearby_basin_not_hydrologically_resolved", "upstream_catchment_unavailable", "no_hydrological_upstream_catchment_match"]
         elif not SHAPELY_AVAILABLE:
             source_quality = "hydro_geometry_unavailable"
-            reason = ["hydro_geometry_unavailable", "station_catchment_unavailable", "no_hydrological_upstream_catchment_match"]
+            reason = ["hydro_geometry_unavailable", "upstream_catchment_unavailable", "no_hydrological_upstream_catchment_match"]
         else:
             source_quality = "upstream_topology_missing" if basin else "hydro_static_missing"
-            reason = [source_quality, "station_catchment_unavailable", "no_hydrological_upstream_catchment_match"]
+            reason = [source_quality, "upstream_catchment_unavailable", "no_hydrological_upstream_catchment_match"]
 
         nearest_basin_hint = None
         if basin is None and basins:
@@ -287,7 +299,7 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
             "snap_distance_m": round(float(snap_distance), 2) if snap_distance is not None else None,
             "flow_distance_available": False, "flow_distance_km": None,
             "topology_source": topology_source, "upstream_source_quality": upstream_source_quality,
-            "station_basin": basin_id, "catchment_id": basin_id if impact_eligible else None, "upstream_catchment_ids": upstream_ids, "catchment_area_km2": round(area, 3),
+            "station_basin": basin_id, "catchment_id": basin_id if impact_eligible else basin_id, "upstream_catchment_ids": upstream_ids, "catchment_area_km2": round(area, 3),
             "hydro_id_original": _prop(basin or {}, ["hydro_id_original"], None),
             "downstream_basin_id": _prop(basin or {}, ["downstream_basin_id"], None),
             "outlet_id": _prop(basin or {}, ["outlet_id"], None),
@@ -306,8 +318,10 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
         missing.append("basins")
     if not stations.get("features", []):
         missing.append("stations")
-    if enabled:
-        status_value = "ok"
+    if enabled == len(index) and enabled:
+        status_value = "hydro_static_ready"
+    elif enabled:
+        status_value = "upstream_topology_partial"
     elif basins and matched and not flowlines:
         status_value = "flowlines_missing"
     elif basins and matched:
@@ -319,7 +333,7 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
         "upstream_topology_missing": bool(basins and matched and not enabled),
         "impact_eligible_available": bool(enabled),
     }
-    status = {"ok": bool(enabled), "status": status_value, "message": "Hydro-Static bereit." if enabled else "Hydro-Static vorbereitet, aber keine belastbare Upstream-Topologie verfügbar.", "generated_at": datetime.now(timezone.utc).isoformat(), "station_count": len(index), "static_station_count": len(index), "station_basin_count": matched, "basin_count": len(basins), "flowline_count": len(flowlines), "station_basin_match_count": matched, "impact_eligible_station_count": enabled, "enabled_station_count": enabled, "topology_source": topology_source_overall, "missing": missing, "reason_summary": reason_summary, "errors": [], "warnings": (["flowlines_missing"] if basins and matched and not flowlines else (["upstream_topology_missing"] if matched and not enabled else []))}
+    status = {"ok": bool(enabled), "status": status_value, "message": "Hydro-Static bereit." if enabled else "Hydro-Static vorbereitet, aber keine belastbare Upstream-Topologie verfügbar.", "generated_at": datetime.now(timezone.utc).isoformat(), "station_count": len(index), "static_station_count": len(index), "station_basin_count": matched, "basin_count": len(basins), "flowline_count": len(flowlines), "station_basin_match_count": matched, "impact_eligible_station_count": enabled, "enabled_station_count": enabled, "topology_source": topology_source_overall, "topology_quality": upstream_graph.get("topology_quality"), "upstream_graph_node_count": len(upstream_graph.get("nodes", [])), "upstream_graph_edge_count": len(upstream_graph.get("edges", [])), "upstream_graph_confident_edge_count": upstream_graph.get("confident_edge_count", 0), "upstream_graph_cycle_count": upstream_graph.get("cycle_count", 0), "topology_errors": (["upstream_graph_cycle"] if upstream_graph.get("cycle_count", 0) else []), "topology_warnings": upstream_graph.get("diagnostics", [])[:20], "missing": missing, "reason_summary": reason_summary, "errors": [], "warnings": (["flowlines_missing"] if basins and matched and not flowlines else (["upstream_topology_missing"] if matched and not enabled else []))}
     _write_json(os.path.join(output_dir, "station_network_index.json"), {"stations": index, "by_station_id": {str(i.get("station_id")): i for i in index}})
     _write_json(os.path.join(output_dir, "hydro_stations.geojson"), {"type": "FeatureCollection", "features": station_features})
     _write_json(os.path.join(output_dir, "station_catchments.geojson"), {"type": "FeatureCollection", "features": catchment_features})

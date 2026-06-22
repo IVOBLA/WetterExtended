@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 import config
 from hydro_station_index import build_station_index
 
-STATUS_VALUES = {"ok","hydro_ready","hydro_static_missing","basins_available","flowlines_missing","hydro_static_ready","hydro_static_download_failed","hydro_static_convert_failed","hydro_station_import_failed","station_catchment_unavailable","station_basin_available","station_basin_unavailable","upstream_topology_missing","invalid_static_json","hydro_static_partial"}
+STATUS_VALUES = {"ok","hydro_ready","hydro_static_missing","basins_available","flowlines_missing","hydro_static_ready","hydro_static_download_failed","hydro_static_convert_failed","hydro_station_import_failed","station_catchment_unavailable","station_basin_available","station_basin_unavailable","upstream_topology_missing","upstream_topology_partial","invalid_static_json","hydro_static_partial"}
 
 
 def static_paths(static_dir: str | None = None) -> dict[str, str]:
@@ -570,9 +570,12 @@ def verify(static_dir: str | None=None) -> dict: return status(static_dir) if Pa
 def _main() -> int:
     import argparse
     p=argparse.ArgumentParser(description="Hydro-Static Auto-Importer")
-    p.add_argument("--static-dir", default=None); p.add_argument("--force", action="store_true"); p.add_argument("--status", action="store_true"); p.add_argument("--check-coverage"); p.add_argument("--auto", action="store_true"); p.add_argument("--download-all", action="store_true"); p.add_argument("--download-basins", action="store_true"); p.add_argument("--download-flowlines", action="store_true"); p.add_argument("--build", action="store_true"); p.add_argument("--verify", action="store_true"); p.add_argument("--import-stations"); p.add_argument("--allow-url-import", action="store_true")
+    p.add_argument("--static-dir", default=None); p.add_argument("--force", action="store_true"); p.add_argument("--status", action="store_true"); p.add_argument("--build-upstream-graph", action="store_true"); p.add_argument("--diagnose-upstream-graph", action="store_true"); p.add_argument("--check-coverage"); p.add_argument("--auto", action="store_true"); p.add_argument("--download-all", action="store_true"); p.add_argument("--download-basins", action="store_true"); p.add_argument("--download-flowlines", action="store_true"); p.add_argument("--build", action="store_true"); p.add_argument("--verify", action="store_true"); p.add_argument("--import-stations"); p.add_argument("--allow-url-import", action="store_true")
     a=p.parse_args(); out=None
-    if a.status: out=status(a.static_dir)
+    if a.build_upstream_graph or a.diagnose_upstream_graph:
+        paths=ensure_static_dirs(a.static_dir); out=build_static_hydro(a.static_dir)
+        out={"ok": True, "basin_count": out.get("basin_count",0), "flowline_count": out.get("flowline_count",0), "graph_node_count": out.get("upstream_graph_node_count",0), "graph_edge_count": out.get("upstream_graph_edge_count",0), "confident_edge_count": out.get("upstream_graph_confident_edge_count",0), "cycle_count": out.get("upstream_graph_cycle_count",0), "station_basin_count": out.get("station_basin_count",0), "impact_eligible_station_count": out.get("impact_eligible_station_count",0), "warnings": out.get("topology_warnings", out.get("warnings", [])), "errors": out.get("topology_errors", out.get("errors", []))}
+    elif a.status: out=status(a.static_dir)
     elif a.check_coverage: out=check_coverage(a.check_coverage, a.static_dir)
     elif a.auto: out=auto(a.static_dir, force=a.force)
     elif a.download_all: paths=ensure_static_dirs(a.static_dir); out={"downloads":{"basins":download_basins(a.static_dir, force=a.force),"flowlines":download_flowlines(a.static_dir, force=a.force)}}
