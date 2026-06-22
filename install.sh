@@ -1091,7 +1091,7 @@ if [[ "$MODE" == "full" ]]; then
     HYDRO_AUTO_ARGS=(--auto)
     [[ "$FORCE_DOWNLOAD" == true ]] && HYDRO_AUTO_ARGS+=(--force)
     log_info "Starte Hydro-Static Auto-Importer: $PYTHON hydro_static_import.py ${HYDRO_AUTO_ARGS[*]}"
-    if "$PYTHON" "$TARGET/hydro_static_import.py" "${HYDRO_AUTO_ARGS[@]}"; then
+    if "$PYTHON" "$TARGET/hydro_static_import.py" --auto ${HYDRO_AUTO_ARGS[@]:1}; then
         log_info "Hydro-Static Auto-Importer abgeschlossen."
     else
         log_warn "Hydro-Static Auto-Importer meldete Fehler; Installation wird fortgesetzt."
@@ -1113,6 +1113,8 @@ print(f"Statische Stationen: {s.get('static_station_count', s.get('station_count
 print(f"Basins: {s.get('basin_count', 0)}")
 print(f"Flowlines: {s.get('flowline_count', 0)}")
 print(f"Impact-fähige Stationen: {s.get('impact_eligible_station_count', 0)}")
+coverage=s.get("feldkirchen_coverage") or {}
+print(f"Feldkirchen-Abdeckung: {coverage.get('coverage_ok', False)}")
 print(f"Downloads: {dstates}")
 missing=s.get('missing') or []
 if missing: print("Fehlende Dateien: " + ", ".join(map(str, missing)))

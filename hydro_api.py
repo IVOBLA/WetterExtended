@@ -88,6 +88,9 @@ def _static_health() -> dict[str, Any]:
         return {"ready": False, "status": "invalid_static_json", "error": index_error, "status_file": str(status_path)}
 
     raw_status = status_doc.get("status") if isinstance(status_doc, dict) else None
+    doc = status_doc if isinstance(status_doc, dict) else {}
+    basin_count = int(doc.get("basin_count") or 0)
+    flowline_count = int(doc.get("flowline_count") or 0)
     if raw_status == "invalid_static_json":
         return {"ready": False, "status": "invalid_static_json", "error": (status_doc or {}).get("error"), "status_file": str(status_path)}
     if raw_status == "hydro_geometry_unavailable":
@@ -95,7 +98,8 @@ def _static_health() -> dict[str, Any]:
 
     idx = _static_index()
     if not idx:
-        return {"ready": False, "status": raw_status or "hydro_static_missing", "error": None, "status_file": str(status_path), "doc": status_doc if isinstance(status_doc, dict) else {}}
+        concrete = raw_status or ("flowlines_missing" if basin_count > 0 and flowline_count <= 0 else "hydro_static_missing")
+        return {"ready": False, "status": concrete, "error": None, "status_file": str(status_path), "doc": doc}
 
     reasons = set()
     eligible = 0
@@ -108,7 +112,7 @@ def _static_health() -> dict[str, Any]:
             reasons.add(str(station.get("source_quality")))
 
     if eligible > 0:
-        return {"ready": True, "status": "hydro_ready", "error": None, "status_file": str(status_path), "doc": status_doc if isinstance(status_doc, dict) else {}}
+        return {"ready": True, "status": "hydro_static_ready", "error": None, "status_file": str(status_path), "doc": doc}
     if "hydro_geometry_unavailable" in reasons:
         concrete = "hydro_geometry_unavailable"
     elif "upstream_topology_missing" in reasons:
@@ -116,8 +120,8 @@ def _static_health() -> dict[str, Any]:
     elif "station_catchment_unavailable" in reasons:
         concrete = "station_catchment_unavailable"
     else:
-        concrete = raw_status or "hydro_static_missing"
-    return {"ready": False, "status": concrete, "error": None, "status_file": str(status_path), "doc": status_doc if isinstance(status_doc, dict) else {}}
+        concrete = raw_status or ("flowlines_missing" if basin_count > 0 and flowline_count <= 0 else "hydro_static_missing")
+    return {"ready": False, "status": concrete, "error": None, "status_file": str(status_path), "doc": doc}
 
 def latest_impacts() -> list[dict]:
     rows = _json(LATEST_IMPACTS, [])
@@ -211,7 +215,7 @@ def status():
     doc = static.get("doc") if isinstance(static.get("doc"), dict) else {}
     latest_doc = _json(LIVE_LATEST, {}) if LIVE_LATEST.exists() else {}
     live_station_count = len(latest_doc.get("stations", [])) if isinstance(latest_doc, dict) else 0
-    return {"enabled": hydro_on, "hydro_enabled": hydro_on, "static_ready": static["ready"], "static_status": static["status"], "hydro_static_missing": static["status"] == "hydro_static_missing", "static_error": static.get("error"), "live_status": "ok" if live_ok or LIVE_LATEST.exists() else "missing", "live_station_count": live_station_count, "static_station_count": doc.get("static_station_count", doc.get("station_count", station_count)), "basin_count": doc.get("basin_count", 0), "flowline_count": doc.get("flowline_count", 0), "downloads": doc.get("downloads", {}), "missing": doc.get("missing", []), "errors": doc.get("errors", []), "warnings": doc.get("warnings", []), "live_ready": LIVE_LATEST.exists(), "live_ok": live_ok, "from_cache": bool(live.get("from_cache")), "cache_used": bool(live.get("from_cache")), "status": overall_status, "last_fetch": live.get("updated_at") or latest_doc.get("fetched_at") if isinstance(latest_doc, dict) else live.get("updated_at"), "last_error": last_error, "station_count": station_count, "visible_station_count": visible_station_count, "impact_eligible_station_count": impact_eligible_station_count, "impact_pending": sum(e.get("status") == "pending" for e in impacts), "impact_confirmed_24h": sum(e.get("status") == "confirmed" and ((_dt(e.get("verified_at") or e.get("created_at")) or cutoff) >= cutoff) for e in impacts)}
+    return {"enabled": hydro_on, "hydro_enabled": hydro_on, "static_ready": static["ready"], "static_status": static["status"], "hydro_static_missing": static["status"] == "hydro_static_missing", "static_error": static.get("error"), "basins_available": doc.get("basin_count", 0) > 0, "flowlines_available": doc.get("flowline_count", 0) > 0, "feldkirchen_coverage_ok": bool((doc.get("feldkirchen_coverage") or _json(STATIC_GENERATED / "hydro_static_coverage.json", {})).get("coverage_ok")), "impact_not_eligible_reason": static["status"] if impact_eligible_station_count <= 0 else None, "live_status": "ok" if live_ok or LIVE_LATEST.exists() else "missing", "live_station_count": live_station_count, "static_station_count": doc.get("static_station_count", doc.get("station_count", station_count)), "basin_count": doc.get("basin_count", 0), "flowline_count": doc.get("flowline_count", 0), "downloads": doc.get("downloads", {}), "missing": doc.get("missing", []), "errors": doc.get("errors", []), "warnings": doc.get("warnings", []), "live_ready": LIVE_LATEST.exists(), "live_ok": live_ok, "from_cache": bool(live.get("from_cache")), "cache_used": bool(live.get("from_cache")), "status": overall_status, "last_fetch": live.get("updated_at") or latest_doc.get("fetched_at") if isinstance(latest_doc, dict) else live.get("updated_at"), "last_error": last_error, "station_count": station_count, "visible_station_count": visible_station_count, "impact_eligible_station_count": impact_eligible_station_count, "impact_pending": sum(e.get("status") == "pending" for e in impacts), "impact_confirmed_24h": sum(e.get("status") == "confirmed" and ((_dt(e.get("verified_at") or e.get("created_at")) or cutoff) >= cutoff) for e in impacts)}
 
 
 def catchment(station_id):
