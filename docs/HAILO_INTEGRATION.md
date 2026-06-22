@@ -2844,3 +2844,23 @@ Phase A (Stabilisierung) — **erledigt**.
 - Getesteter Helper `accuracy_tracker.ml_quality_series` + Endpunkt `/api/ml_quality`; Chart in `Accuracy.jsx` zeigt Champion(Kinematik)- vs. Challenger(ML)-MAE je Horizont ueber die Zeit + Challenger-Sample-Zahl. Erfuellt Zieldefinition „Lernfortschritt/Qualitaet grafisch".
 - Schliesst den Z02-Strang ab (P52 Schatten berechnen, P53 verifizieren, P54 darstellen).
 - Test: `tests/test_p54_ml_quality_series.py` (Backend). Frontend via Build/Sichtpruefung.
+
+## B227 — Ungültige Zeitstempel mit doppelter Zeitzone (+00:00Z) behoben (2026-06-22)
+- Ursache: `isoformat()+"Z"` auf tz-aware datetimes (`datetime.now(timezone.utc)`) erzeugte `...+00:00Z` (`drift_detector.py`, `api_health_check.py`).
+- Fix: zentraler Helper `utc_iso_z()` in `utils.py`; betroffene Stellen umgestellt — Format garantiert genau ein `Z`.
+- Test: `tests/test_b227_utc_iso_z.py`.
+
+## B229 — Wolkenhöhe durchgängig None: fehlender LAPSE_RATE-Import (2026-06-22)
+- Ursache: `LAPSE_RATE` in `cloud_height_from_eumetview.py` nicht importiert → NameError im Grid-Pfad (`fetch_cloud_height_for_points`), vom nackten `except` verschluckt → alle Punkte None bei gemeldetem „Erfolg".
+- Fix: `LAPSE_RATE` aus `config` importiert; Resolve-Diagnose (Zähler resolved/out_of_extent/nodata_pixel/warm_clear/error + aufgelöst/gesamt-Log + Record in `eumetview_debug.jsonl`).
+- Test: `tests/test_b229_cloud_height_lapse_rate.py`.
+
+## B230 — _utc-Felder enthielten Lokalzeit (2026-06-22)
+- Ursache: `forecast_created_at_utc` / `target_timestamp_utc` aus lokalen Radar-Frame-Zeiten (Europe/Vienna) unkonvertiert in `_utc`-Felder geschrieben; verfälschte Diagnose (`forecast_created_in_future` / `verified_before_created` → valide Records verworfen).
+- Fix: Helper `_local_naive_to_utc_iso_z` konvertiert lokal → echtes UTC. Dateinamen/`_parse_ts`/Frame-Matching unverändert (lokales Key-System = Design).
+- Test: `tests/test_b230_utc_field_semantics.py`.
+
+## B231 — Richtungsfehler: Mindest-Displacement-Schwelle für EWMA-Bewegung (2026-06-22)
+- Ursache: Sub-Pixel-Jitter quasi-stationärer Zellen erzeugte verrauschte Richtung in der EWMA-Bewegungsableitung (`prediction._append_kinematic`).
+- Fix: `KINEMATIC_MIN_INTERVAL_DISP_PX` filtert sub-threshold Intervalle (Helper `_interval_disp_ok`). Default 0.0 = regressionsneutral; Fallback ungefiltert wenn alle Intervalle sub-threshold.
+- Test: `tests/test_b231_min_interval_disp.py`.
