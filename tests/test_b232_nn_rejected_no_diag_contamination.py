@@ -20,14 +20,14 @@ def test_detail_record_nn_rejected_has_no_error_metric():
     assert rec.get("match_type") == "nn_rejected"
 
 
-def _row(error_km):
+def _row(error_km, *, missed=False):
     return {
         "forecast_created_at_utc": "2026-06-22T10:00:00Z",
         "target_timestamp_utc": "2026-06-22T10:10:00Z",
         "verified_at_utc": "2026-06-22T10:10:30Z",
         "horizon_min": 10,
         "match_type": "nn_rejected",
-        "missed": False,
+        "missed": missed,
         "no_target_frame": False,
         "forecast_error_km": error_km,
     }
@@ -37,20 +37,31 @@ def test_diagnosis_excludes_nn_rejected_without_error():
     now = datetime(2026, 6, 22, 10, 11, tzinfo=timezone.utc)
     ok, reason = fed.is_valid_forecast_error_detail(_row(None), now_utc=now)
     assert ok is False
-    assert reason == "missing_error_metric"
+    assert reason == "rejected_match"
 
 
-def test_diagnosis_positive_control_with_error():
-    # Positivkontrolle: identische Zeitfelder, aber mit Fehlerwert -> gueltig.
+def test_diagnosis_excludes_production_nn_rejected_missed_row():
     now = datetime(2026, 6, 22, 10, 11, tzinfo=timezone.utc)
-    ok, _reason = fed.is_valid_forecast_error_detail(_row(5.0), now_utc=now)
-    assert ok is True
+    ok, reason = fed.is_valid_forecast_error_detail(_row(None, missed=True), now_utc=now)
+    assert ok is False
+    assert reason == "rejected_match"
+
+
+def test_diagnosis_excludes_nn_rejected_even_with_error():
+    # Regressionsschutz: alte Details mit Distanz duerfen MAE/Worst-Listen nicht kontaminieren.
+    now = datetime(2026, 6, 22, 10, 11, tzinfo=timezone.utc)
+    ok, reason = fed.is_valid_forecast_error_detail(_row(5.0), now_utc=now)
+    assert ok is False
+    assert reason == "rejected_match"
 
 
 def test_filter_drops_rejected_keeps_valid():
     now = datetime(2026, 6, 22, 10, 11, tzinfo=timezone.utc)
+    valid_row = _row(5.0)
+    valid_row["match_type"] = "id"
     valid, _counts, _examples = fed._filter_valid_details(
-        [_row(None), _row(5.0)], now_utc=now
+        [_row(None, missed=True), _row(5.0), valid_row], now_utc=now
     )
     assert len(valid) == 1
     assert valid[0]["forecast_error_km"] == 5.0
+    assert valid[0]["match_type"] == "id"
