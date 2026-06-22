@@ -42,6 +42,7 @@ from config import (
     ML_FORECAST_HORIZONS_MIN as _STATIC_HORIZONS,
     ML_NUM_FEATURES,
     ML_SEQUENCE_LENGTH,
+    ML_SHADOW_SCORING_ENABLED as _STATIC_SHADOW_ENABLED,
     ML_STATION_FEATURES as STATION_KEYS,
     TENDENCY_AREA_PCT_STABLE as _TENDENCY_AREA_TH,
     TENDENCY_CORE_DELTA_STABLE as _TENDENCY_CORE_TH,
@@ -667,6 +668,32 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
 
 
 
+def _compute_ml_shadow(obj, horizon, x_raw, y_raw):
+    """P52: ML-Challenger-Punkt (Schatten) aus ML-Rohwert; NICHT ausgeliefert.
+    Spiegelt die Transform des erlaubten Zweigs. Liefert Shadow-Feldwerte als dict
+    oder None (NaN/Fehler)."""
+    if x_raw != x_raw or y_raw != y_raw:  # NaN
+        return None
+    try:
+        sx = float(x_raw) * _UF
+        sy = float(y_raw) * _UF
+        slat, slon = pixel_to_geo(sx, sy)
+        ok, reason, metrics = validate_forecast_point(obj, horizon, slat, slon, mode="ml")
+        return {
+            f"forecast_ml_x_{horizon}": sx,
+            f"forecast_ml_y_{horizon}": sy,
+            f"forecast_ml_lat_{horizon}": float(slat),
+            f"forecast_ml_lon_{horizon}": float(slon),
+            f"forecast_ml_displacement_km_{horizon}": round(float(metrics.get("forecast_displacement_km", 0.0)), 3),
+            f"forecast_ml_speed_kmh_{horizon}": round(float(metrics.get("forecast_speed_kmh", 0.0)), 3),
+            f"forecast_ml_rejected_{horizon}": (not ok),
+            f"forecast_ml_reject_reason_{horizon}": (reason if not ok else None),
+        }
+    except Exception as exc:
+        debug_log(f"[ML-SHADOW] Schatten-Berechnung fehlgeschlagen (h={horizon}): {exc}")
+        return None
+
+
 def _runtime_bool_value(name: str, default: bool) -> bool:
     try:
         value = _runtime_cfg.get(name, default) if _runtime_cfg else default
@@ -1283,6 +1310,7 @@ def predict_positions(objects: list, timestamp: str, stations: list):
         prediction_q10 = scaler_y.inverse_transform(prediction_q10_scaled.reshape(1, -1))[0] if prediction_q10_scaled is not None else None
         prediction_q90 = scaler_y.inverse_transform(prediction_q90_scaled.reshape(1, -1))[0] if prediction_q90_scaled is not None else None
 
+        _shadow_enabled = _runtime_bool_value("ML_SHADOW_SCORING_ENABLED", _STATIC_SHADOW_ENABLED)
         _ml_horizon_count = 0
         for idx, horizon in enumerate(_get_horizons()):
             _x_raw = prediction[idx * 2]
@@ -1332,6 +1360,12 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                         "effective_lead_min": round(_eff_lead, 1),
                         "stale": _stale,
                     })
+                # P52: ML-Shadow-Scoring — Challenger mitberechnen (nicht ausliefern).
+                # Champion (Kinematik) oben bleibt unveraendert; nur forecast_ml_* auf obj.
+                if _shadow_enabled:
+                    _shadow = _compute_ml_shadow(obj, horizon, _x_raw, _y_raw)
+                    if _shadow:
+                        obj.update(_shadow)
                 continue
 
             # ML-Modell trainiert auf pre-upscale obj["x"]/ ["y"] → _UF anwenden.

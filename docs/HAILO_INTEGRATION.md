@@ -2813,7 +2813,7 @@ Phase A (Stabilisierung) — **erledigt**.
 - Test: `tests/test_b228_nn_match_threshold.py`.
 
 ## Z02 — ML-Shadow-Scoring / Re-Gating (geplant, 2026-06-22)
-- 🔲 geplant — P52: `prediction.py` Schattenfelder + Schalter `ML_SHADOW_SCORING_ENABLED`
+- ✅ erledigt — P52: `prediction.py` Schattenfelder + Schalter `ML_SHADOW_SCORING_ENABLED`
 - 🔲 geplant — P53: `accuracy_tracker.py` Schattenverifikation → `breakdown_by_forecast_mode["ml"]`
 - 🔲 geplant — P54: Admin/Frontend Champion-vs-Challenger-`ml_mae` grafisch
 - Zweck: bricht den verifizierten Gate-Deadlock (ML gegated → kein ML-Forecast → `ml_mae`
@@ -2828,3 +2828,8 @@ Phase A (Stabilisierung) — **erledigt**.
 - Ursache: `api_budget_guard._BUDGET_FILE` wird zur Import-Zeit gecached; conftest isolierte den Budget-Pfad nicht. `test_b149` (`service="t"` → `example.invalid`) zählte `record_request` in die echte `train_data/evaluation/api_budget.json` (9 Fallback-Events im Admin-Export).
 - Fix: `tests/conftest.py` (`_isolate_evaluation_writes`) lenkt `_BUDGET_FILE` pro Test ins tmp — analog zur bestehenden accuracy_tracker-Isolation (B216). Kein Produktionscode geändert.
 - Test: `tests/test_b233_budget_isolation.py`.
+
+## P52 — ML-Shadow-Scoring: Challenger im gated branch (2026-06-22)
+- Ziel/Z02: ML wird bei Kinematik-Gate im Schatten mitberechnet (kein Zusatz-Inferenz), Felder `forecast_ml_*` auf obj; Champion/`forecasts[]` unveraendert. Schalter `ML_SHADOW_SCORING_ENABLED` (Default True; False = bit-identisch).
+- Naechster Schritt: P53 (accuracy_tracker verifiziert Schatten -> `breakdown_by_forecast_mode["ml"]`), dann automatisches Re-Gating.
+- Test: `tests/test_p52_ml_shadow_scoring.py`.
