@@ -126,6 +126,15 @@ def _isolate_evaluation_writes(tmp_path, monkeypatch):
         monkeypatch.setattr(at, "EVAL_DIR", str(ev), raising=False)
         monkeypatch.setattr(at, "DETAILS_FILE", str(ev / "forecast_error_details.jsonl"), raising=False)
         monkeypatch.setattr(at, "HISTORY_FILE", str(ev / "accuracy_history.jsonl"), raising=False)
+    # B233: api_budget_guard cached _BUDGET_FILE zur Import-Zeit (kein SAVE_PATHS-Lookup
+    # zur Laufzeit). Modul importieren und Budget-Pfad pro Test ins tmp umlenken, damit
+    # Phase-9-Tests (z. B. test_b149 'service t' -> example.invalid) nicht das ECHTE
+    # train_data/evaluation/api_budget.json hochzaehlen.
+    try:
+        import api_budget_guard as _abg
+        monkeypatch.setattr(_abg, "_BUDGET_FILE", str(ev / "api_budget.json"), raising=False)
+    except Exception:
+        pass
     yield
 
 

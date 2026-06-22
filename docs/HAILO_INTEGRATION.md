@@ -2823,3 +2823,8 @@ Phase A (Stabilisierung) — **erledigt**.
 - Ursache (Folge von B228): `nn_rejected`-Detailzeilen übergaben `dist_km` → `_detail_record` setzte `forecast_error_km`/`match_distance_km`; `is_valid_forecast_error_detail` wertete sie als verifiziert → MAE/Worst-Listen/Attribution verfälscht.
 - Fix: `nn_rejected` übergibt `None` (wie `missed`/`none`); Diagnose schließt sie als `missing_error_metric` aus. nn_rejected-Zähler/Buckets unverändert.
 - Quelle: Codex-Inline-Review PR #783. Test: `tests/test_b232_nn_rejected_no_diag_contamination.py`.
+
+## B233 — Phase-9-Tests verschmutzten das echte API-Tagesbudget (2026-06-22)
+- Ursache: `api_budget_guard._BUDGET_FILE` wird zur Import-Zeit gecached; conftest isolierte den Budget-Pfad nicht. `test_b149` (`service="t"` → `example.invalid`) zählte `record_request` in die echte `train_data/evaluation/api_budget.json` (9 Fallback-Events im Admin-Export).
+- Fix: `tests/conftest.py` (`_isolate_evaluation_writes`) lenkt `_BUDGET_FILE` pro Test ins tmp — analog zur bestehenden accuracy_tracker-Isolation (B216). Kein Produktionscode geändert.
+- Test: `tests/test_b233_budget_isolation.py`.
