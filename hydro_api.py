@@ -113,7 +113,9 @@ def _static_health() -> dict[str, Any]:
 
     if eligible > 0:
         return {"ready": True, "status": "hydro_static_ready", "error": None, "status_file": str(status_path), "doc": doc}
-    if "hydro_geometry_unavailable" in reasons:
+    if basin_count > 0 and flowline_count <= 0:
+        concrete = "flowlines_missing"
+    elif "hydro_geometry_unavailable" in reasons:
         concrete = "hydro_geometry_unavailable"
     elif "upstream_topology_missing" in reasons:
         concrete = "upstream_topology_missing"

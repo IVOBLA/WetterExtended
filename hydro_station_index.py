@@ -306,13 +306,20 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
         missing.append("basins")
     if not stations.get("features", []):
         missing.append("stations")
-    status_value = "ok" if enabled else ("upstream_topology_missing" if basins and matched else ("station_basin_unavailable" if basins else "hydro_static_missing"))
+    if enabled:
+        status_value = "ok"
+    elif basins and matched and not flowlines:
+        status_value = "flowlines_missing"
+    elif basins and matched:
+        status_value = "upstream_topology_missing"
+    else:
+        status_value = "station_basin_unavailable" if basins else "hydro_static_missing"
     reason_summary = {
         "station_basin_available": matched,
         "upstream_topology_missing": bool(basins and matched and not enabled),
         "impact_eligible_available": bool(enabled),
     }
-    status = {"ok": bool(enabled), "status": status_value, "message": "Hydro-Static bereit." if enabled else "Hydro-Static vorbereitet, aber keine belastbare Upstream-Topologie verfügbar.", "generated_at": datetime.now(timezone.utc).isoformat(), "station_count": len(index), "static_station_count": len(index), "station_basin_count": matched, "basin_count": len(basins), "flowline_count": len(flowlines), "station_basin_match_count": matched, "impact_eligible_station_count": enabled, "enabled_station_count": enabled, "topology_source": topology_source_overall, "missing": missing, "reason_summary": reason_summary, "errors": [], "warnings": ["upstream_topology_missing"] if matched and not enabled else []}
+    status = {"ok": bool(enabled), "status": status_value, "message": "Hydro-Static bereit." if enabled else "Hydro-Static vorbereitet, aber keine belastbare Upstream-Topologie verfügbar.", "generated_at": datetime.now(timezone.utc).isoformat(), "station_count": len(index), "static_station_count": len(index), "station_basin_count": matched, "basin_count": len(basins), "flowline_count": len(flowlines), "station_basin_match_count": matched, "impact_eligible_station_count": enabled, "enabled_station_count": enabled, "topology_source": topology_source_overall, "missing": missing, "reason_summary": reason_summary, "errors": [], "warnings": (["flowlines_missing"] if basins and matched and not flowlines else (["upstream_topology_missing"] if matched and not enabled else []))}
     _write_json(os.path.join(output_dir, "station_network_index.json"), {"stations": index, "by_station_id": {str(i.get("station_id")): i for i in index}})
     _write_json(os.path.join(output_dir, "hydro_stations.geojson"), {"type": "FeatureCollection", "features": station_features})
     _write_json(os.path.join(output_dir, "station_catchments.geojson"), {"type": "FeatureCollection", "features": catchment_features})

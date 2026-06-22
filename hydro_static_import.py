@@ -81,6 +81,44 @@ def _valid_cached_file(path: Path) -> bool:
     return True
 
 
+
+
+def _geojson_valid(path: str, kind: str, bbox: list[float] | None = None) -> bool:
+    try:
+        validate_geojson_output(path, kind, bbox)
+        return True
+    except Exception:
+        return False
+
+
+def _download_size(path: str | Path | None) -> int:
+    try:
+        p = Path(path or "")
+        return p.stat().st_size if p.exists() else 0
+    except Exception:
+        return 0
+
+
+def _refresh_download_size(info: dict) -> dict:
+    if isinstance(info, dict):
+        info["size_bytes"] = _download_size(info.get("path"))
+    return info
+
+
+def _download_urls_for(kind: str) -> list[str]:
+    if kind == "flowlines":
+        urls = [
+            _config_url("HYDRO_FLOWLINES_GDB_URL", "HYDRO_STATIC_FLOWLINES_URL"),
+            getattr(config, "HYDRO_STATIC_WATERCOURSE_URL", ""),
+        ]
+    else:
+        urls = [_config_url("HYDRO_DRAINAGEBASIN_GDB_URL", "HYDRO_STATIC_BASINS_URL")]
+    out=[]
+    for url in urls:
+        if url and url not in out:
+            out.append(url)
+    return out
+
 def _normalize_bbox(value: Any) -> list[float] | None:
     if isinstance(value, dict):
         try:
@@ -158,7 +196,7 @@ def _bbox_contains_point(b: list[float], lon: float, lat: float) -> bool:
 
 def _load_geojson(path: str) -> dict:
     p=Path(path)
-    if not p.exists() or p.stat().st_size <= 170:
+    if not p.exists() or p.stat().st_size <= 163:
         raise ValueError(f"{p.name} ist leer/zu klein ({p.stat().st_size if p.exists() else 0} Bytes)")
     data=json.loads(p.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or data.get("type") != "FeatureCollection":
@@ -221,11 +259,17 @@ def check_coverage(area: str="feldkirchen", static_dir: str | None=None) -> dict
     return out
 
 def _default_downloads(paths: dict[str, str]) -> dict[str, dict]:
-    return {
-        "basins": {"url": _config_url("HYDRO_DRAINAGEBASIN_GDB_URL", "HYDRO_STATIC_BASINS_URL"), "path": str(_download_url_to_path(_config_url("HYDRO_DRAINAGEBASIN_GDB_URL", "HYDRO_STATIC_BASINS_URL"), paths, "basins.zip")), "status": "skipped", "size_bytes": 0},
-        "flowlines": {"url": _config_url("HYDRO_FLOWLINES_GDB_URL", "HYDRO_STATIC_FLOWLINES_URL"), "path": str(_download_url_to_path(_config_url("HYDRO_FLOWLINES_GDB_URL", "HYDRO_STATIC_FLOWLINES_URL"), paths, "flowlines.zip")), "status": "skipped", "size_bytes": 0},
-        "watercourse": {"url": getattr(config, "HYDRO_STATIC_WATERCOURSE_URL", ""), "path": str(Path(paths["downloads"]) / Path(getattr(config, "HYDRO_STATIC_WATERCOURSE_URL", "watercourse.zip")).name), "status": "skipped", "size_bytes": 0},
+    basins_url = _config_url("HYDRO_DRAINAGEBASIN_GDB_URL", "HYDRO_STATIC_BASINS_URL")
+    flow_url = _config_url("HYDRO_FLOWLINES_GDB_URL", "HYDRO_STATIC_FLOWLINES_URL")
+    water_url = getattr(config, "HYDRO_STATIC_WATERCOURSE_URL", "")
+    items = {
+        "basins": {"url": basins_url, "path": str(_download_url_to_path(basins_url, paths, "basins.zip")), "status": "skipped"},
+        "flowlines": {"url": flow_url, "path": str(_download_url_to_path(flow_url, paths, "flowlines.zip")), "status": "skipped"},
+        "watercourse": {"url": water_url, "path": str(_download_url_to_path(water_url, paths, "watercourse.zip")), "status": "skipped"},
     }
+    for info in items.values():
+        _refresh_download_size(info)
+    return items
 
 
 def write_status(status: str, message: str, static_dir: str | None = None, **extra: Any) -> dict:
@@ -314,8 +358,14 @@ def _download(url: str, paths: dict[str,str], key: str, force: bool=False) -> di
 
 def download_basins(static_dir: str | None=None, force: bool=False) -> dict: return _download(_config_url("HYDRO_DRAINAGEBASIN_GDB_URL", "HYDRO_STATIC_BASINS_URL"), ensure_static_dirs(static_dir), "basins", force)
 def download_flowlines(static_dir: str | None=None, force: bool=False) -> dict:
-    paths=ensure_static_dirs(static_dir); first=_download(_config_url("HYDRO_FLOWLINES_GDB_URL", "HYDRO_STATIC_FLOWLINES_URL"), paths, "flowlines", force)
-    return first if first["status"]!="failed" else _download(getattr(config,"HYDRO_STATIC_WATERCOURSE_URL"), paths, "watercourse", force)
+    paths=ensure_static_dirs(static_dir); attempts=[]
+    for idx, url in enumerate(_download_urls_for("flowlines")):
+        info=_download(url, paths, "flowlines" if idx == 0 else "watercourse", force)
+        attempts.append(dict(info))
+        if info.get("status") != "failed":
+            info["attempts"] = attempts
+            return _refresh_download_size(info)
+    return _refresh_download_size(attempts[-1] if attempts else {"url":"", "path":"", "status":"failed", "size_bytes":0, "error":"missing_url"})
 
 def _ogr_layers(src: str) -> list[str]:
     try:
@@ -323,11 +373,36 @@ def _ogr_layers(src: str) -> list[str]:
         layers=[]
         for line in out.splitlines():
             line=line.strip()
-            if line.lower().startswith("layer:"):
+            lower=line.lower()
+            if lower.startswith("layer:") or lower.startswith("layer name:"):
                 layers.append(line.split(":",1)[1].split("(",1)[0].strip())
             elif line[:1].isdigit() and ":" in line: layers.append(line.split(":",1)[1].split("(",1)[0].strip())
         return layers
     except Exception: return []
+
+
+
+def _ogr_layer_geometry(src: str, layer: str) -> str:
+    try:
+        out = subprocess.run(["ogrinfo", "-so", src, layer], text=True, capture_output=True, check=False, timeout=60).stdout
+        for line in out.splitlines():
+            if "geometry:" in line.lower():
+                return line.split(":", 1)[1].strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _select_ogr_layer(dataset: str, kind: str, layers: list[str]) -> str | None:
+    prefs = ["drainagebasin", "catchment"] if kind == "basins" else ["watercourselink", "watercourse", "flowline"]
+    candidates = sorted(layers, key=lambda l: 0 if any(p in l.lower() for p in prefs) else 1)
+    if kind != "flowlines":
+        return candidates[0] if candidates else None
+    for layer in candidates:
+        geom = _ogr_layer_geometry(dataset, layer).lower()
+        if not geom or "linestring" in geom:
+            return layer
+    return None
 
 def _extract_if_zip(path: str) -> str:
     p=Path(path)
@@ -344,8 +419,9 @@ def _extract_if_zip(path: str) -> str:
 def convert_to_geojson(src: str, dst: str, kind: str, bbox: list[float] | None=None) -> bool:
     if not shutil.which("ogr2ogr") or not shutil.which("ogrinfo"): raise RuntimeError("GDAL/OGR fehlt: ogr2ogr/ogrinfo nicht gefunden")
     dataset=_extract_if_zip(src); layers=_ogr_layers(dataset)
-    prefs = ["drainagebasin","catchment"] if kind=="basins" else ["watercourselink","watercourse","flowline"]
-    layer = next((l for l in layers if any(p in l.lower() for p in prefs)), layers[0] if layers else None)
+    layer = _select_ogr_layer(dataset, kind, layers)
+    if kind == "flowlines" and layers and not layer:
+        raise RuntimeError("Keine LineString/MultiLineString-OGR-Layer für Flowlines gefunden")
     cmd=["ogr2ogr","-f","GeoJSON","-t_srs","EPSG:4326",dst,dataset]
     spat = _normalize_bbox(bbox) or _normalize_bbox(getattr(config,"HYDRO_STATIC_BBOX", None))
     if spat: cmd += ["-spat", *map(str, spat)]
@@ -366,7 +442,7 @@ def ensure_live_json(static_dir: str | None=None) -> str:
 def build_static_hydro(static_dir: str | None = None, downloads: dict | None=None) -> dict:
     paths=ensure_static_dirs(static_dir); missing=[n for n in ("stations_source","basins_source") if not Path(paths[n]).exists()]
     if missing: return write_status("hydro_static_missing", "Statische Hydro-Eingangsdaten fehlen; Hydro-Impact ist noch nicht aktiv.", static_dir, missing=missing, downloads=downloads or _default_downloads(paths))
-    status=build_station_index(paths["stations_source"], paths["basins_source"], paths["flowlines_source"] if Path(paths["flowlines_source"]).exists() else None, paths["generated"])
+    status=build_station_index(paths["stations_source"], paths["basins_source"], paths["flowlines_source"] if _geojson_valid(paths["flowlines_source"], "flowlines") else None, paths["generated"])
     status["downloads"] = downloads or _default_downloads(paths); status.setdefault("required_files", {"stations_source":paths["stations_source"],"basins_source":paths["basins_source"],"flowlines_source":paths["flowlines_source"]}); status.setdefault("errors", []); status.setdefault("warnings", []); status.setdefault("missing", [])
     Path(paths["status"]).write_text(json.dumps(status, indent=2, ensure_ascii=False)+"\n", encoding="utf-8")
     return status
@@ -376,34 +452,72 @@ def auto(static_dir: str | None=None, force: bool=False) -> dict:
     paths=ensure_static_dirs(static_dir); downloads=_default_downloads(paths); errors=[]; warnings=[]
     try: import_station_json(ensure_live_json(static_dir), static_dir)
     except Exception as exc: errors.append(f"live_station_import: {type(exc).__name__}: {exc}")
-    downloads["basins"] = download_basins(static_dir, force=force)
-    downloads["flowlines"] = download_flowlines(static_dir, force=force)
+
+    downloads["basins"] = download_basins(static_dir, force=force or not _geojson_valid(paths["basins_source"], "basins"))
+    flowlines_ok = _geojson_valid(paths["flowlines_source"], "flowlines")
+    downloads["flowlines"]["status"] = "cached" if flowlines_ok and not force else "pending"
+    if not flowlines_ok or force:
+        downloads["flowlines"] = download_flowlines(static_dir, force=force or not flowlines_ok)
+
     try:
         if downloads["basins"].get("status") != "failed":
-            convert_to_geojson(downloads["basins"]["path"], paths["basins_source"], "basins")
+            if force or not _geojson_valid(paths["basins_source"], "basins"):
+                convert_to_geojson(downloads["basins"]["path"], paths["basins_source"], "basins")
             validate_geojson_output(paths["basins_source"], "basins")
         else: errors.append(downloads["basins"].get("error","basins download failed"))
     except Exception as exc: errors.append(f"basins_convert: {type(exc).__name__}: {exc}")
-    try:
-        if downloads["flowlines"].get("status") != "failed":
-            convert_to_geojson(downloads["flowlines"]["path"], paths["flowlines_source"], "flowlines")
-            validate_geojson_output(paths["flowlines_source"], "flowlines")
-        else: warnings.append(downloads["flowlines"].get("error","flowlines download failed"))
-    except Exception as exc: warnings.append(f"flowlines_convert: {type(exc).__name__}: {exc}")
-    if any(d.get("status")=="failed" for d in downloads.values() if isinstance(d,dict)):
-        return write_status("hydro_static_download_failed", "Hydro-Static-Download fehlgeschlagen; Installation läuft weiter.", static_dir, downloads=downloads, errors=errors, warnings=warnings)
+
+    flow_convert_errors=[]
+    if downloads["flowlines"].get("status") == "failed":
+        warnings.append(downloads["flowlines"].get("error","flowlines download failed"))
+    else:
+        attempts = downloads["flowlines"].get("attempts") or [downloads["flowlines"]]
+        for info in attempts:
+            try:
+                if force or not _geojson_valid(paths["flowlines_source"], "flowlines"):
+                    convert_to_geojson(info["path"], paths["flowlines_source"], "flowlines")
+                validate_geojson_output(paths["flowlines_source"], "flowlines")
+                downloads["flowlines"] = _refresh_download_size(info)
+                break
+            except Exception as exc:
+                flow_convert_errors.append(f"{Path(str(info.get('path',''))).name}: {type(exc).__name__}: {exc}")
+                if Path(paths["flowlines_source"]).exists() and not _geojson_valid(paths["flowlines_source"], "flowlines"):
+                    try: Path(paths["flowlines_source"]).unlink()
+                    except Exception: pass
+        else:
+            if not any(a.get("url") == getattr(config, "HYDRO_STATIC_WATERCOURSE_URL", "") for a in attempts):
+                fallback = _download(getattr(config, "HYDRO_STATIC_WATERCOURSE_URL", ""), paths, "watercourse", force)
+                downloads["watercourse"] = fallback
+                if fallback.get("status") != "failed":
+                    try:
+                        convert_to_geojson(fallback["path"], paths["flowlines_source"], "flowlines")
+                        validate_geojson_output(paths["flowlines_source"], "flowlines")
+                        downloads["flowlines"] = _refresh_download_size(fallback)
+                        flow_convert_errors=[]
+                    except Exception as exc:
+                        flow_convert_errors.append(f"{Path(str(fallback.get('path',''))).name}: {type(exc).__name__}: {exc}")
+            if flow_convert_errors:
+                downloads["flowlines"]["status"] = "failed"
+                downloads["flowlines"]["error"] = "; ".join(flow_convert_errors)
+                warnings.append("flowlines_convert: " + downloads["flowlines"]["error"])
+
+    if any(d.get("status")=="failed" for d in downloads.values() if isinstance(d,dict)) and not errors:
+        # Basin-only remains installable, but it must be explicit and never look skipped/successful.
+        warnings.append("flowlines_missing")
     if errors:
         return write_status("hydro_static_convert_failed", "Hydro-Static-Konvertierung fehlgeschlagen; Installation läuft weiter.", static_dir, downloads=downloads, errors=errors, warnings=warnings)
     status=build_static_hydro(static_dir, downloads)
-    status.setdefault("warnings", []).extend(warnings)
+    status.setdefault("warnings", []).extend(w for w in warnings if w not in status.get("warnings", []))
     try:
         status["feldkirchen_coverage"] = check_coverage("feldkirchen", static_dir)
     except Exception as exc:
         status.setdefault("warnings", []).append(f"feldkirchen_coverage: {type(exc).__name__}: {exc}")
-    if status.get("status") not in {"ok","hydro_ready","upstream_topology_missing","station_basin_available","station_basin_unavailable"}: status["status"]="hydro_static_partial"
+    if status.get("flowline_count", 0) <= 0 and status.get("basin_count", 0) > 0:
+        status["status"] = "flowlines_missing"
+        if "flowlines_missing" not in status.setdefault("warnings", []): status["warnings"].append("flowlines_missing")
+    elif status.get("status") not in {"ok","hydro_ready","upstream_topology_missing","station_basin_available","station_basin_unavailable","flowlines_missing"}: status["status"]="hydro_static_partial"
     Path(paths["status"]).write_text(json.dumps(status, indent=2, ensure_ascii=False)+"\n", encoding="utf-8")
     return status
-
 
 def status(static_dir: str | None=None) -> dict:
     paths=ensure_static_dirs(static_dir)
