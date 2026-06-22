@@ -161,10 +161,11 @@ def build_upstream_basin_graph(basins, flowlines) -> dict:
     for e in edges:
         if e["from_basin_id"] in cyc_nodes or e["to_basin_id"] in cyc_nodes: e["confidence"]="cycle_blocked"; continue
         down[e["from_basin_id"]].append(e["to_basin_id"]); up[e["to_basin_id"]].append(e["from_basin_id"])
-    return {"nodes":ids,"edges":edges,"upstream_by_basin":{k:sorted(set(v)) for k,v in up.items()},"downstream_by_basin":{k:sorted(set(v)) for k,v in down.items()},"confident_edge_count":sum(1 for e in edges if e.get("confidence")=="confident"),"cycle_count":len(cycles),"cycles":cycles,"matches":adj["matches"],"diagnostics":adj["diagnostics"],"topology_quality":"confident" if edges and not cycles and any(e.get("confidence")=="confident" for e in edges) else ("upstream_graph_cycle" if cycles else "upstream_topology_missing")}
+    return {"nodes":ids,"edges":edges,"upstream_by_basin":{k:sorted(set(v)) for k,v in up.items()},"downstream_by_basin":{k:sorted(set(v)) for k,v in down.items()},"confident_edge_count":sum(1 for e in edges if e.get("confidence")=="confident"),"cycle_count":len(cycles),"cycle_nodes":sorted(cyc_nodes),"cycles":cycles,"matches":adj["matches"],"diagnostics":adj["diagnostics"],"topology_quality":"confident" if edges and not cycles and any(e.get("confidence")=="confident" for e in edges) else ("upstream_graph_cycle" if cycles else "upstream_topology_missing")}
 
 def get_upstream_basin_ids(station_basin_id, graph) -> list[str]:
-    if not station_basin_id or graph.get("cycle_count",0): return []
+    if not station_basin_id: return []
+    if str(station_basin_id) in set(graph.get("cycle_nodes") or []): return []
     seen={str(station_basin_id)}; q=deque([str(station_basin_id)])
     up=graph.get("upstream_by_basin") or {}
     while q:

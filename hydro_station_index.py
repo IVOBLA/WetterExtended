@@ -266,7 +266,7 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
                 upstream_source_quality = "nearby_basin_not_hydrologically_resolved"
         eligible_basins = [basin_by_id[uid] for uid in upstream_ids]
         union_geom = build_upstream_union_geometry(upstream_ids, basin_by_id) if topology_source == "ggn_watercourselink_flowdirection" else (_union_basins(eligible_basins) if upstream_ids else None)
-        impact_eligible = bool(union_geom and upstream_ids and SHAPELY_AVAILABLE and basin_match_quality != "nearby_unresolved" and (topology_source != "ggn_watercourselink_flowdirection" or upstream_graph.get("cycle_count", 0) == 0))
+        impact_eligible = bool(union_geom and upstream_ids and SHAPELY_AVAILABLE and basin_match_quality != "nearby_unresolved" and (topology_source != "ggn_watercourselink_flowdirection" or str(basin_id) not in set(upstream_graph.get("cycle_nodes") or [])))
         if impact_eligible:
             source_quality = "upstream_union"
             reason = ["upstream_catchment_union_available", "not_station_radius_based"]
