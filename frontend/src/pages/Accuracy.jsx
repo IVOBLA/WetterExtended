@@ -6,10 +6,13 @@ export default function Accuracy() {
   const [hours, setHours] = useState(24)
   const [data, setData] = useState({ current: { horizons: [], tolerance_km: 5 }, history: [] })
   const [apiHealth, setApiHealth] = useState({ total: 0, by_service: {} })
+  const [mlQuality, setMlQuality] = useState({ horizons: [], series: {} })
+  const [mlHorizon, setMlHorizon] = useState(10)
 
   useEffect(() => {
     api.get(`/api/accuracy?hours=${hours}`).then(setData).catch(() => {})
     api.get(`/api/api_health?hours=${hours}`).then(setApiHealth).catch(() => {})
+    api.get(`/api/ml_quality?hours=${hours}`).then(setMlQuality).catch(() => {})
   }, [hours])
 
   const horizons = data.current.horizons.map(h => h.horizon)
@@ -31,6 +34,10 @@ export default function Accuracy() {
     })
     return row
   })
+
+  const mlPoints = mlQuality.series?.[String(mlHorizon)] || []
+  const mlSeries = mlPoints.map(p => ({ idx: p.idx, Champion: p.champion_mae_km, Challenger: p.challenger_mae_km }))
+  const mlSamplesLatest = mlPoints.length ? mlPoints[mlPoints.length - 1].challenger_samples : 0
 
   return (
     <div>
@@ -123,6 +130,34 @@ export default function Accuracy() {
             <Tooltip />
             <Legend />
             {horizons.map(h => <Line key={h} type="monotone" dataKey={`+${h}m`} dot={{ r: 2 }} connectNulls />)}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="card mb-4">
+        <h3 className="text-lg font-medium mb-2">ML-Lernfortschritt — Champion vs. Challenger (MAE km)</h3>
+        <p className="text-xs text-gray-500 mb-2">
+          Vergleich des ausgelieferten <b>Champion</b> (Kinematik) mit dem im Schatten
+          mitlaufenden <b>Challenger</b> (ML) für den gewählten Horizont über die Zeit.
+          Liegt der Challenger dauerhaft unter dem Champion, aktiviert das Gate ML automatisch.
+          <b> Niedriger = besser.</b>
+        </p>
+        <div className="mb-2">
+          <label className="label">Horizont</label>
+          <select className="input" value={mlHorizon} onChange={e => setMlHorizon(parseInt(e.target.value))}>
+            {(mlQuality.horizons || []).map(h => <option key={h} value={h}>+{h} min</option>)}
+          </select>
+          <span className="text-xs text-gray-500 ml-2">Challenger-Samples (zuletzt): <b>{mlSamplesLatest}</b></span>
+        </div>
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart data={mlSeries}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="idx" />
+            <YAxis label={{ value: 'km', angle: -90, position: 'insideLeft' }} />
+            <Tooltip />
+            <Legend />
+            <Line type="monotone" dataKey="Champion" stroke="#2563eb" dot={{ r: 2 }} connectNulls />
+            <Line type="monotone" dataKey="Challenger" stroke="#ea580c" dot={{ r: 2 }} connectNulls />
           </LineChart>
         </ResponsiveContainer>
       </div>

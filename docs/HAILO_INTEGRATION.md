@@ -2815,7 +2815,7 @@ Phase A (Stabilisierung) — **erledigt**.
 ## Z02 — ML-Shadow-Scoring / Re-Gating (geplant, 2026-06-22)
 - ✅ erledigt — P52: `prediction.py` Schattenfelder + Schalter `ML_SHADOW_SCORING_ENABLED`
 - ✅ erledigt — P53: `accuracy_tracker.py` Schattenverifikation → `breakdown_by_forecast_mode["ml"]`
-- 🔲 geplant — P54: Admin/Frontend Champion-vs-Challenger-`ml_mae` grafisch
+- ✅ erledigt — P54: Admin/Frontend Champion-vs-Challenger-`ml_mae` grafisch
 - Zweck: bricht den verifizierten Gate-Deadlock (ML gegated → kein ML-Forecast → `ml_mae`
   eingefroren → bleibt gegated). Spezifikation: `docs/ML_SHADOW_SCORING.md`.
 
@@ -2839,3 +2839,8 @@ Phase A (Stabilisierung) — **erledigt**.
 - Bewusst nur Bucket, kein Detail-Record → keine Diagnose-/Drift-/Global-Kontamination (vgl. B232). Selbst-gated ueber Anwesenheit der `forecast_ml_*`-Felder (P52).
 - Naechster Schritt: P54 (Admin/Frontend Champion-vs-Challenger-`ml_mae` grafisch).
 - Test: `tests/test_p53_ml_shadow_verify.py`.
+
+## P54 — ML-Lernfortschritt grafisch: Champion vs. Challenger (2026-06-22)
+- Getesteter Helper `accuracy_tracker.ml_quality_series` + Endpunkt `/api/ml_quality`; Chart in `Accuracy.jsx` zeigt Champion(Kinematik)- vs. Challenger(ML)-MAE je Horizont ueber die Zeit + Challenger-Sample-Zahl. Erfuellt Zieldefinition „Lernfortschritt/Qualitaet grafisch".
+- Schliesst den Z02-Strang ab (P52 Schatten berechnen, P53 verifizieren, P54 darstellen).
+- Test: `tests/test_p54_ml_quality_series.py` (Backend). Frontend via Build/Sichtpruefung.

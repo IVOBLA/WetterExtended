@@ -41,6 +41,7 @@ Dieses Dokument ist das offizielle Benutzerhandbuch für das WetterExtended-Syst
    - [4.10 Konfiguration](#410-konfiguration-config)
    - [4.11 Modell-Fortschritt](#411-modell-fortschritt-progress)
    - [4.12 Genauigkeit / Accuracy](#412-genauigkeit-accuracy)
+   - [ML-Lernfortschritt — Champion vs. Challenger](#ml-lernfortschritt--champion-vs-challenger-z02p54-neu)
    - [4.13 Logs](#413-logs-logs)
    - [4.14 KI-Analyse](#414-ki-analyse-ai-analysis-neu)
    - [4.15 Vollbild-Karte (/karte)](#415-vollbild-karte-karte-neu)
@@ -448,6 +449,15 @@ Lernkurven (Loss über Epochen) für LSTM und ConvLSTM als Recharts-Grafik.
 Closed-Loop-Verifikation: MAE, Hit-Rate und durchschnittliche Abweichung pro Horizont über einstellbaren Zeitraum.
 
 **Absoluter Kurzhorizont-Wächter (B165):** Zusätzlich zur relativen Trendüberwachung schlägt die Drift-Detection Alarm, sobald der mittlere Positionsfehler der Horizonte ≤ `DRIFT_SHORT_HORIZON_MAX_MIN` (Standard 30 min) die absolute Grenze `DRIFT_MAE_ABS_MAX_KM` (Standard 1,0 km) überschreitet — auch wenn sich der Fehler nicht *verschlechtert*. Das setzt die Zielvorgabe „≤30 min < 1 km" durch. Der Alarm-Grund (`relative`/`absolute`/`relative+absolute`) erscheint in der Drift-Mail und unter `/api/drift`. Nur bei aktivem ML-Modell aktiv (kein Alarm im kinematischen Fallback).
+
+## ML-Lernfortschritt — Champion vs. Challenger (Z02/P54) [NEU]
+
+Auf der Seite **Genauigkeit** (`/accuracy`) zeigt das Diagramm „ML-Lernfortschritt — Champion
+vs. Challenger" den zeitlichen Verlauf des ausgelieferten **Champion** (Kinematik) gegenüber
+dem im Schatten mitbewerteten **Challenger** (ML-Modell), getrennt je Vorhersagehorizont
+(Auswahl oberhalb des Diagramms). Niedrigere Werte sind besser. Unterschreitet der Challenger
+den Champion dauerhaft, reaktiviert das System das ML-Modell automatisch (Re-Gating). Die
+Anzeige „Challenger-Samples" gibt an, wie viele Schatten-Verifikationen bereits vorliegen.
 
 ## 4.13 Logs (`/logs`)
 

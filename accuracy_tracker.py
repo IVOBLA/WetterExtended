@@ -700,6 +700,31 @@ def load_history(since_hours: int = 24 * 7) -> list:
     return out
 
 
+def ml_quality_series(history, horizons):
+    """P54: Champion(Kinematik)- vs. Challenger(ML)-MAE je Horizont ueber die Zeit,
+    aus breakdown_by_forecast_mode der Accuracy-History. Liefert
+    {str(h): [{"idx","ts","champion_mae_km","challenger_mae_km","challenger_samples"}]}."""
+    series = {str(int(h)): [] for h in (horizons or [])}
+    for i, rec in enumerate(history or []):
+        bd = rec.get("breakdown_by_forecast_mode") or {}
+        ts = rec.get("timestamp_utc")
+        for h in (horizons or []):
+            hk = str(int(h))
+            modes = bd.get(hk) or {}
+            ml = modes.get("ml") if isinstance(modes.get("ml"), dict) else {}
+            kin = modes.get("kinematic_fallback") if isinstance(modes.get("kinematic_fallback"), dict) else {}
+            if not kin:
+                kin = modes.get("kinematic") if isinstance(modes.get("kinematic"), dict) else {}
+            series[hk].append({
+                "idx": i + 1,
+                "ts": ts,
+                "champion_mae_km": kin.get("mae_km"),
+                "challenger_mae_km": ml.get("mae_km"),
+                "challenger_samples": ml.get("verified", 0),
+            })
+    return series
+
+
 if __name__ == "__main__":
     from config import ML_FORECAST_HORIZONS_MIN
     result = evaluate_all(ML_FORECAST_HORIZONS_MIN, 24)
