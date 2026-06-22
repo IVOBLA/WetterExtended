@@ -175,3 +175,5 @@ Labels für IR-Vorläufer → Radarbestätigung werden in `train_data/cell_linea
 | B227 | Ungueltige Zeitstempel mit doppelter Zeitzone (`+00:00Z`) behoben: zentraler Helper `utc_iso_z()` ersetzt `isoformat()+"Z"` auf tz-aware datetimes | `utils.py`, `drift_detector.py`, `api_health_check.py`, `tests/test_b227_utc_iso_z.py` | ✅ erledigt |
 
 | B228 | Verifikations-Matching gehaertet: strenge, runtime-pflegbare NN-Akzeptanzschwelle `VERIFICATION_NN_MAX_MATCH_KM`. NN-Treffer jenseits der Schwelle = Fehlzuordnung (Bucket `nn_rejected`), nicht in MAE/Hit-Rate/Drift. ID-/cell_id-Treffer distanzunabhaengig gueltig. Match-Typ-Anteile geloggt | `config.py`, `accuracy_tracker.py`, `tests/test_b228_nn_match_threshold.py` | ✅ erledigt |
+
+| B229 | Wolkenhoehe durchgaengig `None` behoben: fehlender `LAPSE_RATE`-Import in `cloud_height_from_eumetview.py` (NameError im Grid-Pfad, vom `except` verschluckt). Zusaetzlich Resolve-Diagnose (Zaehler resolved/out_of_extent/nodata_pixel/warm_clear/error + aufgeloest/gesamt-Log + Record in `eumetview_debug.jsonl`) | `cloud_height_from_eumetview.py`, `tests/test_b229_cloud_height_lapse_rate.py` | ✅ erledigt |
