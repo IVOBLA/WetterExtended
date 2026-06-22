@@ -1833,6 +1833,17 @@ def api_accuracy():
     })
 
 
+@app.route("/api/ml_quality")
+def api_ml_quality():
+    since = int(request.args.get("hours", "168"))
+    horizons = runtime_config.get("ML_FORECAST_HORIZONS_MIN", [10, 20, 30, 40, 60])
+    from accuracy_tracker import load_history as _lh, ml_quality_series as _mqs
+    return jsonify({
+        "horizons": [int(h) for h in horizons],
+        "series": _mqs(_lh(since_hours=max(since, 24 * 7)), horizons),
+    })
+
+
 # ---------------------------------------------------------------------------
 # P-S03: Langzeitstatistik (liest nur P-S02-Aggregate, keine Berechnung/API-Calls)
 # ---------------------------------------------------------------------------
