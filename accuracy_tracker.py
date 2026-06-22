@@ -23,7 +23,8 @@ import glob
 import json
 import math
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Optional, Dict, List, Tuple, Any, Set
 
 from config import (
@@ -35,6 +36,16 @@ from config import (
     FRAME_INTERVAL_MIN,
 )
 from debug_utils import debug_log
+
+_VIENNA_TZ = ZoneInfo("Europe/Vienna")
+
+
+def _local_naive_to_utc_iso_z(dt) -> str:
+    """B230: Frame-Zeit (naiv = Europe/Vienna-Lokalzeit) -> echtes UTC-ISO mit Z.
+    Bereits tz-aware -> nach UTC konvertiert. Format: YYYY-MM-DDTHH:MM:SSZ."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=_VIENNA_TZ)
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 try:
     import runtime_config as _runtime_cfg
@@ -170,8 +181,8 @@ def _detail_record(obj: dict, ts: datetime, target_ts: datetime, horizon_min: in
     fc_dir = _bearing_deg(o_lat, o_lon, f_lat, f_lon); ac_dir = _bearing_deg(o_lat, o_lon, a_lat, a_lon)
     return {
         "verified_at_utc": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-        "forecast_created_at_utc": ts.isoformat(timespec="seconds") + "Z",
-        "target_timestamp_utc": target_ts.isoformat(timespec="seconds") + "Z",
+        "forecast_created_at_utc": _local_naive_to_utc_iso_z(ts),
+        "target_timestamp_utc": _local_naive_to_utc_iso_z(target_ts),
         "horizon_min": horizon_min, "effective_lead_min": round(effective_lead_min, 3), "stale": bool(stale),
         "object_id": str(obj.get("id", "")), "cell_id": str(obj.get("cell_id", obj.get("id", ""))), "track_id": str(obj.get("track_id", "")),
         "parent_cell_id": obj.get("parent_cell_id"), "lineage_status": obj.get("lineage_status"),
