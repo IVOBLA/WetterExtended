@@ -41,7 +41,7 @@ def test_build_station_index_assigns_quality_and_outputs(tmp_path):
 
 def test_missing_basins_does_not_crash(tmp_path):
     status = build_station_index(str(FIX / "hydro_stations_sample.geojson"), None, None, str(tmp_path))
-    assert status["status"] in {"hydro_static_missing", "upstream_topology_missing"}
+    assert status["status"] in {"hydro_static_missing", "upstream_topology_missing", "flowlines_missing"}
     data = json.loads((tmp_path / "station_network_index.json").read_text())
     assert all(s["quality"] == "unresolved" for s in data["stations"])
 
@@ -54,7 +54,7 @@ def test_shapely_missing_disables_productive_station_catchment(tmp_path, monkeyp
         str(FIX / "flowlines_sample.geojson"),
         str(tmp_path),
     )
-    assert status["status"] in {"hydro_static_missing", "upstream_topology_missing"}
+    assert status["status"] in {"hydro_static_missing", "upstream_topology_missing", "flowlines_missing"}
     data = json.loads((tmp_path / "station_network_index.json").read_text())
     assert all(s["impact_eligible"] is False for s in data["stations"])
     assert any("hydro_geometry_unavailable" in s["reason"] for s in data["stations"])
@@ -69,7 +69,7 @@ def test_station_inside_basin_without_upstream_topology_is_not_impact_eligible(t
         str(tmp_path),
     )
 
-    assert status["status"] in {"hydro_static_missing", "upstream_topology_missing"}
+    assert status["status"] in {"hydro_static_missing", "upstream_topology_missing", "flowlines_missing"}
     data = json.loads((tmp_path / "station_network_index.json").read_text(encoding="utf-8"))
     station = data["by_station_id"]["S_BASIN_ONLY"]
     assert station["station_basin"] == "B_ONLY"
@@ -159,7 +159,7 @@ def test_flowline_snapping_alone_is_diagnostic_and_not_impact_eligible(tmp_path,
         str(tmp_path),
     )
 
-    assert status["status"] in {"hydro_static_missing", "upstream_topology_missing"}
+    assert status["status"] in {"hydro_static_missing", "upstream_topology_missing", "flowlines_missing"}
     data = json.loads((tmp_path / "station_network_index.json").read_text(encoding="utf-8"))
     station = data["by_station_id"]["S_BASIN_ONLY"]
     assert station["snapped_flowline_id"] is not None

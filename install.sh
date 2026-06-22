@@ -1096,6 +1096,11 @@ if [[ "$MODE" == "full" ]]; then
     else
         log_warn "Hydro-Static Auto-Importer meldete Fehler; Installation wird fortgesetzt."
     fi
+    if "$PYTHON" "$TARGET/hydro_static_import.py" --check-coverage feldkirchen >/dev/null; then
+        log_info "Hydro-Static Feldkirchen-Coverage gespeichert."
+    else
+        log_warn "Hydro-Static Feldkirchen-Coverage konnte nicht vollständig validiert werden."
+    fi
     set +e
     "$PYTHON" - <<'HYDROSTATICPY' "$TARGET/train_data/hydro/static/generated/hydro_static_status.json"
 import json, sys

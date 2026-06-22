@@ -78,7 +78,7 @@ def test_status_reports_basins_available_and_flowlines_missing(monkeypatch, tmp_
     assert status["basins_available"] is True
     assert status["flowlines_available"] is False
     assert status["hydro_static_missing"] is False
-    assert status["impact_not_eligible_reason"] == "upstream_topology_missing"
+    assert status["impact_not_eligible_reason"] == "flowlines_missing"
 
 
 def test_status_reports_feldkirchen_coverage_ok(monkeypatch, tmp_path):
@@ -93,3 +93,14 @@ def test_status_reports_feldkirchen_coverage_ok(monkeypatch, tmp_path):
     assert status["basins_available"] is True
     assert status["flowlines_available"] is True
     assert status["feldkirchen_coverage_ok"] is True
+
+
+def test_status_prefers_flowlines_missing_for_basin_only(monkeypatch, tmp_path):
+    generated, _, _ = _patch_paths(monkeypatch, tmp_path)
+    (generated / "hydro_static_status.json").write_text(json.dumps({"status": "upstream_topology_missing", "basin_count": 2, "flowline_count": 0}), encoding="utf-8")
+    (generated / "station_network_index.json").write_text(json.dumps({"stations": [{"station_id": "S1", "impact_eligible": False, "source_quality": "upstream_topology_missing", "reason": ["upstream_topology_missing"]}]}), encoding="utf-8")
+
+    status = hydro_api.status()
+
+    assert status["static_status"] == "flowlines_missing"
+    assert status["impact_not_eligible_reason"] == "flowlines_missing"

@@ -138,3 +138,78 @@ def test_missing_flowlines_reports_only_flowline_error(tmp_path):
     assert result["basin_features_feldkirchen"] == 1
     assert any("flowlines" in e for e in result["errors"])
     assert "feldkirchen_basins_missing" not in result["errors"]
+
+
+def test_ogr_layer_parser_accepts_layer_name_and_numbered(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        return types.SimpleNamespace(stdout="Layer name: AT_WATERCOURSE\n1: AT_WATERCOURSELINK (Line String)\n")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert h._ogr_layers("x.gml") == ["AT_WATERCOURSE", "AT_WATERCOURSELINK"]
+
+
+def test_empty_163_byte_flowlines_force_reimport_and_not_skipped(monkeypatch, tmp_path):
+    paths = h.ensure_static_dirs(str(tmp_path))
+    Path(paths["flowlines_source"]).write_text(" " * 163, encoding="utf-8")
+    Path(paths["stations_source"]).write_text(json.dumps(_fc([])), encoding="utf-8")
+    Path(paths["basins_source"]).write_text(json.dumps(_fc([_poly_feature(13.8, 46.62, 14.2, 46.88, {"HYDROID": "FK-1"})])), encoding="utf-8")
+    zip_path = Path(paths["downloads"]) / "AT_WATERCOURSELINK_GDB.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("dummy.gml", "ok")
+
+    monkeypatch.setattr(h, "ensure_live_json", lambda static_dir=None: paths["stations_source"])
+    monkeypatch.setattr(h, "download_basins", lambda static_dir=None, force=False: {"url": "basins", "path": str(zip_path), "status": "cached", "size_bytes": zip_path.stat().st_size})
+    calls = {"flow": 0}
+    def fake_download_flowlines(static_dir=None, force=False):
+        calls["flow"] += 1
+        assert force is True
+        return {"url": "flow", "path": str(zip_path), "status": "cached", "size_bytes": zip_path.stat().st_size}
+    monkeypatch.setattr(h, "download_flowlines", fake_download_flowlines)
+    monkeypatch.setattr(h, "convert_to_geojson", lambda src, dst, kind, bbox=None: Path(dst).write_text(json.dumps(_fc([_line_feature([[13.82, 46.65], [14.15, 46.8]])])), encoding="utf-8") or True)
+
+    result = h.auto(str(tmp_path))
+
+    assert calls["flow"] == 1
+    assert result["downloads"]["flowlines"]["status"] != "skipped"
+    assert result["downloads"]["flowlines"]["size_bytes"] == zip_path.stat().st_size
+    assert result["flowline_count"] == 1
+
+
+def test_default_download_size_reports_cache_file_size(monkeypatch, tmp_path):
+    paths = h.ensure_static_dirs(str(tmp_path))
+    monkeypatch.setattr(h.config, "HYDRO_FLOWLINES_GDB_URL", "https://example.invalid/AT_WATERCOURSELINK_GDB.zip")
+    p = Path(paths["downloads"]) / "AT_WATERCOURSELINK_GDB.zip"
+    p.write_bytes(b"abc")
+
+    info = h._default_downloads(paths)["flowlines"]
+
+    assert info["size_bytes"] == 3
+
+
+def test_auto_uses_valid_flowline_geojson_cache_without_flowline_download(monkeypatch, tmp_path):
+    paths = h.ensure_static_dirs(str(tmp_path))
+    Path(paths["stations_source"]).write_text(json.dumps(_fc([])), encoding="utf-8")
+    Path(paths["basins_source"]).write_text(json.dumps(_fc([_poly_feature(13.8, 46.62, 14.2, 46.88, {"HYDROID": "FK-1"})])), encoding="utf-8")
+    Path(paths["flowlines_source"]).write_text(json.dumps(_fc([_line_feature([[13.82, 46.65], [14.15, 46.8]])])), encoding="utf-8")
+
+    monkeypatch.setattr(h, "ensure_live_json", lambda static_dir=None: paths["stations_source"])
+    monkeypatch.setattr(h, "download_basins", lambda static_dir=None, force=False: {"url": "basins", "path": "", "status": "cached", "size_bytes": 1})
+    monkeypatch.setattr(h, "download_flowlines", lambda *a, **k: (_ for _ in ()).throw(AssertionError("unnecessary flowline request")))
+
+    result = h.auto(str(tmp_path))
+
+    assert result["downloads"]["flowlines"]["status"] == "cached"
+    assert result["flowline_count"] == 1
+
+
+def test_feldkirchen_coverage_requires_basins_and_flowlines(tmp_path):
+    paths = h.ensure_static_dirs(str(tmp_path))
+    Path(paths["basins_source"]).write_text(json.dumps(_fc([_poly_feature(13.8, 46.62, 14.2, 46.88, {"HYDROID": "FK-1"})])), encoding="utf-8")
+    Path(paths["flowlines_source"]).write_text(json.dumps(_fc([_poly_feature(13.8, 46.62, 14.2, 46.88)])), encoding="utf-8")
+
+    result = h.check_coverage("feldkirchen", str(tmp_path))
+
+    assert result["basin_features_feldkirchen"] == 1
+    assert result["flowline_features_feldkirchen"] == 0
+    assert result["coverage_ok"] is False
+    assert "feldkirchen_flowlines_missing" in result["errors"]
