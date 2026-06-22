@@ -15,6 +15,7 @@ import json
 import os
 import time
 from datetime import datetime, timezone
+from utils import utc_iso_z
 
 from config import SAVE_PATHS
 from debug_utils import debug_log
@@ -226,7 +227,7 @@ def check_all_apis() -> dict:
 
     all_ok = all(v.get("ok") is not False for v in results.values())
     summary = {
-        "checked_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds") + "Z",
+        "checked_at_utc": utc_iso_z(),
         "all_ok": all_ok,
         "results": results,
     }
