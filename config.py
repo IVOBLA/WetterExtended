@@ -814,6 +814,13 @@ VERIFICATION_TIME_TOLERANCE_S = 90
 # Wenn keine Zelle in diesem Radius → "kein Treffer" geloggt, fließt in Hit-Rate ein.
 VERIFICATION_MAX_SEARCH_RADIUS_KM = 25.0
 
+# B228: Strenge Akzeptanzschwelle fuer Nearest-Neighbor-Matches (km).
+# NN-Treffer (kein ID-/cell_id-Match) jenseits dieser Distanz gelten als
+# Fehlzuordnung und fliessen NICHT in MAE/Drift ein (Bucket "nn_rejected").
+# ID-/cell_id-Treffer bleiben distanzunabhaengig gueltig (Lineage-Kontinuitaet).
+# Runtime-ueberschreibbar via runtime_overrides.json (VERIFICATION_NN_MAX_MATCH_KM).
+VERIFICATION_NN_MAX_MATCH_KM = 10.0
+
 # Backward-Compatibility für bestehende Module
 LSTM_SEQUENCE_LENGTH = ML_SEQUENCE_LENGTH
 LSTM_NUM_FEATURES = ML_NUM_FEATURES

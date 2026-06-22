@@ -173,3 +173,5 @@ Labels für IR-Vorläufer → Radarbestätigung werden in `train_data/cell_linea
 | B215 | Forecast-Error-Detail-Validation: synthetische/zeitlich unmögliche Details aus Diagnose ausschließen und Datenbasis sichtbar machen | `forecast_error_diagnosis.py`, `tools/diagnose_motion_pipeline.py`, `app.py`, `tests/test_b215_forecast_error_detail_validation.py` | ✅ erledigt |
 
 | B227 | Ungueltige Zeitstempel mit doppelter Zeitzone (`+00:00Z`) behoben: zentraler Helper `utc_iso_z()` ersetzt `isoformat()+"Z"` auf tz-aware datetimes | `utils.py`, `drift_detector.py`, `api_health_check.py`, `tests/test_b227_utc_iso_z.py` | ✅ erledigt |
+
+| B228 | Verifikations-Matching gehaertet: strenge, runtime-pflegbare NN-Akzeptanzschwelle `VERIFICATION_NN_MAX_MATCH_KM`. NN-Treffer jenseits der Schwelle = Fehlzuordnung (Bucket `nn_rejected`), nicht in MAE/Hit-Rate/Drift. ID-/cell_id-Treffer distanzunabhaengig gueltig. Match-Typ-Anteile geloggt | `config.py`, `accuracy_tracker.py`, `tests/test_b228_nn_match_threshold.py` | ✅ erledigt |
