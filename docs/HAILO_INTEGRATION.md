@@ -2806,3 +2806,8 @@ Phase A (Stabilisierung) — **erledigt**.
   gunicorn-Fork). `ADMIN_DEBUG=1` → Flask-Debug (threaded); ohne waitress
   `threaded=True`-Fallback. `waitress` in requirements.txt (Phase 5 installiert es).
 - Test: `tests/test_b225_admin_uses_waitress.py`.
+
+## B229 — Wolkenhöhe durchgängig None: fehlender LAPSE_RATE-Import (2026-06-22)
+- Ursache: `LAPSE_RATE` in `cloud_height_from_eumetview.py` nicht importiert → NameError im Grid-Pfad (`fetch_cloud_height_for_points`), vom nackten `except` verschluckt → alle Punkte None bei gemeldetem „Erfolg".
+- Fix: `LAPSE_RATE` aus `config` importiert; Resolve-Diagnose (Zähler resolved/out_of_extent/nodata_pixel/warm_clear/error + aufgelöst/gesamt-Log + Record in `eumetview_debug.jsonl`).
+- Test: `tests/test_b229_cloud_height_lapse_rate.py`.
