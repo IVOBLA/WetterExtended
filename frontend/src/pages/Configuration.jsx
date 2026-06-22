@@ -224,6 +224,9 @@ export default function Configuration() {
     }
   }
 
+  const hydroImpactEligibleCount = hydroStations.filter(st => st.impact_eligible === true).length
+  const upstreamTopologyMissing = hydroStatus?.static_status === 'upstream_topology_missing' || hydroStatus?.impact_not_eligible_reason === 'upstream_topology_missing'
+
   const filteredGroups = PARAM_GROUPS.map(g => ({
     ...g,
     params: g.params.filter(p =>
@@ -243,6 +246,8 @@ export default function Configuration() {
         <div className="mb-3 rounded border bg-gray-50 p-2 text-xs text-gray-700">
           <div><strong>Status:</strong> {hydroStatus?.status || 'wird geladen'}</div>
           <div><strong>Static:</strong> {hydroStatus?.static_status || '—'} · <strong>Live:</strong> {hydroStatus?.live_ok ? 'ok' : (hydroStatus?.live_ready ? 'nicht ok' : 'fehlt')}</div>
+          <div>{hydroStations.length} Hydro-Stationen geladen · {hydroImpactEligibleCount} impact-eligible</div>
+          {upstreamTopologyMissing && <div className="text-amber-700">Hinweis: Upstream-Topologie fehlt noch</div>}
           {hydroStatus?.last_error && <div className="text-red-700"><strong>Fehler:</strong> {hydroStatus.last_error}</div>}
         </div>
         <div className="flex flex-wrap gap-2 mb-3">
