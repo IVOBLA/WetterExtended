@@ -43,13 +43,14 @@ def test_convert_to_geojson_uses_detected_layer_bbox_and_normalizes(monkeypatch,
     calls = []
     def fake_run(cmd, **kwargs):
         calls.append(cmd)
-        dst.write_text(json.dumps({"type": "FeatureCollection", "features": [{"type": "Feature", "geometry": None, "properties": {"OBJECTID": 7}}]}), encoding="utf-8")
+        dst.write_text(json.dumps({"type": "FeatureCollection", "features": [{"type": "Feature", "geometry": {"type":"Polygon","coordinates":[[[13.8,46.62],[14.2,46.62],[14.2,46.88],[13.8,46.88],[13.8,46.62]]]}, "properties": {"OBJECTID": 7}}]}), encoding="utf-8")
         return types.SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     assert h.convert_to_geojson(str(src), str(dst), "basins")
-    assert calls[0][-1] == "DRAINAGEBASIN"
-    assert "-spat" in calls[0]
+    assert calls[-1][-1] == "DRAINAGEBASIN"
+    assert "-spat" in calls[-1]
+    assert "-spat_srs" in calls[-1] and "EPSG:4326" in calls[-1]
     props = json.loads(dst.read_text(encoding="utf-8"))["features"][0]["properties"]
     assert props["catchment_id"] == props["basin_id"] == props["id"] == "7"
 
@@ -213,3 +214,77 @@ def test_feldkirchen_coverage_requires_basins_and_flowlines(tmp_path):
     assert result["flowline_features_feldkirchen"] == 0
     assert result["coverage_ok"] is False
     assert "feldkirchen_flowlines_missing" in result["errors"]
+
+
+def test_atomic_convert_preserves_existing_valid_basin_on_broken_force(monkeypatch, tmp_path):
+    src = tmp_path / "x.gdb"; src.mkdir()
+    dst = tmp_path / "basins.geojson"
+    original = json.dumps(_fc([_poly_feature(13.8, 46.62, 14.2, 46.88, {"OBJECTID": 1})]))
+    dst.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(h.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(h, "_ogr_layers", lambda dataset: ["DRAINAGEBASIN"])
+    monkeypatch.setattr(h, "_ogr_layer_geometry", lambda dataset, layer: "Multi Polygon")
+    def fake_run(cmd, **kwargs):
+        Path(cmd[5]).write_text(json.dumps({"type":"FeatureCollection","features":[]}), encoding="utf-8")
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    try:
+        h.convert_to_geojson(str(src), str(dst), "basins")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("broken conversion must fail")
+    assert dst.read_text(encoding="utf-8") == original
+
+
+def test_atomic_convert_preserves_existing_valid_flowlines_on_broken_force(monkeypatch, tmp_path):
+    src = tmp_path / "x.gdb"; src.mkdir()
+    dst = tmp_path / "flowlines.geojson"
+    original = json.dumps(_fc([_line_feature([[13.82, 46.65], [14.15, 46.8]])]))
+    dst.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(h.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(h, "_ogr_layers", lambda dataset: ["WATERCOURSELINK"])
+    monkeypatch.setattr(h, "_ogr_layer_geometry", lambda dataset, layer: "Line String")
+    monkeypatch.setattr(h, "_ogr_bbox_feature_count", lambda dataset, layer, bbox: 1)
+    def fake_run(cmd, **kwargs):
+        Path(cmd[5]).write_text(" " * 163, encoding="utf-8")
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    try:
+        h.convert_to_geojson(str(src), str(dst), "flowlines")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("broken conversion must fail")
+    assert dst.read_text(encoding="utf-8") == original
+
+
+def test_convert_to_geojson_writes_temp_then_replaces(monkeypatch, tmp_path):
+    src = tmp_path / "x.gdb"; src.mkdir()
+    dst = tmp_path / "basins.geojson"
+    monkeypatch.setattr(h.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(h, "_ogr_layers", lambda dataset: ["DRAINAGEBASIN"])
+    monkeypatch.setattr(h, "_ogr_layer_geometry", lambda dataset, layer: "Multi Polygon")
+    seen = {}
+    def fake_run(cmd, **kwargs):
+        seen["cmd"] = cmd
+        assert cmd[5] != str(dst)
+        Path(cmd[5]).write_text(json.dumps(_fc([_poly_feature(13.8, 46.62, 14.2, 46.88, {"OBJECTID": 2})])), encoding="utf-8")
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert h.convert_to_geojson(str(src), str(dst), "basins")
+    assert dst.exists()
+    assert "-spat_srs" in seen["cmd"] and "EPSG:4326" in seen["cmd"]
+
+
+def test_tiny_geojson_files_are_invalid(tmp_path):
+    for name, kind, size in [("basins.geojson", "basins", 161), ("flowlines.geojson", "flowlines", 163)]:
+        p = tmp_path / name
+        p.write_text(" " * size, encoding="utf-8")
+        assert not h._geojson_valid(str(p), kind)
+
+
+def test_layer_geometry_filters_official_ogr_formats(monkeypatch):
+    assert h._layer_matches_kind("Multi Polygon", "basins")
+    assert h._layer_matches_kind("Line String", "flowlines")
+    assert not h._layer_matches_kind("Multi Polygon", "flowlines")
