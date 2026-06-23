@@ -2947,3 +2947,15 @@ Linienstil und Popup-Felder.
 - Feature: `evaluate_hydro_forecast_impact` nutzt die vorhandenen Zell-Forecast-Positionen (`forecast_lat/lon_{h}`, h=10..60), um Treffer oberliegender Einzugsgebiete im Vorhersagehorizont zu erkennen. Verschiebt die Zellkontur an die Forecast-Position und nutzt dieselbe Upstream-/Eligibility-/Overlap-Logik wie die Ist-Bewertung. Gewichtung: grobe Niederschlagsmenge = Regenrate (`nowcast_rain_rate_1h`, sonst `nowcast_rr_mm15`×4) × Verweildauer (aus Stützstellen t=0+Horizonte) → `estimated_precip_mm`, plus `forecast_impact_score`. Keine neuen Fremdrequests.
 - Additiv & standardmaessig aus (`HYDRO_FORECAST_IMPACT_ENABLED=false`); Ergebnisse in `latest_hydro_forecast.json`, Read-Endpoint `GET /api/hydro/forecast-impacts`. Schwellen/Horizonte runtime-konfigurierbar. Bestehende Attribution/Verifikation unberührt.
 - Test: `tests/test_p57_hydro_forecast_impact.py`.
+
+## P57 — Drift-Alarm-Mail: diagnostizierter Grund statt statischer Liste (2026-06-23)
+- Ursache: send_drift_alert ignorierte das von B214/drift_detector bereits berechnete
+  diagnosis_summary (severity/primary_findings/top_recommendation) und zeigte eine fixe,
+  nichtssagende Ursachenliste. Zusätzlich wurde "Verschlechterung +{delta} km" immer rot
+  gerendert — bei absolut ausgelöstem Drift (delta_km < 0) ergab das "+-9.9 km".
+- Fix (email_notifier.py): deutsche Übersetzung der Findings (_DRIFT_FINDING_DE), lesbarer
+  Drift-Grund (_DRIFT_REASON_DE), Schweregrad-Label, _build_drift_diagnosis_html-Block in
+  der Mail; Verschlechterungszeile nur bei positivem relativem Delta rot, sonst neutraler
+  Trend mit Vorzeichen; alle km-Werte via _fmt_km gerundet; statische Liste nur noch als
+  Fallback ohne diagnosis_summary.
+- Test: tests/test_p57_drift_mail_diagnosis.py.
