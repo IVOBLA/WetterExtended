@@ -2969,3 +2969,14 @@ Linienstil und Popup-Felder.
   bloßes "USER" (USER_AGENT) und keine breite +<Ziffern>-Wertregex. B119-Allowlist
   (MAX_TOKENS) unberührt.
 - Test: tests/test_b240_redaction_username_phone.py.
+
+## B242 — Holdout-Metrik misst Modellfehler nicht (roh vs. skaliert) (2026-06-23)
+- Ursache: retrain_all übergibt y_holdout aus dataset["y"] (= y_scaled). _compute_holdout_metrics
+  vergleicht inverse_transform(preds) (roh) gegen das skalierte y_h → errs misst ~den mittleren
+  Positionsbetrag statt des Vorhersagefehlers. Beleg Export 2026-06-23: holdout.mae_px≈217 fast
+  konstant über alle Horizonte (208→227), während echter Fehler mit dem Horizont wächst.
+  Erklärt die holdout-vs-validation-Diskrepanz (KI-Befund F4) und macht _holdout_ok wirkungslos.
+- Fix: in _compute_holdout_metrics y_h ebenfalls via _scaler_y.inverse_transform in den Rohraum
+  bringen (NaN-tolerant), dann errs = |preds - y_h_raw|. holdout.mae_px liegt danach im selben
+  Rohraum wie evaluate_on_recent → vergleichbar und aussagekräftig.
+- Test: tests/test_b242_holdout_metric_unit.py.
