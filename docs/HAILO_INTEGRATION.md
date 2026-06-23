@@ -2918,3 +2918,8 @@ Linienstil und Popup-Felder.
 - Ursache: `/api/hydro/reload-static` rief `build_static_hydro()` synchron im Waitress-Worker auf; der Rebuild (5756 Basins, 26247 Flowlines) blockierte den Worker, lief in nginx-Timeouts und liess den Admin-Button reaktionslos wirken.
 - Fix: reload-static startet den Import als eigenen Prozess via `subprocess.Popen([sys.executable, hydro_static_import.py, "--build-job"], start_new_session=True)` (gespiegeltes B162-Muster), schreibt eine atomare Job-Statusdatei (`train_data/hydro/static/generated/hydro_import_job.json`) und liefert sofort `started`/`already_running`. Neuer `GET /api/hydro/import-status` (public read) meldet running/finished/failed/stale inkl. Lebend-Pruefung des PID. `fetch-live`/`verify` bleiben synchron.
 - Test: `tests/test_b236_hydro_import_process.py`; Bestandstest `tests/test_hydro_api.py` auf async-Verhalten angepasst.
+
+## B238 — Hydro-Admin: Spinner/Feedback + Polling des async Imports (2026-06-23)
+- Ursache: Die drei Hydro-Admin-Buttons hatten keinen Lade-/Disabled-Zustand, die Meldung wurde weit unten im Editor-Block gerendert (auf Mobilgeraeten unsichtbar) -> Klick wirkte reaktionslos. Nach B236 ist reload-static zudem asynchron.
+- Fix: `hydroBusy`/`hydroMsg`-State, Buttons werden waehrend der Aktion deaktiviert und zeigen ein Fortschrittslabel; Inline-Feedback direkt am Button-Block; Backend-Fehlertext via `e.payload.error`. Fuer reload-static pollt das Frontend `GET /api/hydro/import-status`, bis der Import-Prozess fertig/fehlerhaft ist, und aktualisiert danach Stationen/Status.
+- Test: `tests/test_b238_hydro_admin_busy_feedback.py`.
