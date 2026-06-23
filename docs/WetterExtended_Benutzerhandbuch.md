@@ -2666,3 +2666,11 @@ In der Hydro-Stationsliste im Admin-Bereich lässt sich pro Pegel ein eigener Ma
 ### Vorausschauender Hydro-Impact (Vorwarnung)
 
 Ist `HYDRO_FORECAST_IMPACT_ENABLED` aktiviert, prüft das System anhand der berechneten Zell-Vorhersagepositionen (Horizonte 10–60 min), ob eine Zelle ein oberliegendes Einzugsgebiet eines Pegels treffen wird. Pro Treffer wird ein `expected`-Hinweis mit Vorwarnzeit (`first_hit_lead_min`), Verweildauer im Einzugsgebiet (`forecast_dwell_min`) und einer groben geschätzten Niederschlagsmenge (`estimated_precip_mm` ≈ Regenrate × Verweildauer) erzeugt. Die Regenrate stammt aus den vorhandenen Nowcast-Feldern der Zelle (keine zusätzlichen Fremdabfragen). Abrufbar unter `GET /api/hydro/forecast-impacts`. Schwellwerte (`HYDRO_FORECAST_MIN_PRECIP_MM_H`, `HYDRO_FORECAST_PRECIP_REF_MM`, Horizonte) sind im Admin-Bereich runtime-konfigurierbar. Dies ist ein vorsichtiger Plausibilitätshinweis und **keine amtliche Hochwasserwarnung**.
+
+### Drift-Alarm-Mail mit diagnostiziertem Grund (P57)
+Die automatische Drift-Warnung per E-Mail nennt jetzt den konkret diagnostizierten Grund
+(z. B. dominierender Richtungsfehler, ML schlechter als Fallback, begrenzte Radarframe-
+Abdeckung), den Schweregrad und die empfohlene Prüfung — statt einer allgemeinen
+Ursachenliste. Der Drift-Grund wird im Klartext angezeigt; eine relative Verschlechterung
+wird nur dann rot hervorgehoben, wenn der aktuelle Fehler tatsächlich über dem
+7-Tage-Mittel liegt.

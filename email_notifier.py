@@ -726,6 +726,87 @@ def send_claude_code_report_email(result: dict, email_str: str) -> bool:
     return _send_smtp(recipients, subject, html)
 
 
+# P57: Übersetzung der (englischen) Diagnose-Findings aus
+# forecast_error_diagnosis.FINDINGS in den deutschen Mail-Text. Schlüssel sind die
+# exakten englischen Strings, die in drift_status.diagnosis_summary.primary_findings
+# stehen; unbekannte Strings werden unverändert (englisch) durchgereicht.
+_DRIFT_FINDING_DE = {
+    "ML forecast performs worse than kinematic fallback.":
+        "ML-Vorhersage ist schlechter als der kinematische Fallback.",
+    "Kinematic fallback performs worse than ML forecast.":
+        "Kinematischer Fallback ist schlechter als die ML-Vorhersage.",
+    "Forecast direction error probably dominates short-horizon drift.":
+        "Richtungsfehler der Bewegung dominiert wahrscheinlich den Kurzhorizont-Drift.",
+    "Forecast speed error probably dominates short-horizon drift.":
+        "Geschwindigkeitsfehler dominiert wahrscheinlich den Kurzhorizont-Drift.",
+    "Nearest-neighbor verification is probably inflating errors.":
+        "Nearest-Neighbor-Verifikation bläht den gemessenen Fehler wahrscheinlich auf.",
+    "cell_id matching is probably needed for more stable verification.":
+        "Stabilere Verifikation benötigt wahrscheinlich cell_id-Matching.",
+    "Target-frame coverage is probably limiting diagnosis quality.":
+        "Fehlende Ziel-Radarframes begrenzen wahrscheinlich die Diagnosequalität.",
+    "Low sample count: findings are only weak indications.":
+        "Wenige Datenpunkte: Befunde sind nur schwache Indizien.",
+    "A few outlier forecasts probably dominate MAE.":
+        "Wenige Ausreißer-Vorhersagen dominieren wahrscheinlich den MAE.",
+    "Motion pipeline appears healthy, but forecast accuracy is still bad.":
+        "Bewegungs-Pipeline wirkt gesund, die Vorhersagegenauigkeit ist dennoch schlecht.",
+}
+
+# P57: Lesbarer Drift-Grund (drift_reason ist ein technischer Code).
+_DRIFT_REASON_DE = {
+    "absolute": "Kurzhorizont-Zielverletzung (≤30 min über Grenze)",
+    "relative": "Relativer MAE-Anstieg gegenüber Baseline",
+    "relative+absolute": "Relativer MAE-Anstieg UND Kurzhorizont-Zielverletzung",
+}
+
+
+def _drift_severity_label(sev) -> str:
+    """P57: Schweregrad aus forecast_error_diagnosis (ok/watch/warning/critical) → Mail-Label."""
+    return {
+        "critical": "🔴 kritisch",
+        "warning": "🟠 Warnung",
+        "watch": "🟡 Beobachtung",
+        "ok": "🟢 ok",
+    }.get(str(sev or "").lower(), str(sev or "—"))
+
+
+def _fmt_km(value) -> str:
+    """P57: km-Wert lesbar runden; Nicht-Zahlen (None/'?') unverändert als Text."""
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, (int, float)):
+        return f"{value:.2f} km"
+    return f"{value} km" if value not in (None, "") else "—"
+
+
+def _build_drift_diagnosis_html(status: dict) -> str:
+    """P57: Baut den HTML-Block 'Diagnostizierter Grund' aus
+    status['diagnosis_summary'] (von drift_detector/forecast_error_diagnosis).
+    Liefert '' wenn keine Diagnose vorhanden ist (Aufrufer setzt dann den Fallback)."""
+    diag = status.get("diagnosis_summary")
+    if not isinstance(diag, dict):
+        return ""
+    findings = diag.get("primary_findings") or []
+    top_rec = diag.get("top_recommendation")
+    severity = diag.get("severity")
+    parts = [
+        f"<p><b>Diagnostizierter Grund</b> "
+        f"(Schweregrad: {_html_escape(_drift_severity_label(severity))}):</p>"
+    ]
+    if findings:
+        items = "".join(
+            f"<li>{_html_escape(_DRIFT_FINDING_DE.get(f, str(f)))}</li>"
+            for f in findings
+        )
+        parts.append(f"<ul>{items}</ul>")
+    else:
+        parts.append("<p>Keine spezifische Ursache automatisch ermittelt.</p>")
+    if top_rec:
+        parts.append(f"<p><b>Empfohlene Prüfung:</b> {_html_escape(str(top_rec))}</p>")
+    return "".join(parts)
+
+
 def send_drift_alert(status: dict) -> None:
     """
     Sendet eine E-Mail-Warnung bei erkanntem Model-Drift.
@@ -759,21 +840,50 @@ def send_drift_alert(status: dict) -> None:
     delta = status.get("delta_km", "?")
     recent = status.get("mae_recent_km", "?")
     base = status.get("mae_baseline_km", "?")
+
+    # P57: lesbarer Grund + nicht-irreführende Verschlechterungszeile.
+    reason_key = str(status.get("drift_reason") or "")
+    reason_de = _DRIFT_REASON_DE.get(reason_key, reason_key or "—")
+    if isinstance(delta, (int, float)) and not isinstance(delta, bool) and delta > 0:
+        worsening_row = (
+            '  <tr><td>Verschlechterung (relativ)</td>'
+            f'<td style="color:red"><b>+{delta:.2f} km</b></td></tr>'
+        )
+    else:
+        _delta_txt = (
+            f"{delta:+.2f} km"
+            if isinstance(delta, (int, float)) and not isinstance(delta, bool)
+            else "—"
+        )
+        worsening_row = (
+            '  <tr><td>Relativer Trend</td>'
+            f"<td>{_delta_txt} (recent ggü. Baseline — keine relative "
+            "Verschlechterung; Auslöser siehe Drift-Grund)</td></tr>"
+        )
+
+    # P57: konkreter, diagnostizierter Grund statt statischer Ursachenliste.
+    diagnosis_html = _build_drift_diagnosis_html(status)
+    if not diagnosis_html:
+        diagnosis_html = (
+            "<p><b>Mögliche Ursachen:</b> Wetter-Regime-Wechsel, zu wenig "
+            "Training-Samples, Feature-Drift (neue Radar-Kalibrierung), "
+            "Datenausfall bei einem API-Provider.</p>"
+        )
+
     body = f"""
 <html><body>
 <h2>⚠️ WetterExtended Model-Drift-Alarm</h2>
-<p>Der Nowcast-Fehler hat sich signifikant verschlechtert:</p>
+<p>Der Nowcast-Fehler hat einen Drift-Alarm ausgelöst.</p>
 <table border="1" cellpadding="4">
   <tr><th>Kennzahl</th><th>Wert</th></tr>
-  <tr><td>MAE recent (letzte 24 h)</td><td><b>{recent} km</b></td></tr>
-  <tr><td>MAE baseline (7-Tage-Mittel)</td><td>{base} km</td></tr>
-  <tr><td>Verschlechterung</td><td style="color:red"><b>+{delta} km</b></td></tr>
+  <tr><td>MAE recent (letzte 24 h)</td><td><b>{_fmt_km(recent)}</b></td></tr>
+  <tr><td>MAE baseline (7-Tage-Mittel)</td><td>{_fmt_km(base)}</td></tr>
+{worsening_row}
   <tr><td>Threshold (relativ)</td><td>{status.get("threshold_km")} km</td></tr>
-  <tr><td>MAE Kurzhorizont (≤{int(status.get("short_horizon_max_min", 30))} min)</td><td><b>{status.get("mae_recent_short_km")} km</b> (Grenze {status.get("abs_threshold_km")} km)</td></tr>
-  <tr><td>Drift-Grund</td><td>{status.get("drift_reason") or "—"}</td></tr>
+  <tr><td>MAE Kurzhorizont (≤{int(status.get("short_horizon_max_min", 30))} min)</td><td><b>{_fmt_km(status.get("mae_recent_short_km"))}</b> (Grenze {status.get("abs_threshold_km")} km)</td></tr>
+  <tr><td>Drift-Grund</td><td><b>{_html_escape(reason_de)}</b></td></tr>
 </table>
-<p><b>Mögliche Ursachen:</b> Wetter-Regime-Wechsel, zu wenig Training-Samples,
-Feature-Drift (neue Radar-Kalibrierung), Datenausfall bei einem API-Provider.</p>
+{diagnosis_html}
 <p><b>Massnahmen:</b></p>
 <ul>
   <li>Admin-Panel → Seite „Genauigkeit" prüfen</li>
