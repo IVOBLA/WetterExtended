@@ -2913,3 +2913,8 @@ Linienstil und Popup-Felder.
 - Fix: `build_upstream_basin_graph` exponiert `cycle_nodes`. `get_upstream_basin_ids` schließt nur noch die zyklus-beteiligte Station selbst aus (per-Station) und nutzt die bereits zyklenfreie BFS-Adjazenz. Eligibility prüft `basin_id not in cycle_nodes` statt globalem `cycle_count==0`. Fachlich konservativ: zyklenfreie Stationen erhalten eine Teilmenge des Upstream-Gebiets (Unter-, nie Über-Attribution); Zyklus-Knoten bleiben über den Basin-Downstream-Fallback unverändert.
 - Aktivierung: nach Anwendung Static-Hydro neu aufbauen (Admin „Static-Hydro neu …“ bzw. CLI-Import); `/api/hydro/status` sollte dann `impact_eligible_station_count > 0` zeigen.
 - Test: `tests/test_b235_cycle_gate_granular.py`.
+
+## B236 — Static-Hydro-Import im eigenen Prozess (async) (2026-06-23)
+- Ursache: `/api/hydro/reload-static` rief `build_static_hydro()` synchron im Waitress-Worker auf; der Rebuild (5756 Basins, 26247 Flowlines) blockierte den Worker, lief in nginx-Timeouts und liess den Admin-Button reaktionslos wirken.
+- Fix: reload-static startet den Import als eigenen Prozess via `subprocess.Popen([sys.executable, hydro_static_import.py, "--build-job"], start_new_session=True)` (gespiegeltes B162-Muster), schreibt eine atomare Job-Statusdatei (`train_data/hydro/static/generated/hydro_import_job.json`) und liefert sofort `started`/`already_running`. Neuer `GET /api/hydro/import-status` (public read) meldet running/finished/failed/stale inkl. Lebend-Pruefung des PID. `fetch-live`/`verify` bleiben synchron.
+- Test: `tests/test_b236_hydro_import_process.py`; Bestandstest `tests/test_hydro_api.py` auf async-Verhalten angepasst.
