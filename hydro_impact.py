@@ -41,6 +41,7 @@ NETWORK_INDEX_PATH = Path(os.environ.get("HYDRO_NETWORK_INDEX_PATH", str(HYDRO_S
 LATEST_HYDRO_PATH = Path(os.environ.get("HYDRO_LATEST_PATH", str(_HYDRO_BASE / "latest_hydro.json")))
 IMPACT_DIR = Path(os.environ.get("HYDRO_IMPACT_DIR", str(_HYDRO_BASE.parent / "impact")))
 LATEST_IMPACTS_PATH = Path(os.environ.get("HYDRO_LATEST_IMPACTS_PATH", str(IMPACT_DIR / "latest_hydro_impacts.json")))
+LATEST_FORECAST_PATH = Path(os.environ.get("HYDRO_LATEST_FORECAST_PATH", str(IMPACT_DIR / "latest_hydro_forecast.json")))
 HYDRO_IMPACT_STATE_PATH = Path(os.environ.get("HYDRO_IMPACT_STATE_PATH", str(IMPACT_DIR / "hydro_impact_state.json")))
 
 
@@ -365,6 +366,141 @@ def evaluate_hydro_impact(objects: list, timestamp: str | None = None, include_r
     return events
 
 
+def _precip_rate_mm_h(cell: dict[str, Any]) -> float:
+    """Grobe Niederschlagsrate (mm/h) aus vorhandenen Nowcast-Feldern; keine neuen Fremdrequests."""
+    v = cell.get("nowcast_rain_rate_1h")
+    try:
+        if v is not None and float(v) > 0:
+            return float(v)
+    except (TypeError, ValueError):
+        pass
+    v = cell.get("nowcast_rr_mm15")
+    try:
+        if v is not None and float(v) > 0:
+            return float(v) * 4.0  # mm/15min -> mm/h
+    except (TypeError, ValueError):
+        pass
+    mapping = _runtime_get("HYDRO_FORECAST_INTENSITY_MM_H", {"strong": 8.0, "heavy": 15.0, "severe": 30.0, "extreme": 50.0})
+    if isinstance(mapping, dict):
+        return float(mapping.get(_intensity(cell), 0.0) or 0.0)
+    return 0.0
+
+
+def _shift_cell_to_forecast(cell: dict[str, Any], dlon: float, dlat: float) -> dict[str, Any]:
+    """Erzeugt eine Zellkopie mit zur Forecast-Position verschobener Kontur."""
+    fc = dict(cell)
+    for key in ("contour_geo", "polygon_geo", "geo_contour"):
+        coords = cell.get(key)
+        if isinstance(coords, list) and coords:
+            try:
+                fc[key] = [[float(pt[0]) + dlon, float(pt[1]) + dlat] for pt in coords if isinstance(pt, (list, tuple)) and len(pt) >= 2]
+            except (TypeError, ValueError):
+                pass
+    fc.pop("geometry", None); fc.pop("polygon", None)
+    return fc
+
+
+def evaluate_hydro_forecast_impact(objects: list, timestamp: str | None = None) -> list[dict]:
+    """Vorausschauende Hydro-Impact-Bewertung: trifft eine Zelle im Vorhersagehorizont ein
+    oberliegendes Einzugsgebiet? Gewichtet mit grober Niederschlagsmenge (Rate x Verweildauer).
+    Additiv, standardmaessig deaktiviert (HYDRO_FORECAST_IMPACT_ENABLED)."""
+    if not _runtime_get("HYDRO_FORECAST_IMPACT_ENABLED", False):
+        return []
+    if not hydro_enabled() or not static_data_available() or not SHAPELY_AVAILABLE:
+        return []
+    network_raw = _load_json(NETWORK_INDEX_PATH, {})
+    if isinstance(network_raw, dict) and isinstance(network_raw.get("by_station_id"), dict):
+        network = network_raw["by_station_id"]
+    elif isinstance(network_raw, dict) and isinstance(network_raw.get("stations"), list):
+        network = {str(s.get("station_id")): s for s in network_raw.get("stations", []) if isinstance(s, dict)}
+    elif isinstance(network_raw, list):
+        network = {str(s.get("station_id")): s for s in network_raw if isinstance(s, dict)}
+    else:
+        network = network_raw if isinstance(network_raw, dict) else {}
+    overrides = _runtime_get("HYDRO_STATION_OVERRIDES", {}) or {}
+    horizons = _runtime_get("HYDRO_FORECAST_HORIZONS_MIN", [10, 20, 30, 40, 60])
+    horizons = [int(h) for h in horizons] if isinstance(horizons, (list, tuple)) else [10, 20, 30, 40, 60]
+    samples = [0] + sorted(set(horizons))
+    ref_mm = _runtime_float("HYDRO_FORECAST_PRECIP_REF_MM", 15.0) or 15.0
+    min_rate = _runtime_float("HYDRO_FORECAST_MIN_PRECIP_MM_H", 1.0)
+    single_dwell = _runtime_float("HYDRO_FORECAST_SINGLE_HIT_DWELL_MIN", 10.0)
+    min_area = _runtime_float("HYDRO_MIN_OVERLAP_AREA_KM2", MIN_OVERLAP_AREA_KM2)
+    min_ratio = _runtime_float("HYDRO_MIN_OVERLAP_RATIO_CELL", MIN_OVERLAP_RATIO_CELL)
+    created = _parse_time(timestamp)
+    catchments = list(_load_catchments())
+    events = []
+    for cell in objects or []:
+        if str(cell.get("status", cell.get("state", "active"))).lower().startswith("inactive"):
+            continue
+        rate = _precip_rate_mm_h(cell)
+        if rate < min_rate:
+            continue
+        clat = cell.get("lat") or cell.get("cell_lat") or cell.get("center_lat")
+        clon = cell.get("lon") or cell.get("cell_lon") or cell.get("center_lon")
+        if clat is None or clon is None:
+            continue
+        for feature in catchments:
+            props = dict(feature.get("properties") or {})
+            sid = _station_id(props)
+            station_ctx = {**props, **(network.get(sid, {}) if isinstance(network, dict) else {})}
+            if isinstance(overrides, dict):
+                station_ctx.update(overrides.get(sid, {}) or {})
+            quality = station_ctx.get("quality")
+            if not station_ctx.get("enabled", True) or station_ctx.get("ignored") or station_ctx.get("impact_eligible") is not True or quality in {"unresolved", "fallback_nearest_basin", "upstream_topology_missing"}:
+                continue
+            catchment_id = props.get("catchment_id") or station_ctx.get("catchment_id")
+            upstream_ids = station_ctx.get("upstream_catchment_ids") or props.get("upstream_catchment_ids") or []
+            upstream_id_set = {str(x) for x in upstream_ids if x is not None} if isinstance(upstream_ids, (list, tuple, set)) else {str(upstream_ids)}
+            if upstream_id_set and str(catchment_id) not in upstream_id_set:
+                continue
+            hit_times = []; max_ratio = 0.0; max_area = 0.0
+            for t in samples:
+                if t == 0:
+                    flat, flon = clat, clon
+                else:
+                    flat = cell.get(f"forecast_lat_{t}"); flon = cell.get(f"forecast_lon_{t}")
+                    if flat is None or flon is None:
+                        continue
+                try:
+                    shifted = _shift_cell_to_forecast(cell, float(flon) - float(clon), float(flat) - float(clat))
+                except (TypeError, ValueError):
+                    continue
+                ov = compute_cell_catchment_overlap(shifted, feature)
+                if ov.get("hit") and ov["overlap_area_km2"] >= min_area and ov["overlap_ratio_cell"] >= min_ratio:
+                    hit_times.append(t)
+                    max_ratio = max(max_ratio, ov["overlap_ratio_cell"]); max_area = max(max_area, ov["overlap_area_km2"])
+            if not hit_times:
+                continue
+            dwell = (max(hit_times) - min(hit_times)) if len(hit_times) >= 2 else float(single_dwell)
+            estimated_precip_mm = round(rate * (dwell / 60.0), 2)
+            score = max(0.0, min(1.0, (estimated_precip_mm / ref_mm) * (0.5 + 0.5 * max_ratio))) if ref_mm else 0.0
+            events.append({
+                "event_id": f"hydrofc_{created.strftime('%Y%m%d_%H%M%S')}_cell{_cell_id(cell)}_station{sid}",
+                "created_at": created.isoformat().replace("+00:00", "Z"),
+                "cell_id": _cell_id(cell),
+                "station_id": sid,
+                "station_name": props.get("station_name") or props.get("name"),
+                "river": props.get("river") or props.get("waterbody"),
+                "relation": "forecast_upstream_catchment_hit",
+                "status": "expected",
+                "first_hit_lead_min": min(hit_times),
+                "forecast_dwell_min": round(dwell, 1),
+                "hit_horizons_min": hit_times,
+                "max_overlap_ratio_cell": round(max_ratio, 4),
+                "max_overlap_area_km2": round(max_area, 3),
+                "precip_rate_mm_h": round(rate, 2),
+                "estimated_precip_mm": estimated_precip_mm,
+                "forecast_impact_score": round(score, 4),
+                "catchment_id": catchment_id,
+                "upstream_catchment_ids": sorted(upstream_id_set),
+                "cell_lat": clat, "cell_lon": clon,
+                "station_lat": station_ctx.get("lat") or props.get("lat"),
+                "station_lon": station_ctx.get("lon") or props.get("lon"),
+                "reason": ["forecast_cell_enters_upstream_catchment", "weighted_by_precip_rate_and_dwell", "plausibler Zusammenhang", "keine amtliche Warnung"],
+            })
+    return events
+
+
 def save_hydro_impact_events(events, timestamp) -> Path:
     IMPACT_DIR.mkdir(parents=True, exist_ok=True)
     dt = _parse_time(timestamp)
@@ -375,6 +511,18 @@ def save_hydro_impact_events(events, timestamp) -> Path:
     with LATEST_IMPACTS_PATH.open("w", encoding="utf-8") as f:
         json.dump(list(events or []), f, ensure_ascii=False, indent=2)
     return path
+
+
+def save_hydro_forecast_events(events) -> Path:
+    IMPACT_DIR.mkdir(parents=True, exist_ok=True)
+    with LATEST_FORECAST_PATH.open("w", encoding="utf-8") as f:
+        json.dump(list(events or []), f, ensure_ascii=False, indent=2)
+    return LATEST_FORECAST_PATH
+
+
+def load_latest_hydro_forecast() -> list[dict]:
+    data = _load_json(LATEST_FORECAST_PATH, [])
+    return data if isinstance(data, list) else []
 
 
 def _load_hydro_impact_state() -> dict[str, Any]:

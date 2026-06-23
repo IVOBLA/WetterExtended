@@ -2942,3 +2942,8 @@ Linienstil und Popup-Felder.
 - Feature: Markierungs-Durchfluss ist nun pro Station setzbar (`HYDRO_STATION_OVERRIDES[sid].mark_q_m3s`), überschreibt die globale Schwelle `HYDRO_MAP_MARK_Q_M3S`. PATCH `/api/hydro/stations/<id>` akzeptiert `mark_q_m3s` (Zahl ≥ 0 oder null zum Löschen); `station_features` exponiert den Wert und nutzt ihn in der `map_view`-Markierung.
 - Bugfix (untrennbar): Admin-Liste lädt mit `include_disabled=1`, sodass abgewählte Pegel sichtbar/re-aktivierbar bleiben; Checkbox- und Schwellwert-Änderungen aktualisieren den lokalen State sofort (kein Neuladen nötig). Zeile von `<label>` auf `<div>` umgestellt, damit der Zahlen-Input die Checkbox nicht toggelt.
 - Test: `tests/test_p56_hydro_per_station_threshold.py`.
+
+## P57 — Vorausschauender Hydro-Impact (Forecast-Treffer, Niederschlag × Verweildauer) (2026-06-23)
+- Feature: `evaluate_hydro_forecast_impact` nutzt die vorhandenen Zell-Forecast-Positionen (`forecast_lat/lon_{h}`, h=10..60), um Treffer oberliegender Einzugsgebiete im Vorhersagehorizont zu erkennen. Verschiebt die Zellkontur an die Forecast-Position und nutzt dieselbe Upstream-/Eligibility-/Overlap-Logik wie die Ist-Bewertung. Gewichtung: grobe Niederschlagsmenge = Regenrate (`nowcast_rain_rate_1h`, sonst `nowcast_rr_mm15`×4) × Verweildauer (aus Stützstellen t=0+Horizonte) → `estimated_precip_mm`, plus `forecast_impact_score`. Keine neuen Fremdrequests.
+- Additiv & standardmaessig aus (`HYDRO_FORECAST_IMPACT_ENABLED=false`); Ergebnisse in `latest_hydro_forecast.json`, Read-Endpoint `GET /api/hydro/forecast-impacts`. Schwellen/Horizonte runtime-konfigurierbar. Bestehende Attribution/Verifikation unberührt.
+- Test: `tests/test_p57_hydro_forecast_impact.py`.
