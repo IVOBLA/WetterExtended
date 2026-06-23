@@ -201,6 +201,50 @@ def _station_admin_enabled(station_id: str) -> bool:
     override = overrides.get(str(station_id))
     return not (isinstance(override, dict) and override.get("enabled") is False)
 
+def _build_upstream_diagnostics_bundle(index, upstream_graph, basins, flowlines, status):
+    """Kompaktes, groessenbeschraenktes Topologie-Diagnose-Bundle fuer Debug-Export (B237)."""
+    from collections import Counter
+    sq = Counter(str(i.get("source_quality")) for i in index)
+    usq = Counter(str(i.get("upstream_source_quality")) for i in index)
+    edge_conf = Counter(str(e.get("confidence")) for e in (upstream_graph.get("edges") or []))
+    not_eligible = [
+        {
+            "station_id": i.get("station_id"),
+            "station_name": i.get("station_name"),
+            "station_basin": i.get("station_basin"),
+            "quality": i.get("quality"),
+            "source_quality": i.get("source_quality"),
+            "upstream_source_quality": i.get("upstream_source_quality"),
+            "topology_source": i.get("topology_source"),
+            "upstream_catchment_count": len(i.get("upstream_catchment_ids") or []),
+            "reason": (i.get("reason") or [])[:8],
+        }
+        for i in index if i.get("impact_eligible") is not True
+    ][:50]
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "topology_quality": upstream_graph.get("topology_quality"),
+        "topology_source": status.get("topology_source"),
+        "counts": {
+            "stations": len(index),
+            "impact_eligible": int(status.get("impact_eligible_station_count") or 0),
+            "basins": len(basins),
+            "flowlines": len(flowlines),
+            "graph_nodes": len(upstream_graph.get("nodes") or []),
+            "graph_edges": len(upstream_graph.get("edges") or []),
+            "confident_edges": int(upstream_graph.get("confident_edge_count") or 0),
+            "cycle_count": int(upstream_graph.get("cycle_count") or 0),
+        },
+        "source_quality_histogram": dict(sq),
+        "upstream_source_quality_histogram": dict(usq),
+        "edge_confidence_histogram": dict(edge_conf),
+        "cycle_nodes": sorted(str(n) for n in (upstream_graph.get("cycle_nodes") or []))[:1000],
+        "cycle_sample": [list(c)[:40] for c in (upstream_graph.get("cycles") or [])[:50]],
+        "flowline_diagnostics_sample": (upstream_graph.get("diagnostics") or [])[:50],
+        "not_eligible_sample": not_eligible,
+    }
+
+
 def build_station_index(stations_geojson: str, basins_geojson: str | None, flowlines_geojson: str | None, output_dir: str | None = None) -> dict:
     output_dir = output_dir or os.path.join(getattr(config, "HYDRO_STATIC_DIR", "train_data/hydro/static"), "generated")
     default_lag = getattr(config, "HYDRO_DEFAULT_LAG_MIN", [20, 180])
@@ -345,6 +389,7 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
         "impact_eligible_available": bool(impact_enabled),
     }
     status = {"ok": bool(impact_enabled), "status": status_value, "message": "Hydro-Static bereit." if impact_enabled else "Hydro-Static vorbereitet, aber keine belastbare Upstream-Topologie verfügbar.", "generated_at": datetime.now(timezone.utc).isoformat(), "station_count": len(index), "static_station_count": len(index), "station_basin_count": matched, "basin_count": len(basins), "flowline_count": len(flowlines), "station_basin_match_count": matched, "impact_eligible_station_count": impact_enabled, "enabled_station_count": visible_enabled, "visible_station_count": visible_enabled, "topology_source": topology_source_overall, "topology_quality": upstream_graph.get("topology_quality"), "upstream_graph_node_count": len(upstream_graph.get("nodes", [])), "upstream_graph_edge_count": len(upstream_graph.get("edges", [])), "upstream_graph_confident_edge_count": upstream_graph.get("confident_edge_count", 0), "upstream_graph_cycle_count": upstream_graph.get("cycle_count", 0), "topology_errors": (["upstream_graph_cycle"] if upstream_graph.get("cycle_count", 0) else []), "topology_warnings": upstream_graph.get("diagnostics", [])[:20], "missing": missing, "reason_summary": reason_summary, "errors": [], "warnings": (["flowlines_missing"] if basins and matched and not flowlines else (["upstream_topology_missing"] if matched and not impact_enabled else []))}
+    _write_json(os.path.join(output_dir, "hydro_upstream_diagnostics.json"), _build_upstream_diagnostics_bundle(index, upstream_graph, basins, flowlines, status))
     _write_json(os.path.join(output_dir, "station_network_index.json"), {"stations": index, "by_station_id": {str(i.get("station_id")): i for i in index}})
     _write_json(os.path.join(output_dir, "hydro_stations.geojson"), {"type": "FeatureCollection", "features": station_features})
     _write_json(os.path.join(output_dir, "station_catchments.geojson"), {"type": "FeatureCollection", "features": catchment_features})

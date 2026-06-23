@@ -2932,3 +2932,8 @@ Linienstil und Popup-Felder.
 ## P55 — Hydro-Kartenanzeige nach Durchfluss konfigurierbar (2026-06-23)
 - Feature: Zwei runtime-konfigurierbare Schwellen `HYDRO_MAP_MIN_Q_M3S` (Anzeige-Filter) und `HYDRO_MAP_MARK_Q_M3S` (Markierung). `station_features(map_view=True)` (Route `/api/hydro/stations?map=1`) blendet Pegel unter dem Mindest-Durchfluss aus und setzt `marked` ab dem Markierungs-Durchfluss; Pegel ohne Live-Durchfluss bleiben sichtbar. Defaults (0.0 / None) sind regressionsneutral. Frontend (MapView + MapFullscreen) hebt markierte Pegel hervor; Admin-Liste und KMZ nutzen `map_view` nicht und bleiben vollstaendig.
 - Test: `tests/test_p55_hydro_map_display.py`; Bestandsmocks in `tests/test_hydro_api.py` an die neue Signatur angepasst.
+
+## B237 — Topologie-Diagnose-Bundle im Debug-ZIP (2026-06-23)
+- Ursache: Der Debug-Export liess aus `train_data/hydro/static/generated/` nur Status + Stationsindex zu; die fuer die Cycle-/Eligibility-Tiefenanalyse noetige Topologie (Zyklen, Knoten, Kanten-Confidence) lag nur in `hydro_upstream_graph.json`, das aber mehrere MB gross ist (matches ueber 26247 Flowlines) und nicht in jeden Export gehoert.
+- Fix: `build_station_index` schreibt zusaetzlich ein groessenbeschraenktes `hydro_upstream_diagnostics.json` (Histogramme, gekappte cycle_nodes<=1000, cycle_sample<=50, not_eligible_sample<=50). Allowlist um `hydro_upstream_diagnostics.json` und das kleine `hydro_static_coverage.json` erweitert; grosse Polygon-/Kanten-GeoJSONs bleiben ausgeschlossen.
+- Test: `tests/test_b237_hydro_diagnostics_export.py`.
