@@ -24,10 +24,13 @@ SENSITIVE_KEY_PARTS = (
     "GITHUB",
     "ANTHROPIC",
     "OPENAI",
+    "USERNAME",
+    "LOGIN",
+    "TWILIO_TO",
 )
 
 _TEXT_ASSIGNMENT_RE = re.compile(
-    r"(?im)(\b[A-Z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASS|PWD|AUTH|BEARER|JWT|FTP|MAIL|SMTP|GITHUB|ANTHROPIC|OPENAI)[A-Z0-9_.-]*\b\s*[:=]\s*)([^\s,'\"}]+|['\"][^'\"]*['\"])",
+    r"(?im)(\b[A-Z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASS|PWD|AUTH|BEARER|JWT|FTP|MAIL|SMTP|GITHUB|ANTHROPIC|OPENAI|USERNAME|LOGIN|TWILIO_TO)[A-Z0-9_.-]*\b\s*[:=]\s*)([^\s,'\"}]+|['\"][^'\"]*['\"])",
 )
 _AUTH_BEARER_RE = re.compile(r"(?im)(Authorization\s*:\s*Bearer\s+)([^\s]+)")
 _BEARER_RE = re.compile(r"(?i)(\bBearer\s+)([A-Za-z0-9._~+/=-]+)")
