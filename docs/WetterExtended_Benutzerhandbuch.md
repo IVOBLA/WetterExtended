@@ -2662,3 +2662,7 @@ Beide Werte sind im Admin-Bereich über die Runtime-Overrides ohne Service-Neust
 ### Per-Station-Markierungsschwelle und Stationsverwaltung
 
 In der Hydro-Stationsliste im Admin-Bereich lässt sich pro Pegel ein eigener Markierungs-Durchfluss (Feld „Q≥", m³/s) festlegen. Ist er gesetzt, überschreibt er die globale Schwelle `HYDRO_MAP_MARK_Q_M3S` für diesen Pegel; bleibt das Feld leer, gilt der globale Wert. Das An-/Abwählen eines Pegels (Checkbox) wirkt sofort, ohne Neuladen. Abgewählte (deaktivierte) Pegel bleiben in der Admin-Liste sichtbar und können jederzeit wieder aktiviert werden; auf der öffentlichen Karte erscheinen sie weiterhin nicht.
+
+### Vorausschauender Hydro-Impact (Vorwarnung)
+
+Ist `HYDRO_FORECAST_IMPACT_ENABLED` aktiviert, prüft das System anhand der berechneten Zell-Vorhersagepositionen (Horizonte 10–60 min), ob eine Zelle ein oberliegendes Einzugsgebiet eines Pegels treffen wird. Pro Treffer wird ein `expected`-Hinweis mit Vorwarnzeit (`first_hit_lead_min`), Verweildauer im Einzugsgebiet (`forecast_dwell_min`) und einer groben geschätzten Niederschlagsmenge (`estimated_precip_mm` ≈ Regenrate × Verweildauer) erzeugt. Die Regenrate stammt aus den vorhandenen Nowcast-Feldern der Zelle (keine zusätzlichen Fremdabfragen). Abrufbar unter `GET /api/hydro/forecast-impacts`. Schwellwerte (`HYDRO_FORECAST_MIN_PRECIP_MM_H`, `HYDRO_FORECAST_PRECIP_REF_MM`, Horizonte) sind im Admin-Bereich runtime-konfigurierbar. Dies ist ein vorsichtiger Plausibilitätshinweis und **keine amtliche Hochwasserwarnung**.

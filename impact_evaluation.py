@@ -98,6 +98,12 @@ def _integrate_hydro_impact(objects, timestamp):
         events = evaluate_hydro_impact(objects, timestamp)
         if events:
             save_hydro_impact_events(events, timestamp)
+        try:
+            from hydro_impact import evaluate_hydro_forecast_impact, save_hydro_forecast_events
+            fc_events = evaluate_hydro_forecast_impact(objects, timestamp)
+            save_hydro_forecast_events(fc_events)
+        except Exception:
+            pass
         by_cell = {}
         for event in events:
             by_cell.setdefault(str(event.get("cell_id")), []).append(event)
