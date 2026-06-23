@@ -321,7 +321,7 @@ export default function MapFullscreen() {
       }
       if (bounds?.bounds) setRadarBounds(bounds.bounds)
       if (lightningData?.strikes) setLightning(lightningData.strikes)
-      api.get('/api/hydro/stations').then(d => setHydroStations(hydroFeatureCollection(d))).catch(() => setHydroStations({ type:'FeatureCollection', features: [] }))
+      api.get('/api/hydro/stations?map=1').then(d => setHydroStations(hydroFeatureCollection(d))).catch(() => setHydroStations({ type:'FeatureCollection', features: [] }))
 
       // Schritt 2: Frame-Timestamp bestimmen, objects/forecast synchron laden
       let latestTs = null
@@ -631,8 +631,8 @@ export default function MapFullscreen() {
           const color = hydroColor(p.status)
           return (
             <React.Fragment key={'hydro_' + p.station_id}>
-              <CircleMarker center={[coords[1], coords[0]]} radius={p.impact_active ? 8 : 5}
-                pathOptions={{ color, fillColor: color, fillOpacity: p.impact_active ? 0.9 : 0.65, weight: p.impact_active ? 3 : 1 }}
+              <CircleMarker center={[coords[1], coords[0]]} radius={p.marked ? 10 : (p.impact_active ? 8 : 5)}
+                pathOptions={{ color: p.marked ? '#111827' : color, fillColor: color, fillOpacity: p.marked ? 0.95 : (p.impact_active ? 0.9 : 0.65), weight: p.marked ? 4 : (p.impact_active ? 3 : 1) }}
                 eventHandlers={{ click: () => api.get(`/api/hydro/station/${p.station_id}/catchment`).then(d => setHydroCatchments(prev => ({ ...prev, [p.station_id]: hydroFeatureCollection(d) }))).catch(() => {}) }}>
                 <Popup>
                   <div><strong>{p.name || p.station_id}</strong></div>
@@ -642,6 +642,7 @@ export default function MapFullscreen() {
                   <div>Messzeit: {p.measured_at || '—'}</div>
                   <div>letzter Hydro-Impact: {impact.cell_id ? `${impact.cell_id} (${impact.status})` : '—'}</div>
                   <div>Status: {p.status || '—'}</div>
+                  {p.marked && <div><strong>Markiert: Q ≥ Schwelle</strong></div>}
                 </Popup>
               </CircleMarker>
               {hasValidHydroImpactLine(impact) && (

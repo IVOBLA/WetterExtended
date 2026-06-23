@@ -63,6 +63,8 @@ DEFAULTS: dict = {
     "HYDRO_VERIFY_MIN_RELATIVE_DELTA_PCT": 10,
     "HYDRO_VERIFY_MAX_GAP_MIN": 90,
     "HYDRO_STATION_OVERRIDES": {},
+    "HYDRO_MAP_MIN_Q_M3S": 0.0,
+    "HYDRO_MAP_MARK_Q_M3S": None,
     "HYDRO_STATIC_REQUIRED": False,
 
     # ── Orts-Watchlist aus config.py ableiten (Single Source of Truth) ──────

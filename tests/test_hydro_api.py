@@ -33,7 +33,7 @@ def test_flask_test_client_available():
 def test_all_hydro_get_endpoints_return_stable_json(client, monkeypatch):
     hydro_api = types.SimpleNamespace(
         status=lambda: {"status": "ok", "station_count": 1},
-        station_features=lambda include_disabled=False: {
+        station_features=lambda include_disabled=False, map_view=False: {
             "type": "FeatureCollection",
             "features": [{"type": "Feature", "properties": {"station_id": "S1"}}],
         },
@@ -65,7 +65,7 @@ def test_all_hydro_get_endpoints_return_stable_json(client, monkeypatch):
 def test_hydro_no_data_and_disabled_return_json_without_500(client, monkeypatch):
     monkeypatch.setitem(__import__("sys").modules, "hydro_api", types.SimpleNamespace(
         status=lambda: {"status": "hydro_disabled", "enabled": False, "station_count": 0},
-        station_features=lambda include_disabled=False: {"status": "no_hydro_data", "type": "FeatureCollection", "features": []},
+        station_features=lambda include_disabled=False, map_view=False: {"status": "no_hydro_data", "type": "FeatureCollection", "features": []},
         catchments_all=lambda: {"status": "no_hydro_data", "features": []},
         normalized_impacts=lambda latest=False: [],
     ))
@@ -86,7 +86,7 @@ def test_hydro_expected_error_cases_return_json_without_500(client, monkeypatch)
 
     monkeypatch.setitem(__import__("sys").modules, "hydro_api", types.SimpleNamespace(
         status=lambda: boom("missing static data"),
-        station_features=lambda include_disabled=False: boom("invalid static data"),
+        station_features=lambda include_disabled=False, map_view=False: boom("invalid static data"),
         catchments_all=lambda: boom("invalid static data"),
         normalized_impacts=lambda latest=False: boom("missing hydro data"),
     ))

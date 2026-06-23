@@ -2928,3 +2928,7 @@ Linienstil und Popup-Felder.
 - Ursache: Die Kartenlegende enthielt einen separaten Hydro-Block (Pegel/pending/confirmed/ambiguous), der entfallen soll.
 - Fix: Hydro-Sub-Legendenblock in `MapView.jsx` ersatzlos entfernt. Haupt-Farblegende (Zelltypen/Vorhersagepfeile, gemaess zieldefinition.txt) und Hydro-Marker bleiben unveraendert; `MapFullscreen.jsx` war nicht betroffen.
 - Test: `tests/test_b239_hydro_legend_removed.py`.
+
+## P55 — Hydro-Kartenanzeige nach Durchfluss konfigurierbar (2026-06-23)
+- Feature: Zwei runtime-konfigurierbare Schwellen `HYDRO_MAP_MIN_Q_M3S` (Anzeige-Filter) und `HYDRO_MAP_MARK_Q_M3S` (Markierung). `station_features(map_view=True)` (Route `/api/hydro/stations?map=1`) blendet Pegel unter dem Mindest-Durchfluss aus und setzt `marked` ab dem Markierungs-Durchfluss; Pegel ohne Live-Durchfluss bleiben sichtbar. Defaults (0.0 / None) sind regressionsneutral. Frontend (MapView + MapFullscreen) hebt markierte Pegel hervor; Admin-Liste und KMZ nutzen `map_view` nicht und bleiben vollstaendig.
+- Test: `tests/test_p55_hydro_map_display.py`; Bestandsmocks in `tests/test_hydro_api.py` an die neue Signatur angepasst.
