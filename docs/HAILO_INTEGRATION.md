@@ -2923,3 +2923,8 @@ Linienstil und Popup-Felder.
 - Ursache: Die drei Hydro-Admin-Buttons hatten keinen Lade-/Disabled-Zustand, die Meldung wurde weit unten im Editor-Block gerendert (auf Mobilgeraeten unsichtbar) -> Klick wirkte reaktionslos. Nach B236 ist reload-static zudem asynchron.
 - Fix: `hydroBusy`/`hydroMsg`-State, Buttons werden waehrend der Aktion deaktiviert und zeigen ein Fortschrittslabel; Inline-Feedback direkt am Button-Block; Backend-Fehlertext via `e.payload.error`. Fuer reload-static pollt das Frontend `GET /api/hydro/import-status`, bis der Import-Prozess fertig/fehlerhaft ist, und aktualisiert danach Stationen/Status.
 - Test: `tests/test_b238_hydro_admin_busy_feedback.py`.
+
+## B239 — Hydro-Legende aus der Karte entfernt (2026-06-23)
+- Ursache: Die Kartenlegende enthielt einen separaten Hydro-Block (Pegel/pending/confirmed/ambiguous), der entfallen soll.
+- Fix: Hydro-Sub-Legendenblock in `MapView.jsx` ersatzlos entfernt. Haupt-Farblegende (Zelltypen/Vorhersagepfeile, gemaess zieldefinition.txt) und Hydro-Marker bleiben unveraendert; `MapFullscreen.jsx` war nicht betroffen.
+- Test: `tests/test_b239_hydro_legend_removed.py`.
