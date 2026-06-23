@@ -705,7 +705,13 @@ def _compute_holdout_metrics(X_h, y_h, model_dir: str) -> dict:
         _scaler_y = joblib.load(scaler_y_path)
         preds_scaled = _lstm.predict(X_h, verbose=0)
         preds = _scaler_y.inverse_transform(preds_scaled)
-        errs = np.abs(preds - y_h)  # y_h kann NaN enthalten (maskierte Horizonte)
+        # B242: y_h stammt aus dataset["y"] (= y_scaled, StandardScaler). preds sind nach
+        # inverse_transform roh — daher muss y_h ebenfalls in den Rohraum, sonst vergleicht
+        # errs roh gegen skaliert und misst ~den mittleren Positionsbetrag statt des
+        # Modellfehlers (Beleg Export 2026-06-23: mae_px≈217 fast konstant über alle
+        # Horizonte). Danach ist holdout.mae_px im selben Rohraum wie evaluate_on_recent.
+        y_h_raw = _scaler_y.inverse_transform(y_h)  # NaN bleibt NaN (maskierte Horizonte)
+        errs = np.abs(preds - y_h_raw)  # beide roh; y_h_raw kann NaN enthalten
         mae_total = float(np.nanmean(errs))
         result["mae_px"] = round(mae_total, 3)
         for i, h in enumerate(ML_FORECAST_HORIZONS_MIN):
