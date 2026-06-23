@@ -207,6 +207,8 @@ export default function Configuration() {
   const [search, setSearch] = useState('')
   const [hydroStations, setHydroStations] = useState([])
   const [hydroStatus, setHydroStatus] = useState(null)
+  const [hydroBusy, setHydroBusy] = useState('')
+  const [hydroMsg, setHydroMsg] = useState('')
 
   useEffect(() => {
     api.get('/api/config').then(d => setText(JSON.stringify(d, null, 2))).catch(() => {})
@@ -221,6 +223,47 @@ export default function Configuration() {
       setMsg('✅ Gespeichert.')
     } catch (e) {
       setMsg('❌ Fehler: ' + e.message)
+    }
+  }
+
+  async function pollHydroImport() {
+    const deadline = Date.now() + 10 * 60 * 1000
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 3000))
+      let job = null
+      try {
+        const s = await api.get('/api/hydro/import-status?nocache=true')
+        job = (s?.data || s)?.job
+      } catch (e) { /* transienter Fehler: weiter pollen */ }
+      if (job && job.status !== 'running') {
+        if (job.status === 'failed' || job.status === 'stale') throw new Error(job.error || 'Import fehlgeschlagen')
+        return job
+      }
+    }
+    throw new Error('Import-Timeout — läuft ggf. im Hintergrund weiter')
+  }
+
+  async function runHydroAction(key, url, okMsg) {
+    if (hydroBusy) return
+    setHydroBusy(key)
+    setHydroMsg('')
+    try {
+      const res = await api.post(url, {})
+      const started = (res?.data || res)?.status
+      if (key === 'reload-static' && (started === 'started' || started === 'already_running')) {
+        await pollHydroImport()
+      }
+      setHydroMsg(okMsg)
+      const [stations, status] = await Promise.all([
+        api.get('/api/hydro/stations?nocache=true').catch(() => null),
+        api.get('/api/hydro/status?nocache=true').catch(() => null),
+      ])
+      if (stations) setHydroStations(hydroFeatureCollection(stations).features.map(f => f.properties || {}))
+      if (status) setHydroStatus(status?.data || status)
+    } catch (e) {
+      setHydroMsg('❌ Fehler: ' + (e?.payload?.error || e?.message || 'unbekannt'))
+    } finally {
+      setHydroBusy('')
     }
   }
 
@@ -251,15 +294,20 @@ export default function Configuration() {
           {hydroStatus?.last_error && <div className="text-red-700"><strong>Fehler:</strong> {hydroStatus.last_error}</div>}
         </div>
         <div className="flex flex-wrap gap-2 mb-3">
-          <button className="btn" onClick={() => api.post('/api/hydro/fetch-live', {}).then(() => setMsg('✅ Live-Hydro geladen.')).catch(e => setMsg('❌ Fehler: ' + e.message))}>Live-Hydro jetzt laden</button>
-          <button className="btn" onClick={() => api.post('/api/hydro/reload-static', {}).then(() => setMsg('✅ Static-Hydro neu eingelesen.')).catch(e => setMsg('❌ Fehler: ' + e.message))}>Static-Hydro neu einlesen</button>
-          <button className="btn" onClick={() => api.post('/api/hydro/verify', {}).then(() => setMsg('✅ Pending-Verifikation geprüft.')).catch(e => setMsg('❌ Fehler: ' + e.message))}>Pending Verifikation prüfen</button>
+          <button className="btn" disabled={!!hydroBusy} onClick={() => runHydroAction('fetch-live', '/api/hydro/fetch-live', '✅ Live-Hydro geladen.')}>{hydroBusy === 'fetch-live' ? '⏳ lädt …' : 'Live-Hydro jetzt laden'}</button>
+          <button className="btn" disabled={!!hydroBusy} onClick={() => runHydroAction('reload-static', '/api/hydro/reload-static', '✅ Static-Hydro neu eingelesen.')}>{hydroBusy === 'reload-static' ? '⏳ Rebuild läuft … (eigener Prozess, kann dauern)' : 'Static-Hydro neu einlesen'}</button>
+          <button className="btn" disabled={!!hydroBusy} onClick={() => runHydroAction('verify', '/api/hydro/verify', '✅ Pending-Verifikation geprüft.')}>{hydroBusy === 'verify' ? '⏳ prüft …' : 'Pending Verifikation prüfen'}</button>
         </div>
+        {(hydroBusy || hydroMsg) && (
+          <div className={`mb-3 rounded border p-2 text-sm ${hydroBusy ? 'bg-blue-50 border-blue-300 text-blue-800' : (hydroMsg.startsWith('✅') ? 'bg-green-50 border-green-300 text-green-800' : 'bg-red-50 border-red-300 text-red-800')}`}>
+            {hydroBusy === 'reload-static' ? '⏳ Static-Rebuild läuft im Hintergrund … bitte warten.' : (hydroBusy ? '⏳ Aktion läuft …' : hydroMsg)}
+          </div>
+        )}
         <div className="max-h-48 overflow-auto border rounded">
           {hydroStations.length === 0 ? <div className="p-2 text-xs text-gray-500">Keine Hydro-Stationen geladen.</div> : hydroStations.map(st => (
             <label key={st.station_id} className="flex items-center justify-between gap-2 px-2 py-1 border-b text-xs">
               <span><strong>{st.name || st.station_id}</strong> · {st.river || '—'}</span>
-              <input type="checkbox" checked={st.enabled !== false} onChange={e => api.patch(`/api/hydro/stations/${st.station_id}`, { enabled: e.target.checked }).then(() => setMsg('✅ Station aktualisiert.')).catch(err => setMsg('❌ Fehler: ' + err.message))} />
+              <input type="checkbox" disabled={!!hydroBusy} checked={st.enabled !== false} onChange={e => { setHydroMsg(''); api.patch(`/api/hydro/stations/${st.station_id}`, { enabled: e.target.checked }).then(() => setHydroMsg('✅ Station aktualisiert.')).catch(err => setHydroMsg('❌ Fehler: ' + (err?.payload?.error || err?.message || 'unbekannt'))) }} />
             </label>
           ))}
         </div>
