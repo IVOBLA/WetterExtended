@@ -2959,3 +2959,13 @@ Linienstil und Popup-Felder.
   Trend mit Vorzeichen; alle km-Werte via _fmt_km gerundet; statische Liste nur noch als
   Fallback ohne diagnosis_summary.
 - Test: tests/test_p57_drift_mail_diagnosis.py.
+
+## B240 — Redaction-Lücke: Benutzername + Telefonnummer im Debug-Export (2026-06-23)
+- Ursache: SENSITIVE_KEY_PARTS/_TEXT_ASSIGNMENT_RE in export_security.py deckten weder
+  USERNAME/LOGIN noch TWILIO_TO ab → BLITZ_USERNAME=HorstBla und TWILIO_TO=+43... lagen
+  im Klartext in config/.env des Debug-Exports (Beleg: Export 2026-06-23).
+- Fix: SENSITIVE_KEY_PARTS um "USERNAME","LOGIN","TWILIO_TO" erweitert; gleiche Alternation
+  in _TEXT_ASSIGNMENT_RE ergänzt (greift für .env-Klartext via redact_text). Bewusst kein
+  bloßes "USER" (USER_AGENT) und keine breite +<Ziffern>-Wertregex. B119-Allowlist
+  (MAX_TOKENS) unberührt.
+- Test: tests/test_b240_redaction_username_phone.py.
