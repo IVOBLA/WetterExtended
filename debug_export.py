@@ -60,6 +60,8 @@ _EXCLUDED_PARTS = {".git", "node_modules", "venv", ".venv", "__pycache__", "fron
 _HYDRO_STATIC_EXPORT_ALLOWLIST = {
     "hydro_static_status.json",
     "station_network_index.json",
+    "hydro_upstream_diagnostics.json",
+    "hydro_static_coverage.json",
 }
 _TIMESTAMP_PATTERNS = (
     re.compile(r"(?P<stamp>\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})"),
