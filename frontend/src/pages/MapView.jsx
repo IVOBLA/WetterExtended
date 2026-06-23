@@ -308,12 +308,6 @@ function Legend({ horizons, colors }) {
         <span style={{fontSize:10}}>CB / IR-Vorläufer</span>
       </span>
       <span className="border-l pl-3 flex items-center gap-2 text-xs text-gray-500">
-        <span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'#0ea5e9' }}/> Hydro-Pegel
-        <span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'#f97316' }}/> Hydro-Impact pending
-        <span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'#16a34a' }}/> Hydro-Impact confirmed
-        <span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:'#a855f7' }}/> Hydro ambiguous
-      </span>
-      <span className="border-l pl-3 flex items-center gap-2 text-xs text-gray-500">
         <strong>Zelltyp:</strong>
         <span className="flex items-center gap-1">
           <span style={{ display:'inline-block', width:18, height:0, borderTop:'4px dashed orange' }}/>
