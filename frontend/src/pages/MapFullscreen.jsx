@@ -22,6 +22,25 @@ import { loadRiskGridAfterHealth, nextRiskGridDelayMs } from '../utils/riskGridP
  * Kein 'Z' anhängen – Browser interpretiert ISO ohne Offset als lokale Zeit.
  * Format-Beispiele: '2026-06-09_13-41-02' oder '2026-06-09T13:41:02'
  */
+
+const formatIrObservationTime = value => value
+  ? new Date(value).toLocaleString('de-AT', { timeZone: 'Europe/Vienna', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  : '—'
+
+const irDataAgeMin = ir => {
+  const ts = ir.last_seen_observation_timestamp || ir.source_timestamp || ir.last_timestamp
+  const d = ts ? new Date(ts) : null
+  return d && !Number.isNaN(d.getTime()) ? Math.max(0, Math.round((Date.now() - d.getTime()) / 60000)) : null
+}
+
+const isPublicIrPrecursor = o =>
+  (o._type === 'ir_precursor_cell' || o._type === 'ir_cell') &&
+  o.public_visible !== false &&
+  Number(o.ir_only_precursor ?? 0) === 1 &&
+  o.display_as_precursor !== false &&
+  o.radar_confirmed !== true &&
+  Number(o.missing ?? 0) === 0
+
 function parseViennaLocalTimestamp(ts) {
   if (!ts) return null
   // Normalize: Unterstriche → T, letztes Bindestrich-Paar → Doppelpunkte
@@ -410,7 +429,8 @@ export default function MapFullscreen() {
       }
       return result
     }
-    if (showIrCells) {
+    let irPoll = null
+    const loadIrCells = () => {
       fetch('/api/objects?include_ir=1')
         .then(r => r.json())
         .then(d => {
@@ -419,10 +439,14 @@ export default function MapFullscreen() {
             .filter(o => o.cell_id && o._type !== 'ir_precursor_cell' && o._type !== 'ir_cell')
             .map(o => String(o.cell_id)))
           const irOnly = items
-            .filter(o => (o._type === 'ir_precursor_cell' || o._type === 'ir_cell') && Number(o.ir_only_precursor ?? 0) === 1 && o.display_as_precursor !== false && o.radar_confirmed !== true && (!o.cell_id || !radarCellIds.has(String(o.cell_id))))
+            .filter(o => isPublicIrPrecursor(o) && (!o.cell_id || !radarCellIds.has(String(o.cell_id))))
           setIrCells(irOnly)
         })
         .catch(() => setIrCells([]))
+    }
+    if (showIrCells) {
+      loadIrCells()
+      irPoll = setInterval(loadIrCells, 60000)
     } else {
       setIrCells([])
     }
@@ -430,6 +454,7 @@ export default function MapFullscreen() {
     return () => {
       stopped = true
       if (riskPollRef.current) clearTimeout(riskPollRef.current)
+      if (irPoll) clearInterval(irPoll)
     }
   }, [showIrCells])
 
@@ -1201,7 +1226,15 @@ export default function MapFullscreen() {
                       ? <span style={{color:'#6b7280'}}>↓ Löst sich auf</span>
                       : <span>→ Stabil</span>}
                 </b></div>
-                <div>Alter: {ir.cloud_age_min?.toFixed(0)} min</div>
+                <div>Erste Ortung: <b>{formatIrObservationTime(ir.first_seen_observation_timestamp || ir.first_seen_timestamp)}</b></div>
+                <div>Letzte Ortung: <b>{formatIrObservationTime(ir.last_seen_observation_timestamp || ir.source_timestamp || ir.last_timestamp)}</b></div>
+                <div>Datenalter: {irDataAgeMin(ir) ?? '—'} min</div>
+                {ir.availability_latency_min != null && (
+                  <div>Bildlatenz: {Number(ir.availability_latency_min).toFixed(0)} min</div>
+                )}
+                {ir.cloud_age_min != null && (
+                  <div>Trackdauer: {Number(ir.cloud_age_min).toFixed(0)} min</div>
+                )}
                 {ir.overshooting_top === 1.0 && (
                   <div style={{color:'#dc2626', fontWeight:600}}>⚠ Overshooting Top</div>
                 )}

@@ -50,17 +50,50 @@ _RISK_ALERT_LOG = os.path.join(
 
 
 
+def _parse_ir_tiff_observation_timestamp(tif_path: str) -> tuple[str | None, str]:
+    from datetime import datetime as _dt
+    meta_path = os.path.splitext(tif_path)[0] + ".json"
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta = json.load(f) or {}
+            ts = meta.get("observation_timestamp") or meta.get("wms_timestamp")
+            if ts:
+                return ts, str(meta.get("timestamp_source") or "wms_time_dimension")
+        except Exception as exc:
+            debug_log(f"[IR-PIPE] IR108-Metadaten unlesbar: {exc}")
+    import re
+    m = re.search(r"ir108_(\d{14})\.tif$", os.path.basename(tif_path))
+    if m:
+        try:
+            return _dt.strptime(m.group(1), "%Y%m%d%H%M%S").strftime("%Y-%m-%dT%H:%M:%SZ"), "tiff_filename"
+        except ValueError:
+            pass
+    try:
+        return _dt.utcfromtimestamp(os.path.getmtime(tif_path)).strftime("%Y-%m-%dT%H:%M:%SZ"), "fallback_file_mtime_untrusted"
+    except OSError:
+        return None, "missing"
+
+
 def _latest_ir_tiff_fresh(max_age_min: float | None = None) -> bool:
     import glob
+    from datetime import datetime as _dt
     cloud_dir = SAVE_PATHS.get("cloud", "train_data/cloud/")
     files = sorted(glob.glob(os.path.join(cloud_dir, "ir108_*.tif")))
     if not files:
         return False
     max_age = float(max_age_min if max_age_min is not None else runtime_config.get("IR_MAX_DATA_AGE_MIN", 25.0))
-    try:
-        return ((time.time() - os.path.getmtime(files[-1])) / 60.0) <= max_age
-    except OSError:
+    ts, source = _parse_ir_tiff_observation_timestamp(files[-1])
+    if not ts:
         return False
+    try:
+        dt = _dt.strptime(str(ts).replace("+00:00", "Z"), "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return False
+    age_min = (_dt.utcnow() - dt).total_seconds() / 60.0
+    if source == "fallback_file_mtime_untrusted":
+        debug_log("[IR-PIPE] Freshness nutzt unsicheren mtime-Fallback")
+    return age_min <= max_age
 
 
 def run_ir_precursor_pipeline(timestamp=None, weather_data=None, allow_cached=True, reason="loop"):
@@ -72,8 +105,15 @@ def run_ir_precursor_pipeline(timestamp=None, weather_data=None, allow_cached=Tr
         debug_log(f"[IR-PIPE] kein frisches IR108-TIFF vorhanden (reason={reason})")
         return []
     if timestamp is None:
+        import glob
         from datetime import datetime as _dt
-        timestamp = _dt.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
+        cloud_dir = SAVE_PATHS.get("cloud", "train_data/cloud/")
+        files = sorted(glob.glob(os.path.join(cloud_dir, "ir108_*.tif")))
+        obs_ts, _src = _parse_ir_tiff_observation_timestamp(files[-1]) if files else (None, "missing")
+        try:
+            timestamp = _dt.strptime(str(obs_ts).replace("+00:00", "Z"), "%Y-%m-%dT%H:%M:%SZ").strftime("%Y-%m-%d_%H-%M-%S")
+        except Exception:
+            timestamp = _dt.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
     try:
         cells = detect_ir_cells(timestamp=timestamp, weather_data=weather_data)
         tracks = update_ir_tracking(cells, timestamp)

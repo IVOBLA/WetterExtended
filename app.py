@@ -1236,7 +1236,14 @@ def api_objects():
                     t["display_as_precursor"] = True
                     t["ir_only_precursor"] = 1.0
                 t["cb_alert_threshold_m"] = _cb_thr
-            ir_tracks = [t for t in ir_tracks if t.get("public_visible", True) or t.get("radar_confirmed")]
+            ir_tracks = [
+                t for t in ir_tracks
+                if t.get("public_visible") is True
+                and int(t.get("missing", 0) or 0) == 0
+                and float(t.get("ir_only_precursor", 0.0) or 0.0) == 1.0
+                and t.get("display_as_precursor", True) is not False
+                and t.get("radar_confirmed") is not True
+            ]
             from cell_lineage_dedup import dedupe_ir_precursors_for_payload
             if isinstance(data, list):
                 objects, visible_ir_tracks = dedupe_ir_precursors_for_payload(data, ir_tracks)

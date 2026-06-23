@@ -349,6 +349,42 @@ def get_latest_wms_time() -> str | None:
     return _caps_fallback("capabilities-failed")
 
 
+
+def _parse_wms_dt(ts: str | None) -> datetime | None:
+    if not ts:
+        return None
+    try:
+        return datetime.strptime(ts.replace("+00:00", "Z"), "%Y-%m-%dT%H:%M:%SZ")
+    except Exception:
+        return None
+
+
+def write_ir108_metadata(tif_path: str, wms_timestamp: str, *, downloaded_at_utc: datetime | None = None, timestamp_source: str = "wms_time_dimension") -> dict | None:
+    """Schreibt die Sidecar-Metadaten zum IR108-TIFF mit WMS-Bildzeitpunkt."""
+    obs_dt = _parse_wms_dt(wms_timestamp)
+    if not obs_dt:
+        return None
+    dl_dt = downloaded_at_utc or datetime.utcnow()
+    latency = (dl_dt - obs_dt).total_seconds() / 60.0
+    meta = {
+        "source": "EUMETView-WMS",
+        "layer": get_active_ir108_layer(),
+        "scan_mode": str(runtime_config.get("EUMETVIEW_SCAN_MODE", EUMETVIEW_SCAN_MODE) or "FES").upper(),
+        "wms_timestamp": obs_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "observation_timestamp": obs_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "downloaded_at_utc": dl_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "availability_latency_min": round(latency, 1),
+        "timestamp_source": timestamp_source,
+    }
+    meta_path = os.path.splitext(tif_path)[0] + ".json"
+    try:
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta, f, indent=2, ensure_ascii=False)
+        return meta
+    except Exception as exc:
+        debug_log(f"[CLOUD] IR108-Metadaten konnten nicht geschrieben werden: {exc}")
+        return None
+
 def wms_to_filename_timestamp(wms_time: str) -> str:
     dt = datetime.strptime(wms_time, "%Y-%m-%dT%H:%M:%SZ")
     return dt.strftime("%Y-%m-%d_%H-%M-%S")
@@ -577,6 +613,7 @@ def assign_cloud_top_height(
 
             with open(tif_path, "wb") as f:
                 f.write(r.content)
+            write_ir108_metadata(tif_path, timestamp_wms, downloaded_at_utc=datetime.utcnow())
             write_last_timestamp(timestamp_wms)
             debug_log(f"[CLOUD] TIFF gespeichert: {tif_path}")
 
@@ -592,6 +629,8 @@ def assign_cloud_top_height(
     else:
         # Kein neuer Download, aber TIFF muss trotzdem verarbeitet werden —
         # die Objekte dieses Frames sind neu und haben noch keine Höhe.
+        if not os.path.exists(os.path.splitext(tif_path)[0] + ".json"):
+            write_ir108_metadata(tif_path, timestamp_wms, downloaded_at_utc=datetime.utcnow())
         debug_log("[CLOUD] Kein neues TIFF (Timestamp unverändert) – verarbeite vorhandenes TIFF")
 
     if not os.path.exists(tif_path):

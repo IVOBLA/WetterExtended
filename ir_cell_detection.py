@@ -80,6 +80,48 @@ _DEFAULT_SURFACE_K = 290.15
 _DEFAULT_ALT_M = 600.0
 
 
+def _parse_ir108_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d_%H-%M-%S"):
+        try:
+            return datetime.strptime(value.replace("+00:00", "Z"), fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _timestamp_from_tiff_name(tiff_name: str) -> str | None:
+    import re
+    m = re.search(r"ir108_(\d{14})\.tif$", tiff_name or "")
+    if not m:
+        return None
+    try:
+        return datetime.strptime(m.group(1), "%Y%m%d%H%M%S").strftime("%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return None
+
+
+def _load_ir108_metadata(tif_path: str) -> dict:
+    meta_path = os.path.splitext(tif_path)[0] + ".json"
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta = json.load(f) or {}
+            obs = meta.get("observation_timestamp") or meta.get("wms_timestamp")
+            if _parse_ir108_timestamp(obs):
+                meta["observation_timestamp"] = _parse_ir108_timestamp(obs).strftime("%Y-%m-%dT%H:%M:%SZ")
+                meta.setdefault("timestamp_source", "wms_time_dimension")
+                return meta
+        except Exception as exc:
+            debug_log(f"[IR-DET] Metadaten-Parsing fehlgeschlagen: {exc}")
+    obs = _timestamp_from_tiff_name(os.path.basename(tif_path))
+    if obs:
+        return {"observation_timestamp": obs, "wms_timestamp": obs, "timestamp_source": "tiff_filename"}
+    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {"observation_timestamp": now, "wms_timestamp": now, "timestamp_source": "fallback_processing_time"}
+
+
 def _uint8_to_bt(pixel_arr: np.ndarray) -> np.ndarray:
     """uint8-Pixel → Brightness Temperature [K]."""
     bt = pixel_arr.astype(np.float32)
@@ -251,8 +293,11 @@ def detect_ir_cells(timestamp: str | None = None, weather_data: dict | None = No
     tif_path = tif_files[-1]
     tiff_name = os.path.basename(tif_path)
 
+    meta = _load_ir108_metadata(tif_path)
+    observation_timestamp = meta.get("observation_timestamp") or meta.get("wms_timestamp")
+    obs_dt = _parse_ir108_timestamp(observation_timestamp)
     if timestamp is None:
-        timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
+        timestamp = obs_dt.strftime("%Y-%m-%d_%H-%M-%S") if obs_dt else datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
 
     # ── TIFF einlesen ─────────────────────────────────────────────────────────
     try:
@@ -352,7 +397,13 @@ def detect_ir_cells(timestamp: str | None = None, weather_data: dict | None = No
                     "first_height_alert_timestamp": timestamp if height_stage != "low" else None,
                     "cape":             round(cape_val, 1) if cape_val is not None else 0.0,
                     "arome_li":         round(li_val,  2) if li_val  is not None else 0.0,
-                    "timestamp":        timestamp,
+                    "timestamp":        observation_timestamp,
+                    "source_timestamp": observation_timestamp,
+                    "observation_timestamp": observation_timestamp,
+                    "timestamp_source": meta.get("timestamp_source"),
+                    "source_layer":     meta.get("layer", "msg_fes:ir108"),
+                    "scan_mode":        meta.get("scan_mode", "FES"),
+                    "availability_latency_min": meta.get("availability_latency_min"),
                     "tiff_file":        tiff_name,
                 })
                 cells[-1]["ir_score"] = calculate_ir_convective_score(cells[-1])
