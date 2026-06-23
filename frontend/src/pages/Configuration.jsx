@@ -267,10 +267,11 @@ export default function Configuration() {
     }
   }
 
-  async function patchHydroStation(sid, patch) {
+  async function patchHydroStation(st, patch) {
+    const sid = st.station_id
     setHydroMsg('')
     try {
-      await api.patch(`/api/hydro/stations/${sid}`, patch)
+      await api.patch(`/api/hydro/stations/${st.station_id}`, patch)
       setHydroStations(prev => prev.map(s => s.station_id === sid ? { ...s, ...patch } : s))
       setHydroMsg('✅ Station aktualisiert.')
     } catch (err) {
@@ -321,9 +322,9 @@ export default function Configuration() {
               <label className="flex items-center gap-1" title="Markierungs-Durchfluss dieser Station (m³/s); leer = globaler Wert">
                 <span className="text-gray-500">Q≥</span>
                 <input type="number" min="0" step="0.1" disabled={!!hydroBusy} defaultValue={st.mark_q_m3s ?? ''} className="w-16 border rounded px-1"
-                  onBlur={e => { const v = e.target.value.trim(); const num = v === '' ? null : Number(v); patchHydroStation(st.station_id, { mark_q_m3s: Number.isFinite(num) ? num : null }) }} />
+                  onBlur={e => { const v = e.target.value.trim(); const num = v === '' ? null : Number(v); patchHydroStation(st, { mark_q_m3s: Number.isFinite(num) ? num : null }) }} />
               </label>
-              <input type="checkbox" disabled={!!hydroBusy} checked={st.enabled !== false} onChange={e => patchHydroStation(st.station_id, { enabled: e.target.checked })} />
+              <input type="checkbox" disabled={!!hydroBusy} checked={st.enabled !== false} onChange={e => patchHydroStation(st, { enabled: e.target.checked })} />
             </div>
           ))}
         </div>

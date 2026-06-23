@@ -1238,7 +1238,7 @@ def api_objects():
                 t["cb_alert_threshold_m"] = _cb_thr
             ir_tracks = [
                 t for t in ir_tracks
-                if t.get("public_visible") is True
+                if t.get("public_visible", True) is not False
                 and int(t.get("missing", 0) or 0) == 0
                 and float(t.get("ir_only_precursor", 0.0) or 0.0) == 1.0
                 and t.get("display_as_precursor", True) is not False
