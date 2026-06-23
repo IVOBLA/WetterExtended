@@ -134,8 +134,12 @@ def _normalize_ir_track(track: dict, *, default_timestamp: str | None = None) ->
     if not isinstance(track.get("radar_match_ids"), list):
         track["radar_match_ids"] = []
     track.setdefault("first_seen_source", "ir108")
-    track.setdefault("first_seen_timestamp", ts)
-    track.setdefault("source_timestamp", ts)
+    obs_ts = track.get("last_seen_observation_timestamp") or track.get("observation_timestamp") or track.get("source_timestamp") or ts
+    track.setdefault("first_seen_observation_timestamp", track.get("first_seen_timestamp") or obs_ts)
+    track.setdefault("last_seen_observation_timestamp", obs_ts)
+    track.setdefault("observation_timestamp", obs_ts)
+    track.setdefault("first_seen_timestamp", track.get("first_seen_observation_timestamp") or obs_ts)
+    track.setdefault("source_timestamp", obs_ts)
     if ts and not track.get("source_timestamp"):
         track["source_timestamp"] = ts
     track.setdefault("cb_candidate", True)
@@ -207,12 +211,26 @@ def _save_state(state: dict) -> None:
 
 
 def _ts_to_dt(ts: str) -> datetime | None:
+    if not ts:
+        return None
     for fmt in ("%Y-%m-%d_%H-%M-%S", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S"):
         try:
-            return datetime.strptime(ts, fmt)
+            return datetime.strptime(str(ts).replace("+00:00", "Z"), fmt)
         except ValueError:
             continue
     return None
+
+
+def _cell_obs_ts(cell: dict, fallback: str | None = None) -> str | None:
+    return cell.get("observation_timestamp") or cell.get("source_timestamp") or cell.get("timestamp") or fallback
+
+
+def _age_between_min(first_ts: str | None, last_ts: str | None) -> float:
+    first = _ts_to_dt(first_ts)
+    last = _ts_to_dt(last_ts)
+    if first and last:
+        return max(0.0, (last - first).total_seconds() / 60.0)
+    return 0.0
 
 
 def update_ir_tracking(new_cells: list, timestamp: str) -> list:
@@ -298,8 +316,9 @@ def update_ir_tracking(new_cells: list, timestamp: str) -> list:
                 # Gleiches TIFF → letzten berechneten Trend beibehalten
                 bt_trend = track.get("bt_trend_k_per_min", 0.0)
 
-            # Alter des Tracklets
-            age_min = track.get("cloud_age_min", 0.0) + dt_min
+            obs_ts = _cell_obs_ts(cell, timestamp)
+            first_obs_ts = track.get("first_seen_observation_timestamp") or track.get("first_seen_timestamp") or obs_ts
+            age_min = _age_between_min(first_obs_ts, obs_ts)
 
             # Anvil-Extension: Abstand Schwerpunkt zu kältestellem Pixel
             # Näherung: BT_min entspricht höchstem Punkt → Abstand via Fläche
@@ -333,9 +352,16 @@ def update_ir_tracking(new_cells: list, timestamp: str) -> list:
                 "area_growth_km2_per_min": round((cell.get("area_px", 0.0) - track.get("area_px", cell.get("area_px", 0.0))) * 9.0 / dt_min, 3),
                 "cloud_height_trend_m_per_min": round((cell.get("cloud_height_m", 0.0) - track.get("cloud_height_m", cell.get("cloud_height_m", 0.0))) / dt_min, 3),
                 "motion_quality":    "tracked",
-                "source_timestamp":  timestamp,
+                "first_seen_observation_timestamp": first_obs_ts,
+                "last_seen_observation_timestamp": obs_ts,
+                "observation_timestamp": obs_ts,
+                "timestamp_source": cell.get("timestamp_source", track.get("timestamp_source")),
+                "availability_latency_min": cell.get("availability_latency_min", track.get("availability_latency_min")),
+                "source_layer": cell.get("source_layer", track.get("source_layer", "msg_fes:ir108")),
+                "scan_mode": cell.get("scan_mode", track.get("scan_mode", "FES")),
+                "source_timestamp":  obs_ts,
                 "missing":          0,
-                "last_timestamp":   timestamp,
+                "last_timestamp":   obs_ts,
                 "tiff_file":        cell["tiff_file"],
             })
         else:
@@ -349,6 +375,7 @@ def update_ir_tracking(new_cells: list, timestamp: str) -> list:
             continue
         track_id = f"ir_{next_id}"
         next_id += 1
+        obs_ts = _cell_obs_ts(cell, timestamp)
         tracks[track_id] = {
             "ir_id":                  track_id,
             "lat":                    cell["lat"],
@@ -376,12 +403,19 @@ def update_ir_tracking(new_cells: list, timestamp: str) -> list:
             "cloud_age_min":          0.0,
             "anvil_extension_km":     0.0,
             "missing":                0,
-            "last_timestamp":         timestamp,
+            "last_timestamp":         obs_ts,
+            "first_seen_observation_timestamp": obs_ts,
+            "last_seen_observation_timestamp": obs_ts,
+            "observation_timestamp": obs_ts,
+            "timestamp_source": cell.get("timestamp_source"),
+            "availability_latency_min": cell.get("availability_latency_min"),
+            "source_layer": cell.get("source_layer", "msg_fes:ir108"),
+            "scan_mode": cell.get("scan_mode", "FES"),
             "tiff_file":              cell["tiff_file"],
             "ir_only_precursor":      1.0,
             "radar_match_ids":        [],
-            "first_seen_timestamp":  timestamp,
-            "source_timestamp":      timestamp,
+            "first_seen_timestamp":  obs_ts,
+            "source_timestamp":      obs_ts,
             "motion_quality":        "new",
         }
         _normalize_ir_track(tracks[track_id], default_timestamp=timestamp)
