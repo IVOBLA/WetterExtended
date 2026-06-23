@@ -2649,3 +2649,12 @@ Fehlen statische Hydro-Daten, Upstream-Topologie oder produktive Geometrieunters
 Im Admin-Bereich sind die Hydro-Schalter und Schwellwerte runtime-konfigurierbar: `HYDRO_ENABLED`, `HYDRO_API_TTL_SECONDS`, `HYDRO_MIN_OVERLAP_AREA_KM2`, `HYDRO_MIN_OVERLAP_RATIO_CELL`, `HYDRO_MIN_DURATION_MIN`, `HYDRO_RELEVANT_INTENSITIES`, `HYDRO_DEFAULT_LAG_MIN`, `HYDRO_LAG_WINDOW_MIN`, `HYDRO_VERIFY_MIN_DELTA_Q_M3S`, `HYDRO_VERIFY_MIN_DELTA_W_CM`, `HYDRO_VERIFY_MIN_RELATIVE_DELTA_PCT`, `HYDRO_VERIFY_MAX_GAP_MIN` und `HYDRO_STATION_OVERRIDES`. Stations-Toggles speichern ausschließlich `HYDRO_STATION_OVERRIDES`; Secrets werden nicht persistiert. Overrides ersetzen nicht die fachliche Anforderung an `impact_eligible=true`.
 
 Statuswerte: `pending` bedeutet, dass das Zeitfenster noch nicht abgeschlossen ist oder die Verifikation aussteht. `confirmed` bedeutet nur, dass ein plausibler hydrologischer Zusammenhang im Zeitfenster und gemäß Schwellen erkennbar ist; es ist kein Beweis einer Ursache. `rejected` bedeutet, dass aus den verfügbaren Rohdaten kein belastbarer Zusammenhang ableitbar ist. `ambiguous` bedeutet eine uneindeutige Lage, etwa wegen Messlücken, konkurrierender Zellen im selben oberliegenden Einzugsgebiet, unklarer Reaktion oder unzureichender Datenqualität.
+
+### Hydro-Kartenanzeige nach Durchfluss
+
+Zwei runtime-konfigurierbare Schwellwerte steuern die Pegel-Darstellung auf den Karten (zusätzlich zum per-Station-Schalter):
+
+- `HYDRO_MAP_MIN_Q_M3S` (Standard 0): Pegel mit aktuellem Durchfluss unterhalb dieses Werts (m³/s) werden auf der Karte ausgeblendet. 0 bedeutet „alle anzeigen". Pegel ohne aktuellen Durchflusswert bleiben sichtbar.
+- `HYDRO_MAP_MARK_Q_M3S` (Standard leer/aus): Pegel mit aktuellem Durchfluss ab diesem Wert (m³/s) werden hervorgehoben (größerer Marker mit dunklem Rand) und im Popup als „Markiert" gekennzeichnet.
+
+Beide Werte sind im Admin-Bereich über die Runtime-Overrides ohne Service-Neustart änderbar.

@@ -5114,7 +5114,7 @@ def api_hydro_stations():
         include_disabled = request.args.get("include_disabled") == "1"
         if include_disabled and not _current_user_is_admin():
             return {"status": "forbidden", "error": "include_disabled erfordert Admin-Berechtigung"}
-        return hydro_api.station_features(include_disabled=include_disabled)
+        return hydro_api.station_features(include_disabled=include_disabled, map_view=(request.args.get("map") == "1"))
     resp, code = _hydro_safe(_load, "hydro_stations_error")
     data = resp.get_json(silent=True) or {}
     if data.get("data", {}).get("status") == "forbidden":
