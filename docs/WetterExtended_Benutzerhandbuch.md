@@ -2658,3 +2658,7 @@ Zwei runtime-konfigurierbare Schwellwerte steuern die Pegel-Darstellung auf den 
 - `HYDRO_MAP_MARK_Q_M3S` (Standard leer/aus): Pegel mit aktuellem Durchfluss ab diesem Wert (m³/s) werden hervorgehoben (größerer Marker mit dunklem Rand) und im Popup als „Markiert" gekennzeichnet.
 
 Beide Werte sind im Admin-Bereich über die Runtime-Overrides ohne Service-Neustart änderbar.
+
+### Per-Station-Markierungsschwelle und Stationsverwaltung
+
+In der Hydro-Stationsliste im Admin-Bereich lässt sich pro Pegel ein eigener Markierungs-Durchfluss (Feld „Q≥", m³/s) festlegen. Ist er gesetzt, überschreibt er die globale Schwelle `HYDRO_MAP_MARK_Q_M3S` für diesen Pegel; bleibt das Feld leer, gilt der globale Wert. Das An-/Abwählen eines Pegels (Checkbox) wirkt sofort, ohne Neuladen. Abgewählte (deaktivierte) Pegel bleiben in der Admin-Liste sichtbar und können jederzeit wieder aktiviert werden; auf der öffentlichen Karte erscheinen sie weiterhin nicht.

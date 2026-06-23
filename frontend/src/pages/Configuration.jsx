@@ -212,7 +212,7 @@ export default function Configuration() {
 
   useEffect(() => {
     api.get('/api/config').then(d => setText(JSON.stringify(d, null, 2))).catch(() => {})
-    api.get('/api/hydro/stations').then(d => setHydroStations(hydroFeatureCollection(d).features.map(f => f.properties || {}))).catch(() => setHydroStations([]))
+    api.get('/api/hydro/stations?include_disabled=1').then(d => setHydroStations(hydroFeatureCollection(d).features.map(f => f.properties || {}))).catch(() => setHydroStations([]))
     api.get('/api/hydro/status').then(d => setHydroStatus(d?.data || d)).catch(() => setHydroStatus({ status: 'hydro_status_error' }))
   }, [])
 
@@ -255,7 +255,7 @@ export default function Configuration() {
       }
       setHydroMsg(okMsg)
       const [stations, status] = await Promise.all([
-        api.get('/api/hydro/stations?nocache=true').catch(() => null),
+        api.get('/api/hydro/stations?include_disabled=1&nocache=true').catch(() => null),
         api.get('/api/hydro/status?nocache=true').catch(() => null),
       ])
       if (stations) setHydroStations(hydroFeatureCollection(stations).features.map(f => f.properties || {}))
@@ -264,6 +264,17 @@ export default function Configuration() {
       setHydroMsg('❌ Fehler: ' + (e?.payload?.error || e?.message || 'unbekannt'))
     } finally {
       setHydroBusy('')
+    }
+  }
+
+  async function patchHydroStation(sid, patch) {
+    setHydroMsg('')
+    try {
+      await api.patch(`/api/hydro/stations/${sid}`, patch)
+      setHydroStations(prev => prev.map(s => s.station_id === sid ? { ...s, ...patch } : s))
+      setHydroMsg('✅ Station aktualisiert.')
+    } catch (err) {
+      setHydroMsg('❌ Fehler: ' + (err?.payload?.error || err?.message || 'unbekannt'))
     }
   }
 
@@ -305,10 +316,15 @@ export default function Configuration() {
         )}
         <div className="max-h-48 overflow-auto border rounded">
           {hydroStations.length === 0 ? <div className="p-2 text-xs text-gray-500">Keine Hydro-Stationen geladen.</div> : hydroStations.map(st => (
-            <label key={st.station_id} className="flex items-center justify-between gap-2 px-2 py-1 border-b text-xs">
-              <span><strong>{st.name || st.station_id}</strong> · {st.river || '—'}</span>
-              <input type="checkbox" disabled={!!hydroBusy} checked={st.enabled !== false} onChange={e => { setHydroMsg(''); api.patch(`/api/hydro/stations/${st.station_id}`, { enabled: e.target.checked }).then(() => setHydroMsg('✅ Station aktualisiert.')).catch(err => setHydroMsg('❌ Fehler: ' + (err?.payload?.error || err?.message || 'unbekannt'))) }} />
-            </label>
+            <div key={st.station_id} className="flex items-center justify-between gap-2 px-2 py-1 border-b text-xs">
+              <span className="flex-1"><strong>{st.name || st.station_id}</strong> · {st.river || '—'}</span>
+              <label className="flex items-center gap-1" title="Markierungs-Durchfluss dieser Station (m³/s); leer = globaler Wert">
+                <span className="text-gray-500">Q≥</span>
+                <input type="number" min="0" step="0.1" disabled={!!hydroBusy} defaultValue={st.mark_q_m3s ?? ''} className="w-16 border rounded px-1"
+                  onBlur={e => { const v = e.target.value.trim(); const num = v === '' ? null : Number(v); patchHydroStation(st.station_id, { mark_q_m3s: Number.isFinite(num) ? num : null }) }} />
+              </label>
+              <input type="checkbox" disabled={!!hydroBusy} checked={st.enabled !== false} onChange={e => patchHydroStation(st.station_id, { enabled: e.target.checked })} />
+            </div>
           ))}
         </div>
       </div>

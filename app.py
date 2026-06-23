@@ -5242,7 +5242,7 @@ def api_hydro_station_patch(station_id):
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict):
         return _hydro_json("invalid_request", ok=False, error="JSON-Objekt erwartet", code=400)
-    allowed = {"enabled", "default_lag_min", "estimated_lag_min"}
+    allowed = {"enabled", "default_lag_min", "estimated_lag_min", "mark_q_m3s"}
     unknown = sorted(set(data) - allowed)
     if unknown:
         return _hydro_json("invalid_request", ok=False, error=f"Unbekannte Felder: {', '.join(unknown)}", code=400)
@@ -5264,6 +5264,18 @@ def api_hydro_station_patch(station_id):
                 return _hydro_json("invalid_request", ok=False, error=f"{k} außerhalb 0–720", code=400)
             cur[k] = int(val) if val.is_integer() else val
             changed.append(k)
+    if "mark_q_m3s" in data:
+        v = data["mark_q_m3s"]
+        if v is None:
+            cur.pop("mark_q_m3s", None); changed.append("mark_q_m3s")
+        else:
+            try:
+                vv = float(v)
+            except (TypeError, ValueError):
+                return _hydro_json("invalid_request", ok=False, error="mark_q_m3s muss eine Zahl oder null sein", code=400)
+            if vv < 0:
+                return _hydro_json("invalid_request", ok=False, error="mark_q_m3s muss >= 0 sein", code=400)
+            cur["mark_q_m3s"] = vv; changed.append("mark_q_m3s")
     overrides[sid] = cur
     runtime_config.patch({key: overrides})
     return _hydro_json("ok", data={"station_id": sid, "overrides": cur, "changed_keys": changed}, ok=True)

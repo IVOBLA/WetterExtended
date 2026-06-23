@@ -77,4 +77,4 @@ Führe im repo ein logic.md File wo die eingesetzen Berechnungen, Kalman ,  TRT-
 Stationäre, wachsende Zellen müssen Orte auch durch reine Flächenausdehnung (ohne Zugbewegung) mit Vorwarnzeit melden (Treffertyp growth_approach).
 Alle eingesetzten Techniken müssen State of the Art sein. keine veralteten Techniken. forsche dazu immer im internet
 Die ML-Vorhersage muss kontinuierlich im Schatten mitbewertet werden (Champion/Challenger), damit das ML-Gate bei tatsächlicher Modellgüte automatisch re-aktiviert (kein Deadlock durch eingefrorenes ml_mae); der ausgelieferte Forecast bleibt davon unberührt.
-Im Admin-Panel muss konfigurierbar sein, welche Hydro-Pegel auf der Karte angezeigt werden (Mindest-Durchfluss in m³/s) und ab welchem Durchfluss (m³/s) ein Pegel hervorgehoben/markiert wird.
+Im Admin-Panel muss konfigurierbar sein, welche Hydro-Pegel auf der Karte angezeigt werden (Mindest-Durchfluss in m³/s) und ab welchem Durchfluss (m³/s) ein Pegel hervorgehoben/markiert wird; der Markierungs-Durchfluss muss global und zusätzlich pro Station einstellbar sein, und abgewählte Pegel müssen in der Admin-Liste sichtbar/re-aktivierbar bleiben.
