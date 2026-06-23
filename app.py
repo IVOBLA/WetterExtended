@@ -5161,10 +5161,57 @@ def api_hydro_station_catchment(station_id):
         return _hydro_json("invalid_station_id", ok=False, error="Ungültige station_id", code=400)
     return _hydro_safe(lambda: __import__("hydro_api").catchment(station_id), "hydro_catchment_error")
 
+def _hydro_import_state_path():
+    return str(__import__("hydro_api").STATIC_GENERATED / "hydro_import_job.json")
+
+
+def _hydro_import_job():
+    """Liest die Import-Job-Statusdatei und ergaenzt eine Lebend-Pruefung des Prozesses."""
+    import json as _json
+    path = _hydro_import_state_path()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            state = _json.load(f)
+    except Exception:
+        return {"status": "idle", "pid": None, "started_at": None, "finished_at": None, "summary": None, "error": None, "alive": False}
+    pid = state.get("pid")
+    alive = False
+    if state.get("status") == "running" and isinstance(pid, int):
+        try:
+            os.kill(pid, 0); alive = True
+        except OSError:
+            alive = False
+        if not alive:
+            state = {**state, "status": "stale", "error": state.get("error") or "Import-Prozess nicht mehr aktiv"}
+    state["alive"] = alive
+    return state
+
+
 @app.route("/api/admin/hydro/reload-static", methods=["POST"])
 @app.route("/api/hydro/reload-static", methods=["POST"])
 def api_hydro_reload_static():
-    return _hydro_safe(lambda: __import__("hydro_static_import").build_static_hydro(), "hydro_static_error")
+    def _start():
+        job = _hydro_import_job()
+        if job.get("status") == "running" and job.get("alive"):
+            return {"status": "already_running", "job": job}
+        runner = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hydro_static_import.py")
+        gen_dir = str(__import__("hydro_api").STATIC_GENERATED)
+        os.makedirs(gen_dir, exist_ok=True)
+        log_fh = open(os.path.join(gen_dir, "hydro_import_job.log"), "a", encoding="utf-8")
+        proc = subprocess.Popen(
+            [sys.executable, runner, "--build-job"],
+            stdout=log_fh, stderr=subprocess.STDOUT,
+            cwd=os.path.dirname(runner), start_new_session=True,
+        )
+        from datetime import datetime, timezone
+        __import__("hydro_static_import")._write_hydro_job_state(None, {"status": "running", "pid": proc.pid, "started_at": datetime.now(timezone.utc).isoformat(), "finished_at": None, "summary": None, "error": None})
+        return {"status": "started", "pid": proc.pid}
+    return _hydro_safe(_start, "hydro_static_error")
+
+
+@app.route("/api/hydro/import-status")
+def api_hydro_import_status():
+    return _hydro_safe(lambda: {"status": "ok", "job": _hydro_import_job()}, "hydro_status_error")
 
 @app.route("/api/admin/hydro/fetch-live", methods=["POST"])
 @app.route("/api/hydro/fetch-live", methods=["POST"])

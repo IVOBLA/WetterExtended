@@ -479,6 +479,43 @@ def ensure_live_json(static_dir: str | None=None) -> str:
     return str(LATEST_FILE)
 
 
+def _hydro_job_state_path(static_dir=None):
+    base = static_dir or getattr(config, "HYDRO_STATIC_DIR", "train_data/hydro/static")
+    return os.path.join(base, "generated", "hydro_import_job.json")
+
+
+def _write_hydro_job_state(static_dir, state):
+    """Atomarer Schreibvorgang der Import-Job-Statusdatei (eigener Prozess <-> Web/Admin-Prozess)."""
+    import json as _json, tempfile
+    path = _hydro_job_state_path(static_dir)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            _json.dump(state, f, ensure_ascii=False)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            try: os.remove(tmp)
+            except OSError: pass
+
+
+def run_build_job(static_dir=None):
+    """Fuehrt build_static_hydro() aus und protokolliert Start/Ende in der Job-Statusdatei.
+    Laeuft als eigener Prozess (siehe app.py: /api/hydro/reload-static)."""
+    from datetime import datetime, timezone
+    started = datetime.now(timezone.utc).isoformat()
+    _write_hydro_job_state(static_dir, {"status": "running", "pid": os.getpid(), "started_at": started, "finished_at": None, "summary": None, "error": None})
+    try:
+        out = build_static_hydro(static_dir)
+        summary = {k: out.get(k) for k in ("status", "basin_count", "flowline_count", "station_basin_count", "impact_eligible_station_count", "upstream_graph_cycle_count", "topology_quality") if isinstance(out, dict)}
+        _write_hydro_job_state(static_dir, {"status": "finished", "pid": os.getpid(), "started_at": started, "finished_at": datetime.now(timezone.utc).isoformat(), "summary": summary, "error": None})
+        return out
+    except Exception as exc:
+        _write_hydro_job_state(static_dir, {"status": "failed", "pid": os.getpid(), "started_at": started, "finished_at": datetime.now(timezone.utc).isoformat(), "summary": None, "error": f"{type(exc).__name__}: {exc}"})
+        raise
+
+
 def build_static_hydro(static_dir: str | None = None, downloads: dict | None=None) -> dict:
     paths=ensure_static_dirs(static_dir); missing=[n for n in ("stations_source","basins_source") if not Path(paths[n]).exists()]
     if missing: return write_status("hydro_static_missing", "Statische Hydro-Eingangsdaten fehlen; Hydro-Impact ist noch nicht aktiv.", static_dir, missing=missing, downloads=downloads or _default_downloads(paths))
@@ -570,7 +607,7 @@ def verify(static_dir: str | None=None) -> dict: return status(static_dir) if Pa
 def _main() -> int:
     import argparse
     p=argparse.ArgumentParser(description="Hydro-Static Auto-Importer")
-    p.add_argument("--static-dir", default=None); p.add_argument("--force", action="store_true"); p.add_argument("--status", action="store_true"); p.add_argument("--build-upstream-graph", action="store_true"); p.add_argument("--diagnose-upstream-graph", action="store_true"); p.add_argument("--check-coverage"); p.add_argument("--auto", action="store_true"); p.add_argument("--download-all", action="store_true"); p.add_argument("--download-basins", action="store_true"); p.add_argument("--download-flowlines", action="store_true"); p.add_argument("--build", action="store_true"); p.add_argument("--verify", action="store_true"); p.add_argument("--import-stations"); p.add_argument("--allow-url-import", action="store_true")
+    p.add_argument("--static-dir", default=None); p.add_argument("--force", action="store_true"); p.add_argument("--status", action="store_true"); p.add_argument("--build-upstream-graph", action="store_true"); p.add_argument("--diagnose-upstream-graph", action="store_true"); p.add_argument("--check-coverage"); p.add_argument("--auto", action="store_true"); p.add_argument("--download-all", action="store_true"); p.add_argument("--download-basins", action="store_true"); p.add_argument("--download-flowlines", action="store_true"); p.add_argument("--build", action="store_true"); p.add_argument("--build-job", action="store_true"); p.add_argument("--verify", action="store_true"); p.add_argument("--import-stations"); p.add_argument("--allow-url-import", action="store_true")
     a=p.parse_args(); out=None
     if a.build_upstream_graph or a.diagnose_upstream_graph:
         paths=ensure_static_dirs(a.static_dir); out=build_static_hydro(a.static_dir)
@@ -582,6 +619,7 @@ def _main() -> int:
     elif a.download_basins: out=download_basins(a.static_dir, force=a.force)
     elif a.download_flowlines: out=download_flowlines(a.static_dir, force=a.force)
     elif a.import_stations: out={"path": import_station_json(a.import_stations, a.static_dir, allow_url_import=a.allow_url_import)}
+    elif a.build_job: out=run_build_job(a.static_dir)
     elif a.build: out=build_static_hydro(a.static_dir)
     elif a.verify: out=verify(a.static_dir)
     else: out=build_static_hydro(a.static_dir)

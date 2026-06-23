@@ -1,3 +1,4 @@
+import os
 import types
 
 import pytest
@@ -102,11 +103,16 @@ def test_hydro_expected_error_cases_return_json_without_500(client, monkeypatch)
         assert payload["status"].startswith("hydro_")
 
 
-def test_hydro_admin_endpoints_are_active_mocked_and_json(client, monkeypatch):
+def test_hydro_admin_endpoints_are_active_mocked_and_json(client, monkeypatch, tmp_path):
     calls = []
     monkeypatch.setitem(__import__("sys").modules, "hydro_static_import", types.SimpleNamespace(
-        build_static_hydro=lambda: calls.append("static") or {"status": "ok", "stations": 1}
+        build_static_hydro=lambda static_dir=None: calls.append("static") or {"status": "ok", "stations": 1},
+        run_build_job=lambda static_dir=None: calls.append("static") or {"status": "ok", "stations": 1},
+        _write_hydro_job_state=lambda static_dir, state: calls.append("job"),
     ))
+    import app as _app_mod, hydro_api
+    monkeypatch.setattr(hydro_api, "STATIC_GENERATED", tmp_path)
+    monkeypatch.setattr(_app_mod.subprocess, "Popen", lambda *a, **k: types.SimpleNamespace(pid=os.getpid()))
     monkeypatch.setitem(__import__("sys").modules, "hydro_fetch", types.SimpleNamespace(
         fetch_hydro_live=lambda force=True: calls.append(("live", force)) or {"status": "ok", "stations": []}
     ))
