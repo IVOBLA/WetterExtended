@@ -2937,3 +2937,8 @@ Linienstil und Popup-Felder.
 - Ursache: Der Debug-Export liess aus `train_data/hydro/static/generated/` nur Status + Stationsindex zu; die fuer die Cycle-/Eligibility-Tiefenanalyse noetige Topologie (Zyklen, Knoten, Kanten-Confidence) lag nur in `hydro_upstream_graph.json`, das aber mehrere MB gross ist (matches ueber 26247 Flowlines) und nicht in jeden Export gehoert.
 - Fix: `build_station_index` schreibt zusaetzlich ein groessenbeschraenktes `hydro_upstream_diagnostics.json` (Histogramme, gekappte cycle_nodes<=1000, cycle_sample<=50, not_eligible_sample<=50). Allowlist um `hydro_upstream_diagnostics.json` und das kleine `hydro_static_coverage.json` erweitert; grosse Polygon-/Kanten-GeoJSONs bleiben ausgeschlossen.
 - Test: `tests/test_b237_hydro_diagnostics_export.py`.
+
+## P56 — Per-Station-Markierungsschwelle + Admin-Stationsverwaltung (2026-06-23)
+- Feature: Markierungs-Durchfluss ist nun pro Station setzbar (`HYDRO_STATION_OVERRIDES[sid].mark_q_m3s`), überschreibt die globale Schwelle `HYDRO_MAP_MARK_Q_M3S`. PATCH `/api/hydro/stations/<id>` akzeptiert `mark_q_m3s` (Zahl ≥ 0 oder null zum Löschen); `station_features` exponiert den Wert und nutzt ihn in der `map_view`-Markierung.
+- Bugfix (untrennbar): Admin-Liste lädt mit `include_disabled=1`, sodass abgewählte Pegel sichtbar/re-aktivierbar bleiben; Checkbox- und Schwellwert-Änderungen aktualisieren den lokalen State sofort (kein Neuladen nötig). Zeile von `<label>` auf `<div>` umgestellt, damit der Zahlen-Input die Checkbox nicht toggelt.
+- Test: `tests/test_p56_hydro_per_station_threshold.py`.

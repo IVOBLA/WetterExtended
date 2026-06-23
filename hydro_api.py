@@ -207,13 +207,16 @@ def station_features(include_disabled=False, map_view=False):
             continue
         ev = None if not station_enabled else active.get(sid)
         status_value = "disabled" if not station_enabled else (ev.get("status") if ev else ("ok" if enabled() else "disabled"))
-        props = {"station_id": sid, "name": l.get("name") or st.get("station_name") or sid, "river": l.get("river") or st.get("river_name") or "", "q_m3s": l.get("q_m3s"), "w_cm": l.get("w_cm"), "measured_at": l.get("measured_at"), "status": status_value, "enabled": station_enabled, "active": station_enabled and not bool(st.get("ignored", False)), "ignored": bool(st.get("ignored", False)), "impact_active": bool(ev) if station_enabled else False, "last_hydro_impact": ev if station_enabled else None, "station_basin": st.get("station_basin"), "upstream_catchment_ids": st.get("upstream_catchment_ids", []), "impact_eligible": st.get("impact_eligible"), "topology_source": st.get("topology_source"), "upstream_source_quality": st.get("upstream_source_quality"), "source_quality": st.get("source_quality"), "catchment_area_km2": st.get("catchment_area_km2"), "reason": "station_disabled_by_admin" if not station_enabled else st.get("reason")}
+        props = {"station_id": sid, "name": l.get("name") or st.get("station_name") or sid, "river": l.get("river") or st.get("river_name") or "", "q_m3s": l.get("q_m3s"), "w_cm": l.get("w_cm"), "measured_at": l.get("measured_at"), "status": status_value, "enabled": station_enabled, "active": station_enabled and not bool(st.get("ignored", False)), "ignored": bool(st.get("ignored", False)), "impact_active": bool(ev) if station_enabled else False, "last_hydro_impact": ev if station_enabled else None, "station_basin": st.get("station_basin"), "upstream_catchment_ids": st.get("upstream_catchment_ids", []), "impact_eligible": st.get("impact_eligible"), "topology_source": st.get("topology_source"), "upstream_source_quality": st.get("upstream_source_quality"), "source_quality": st.get("source_quality"), "catchment_area_km2": st.get("catchment_area_km2"), "mark_q_m3s": st.get("mark_q_m3s"), "reason": "station_disabled_by_admin" if not station_enabled else st.get("reason")}
         if map_view:
             try: _qn = float(props.get("q_m3s"))
             except (TypeError, ValueError): _qn = None
             if map_min_q and _qn is not None and _qn < map_min_q:
                 continue
-            props["marked"] = bool(map_mark_q is not None and _qn is not None and _qn >= map_mark_q)
+            _smk = st.get("mark_q_m3s")
+            try: _eff_mark = float(_smk) if _smk is not None else map_mark_q
+            except (TypeError, ValueError): _eff_mark = map_mark_q
+            props["marked"] = bool(_eff_mark is not None and _qn is not None and _qn >= _eff_mark)
         feats.append({"type":"Feature", "geometry":{"type":"Point", "coordinates":[float(lon), float(lat)]}, "properties":props})
     return {"type":"FeatureCollection", "features": feats}
 
