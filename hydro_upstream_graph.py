@@ -190,14 +190,20 @@ def build_upstream_basin_graph(basins, flowlines) -> dict:
     return {"nodes":ids,"edges":edges,"upstream_by_basin":{k:sorted(set(v)) for k,v in up.items()},"downstream_by_basin":{k:sorted(set(v)) for k,v in down.items()},"confident_edge_count":confident,"cycle_count":len(cycles),"cycle_removed_edge_count":len(removed_edges),"cycle_nodes":sorted(cyc_nodes),"cycles":cycles,"matches":adj["matches"],"diagnostics":adj["diagnostics"],"topology_quality":"confident" if confident else ("upstream_topology_missing" if not edges else "cycle_edges_removed")}
 
 def get_upstream_basin_ids(station_basin_id, graph) -> list[str]:
+    """Liefert Upstream-Basins im bereits zyklusbereinigten Graph.
+
+    Cycle-Nodes duerfen nicht mehr global gesperrt werden: Beim Graph-Aufbau
+    werden nur zyklusschliessende Rueckkanten aus upstream_by_basin entfernt.
+    Die Traversierung schuetzt sich zusaetzlich mit seen gegen Endlosschleifen,
+    damit lokale Zyklen keine ganzen Basins oder Stationen disqualifizieren.
+    """
     if not station_basin_id: return []
-    if str(station_basin_id) in {str(x) for x in (graph.get("cycle_nodes") or [])}:
-        return []
     seen={str(station_basin_id)}; q=deque([str(station_basin_id)])
     up=graph.get("upstream_by_basin") or {}
     while q:
         cur=q.popleft()
         for nb in up.get(cur,[]):
+            nb=str(nb)
             if nb not in seen: seen.add(nb); q.append(nb)
     return sorted(seen) if len(seen)>1 else []
 

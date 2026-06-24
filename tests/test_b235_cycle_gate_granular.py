@@ -25,9 +25,9 @@ def test_get_upstream_uses_cycle_nodes_not_global_count():
     # Reiner Dict-Test (ohne Shapely): zyklenfreie Station bekommt Upstream,
     # Zyklus-Knoten wird ausgeschlossen, obwohl cycle_count > 0.
     graph = {"cycle_count": 1, "cycle_nodes": ["X1", "X2"],
-             "upstream_by_basin": {"S": ["U1"], "U1": ["U2"]}}
+             "upstream_by_basin": {"S": ["U1"], "U1": ["U2"], "X2": ["X1"]}}
     assert hug.get_upstream_basin_ids("S", graph) == ["S", "U1", "U2"]
-    assert hug.get_upstream_basin_ids("X2", graph) == []
+    assert hug.get_upstream_basin_ids("X2", graph) == ["X1", "X2"]
 
 
 def test_empty_station_id_returns_empty():
@@ -45,8 +45,8 @@ def test_cycle_free_component_eligible_despite_global_cycle():
     assert "cycle_nodes" in g and set(g["cycle_nodes"]) == {"B1", "B2"}
     # NEU: zyklenfreie Kette liefert vollen Upstream trotz globalem Zyklus
     assert hug.get_upstream_basin_ids("B5", g) == ["B3", "B4", "B5"]
-    # SICHER: Zyklus-Knoten bleibt ausgeschlossen
-    assert hug.get_upstream_basin_ids("B2", g) == []
+    # NEU: Auch Zyklus-Knoten werden nicht global gesperrt; nur die Rueckkante fehlt.
+    assert hug.get_upstream_basin_ids("B2", g) == ["B1", "B2"]
 
 
 @pytest.mark.skipif(not hug.SHAPELY_AVAILABLE, reason="Shapely fehlt")

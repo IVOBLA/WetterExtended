@@ -100,3 +100,15 @@ def test_empty_station_catchments_does_not_empty_station_endpoint(monkeypatch, t
     monkeypatch.setattr(hydro_api, 'STATIC_GENERATED', gen); monkeypatch.setattr(hydro_api, 'LIVE_LATEST', live/'latest_hydro.json'); monkeypatch.setattr(hydro_api, 'IMPACT_DIR', impact); monkeypatch.setattr(hydro_api, 'LATEST_IMPACTS', impact/'latest_hydro_impacts.json'); monkeypatch.setattr(hydro_api, 'VERIFICATIONS', impact/'hydro_verifications.jsonl')
     assert len(hydro_api.catchments_all()['features']) == 0
     assert len(hydro_api.station_features()['features']) == 1
+
+
+def test_apply_station_override_never_enables_auto_ineligible(caplog):
+    import hydro_api
+
+    station = {"station_id": "S_BAD", "impact_eligible_auto": False, "impact_enabled": False, "enabled": False}
+    merged = hydro_api.apply_station_override(station, {"S_BAD": {"enabled": True}})
+
+    assert merged["impact_eligible_auto"] is False
+    assert merged["impact_enabled"] is False
+    assert merged["impact_effective"] is False
+    assert merged["enabled"] is False

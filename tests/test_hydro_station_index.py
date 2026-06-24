@@ -100,7 +100,7 @@ def test_station_inside_basin_without_upstream_topology_is_not_impact_eligible(t
     assert station["flow_distance_available"] is False
     assert station["flow_distance_km"] is None
     assert station["impact_eligible"] is False
-    assert station["enabled"] is True
+    assert station["enabled"] is False
     assert "upstream_topology_missing" in station["reason"]
     assert "upstream_catchment_unavailable" in station["reason"]
 
@@ -186,7 +186,7 @@ def test_flowline_snapping_alone_is_diagnostic_and_not_impact_eligible(tmp_path,
     assert station["snapped_flowline_id"] is not None
     assert station["snap_distance_m"] is not None
     assert station["impact_eligible"] is False
-    assert station["enabled"] is True
+    assert station["enabled"] is False
     assert station["topology_source"] == "none"
     assert station["upstream_source_quality"] == "missing"
     assert station["flow_distance_available"] is False
@@ -228,7 +228,7 @@ def test_ggn_uppercase_fields_set_station_basin_without_fake_impact(tmp_path):
 
     assert status["status"] != "hydro_static_missing"
     assert status["station_basin_count"] == 1
-    assert status["enabled_station_count"] == 1
+    assert status["enabled_station_count"] == 0
     assert status["ok"] is False
     assert status["topology_source"] == "none"
     assert status["reason_summary"]["upstream_topology_missing"] is True
@@ -272,7 +272,7 @@ def test_ggn_explicit_upstream_relationship_enables_real_catchment(tmp_path, mon
     assert catchments["features"][0]["properties"]["source_schema"] == "GGN_DRAINAGEBASIN"
 
 
-def test_station_with_upstream_topology_missing_stays_enabled(tmp_path, monkeypatch):
+def test_station_with_upstream_topology_missing_stays_disabled(tmp_path, monkeypatch):
     monkeypatch.setattr(hydro_station_index, "SHAPELY_AVAILABLE", True)
     status = build_station_index(
         str(FIX / "hydro_stations_basin_only.geojson"),
@@ -282,23 +282,23 @@ def test_station_with_upstream_topology_missing_stays_enabled(tmp_path, monkeypa
     )
     station = json.loads((tmp_path / "station_network_index.json").read_text(encoding="utf-8"))["by_station_id"]["S_BASIN_ONLY"]
     assert status["impact_eligible_station_count"] == 0
-    assert station["enabled"] is True
-    assert station["visible"] is True
+    assert station["enabled"] is False
+    assert station["visible"] is False
     assert station["impact_eligible"] is False
     assert station["source_quality"] == "upstream_topology_missing"
 
 
-def test_station_index_enabled_defaults_true_without_override(tmp_path, monkeypatch):
+def test_station_index_enabled_defaults_false_when_not_eligible_without_override(tmp_path, monkeypatch):
     monkeypatch.setattr(hydro_station_index.runtime_config, "get", lambda key, default=None: {} if key == "HYDRO_STATION_OVERRIDES" else default)
     build_station_index(str(FIX / "hydro_stations_basin_only.geojson"), str(FIX / "basins_without_upstream.geojson"), None, str(tmp_path))
     station = json.loads((tmp_path / "station_network_index.json").read_text(encoding="utf-8"))["by_station_id"]["S_BASIN_ONLY"]
-    assert station["enabled"] is True
+    assert station["enabled"] is False
     assert station["impact_eligible"] is False
 
 
-def test_station_index_impact_eligible_false_does_not_disable_station(tmp_path):
+def test_station_index_impact_eligible_false_disables_station_effective_state(tmp_path):
     build_station_index(str(FIX / "hydro_stations_basin_only.geojson"), str(FIX / "basins_without_upstream.geojson"), None, str(tmp_path))
     station = json.loads((tmp_path / "hydro_stations.geojson").read_text(encoding="utf-8"))["features"][0]["properties"]
     assert station["impact_eligible"] is False
-    assert station["enabled"] is True
-    assert station["visible"] is True
+    assert station["enabled"] is False
+    assert station["visible"] is False
