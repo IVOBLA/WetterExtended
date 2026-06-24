@@ -3022,3 +3022,12 @@ Linienstil und Popup-Felder.
   vollständig ohne deep-merge; api_hydro_station_patch nutzt patch_exact_key statt patch().
 - Reproduziert und verifiziert via Simulation (mark_q_m3s: 150.0 nach Löschung zurückgekehrt).
 - Test: tests/test_b244_hydro_null_threshold.py.
+
+## P59 — Optical-Flow-Qualitätsgate: OF-Verwerfung bei großen Frame-Intervallen (2026-06-24)
+- Ursache: Lucas-Kanade (pysteps) versagt bei großen Pixelverschiebungen (Radar-Lücken 20-30 min).
+  Belegt aus 220k Export-Samples: optflow_fm20 mean=+61.4° (std=5°), fm30 mean=+41.8° — konsistente
+  systematische Richtungsfehler (KI-Befund F2: "Forecast direction error probably dominates drift").
+  Im Normalbetrieb (fm5.0) ist OF mit mean=-15.7° gut; das Gate greift nur bei Lücken.
+- Fix: config.OF_MAX_FRAME_INTERVAL_MIN=8.0 (runtime-overridable). Bei _fm_of>Schwellwert wird
+  OF verworfen und auf EWMA/History zurückgefallen; of_error_reason="interval_too_large_fm{x}".
+- Test: tests/test_p59_of_interval_gate.py.
