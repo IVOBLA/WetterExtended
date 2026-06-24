@@ -63,6 +63,16 @@ def test_non_worsening_status_does_not_send_mail(monkeypatch, tmp_path):
     assert "body" not in cap
 
 
+def test_barely_over_threshold_uses_unrounded_delta_for_guard(monkeypatch, tmp_path):
+    cap = _capture(monkeypatch, tmp_path)
+    st = _status_relative()
+    st["mae_baseline_km"] = 7.0
+    st["mae_recent_km"] = 9.0004
+    st["threshold_km"] = 2.0
+    st["delta_km"] = 2.0
+    en.send_drift_alert(st)
+    assert "body" in cap
+
 def test_positive_delta_keeps_red_worsening(monkeypatch, tmp_path):
     cap = _capture(monkeypatch, tmp_path)
     st = _status_relative()

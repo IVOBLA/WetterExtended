@@ -156,9 +156,19 @@ def test_drift_status_keeps_drift_true_and_adds_diagnosis(monkeypatch, tmp_path)
     monkeypatch.setattr(dd, "DRIFT_MIN_POINTS", 1, raising=True)
     monkeypatch.setattr(dd, "_has_ml_model", lambda: True)
     _write_jsonl(tmp_path / "forecast_error_details.jsonl", [_row(i, err=5.0) for i in range(10)])
-    _write_jsonl(tmp_path / "accuracy_history.jsonl", [{"timestamp_utc": NOW.isoformat().replace("+00:00", "Z"), "horizons": [{"horizon": 10, "mae_km": 5.0}]}])
+    _write_jsonl(tmp_path / "accuracy_history.jsonl", [
+        {
+            "timestamp_utc": NOW.isoformat().replace("+00:00", "Z"),
+            "horizons": [{"horizon": 10, "mae_km": 5.0}],
+        },
+        {
+            "timestamp_utc": (NOW - timedelta(hours=40)).isoformat().replace("+00:00", "Z"),
+            "horizons": [{"horizon": 10, "mae_km": 1.0}],
+        },
+    ])
     status = dd.check_drift()
     assert status["drift_detected"] is True
+    assert status["drift_reason"] == "relative"
     assert "diagnosis_summary" in status
 
 
