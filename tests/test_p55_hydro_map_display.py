@@ -5,9 +5,9 @@ import hydro_api
 
 def _setup(monkeypatch, min_q, mark_q):
     monkeypatch.setattr(hydro_api, "_static_index", lambda: {
-        "S1": {"lat": 1.0, "lon": 1.0, "station_name": "A"},
-        "S2": {"lat": 2.0, "lon": 2.0, "station_name": "B"},
-        "S3": {"lat": 3.0, "lon": 3.0, "station_name": "C"},
+        "S1": {"lat": 1.0, "lon": 1.0, "station_name": "A", "impact_eligible": True},
+        "S2": {"lat": 2.0, "lon": 2.0, "station_name": "B", "impact_eligible": True},
+        "S3": {"lat": 3.0, "lon": 3.0, "station_name": "C", "impact_eligible": True},
     })
     monkeypatch.setattr(hydro_api, "_json", lambda path, default=None: {"stations": [
         {"station_id": "S1", "q_m3s": 2.0, "name": "A"},

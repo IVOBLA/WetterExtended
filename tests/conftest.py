@@ -147,6 +147,11 @@ def _isolate_external_response_logger(tmp_path, monkeypatch):
     tmp-Verzeichnis um (lazy-import in debug_utils greift den Modul-Attribut-Patch). Reine
     Test-Isolation, kein Produktionscode (analog B216/B233)."""
     try:
+        import shutil
+        shutil.rmtree("train_data/external_responses/t", ignore_errors=True)
+    except Exception:
+        pass
+    try:
         import external_response_logger as _erl
     except Exception:
         yield
@@ -209,7 +214,7 @@ def pytest_ignore_collect(collection_path, config):
         flask_missing = False
     except Exception:
         flask_missing = True
-    if flask_missing and name in {"test_lightning_api.py", "test_risk_grid_api.py", "test_risk_score01_drivers.py", "test_public_safety_filters.py"}:
+    if flask_missing and name in {"test_lightning_api.py", "test_risk_grid_api.py", "test_risk_score01_drivers.py", "test_public_safety_filters.py", "test_hydro_api.py"}:
         return True
     try:
         import shapely.geometry as _sg  # noqa: F401

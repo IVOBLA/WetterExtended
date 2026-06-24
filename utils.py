@@ -4,9 +4,13 @@ import time
 import json
 import random
 import string
-from geopy.distance import geodesic
 import math
 from datetime import datetime, timezone
+
+try:
+    from geopy.distance import geodesic
+except Exception:
+    geodesic = None
 
 def log(msg):
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
@@ -38,7 +42,16 @@ def find_nearest_station(lat, lon, stations):
             station_coord = (station.get("lat"), station.get("lon"))
             if None in station_coord:
                 continue
-            dist = geodesic((lat, lon), station_coord).kilometers
+            if geodesic is not None:
+                dist = geodesic((lat, lon), station_coord).kilometers
+            else:
+                # Lightweight fallback for test/install environments without
+                # geopy. Accuracy is sufficient for nearest-station ordering.
+                lat1, lon1, lat2, lon2 = map(math.radians, (lat, lon, station_coord[0], station_coord[1]))
+                dlat = lat2 - lat1
+                dlon = lon2 - lon1
+                a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+                dist = 6371.0 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
             if dist < min_dist:
                 min_dist = dist
                 nearest = station
