@@ -5288,6 +5288,11 @@ def api_hydro_forecast_impacts():
     return _hydro_safe(lambda: {"type": "forecast_impacts", "events": __import__("hydro_impact").load_latest_hydro_forecast()}, "hydro_forecast_error")
 
 
+@app.route("/api/hydro/impact-segments")
+def api_hydro_impact_segments():
+    return _hydro_safe(lambda: __import__("hydro_api").impact_segments(), "hydro_impact_segments_error")
+
+
 @app.route("/api/hydro/import-status")
 def api_hydro_import_status():
     return _hydro_safe(lambda: {"status": "ok", "job": _hydro_import_job()}, "hydro_status_error")

@@ -352,3 +352,33 @@ def catchments_all():
     fc.setdefault("type", "FeatureCollection")
     fc.setdefault("features", [])
     return fc
+
+
+def impact_segments():
+    """GeoJSON der betroffenen Flussabschnitte: nur Stationen mit ueberschrittener Warngrenze
+    (gemessen oder prognostiziert). Reichert das statische Segment-Generat um Live-/Forecast-q an."""
+    fc = _json(STATIC_GENERATED / "station_river_segments.geojson", {"type": "FeatureCollection", "features": []})
+    if not isinstance(fc, dict):
+        return {"type": "FeatureCollection", "features": []}
+    seg_by_sid = {str((f.get("properties") or {}).get("station_id")): f for f in fc.get("features", []) if isinstance(f, dict)}
+    live = _json(LIVE_LATEST, {})
+    updated_at = live.get("fetched_at") if isinstance(live, dict) else None
+    out = []
+    for feat in station_features(include_disabled=False).get("features", []):
+        p = feat.get("properties") or {}
+        if not p.get("q_threshold_exceeded"):
+            continue
+        seg = seg_by_sid.get(str(p.get("station_id")))
+        if not seg:
+            continue
+        props = dict(seg.get("properties") or {})
+        props.update({
+            "impact_source": p.get("impact_source"),
+            "q_current": p.get("q_current"),
+            "q_forecast": p.get("q_forecast"),
+            "q_threshold": p.get("q_threshold"),
+            "affected_places": [],
+            "updated_at": updated_at,
+        })
+        out.append({"type": "Feature", "geometry": seg.get("geometry"), "properties": props})
+    return {"type": "FeatureCollection", "features": out}

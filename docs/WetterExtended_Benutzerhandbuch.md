@@ -2704,3 +2704,9 @@ Eine Hydro-Station gilt als betroffen, sobald der aktuell gemessene ODER der pro
 Durchfluss die eingestellte Warngrenze (Markierungs-Durchfluss pro Station bzw. global) erreicht
 oder überschreitet. In diesem Fall wird die Quelle der Überschreitung angezeigt: gemessen, Prognose
 oder beides. Ist keine Warngrenze gesetzt, gilt die Station nie als betroffen.
+
+## Betroffene Flussabschnitte
+
+Bei überschrittener Warngrenze wird der betroffene Flussabschnitt einer Station auf der Karte
+hervorgehoben. Der Abschnitt umfasst das Gewässer im Einzugsgebiet der Station sowie in deren
+oberliegenden Einzugsgebieten und wird aus der Gewässer-Topologie abgeleitet.
