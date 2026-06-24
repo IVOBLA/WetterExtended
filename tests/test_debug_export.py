@@ -252,3 +252,28 @@ def test_missing_log_source_does_not_crash(tmp_path, monkeypatch):
         assert "source_unavailable" in text
     finally:
         z.unlink(missing_ok=True)
+
+
+def test_progress_snapshot_sanitizes_non_finite_values(tmp_path):
+    models = tmp_path / "train_data" / "models"
+    version = models / "v_legacy"
+    version.mkdir(parents=True)
+    (models / "current").symlink_to(version, target_is_directory=True)
+    (version / "training_meta.json").write_text(
+        '{"version_id":"v_legacy","validation":{"mae_old":Infinity,"mae_new":NaN,"kin_baseline_mae":1.5}}',
+        encoding="utf-8",
+    )
+
+    z, _, _ = debug_export.create_debug_export_zip(base_dir=tmp_path, save_paths={}, now=None)
+    try:
+        with zipfile.ZipFile(z) as zf:
+            name = next(n for n in zf.namelist() if n.endswith("diagnostics/progress_snapshot.json"))
+            text = zf.read(name).decode("utf-8")
+        assert "Infinity" not in text
+        assert "NaN" not in text
+        payload = json.loads(text)
+        assert payload["active_meta"]["validation"]["mae_old"] is None
+        assert payload["active_meta"]["validation"]["mae_new"] is None
+        assert payload["active_meta"]["validation"]["kin_baseline_mae"] == 1.5
+    finally:
+        z.unlink(missing_ok=True)
