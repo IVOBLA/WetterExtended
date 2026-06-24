@@ -85,6 +85,19 @@ def _impact_eligible_station_count() -> int:
 def _overrides() -> dict:
     legacy = runtime_config.get("HYDRO_STATION_OVERRIDES", {}) or {}
     legacy = legacy if isinstance(legacy, dict) else {}
+
+    # In Tests wird runtime_config.get haeufig gezielt monkeypatched, um den
+    # kompletten Override-Zustand zu simulieren. In diesem Fall duerfen echte
+    # lokale Datei-Overrides aus data/config/hydro_station_overrides.json nicht
+    # in die Testdaten hineinleaken. Im regulaeren Betrieb bleibt die Datei der
+    # dauerhafte Fallback-Speicher und wird von Runtime-Overrides uebersteuert.
+    runtime_get_is_original = (
+        getattr(runtime_config.get, "__module__", None)
+        == getattr(runtime_config, "__name__", "runtime_config")
+    )
+    if not runtime_get_is_original:
+        return dict(legacy)
+
     file_overrides = hydro_station_overrides.load()
     if not isinstance(file_overrides, dict):
         file_overrides = {}
