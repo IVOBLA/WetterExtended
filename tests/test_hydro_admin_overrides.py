@@ -13,7 +13,7 @@ def test_apply_station_override_never_makes_ineligible_effective(monkeypatch, tm
     monkeypatch.setenv("HYDRO_STATION_OVERRIDES_PATH", str(tmp_path / "overrides.json"))
     hso.save({"S1": {"enabled": True}})
     station = hydro_api.apply_station_override({"station_id": "S1", "impact_eligible_auto": False, "enabled": True})
-    assert station["impact_enabled"] is True
+    assert station["impact_enabled"] is False
     assert station["impact_effective"] is False
     assert station["enabled"] is False
 

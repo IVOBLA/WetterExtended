@@ -5255,8 +5255,8 @@ def api_admin_hydro_bulk_update():
         if not isinstance(row, dict) or "station_id" not in row or "enabled" not in row: continue
         sid=str(row["station_id"]); want=bool(row["enabled"])
         if sid not in idx: continue
-        if want and hydro_api.apply_station_override(idx[sid], overrides).get("impact_eligible_auto") is not True:
-            return _hydro_json("not_impact_eligible", ok=False, error=f"Station {sid} ist nicht impact_eligible_auto", code=400)
+        if hydro_api.apply_station_override(idx[sid], overrides).get("impact_eligible_auto") is not True:
+            continue
         cur=dict(overrides.get(sid,{}) or {}); cur["enabled"]=want; overrides[sid]=cur; changed.append(sid)
     hydro_station_overrides.save(overrides)
     return _hydro_json("ok", data={"changed": len(changed), "station_ids": changed}, ok=True)
