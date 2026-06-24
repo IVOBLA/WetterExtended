@@ -48,7 +48,7 @@ def run_forecast_quality_diagnosis_before_export(*, hours: int = 24, base_dir: s
     latest = ev / LATEST_NAME
     error = ev / ERROR_NAME
     script = Path(__file__).resolve().parent / "tools" / "diagnose_forecast_quality.py"
-    cmd = [sys.executable, str(script), "--hours", str(int(hours)), "--base-dir", str(base)]
+    cmd = [sys.executable, str(script), "--hours", str(int(hours)), "--base-dir", str(base), "--evaluation-dir", str(ev)]
     try:
         proc = subprocess.run(cmd, cwd=str(base), text=True, capture_output=True, timeout=int(os.getenv("FORECAST_QUALITY_DIAGNOSIS_TIMEOUT_S", "45")), check=False)
         if proc.returncode != 0:
