@@ -531,6 +531,43 @@ def _write_api_logs_to_zip(zf: zipfile.ZipFile, root_name: str, base_dir: Path, 
 
 
 
+
+
+def _build_progress_snapshot(base_dir: Path, save_paths: dict | None) -> dict:
+    models_dir = Path((save_paths or {}).get("models", base_dir / "train_data" / "models"))
+    if not models_dir.is_absolute():
+        models_dir = base_dir / models_dir
+
+    def read_json(path: Path):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+
+    active_version = None
+    current = models_dir / "current"
+    try:
+        if current.is_symlink():
+            target = current.resolve(strict=True)
+            if target.name.startswith("v_"):
+                active_version = target.name
+        elif current.is_dir() and current.resolve().name.startswith("v_"):
+            active_version = current.resolve().name
+    except Exception:
+        active_version = None
+
+    versions = []
+    for meta_path in sorted(models_dir.glob("v_*/training_meta.json")):
+        meta = read_json(meta_path)
+        if isinstance(meta, dict):
+            version_id = meta.get("version_id") or meta.get("version") or meta_path.parent.name
+            item = dict(meta)
+            item["version_id"] = version_id
+            item["is_active"] = bool(active_version and version_id == active_version)
+            versions.append(item)
+    active_meta = read_json(models_dir / active_version / "training_meta.json") if active_version else None
+    return {"active_version": active_version, "active_meta": active_meta, "progress": {"active_version": active_version, "active_meta": active_meta, "versions": versions}}
+
 def _json_status_bytes(payload: dict) -> bytes:
     return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
 
@@ -779,6 +816,17 @@ def create_debug_export_zip(
                 included_roots.add("config")
             except Exception as exc:
                 excluded_files.append(f"effective_runtime_config.json: {exc}")
+
+            try:
+                progress_snapshot = _build_progress_snapshot(base_dir, save_paths)
+                data = json.dumps(progress_snapshot, ensure_ascii=False, indent=2, default=str).encode("utf-8")
+                zf.writestr(f"{root_name}/diagnostics/progress_snapshot.json", data)
+                total_files += 1
+                total_bytes += len(data)
+                files_by_section["evaluation"] = files_by_section.get("evaluation", 0) + 1
+                included_roots.add("diagnostics")
+            except Exception as exc:
+                excluded_files.append(f"progress_snapshot.json: {exc}")
 
             api_log_info = _write_api_logs_to_zip(zf, root_name, base_dir, save_paths, window_start, now)
             if api_log_info["files_count"]:
