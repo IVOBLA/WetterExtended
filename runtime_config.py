@@ -243,6 +243,20 @@ def forbidden_keys_in(partial: dict) -> list:
     return sorted(_find_forbidden_paths(partial))
 
 
+def patch_exact_key(top_key: str, value) -> dict:
+    """B244: Ersetzt einen Top-Level-Schlüssel vollständig ohne _deep_merge.
+    Verwenden statt patch() wenn ein verschachteltes Dict komplett neu gesetzt
+    werden soll und _deep_merge das Löschen von Unter-Schlüsseln verhindern würde
+    (z. B. Löschen von mark_q_m3s in HYDRO_STATION_OVERRIDES[sid])."""
+    if is_forbidden_override_key(top_key):
+        return dict(_OVERRIDES)
+    with _LOCK:
+        merged = dict(_OVERRIDES)
+        merged[top_key] = _strip_forbidden_keys(value) if isinstance(value, (dict, list)) else value
+    save(merged)
+    return merged
+
+
 def patch(partial: dict) -> dict:
     """Mergt partial in bestehende Overrides und persistiert.
 

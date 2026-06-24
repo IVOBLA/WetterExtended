@@ -5289,7 +5289,7 @@ def api_hydro_station_patch(station_id):
                 return _hydro_json("invalid_request", ok=False, error="mark_q_m3s muss >= 0 sein", code=400)
             cur["mark_q_m3s"] = vv; changed.append("mark_q_m3s")
     overrides[sid] = cur
-    runtime_config.patch({key: overrides})
+    runtime_config.patch_exact_key(key, overrides)  # B244: kein deep-merge (löscht mark_q_m3s)
     return _hydro_json("ok", data={"station_id": sid, "overrides": cur, "changed_keys": changed}, ok=True)
 
 if __name__ == "__main__":
