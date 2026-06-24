@@ -108,3 +108,36 @@ def test_drift_mail_sent_on_real_drift(monkeypatch):
     status = dd.check_and_alert()
     assert status["drift_detected"] is True
     assert len(sent) == 1
+
+
+def test_diagnosis_runner_honors_relocated_evaluation_save_path(tmp_path):
+    ev = tmp_path / "custom_eval"
+    result = __import__("export_diagnosis").run_forecast_quality_diagnosis_before_export(
+        hours=24,
+        base_dir=tmp_path,
+        save_paths={"evaluation": str(ev)},
+    )
+
+    assert result["status"] == "ok"
+    assert (ev / "forecast_quality_diagnosis_latest.json").exists()
+    assert not (tmp_path / "train_data" / "evaluation" / "forecast_quality_diagnosis_latest.json").exists()
+
+
+def test_forecast_quality_diagnosis_reads_ir_lead_time_labels(tmp_path):
+    from tools.diagnose_forecast_quality import build_diagnosis
+
+    lineage = tmp_path / "train_data" / "cell_lineage"
+    lineage.mkdir(parents=True)
+    (lineage / "ir_lead_time_labels.jsonl").write_text(
+        "\n".join([
+            json.dumps({"cell_id": "a", "created_at_utc": "2099-01-01T00:00:00Z", "ir_first_seen": "2026-06-18_08-15-00", "radar_first_confirmed": "2026-06-18_08-35-00", "lead_time_min": 20}),
+            json.dumps({"cell_id": "b", "created_at_utc": "2099-01-01T00:01:00Z", "ir_first_seen": "2026-06-18_08-20-00", "radar_first_confirmed": "2026-06-18_08-50-00", "lead_time_min": 30}),
+        ]) + "\n",
+        encoding="utf-8",
+    )
+
+    diag = build_diagnosis(tmp_path, 24)
+
+    assert diag["sample_counts"]["ir_lead_time_labels"] == 2
+    assert diag["ir_precursors"]["matched_count"] == 2
+    assert diag["ir_precursors"]["median_lead_time_min"] == 25.0

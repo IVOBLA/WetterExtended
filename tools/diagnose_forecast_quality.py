@@ -26,10 +26,18 @@ from export_diagnosis import ERROR_NAME, LATEST_NAME, utc_now_z
 def _parse_ts(v: Any):
     if not v:
         return None
-    try:
-        return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
-    except Exception:
-        return None
+    raw = str(v).strip()
+    for value in (raw, raw.replace("Z", "+00:00")):
+        try:
+            return datetime.fromisoformat(value)
+        except Exception:
+            pass
+    for fmt in ("%Y-%m-%d_%H-%M-%S", "%Y%m%d_%H%M%S"):
+        try:
+            return datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc)
+        except Exception:
+            pass
+    return None
 
 
 def _f(v: Any):
@@ -40,6 +48,11 @@ def _f(v: Any):
         return x if math.isfinite(x) else None
     except Exception:
         return None
+
+
+def _resolve_save_path(base_dir: Path, key: str, default: str) -> Path:
+    raw = Path(SAVE_PATHS.get(key, default))
+    return raw if raw.is_absolute() else base_dir / raw
 
 
 def _read_jsonl(path: Path, hours: int) -> list[dict]:
@@ -54,7 +67,7 @@ def _read_jsonl(path: Path, hours: int) -> list[dict]:
             continue
         if not isinstance(rec, dict):
             continue
-        ts = next((_parse_ts(rec.get(k)) for k in ("verified_at_utc", "target_timestamp_utc", "forecast_created_at_utc", "timestamp_utc") if _parse_ts(rec.get(k))), None)
+        ts = next((_parse_ts(rec.get(k)) for k in ("verified_at_utc", "target_timestamp_utc", "forecast_created_at_utc", "timestamp_utc", "created_at_utc", "ir_first_seen", "radar_first_confirmed") if _parse_ts(rec.get(k))), None)
         if ts is None or ts >= cutoff:
             rows.append(rec)
     return rows
@@ -94,10 +107,8 @@ def _id_matching(rows: list[dict], outliers: list[dict]) -> dict:
     }
 
 
-def build_diagnosis(base_dir: Path, hours: int) -> dict:
-    ev = Path(SAVE_PATHS.get("evaluation", "train_data/evaluation"))
-    if not ev.is_absolute():
-        ev = base_dir / ev
+def build_diagnosis(base_dir: Path, hours: int, evaluation_dir: Path | None = None) -> dict:
+    ev = evaluation_dir or _resolve_save_path(base_dir, "evaluation", "train_data/evaluation")
     details = _read_jsonl(ev / "forecast_error_details.jsonl", hours)
     verified = [r for r in details if _f(r.get("forecast_error_km")) is not None]
     outliers = sorted(verified, key=lambda r: _f(r.get("forecast_error_km")) or 0, reverse=True)[:10]
@@ -112,19 +123,24 @@ def build_diagnosis(base_dir: Path, hours: int) -> dict:
                 px_geo.append({"cell_id": r.get("cell_id") or r.get("object_id"), "error_km": km, "pixel_error_px": round(px, 3), "km_per_px": round(km_per_px, 4) if km_per_px else None})
     terrain = ["dem_elevation_m", "dem_slope_toward_cell", "dem_barrier_ahead", "terrain_blocking_score", "orographic_lift_score", "valley_alignment_score", "valley_channeling_score"]
     weather = ["wind_speed", "wind_dir", "wind_direction", "temperature", "pressure", "humidity", "grosswetterlage"]
+    lineage_dir = _resolve_save_path(base_dir, "cell_lineage", "train_data/cell_lineage")
+    label_rows = _read_jsonl(lineage_dir / "ir_lead_time_labels.jsonl", hours)
     ir_rows = [r for r in details if r.get("ir_first_seen_utc") or r.get("radar_first_seen_utc") or r.get("ir_lead_time_min") is not None]
+    ir_rows.extend(label_rows)
     leads = []
     seen = set()
     no_lead = 0
     for r in ir_rows:
         cid = r.get("cell_id") or r.get("object_id")
-        key = (cid, r.get("ir_first_seen_utc"), r.get("radar_first_seen_utc"))
+        ir_seen = r.get("ir_first_seen_utc") or r.get("ir_first_seen")
+        radar_seen = r.get("radar_first_seen_utc") or r.get("radar_first_confirmed")
+        key = (cid, ir_seen, radar_seen)
         if key in seen:
             continue
         seen.add(key)
-        lead = _f(r.get("ir_lead_time_min"))
+        lead = _f(r.get("ir_lead_time_min") if r.get("ir_lead_time_min") is not None else r.get("lead_time_min"))
         if lead is None:
-            ir = _parse_ts(r.get("ir_first_seen_utc")); radar = _parse_ts(r.get("radar_first_seen_utc"))
+            ir = _parse_ts(ir_seen); radar = _parse_ts(radar_seen)
             if ir and radar:
                 lead = (radar - ir).total_seconds() / 60.0
         if lead is None or lead <= 0:
@@ -149,7 +165,7 @@ def build_diagnosis(base_dir: Path, hours: int) -> dict:
         "status": "ok",
         "checked_at_utc": utc_now_z(),
         "hours": hours,
-        "sample_counts": {"forecast_error_details": len(details), "verified_forecasts": len(verified)},
+        "sample_counts": {"forecast_error_details": len(details), "verified_forecasts": len(verified), "ir_lead_time_labels": len(label_rows)},
         "forecast_outliers": [{"cell_id": r.get("cell_id") or r.get("object_id"), "error_km": _f(r.get("forecast_error_km")), "forecast_position": {"lat": _f(r.get("forecast_lat")), "lon": _f(r.get("forecast_lon"))}, "actual_position": {"lat": _f(r.get("actual_lat")), "lon": _f(r.get("actual_lon"))}, "horizon_min": _f(r.get("horizon_min")), "forecast_created_at_utc": r.get("forecast_created_at_utc")} for r in outliers],
         "pixel_geo_consistency": {"suspect_count": len(px_geo), "examples": px_geo[:10]},
         "id_matching": _id_matching(details, outliers),
@@ -167,14 +183,15 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--hours", type=int, default=24)
     ap.add_argument("--base-dir", default=str(REPO))
+    ap.add_argument("--evaluation-dir", default=None)
     args = ap.parse_args(argv)
     base = Path(args.base_dir).resolve()
-    ev = Path(SAVE_PATHS.get("evaluation", "train_data/evaluation"))
+    ev = Path(args.evaluation_dir) if args.evaluation_dir else _resolve_save_path(base, "evaluation", "train_data/evaluation")
     if not ev.is_absolute():
         ev = base / ev
     ev.mkdir(parents=True, exist_ok=True)
     try:
-        diag = build_diagnosis(base, args.hours)
+        diag = build_diagnosis(base, args.hours, ev)
         (ev / LATEST_NAME).write_text(json.dumps(diag, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
         (ev / ERROR_NAME).unlink(missing_ok=True)
         print(str(ev / LATEST_NAME))
