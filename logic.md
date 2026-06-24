@@ -189,3 +189,22 @@ Historische Hydro-Impact-JSONL-Dateien bleiben unverändert als Audit-Log erhalt
 ### Hydro-Konfiguration
 
 Konfigurierbar sind `HYDRO_ENABLED`, `HYDRO_API_TTL_SECONDS`, `HYDRO_MIN_OVERLAP_AREA_KM2`, `HYDRO_MIN_OVERLAP_RATIO_CELL`, `HYDRO_MIN_DURATION_MIN`, `HYDRO_RELEVANT_INTENSITIES`, `HYDRO_DEFAULT_LAG_MIN`, `HYDRO_LAG_WINDOW_MIN`, `HYDRO_VERIFY_MIN_DELTA_Q_M3S`, `HYDRO_VERIFY_MIN_DELTA_W_CM`, `HYDRO_VERIFY_MIN_RELATIVE_DELTA_PCT`, `HYDRO_VERIFY_MAX_GAP_MIN` und `HYDRO_STATION_OVERRIDES`. Runtime-Overrides ersetzen nicht die fachliche Anforderung an `impact_eligible=true`.
+
+## P60 — Prognostizierter Pegel-Abfluss q_forecast (Rational-Methode)
+
+Der vorausschauende Hydro-Impact (P57) liefert pro getroffenem Oberlieger-Einzugsgebiet eine grobe
+Niederschlagsrate (`precip_rate_mm_h`) und die beregnete Flaeche (`max_overlap_area_km2`). Daraus wird
+der prognostizierte Zusatzabfluss nach der Rational-Methode geschaetzt:
+
+    Δq [m³/s] = C · i · A / 3.6
+
+mit C = Abflussbeiwert (`HYDRO_FORECAST_RUNOFF_COEFF`, Default 0.4), i = Niederschlagsintensitaet
+[mm/h], A = beregnete Flaeche [km²]. Der Faktor 1/3.6 ist die kanonische Einheitenumrechnung
+(mm/h · km² → m³/s). Der prognostizierte Gesamtabfluss ist
+
+    q_forecast = q_current + Δq · routing_attenuation
+
+(`HYDRO_FORECAST_ROUTING_ATTENUATION`, Default 1.0). q_current stammt aus dem Live-Pegelwert
+(`latest_hydro.json`, `q_m3s`). Bei mehreren Forecast-Treffern je Station zaehlt der jeweils
+hoechste Δq (Worst Case). Dies ist eine grobe Schaetzung und ausdruecklich KEIN Ersatz fuer
+amtliche Hochwasserwarnungen. Es werden keine zusaetzlichen Fremdrequests ausgeloest.

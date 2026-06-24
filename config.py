@@ -1167,6 +1167,12 @@ HYDRO_FORECAST_HORIZONS_MIN = [10, 20, 30, 40, 60]
 HYDRO_FORECAST_PRECIP_REF_MM = 15.0
 HYDRO_FORECAST_MIN_PRECIP_MM_H = 1.0
 HYDRO_FORECAST_SINGLE_HIT_DWELL_MIN = 10.0
+# P60: Rational-Method-Parameter fuer prognostizierten Abfluss q_forecast (m3/s).
+# Abflussbeiwert (Anteil 0..1 des Niederschlags, der oberflaechlich abfliesst) und
+# grobe Routing-Daempfung. Konfigurierbar via runtime_overrides.json. Grobe Schaetzung,
+# kein Ersatz fuer amtliche Hochwasserwarnungen.
+HYDRO_FORECAST_RUNOFF_COEFF = 0.4
+HYDRO_FORECAST_ROUTING_ATTENUATION = 1.0
 HYDRO_MAP_MIN_Q_M3S = 0.0
 HYDRO_MAP_MARK_Q_M3S = None
 HYDRO_KMZ_INCLUDE_CATCHMENTS = False
