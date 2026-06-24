@@ -3077,3 +3077,12 @@ Status: erledigt. MapView.jsx: zwei schaltbare Layer — Flussabschnitte als Pol
 Warnfarbe (#dc2626), betroffene Orte als 💧-DivIcon-Symbol (keine Einfaerbung des Punktes). Popups
 mit q_current/q_forecast/q_threshold/impact_source/Entfernungen; Stations-Popup um Prognose/Warngrenze
 erweitert. JSX mit esbuild validiert. Offen: P65.
+
+## P65 — ML-Gate Invarianten-Guard (test-only) (2026-06-24)
+
+Status: erledigt. Befund: ML-Feature-Pipeline (dataset_builder/compute_extra_features/model_training/
+ml_readiness) zieht aktuell keinerlei Hydro-/Catchment-/Upstream-Features; einzige Quelle ist
+hydro_impact, das bereits auf impact_eligible_auto gatet. Guard tests/test_p65_ml_hydro_gate.py
+sichert (1) keine ungegateten Hydro-Tokens in den ML-Modulen, (2) nicht-eligible Stationen erzeugen
+weder gemessene noch prognostizierte Impact-Events. Kein Code-Change. Abschluss der
+Hydro-Impact-Visualisierung (P60–P65).
