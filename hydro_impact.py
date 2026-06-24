@@ -320,7 +320,7 @@ def evaluate_hydro_impact(objects: list, timestamp: str | None = None, include_r
                     })
                 continue
             quality = station_ctx.get("quality")
-            if not station_ctx.get("enabled", True) or station_ctx.get("ignored") or station_ctx.get("impact_eligible") is not True or quality in {"unresolved", "fallback_nearest_basin", "upstream_topology_missing"}:
+            if not station_ctx.get("impact_effective", station_ctx.get("enabled", True)) or station_ctx.get("ignored") or station_ctx.get("impact_eligible_auto", station_ctx.get("impact_eligible")) is not True or quality in {"unresolved", "fallback_nearest_basin", "upstream_topology_missing"}:
                 continue
             scored = score_hydro_impact(cell, station_ctx, overlap, {"latest_hydro": latest_hydro})
             relevant = _runtime_get("HYDRO_RELEVANT_INTENSITIES", list(RELEVANT_INTENSITIES))
@@ -446,7 +446,7 @@ def evaluate_hydro_forecast_impact(objects: list, timestamp: str | None = None) 
             if isinstance(overrides, dict):
                 station_ctx.update(overrides.get(sid, {}) or {})
             quality = station_ctx.get("quality")
-            if not station_ctx.get("enabled", True) or station_ctx.get("ignored") or station_ctx.get("impact_eligible") is not True or quality in {"unresolved", "fallback_nearest_basin", "upstream_topology_missing"}:
+            if not station_ctx.get("impact_effective", station_ctx.get("enabled", True)) or station_ctx.get("ignored") or station_ctx.get("impact_eligible_auto", station_ctx.get("impact_eligible")) is not True or quality in {"unresolved", "fallback_nearest_basin", "upstream_topology_missing"}:
                 continue
             catchment_id = props.get("catchment_id") or station_ctx.get("catchment_id")
             upstream_ids = station_ctx.get("upstream_catchment_ids") or props.get("upstream_catchment_ids") or []

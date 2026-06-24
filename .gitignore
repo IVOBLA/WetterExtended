@@ -60,3 +60,6 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Persistente Hydro-Admin-Overrides
+data/config/hydro_station_overrides.json

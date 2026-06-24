@@ -8,6 +8,7 @@ from typing import Any
 
 import config
 import runtime_config
+import hydro_station_overrides
 from config import SAVE_PATHS
 
 BASE = Path(SAVE_PATHS.get("hydro", "train_data/hydro/live"))
@@ -77,8 +78,37 @@ def _has_display_coordinates(station: dict) -> bool:
 
 
 def _impact_eligible_station_count() -> int:
-    return sum(1 for station in _station_rows() if station.get("impact_eligible") is True)
+    return sum(1 for station in _station_rows() if (station.get("impact_eligible_auto", station.get("impact_eligible")) is True))
 
+def _overrides() -> dict:
+    file_overrides = hydro_station_overrides.load()
+    if file_overrides:
+        return file_overrides
+    legacy = runtime_config.get("HYDRO_STATION_OVERRIDES", {}) or {}
+    return legacy if isinstance(legacy, dict) else {}
+
+def apply_station_override(station: dict, overrides: dict | None = None) -> dict:
+    sid = str(station.get("station_id"))
+    merged = dict(station)
+    ov = (overrides or _overrides()).get(sid, {})
+    override_has_enabled = isinstance(ov, dict) and "enabled" in ov
+    if isinstance(ov, dict):
+        merged.update(ov)
+    auto_known = "impact_eligible_auto" in merged
+    auto = bool(merged.get("impact_eligible_auto", merged.get("impact_eligible") is True))
+    if not auto_known and merged.get("impact_eligible") is False and not override_has_enabled:
+        admin_enabled = True
+    else:
+        admin_enabled = bool(merged.get("impact_enabled", merged.get("enabled", True)))
+    effective = bool(auto and admin_enabled) if auto_known else admin_enabled
+    merged["_impact_auto_known"] = auto_known
+    merged["_override_has_enabled"] = override_has_enabled
+    merged["impact_eligible_auto"] = auto
+    merged["impact_enabled"] = admin_enabled
+    merged["impact_effective"] = effective
+    merged["enabled"] = effective if auto_known else admin_enabled
+    merged["impact_eligible"] = auto
+    return merged
 
 def _static_health() -> dict[str, Any]:
     status_path = STATIC_GENERATED / "hydro_static_status.json"
@@ -157,7 +187,7 @@ def _latest_status_by_event() -> dict[str, dict]:
 
 
 def _disabled_station_ids() -> set[str]:
-    overrides = runtime_config.get("HYDRO_STATION_OVERRIDES", {}) or {}
+    overrides = _overrides()
     if not isinstance(overrides, dict):
         return set()
     return {str(sid) for sid, ov in overrides.items() if isinstance(ov, dict) and ov.get("enabled") is False}
@@ -185,7 +215,7 @@ def normalized_impacts(latest_only=False, include_disabled=False):
 
 def station_features(include_disabled=False, map_view=False):
     idx = _static_index(); live = _json(LIVE_LATEST, {})
-    overrides = runtime_config.get("HYDRO_STATION_OVERRIDES", {}) or {}
+    overrides = _overrides()
     map_min_q = 0.0; map_mark_q = None
     if map_view:
         try: map_min_q = float(runtime_config.get("HYDRO_MAP_MIN_Q_M3S", 0.0) or 0.0)
@@ -197,17 +227,18 @@ def station_features(include_disabled=False, map_view=False):
     active = {str(e.get("station_id")): e for e in normalized_impacts(True, include_disabled=include_disabled) if e.get("status") in {"pending","confirmed","ambiguous"}}
     feats = []
     for sid, st in idx.items():
-        st = {**st, **(overrides.get(sid, {}) if isinstance(overrides, dict) else {})}
+        st = apply_station_override(st, overrides)
         l = by_id.get(sid, {})
         lon = st.get("lon", l.get("lon")); lat = st.get("lat", l.get("lat"))
         if lon is None or lat is None: continue
-        explicit_disabled = isinstance(overrides, dict) and isinstance(overrides.get(sid), dict) and overrides.get(sid, {}).get("enabled") is False
-        station_enabled = not explicit_disabled
-        if explicit_disabled and not include_disabled:
+        station_enabled = bool(st.get("impact_effective"))
+        admin_disabled = st.get("impact_enabled") is False and (st.get("_override_has_enabled") or not (st.get("_impact_auto_known") and st.get("impact_eligible_auto") is False))
+        explicit_disabled = admin_disabled
+        if admin_disabled and not include_disabled:
             continue
         ev = None if not station_enabled else active.get(sid)
         status_value = "disabled" if not station_enabled else (ev.get("status") if ev else ("ok" if enabled() else "disabled"))
-        props = {"station_id": sid, "name": l.get("name") or st.get("station_name") or sid, "river": l.get("river") or st.get("river_name") or "", "q_m3s": l.get("q_m3s"), "w_cm": l.get("w_cm"), "measured_at": l.get("measured_at"), "status": status_value, "enabled": station_enabled, "active": station_enabled and not bool(st.get("ignored", False)), "ignored": bool(st.get("ignored", False)), "impact_active": bool(ev) if station_enabled else False, "last_hydro_impact": ev if station_enabled else None, "station_basin": st.get("station_basin"), "upstream_catchment_ids": st.get("upstream_catchment_ids", []), "impact_eligible": st.get("impact_eligible"), "topology_source": st.get("topology_source"), "upstream_source_quality": st.get("upstream_source_quality"), "source_quality": st.get("source_quality"), "catchment_area_km2": st.get("catchment_area_km2"), "mark_q_m3s": st.get("mark_q_m3s"), "reason": "station_disabled_by_admin" if not station_enabled else st.get("reason")}
+        props = {"station_id": sid, "name": l.get("name") or st.get("station_name") or sid, "river": l.get("river") or st.get("river_name") or "", "q_m3s": l.get("q_m3s"), "w_cm": l.get("w_cm"), "measured_at": l.get("measured_at"), "status": status_value, "enabled": station_enabled, "impact_eligible_auto": st.get("impact_eligible_auto"), "impact_enabled": st.get("impact_enabled"), "impact_effective": st.get("impact_effective"), "active": station_enabled and not bool(st.get("ignored", False)), "ignored": bool(st.get("ignored", False)), "impact_active": bool(ev) if station_enabled else False, "last_hydro_impact": ev if station_enabled else None, "station_basin": st.get("station_basin"), "upstream_catchment_ids": st.get("upstream_catchment_ids", []), "impact_eligible": st.get("impact_eligible"), "topology_source": st.get("topology_source"), "upstream_source_quality": st.get("upstream_source_quality"), "source_quality": st.get("source_quality"), "catchment_area_km2": st.get("catchment_area_km2"), "mark_q_m3s": st.get("mark_q_m3s"), "exclusion_reason": st.get("exclusion_reason") or ((st.get("reason") or [None])[0] if isinstance(st.get("reason"), list) else st.get("reason")), "reason": "station_disabled_by_admin" if not station_enabled and st.get("impact_eligible_auto") else st.get("reason")}
         if map_view:
             try: _qn = float(props.get("q_m3s"))
             except (TypeError, ValueError): _qn = None
@@ -226,10 +257,12 @@ def status():
     static = _static_health()
     station_rows = _station_rows()
     station_count = len(station_rows)
+    station_rows = [apply_station_override(s) for s in station_rows]
     visible_station_count = sum(1 for station in station_rows if _has_display_coordinates(station))
-    impact_eligible_station_count = _impact_eligible_station_count()
+    impact_eligible_station_count = sum(1 for station in station_rows if station.get("impact_eligible_auto") is True)
+    enabled_station_count = sum(1 for station in station_rows if station.get("impact_effective") is True)
     if not hydro_on:
-        return {"enabled": False, "hydro_enabled": False, "static_ready": static["ready"], "static_status": "hydro_disabled", "hydro_static_missing": False, "static_error": static.get("error"), "live_ready": False, "live_ok": False, "from_cache": False, "cache_used": False, "status": "hydro_disabled", "last_fetch": None, "last_error": None, "station_count": station_count, "visible_station_count": visible_station_count, "impact_eligible_station_count": impact_eligible_station_count, "impact_pending": 0, "impact_confirmed_24h": 0}
+        return {"enabled": False, "hydro_enabled": False, "static_ready": static["ready"], "static_status": "hydro_disabled", "hydro_static_missing": False, "static_error": static.get("error"), "live_ready": False, "live_ok": False, "from_cache": False, "cache_used": False, "status": "hydro_disabled", "last_fetch": None, "last_error": None, "station_count": station_count, "visible_station_count": visible_station_count, "impact_eligible_station_count": impact_eligible_station_count, "impact_not_eligible_station_count": max(0, station_count-impact_eligible_station_count), "enabled_station_count": enabled_station_count, "disabled_station_count": max(0, impact_eligible_station_count-enabled_station_count), "impact_pending": 0, "impact_confirmed_24h": 0}
     live = _json(LIVE_STATUS, {})
     live = live if isinstance(live, dict) else {}
     impacts = normalized_impacts(False)
@@ -243,7 +276,7 @@ def status():
     coverage = doc.get("feldkirchen_coverage") or _json(STATIC_GENERATED / "hydro_static_coverage.json", {})
     coverage = coverage if isinstance(coverage, dict) else {}
     sample_eligible = [s for s in station_rows if s.get("impact_eligible") is True][:5]
-    return {"enabled": hydro_on, "hydro_enabled": hydro_on, "static_ready": static["ready"], "static_status": static["status"], "hydro_static_missing": static["status"] == "hydro_static_missing", "static_error": static.get("error"), "basins_available": doc.get("basin_count", 0) > 0, "flowlines_available": doc.get("flowline_count", 0) > 0, "feldkirchen_coverage_ok": bool(coverage.get("coverage_ok")), "basin_features_feldkirchen": int(coverage.get("basin_features_feldkirchen") or 0), "flowline_features_feldkirchen": int(coverage.get("flowline_features_feldkirchen") or 0), "impact_not_eligible_reason": static["status"] if impact_eligible_station_count <= 0 else None, "live_status": "ok" if live_ok or LIVE_LATEST.exists() else "missing", "live_station_count": live_station_count, "static_station_count": doc.get("static_station_count", doc.get("station_count", station_count)), "basin_count": doc.get("basin_count", 0), "flowline_count": doc.get("flowline_count", 0), "upstream_graph_node_count": doc.get("upstream_graph_node_count", 0), "upstream_graph_edge_count": doc.get("upstream_graph_edge_count", 0), "upstream_graph_confident_edge_count": doc.get("upstream_graph_confident_edge_count", 0), "topology_quality": doc.get("topology_quality"), "topology_warnings": doc.get("topology_warnings", []), "topology_errors": doc.get("topology_errors", []), "sample_impact_eligible_stations": sample_eligible, "downloads": doc.get("downloads", {}), "missing": doc.get("missing", []), "errors": doc.get("errors", []), "warnings": doc.get("warnings", []), "live_ready": LIVE_LATEST.exists(), "live_ok": live_ok, "from_cache": bool(live.get("from_cache")), "cache_used": bool(live.get("from_cache")), "status": overall_status, "last_fetch": live.get("updated_at") or latest_doc.get("fetched_at") if isinstance(latest_doc, dict) else live.get("updated_at"), "last_error": last_error, "station_count": station_count, "visible_station_count": visible_station_count, "impact_eligible_station_count": impact_eligible_station_count, "impact_pending": sum(e.get("status") == "pending" for e in impacts), "impact_confirmed_24h": sum(e.get("status") == "confirmed" and ((_dt(e.get("verified_at") or e.get("created_at")) or cutoff) >= cutoff) for e in impacts)}
+    return {"enabled": hydro_on, "hydro_enabled": hydro_on, "static_ready": static["ready"], "static_status": static["status"], "hydro_static_missing": static["status"] == "hydro_static_missing", "static_error": static.get("error"), "basins_available": doc.get("basin_count", 0) > 0, "flowlines_available": doc.get("flowline_count", 0) > 0, "feldkirchen_coverage_ok": bool(coverage.get("coverage_ok")), "basin_features_feldkirchen": int(coverage.get("basin_features_feldkirchen") or 0), "flowline_features_feldkirchen": int(coverage.get("flowline_features_feldkirchen") or 0), "impact_not_eligible_reason": static["status"] if impact_eligible_station_count <= 0 else None, "live_status": "ok" if live_ok or LIVE_LATEST.exists() else "missing", "live_station_count": live_station_count, "static_station_count": doc.get("static_station_count", doc.get("station_count", station_count)), "basin_count": doc.get("basin_count", 0), "flowline_count": doc.get("flowline_count", 0), "upstream_graph_node_count": doc.get("upstream_graph_node_count", 0), "upstream_graph_edge_count": doc.get("upstream_graph_edge_count", 0), "upstream_graph_confident_edge_count": doc.get("upstream_graph_confident_edge_count", 0), "topology_quality": doc.get("topology_quality"), "topology_warnings": doc.get("topology_warnings", []), "topology_errors": doc.get("topology_errors", []), "sample_impact_eligible_stations": sample_eligible, "downloads": doc.get("downloads", {}), "missing": doc.get("missing", []), "errors": doc.get("errors", []), "warnings": doc.get("warnings", []), "live_ready": LIVE_LATEST.exists(), "live_ok": live_ok, "from_cache": bool(live.get("from_cache")), "cache_used": bool(live.get("from_cache")), "status": overall_status, "last_fetch": live.get("updated_at") or latest_doc.get("fetched_at") if isinstance(latest_doc, dict) else live.get("updated_at"), "last_error": last_error, "station_count": station_count, "visible_station_count": visible_station_count, "impact_eligible_station_count": impact_eligible_station_count, "impact_not_eligible_station_count": max(0, station_count-impact_eligible_station_count), "enabled_station_count": enabled_station_count, "disabled_station_count": max(0, impact_eligible_station_count-enabled_station_count), "impact_pending": sum(e.get("status") == "pending" for e in impacts), "impact_confirmed_24h": sum(e.get("status") == "confirmed" and ((_dt(e.get("verified_at") or e.get("created_at")) or cutoff) >= cutoff) for e in impacts)}
 
 
 def catchment(station_id):

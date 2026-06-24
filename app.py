@@ -5194,6 +5194,73 @@ def _hydro_import_job():
     return state
 
 
+
+@app.route("/api/admin/hydro/stations")
+def api_admin_hydro_stations():
+    return api_hydro_stations()
+
+def _hydro_set_station_enabled(station_id, enabled):
+    import re as _re_hydro_patch
+    import hydro_api, hydro_station_overrides
+    sid = str(station_id or "")
+    if not _re_hydro_patch.fullmatch(r"[A-Za-z0-9_.:-]{1,80}", sid):
+        return _hydro_json("invalid_station_id", ok=False, error="Ungültige station_id", code=400)
+    idx = hydro_api._static_index()
+    if sid not in idx:
+        return _hydro_json("not_found", ok=False, error="Station nicht gefunden", code=404)
+    station = hydro_api.apply_station_override(idx[sid])
+    if enabled and station.get("impact_eligible_auto") is not True:
+        return _hydro_json("not_impact_eligible", ok=False, error="Station ist nicht impact_eligible_auto", code=400)
+    cur = hydro_station_overrides.patch_station(sid, {"enabled": bool(enabled)})
+    return _hydro_json("ok", data={"station_id": sid, "overrides": cur}, ok=True)
+
+@app.route("/api/admin/hydro/stations/<station_id>/enable", methods=["POST"])
+def api_admin_hydro_station_enable(station_id):
+    return _hydro_set_station_enabled(station_id, True)
+
+@app.route("/api/admin/hydro/stations/<station_id>/disable", methods=["POST"])
+def api_admin_hydro_station_disable(station_id):
+    return _hydro_set_station_enabled(station_id, False)
+
+@app.route("/api/admin/hydro/stations/enable-all", methods=["POST"])
+def api_admin_hydro_enable_all():
+    import hydro_api, hydro_station_overrides
+    overrides = hydro_station_overrides.load()
+    changed=[]
+    for sid, st in hydro_api._static_index().items():
+        if hydro_api.apply_station_override(st, overrides).get("impact_eligible_auto") is True:
+            cur=dict(overrides.get(sid,{}) or {}); cur["enabled"]=True; overrides[sid]=cur; changed.append(sid)
+    hydro_station_overrides.save(overrides)
+    return _hydro_json("ok", data={"changed": len(changed), "station_ids": changed}, ok=True)
+
+@app.route("/api/admin/hydro/stations/disable-all", methods=["POST"])
+def api_admin_hydro_disable_all():
+    import hydro_api, hydro_station_overrides
+    overrides = hydro_station_overrides.load(); changed=[]
+    for sid, st in hydro_api._static_index().items():
+        if hydro_api.apply_station_override(st, overrides).get("impact_eligible_auto") is True:
+            cur=dict(overrides.get(sid,{}) or {}); cur["enabled"]=False; overrides[sid]=cur; changed.append(sid)
+    hydro_station_overrides.save(overrides)
+    return _hydro_json("ok", data={"changed": len(changed), "station_ids": changed}, ok=True)
+
+@app.route("/api/admin/hydro/stations/bulk-update", methods=["POST"])
+def api_admin_hydro_bulk_update():
+    data = request.get_json(silent=True) or {}
+    updates = data.get("stations") if isinstance(data, dict) else None
+    if not isinstance(updates, list):
+        return _hydro_json("invalid_request", ok=False, error="stations-Liste erwartet", code=400)
+    import hydro_api, hydro_station_overrides
+    idx = hydro_api._static_index(); overrides = hydro_station_overrides.load(); changed=[]
+    for row in updates:
+        if not isinstance(row, dict) or "station_id" not in row or "enabled" not in row: continue
+        sid=str(row["station_id"]); want=bool(row["enabled"])
+        if sid not in idx: continue
+        if want and hydro_api.apply_station_override(idx[sid], overrides).get("impact_eligible_auto") is not True:
+            return _hydro_json("not_impact_eligible", ok=False, error=f"Station {sid} ist nicht impact_eligible_auto", code=400)
+        cur=dict(overrides.get(sid,{}) or {}); cur["enabled"]=want; overrides[sid]=cur; changed.append(sid)
+    hydro_station_overrides.save(overrides)
+    return _hydro_json("ok", data={"changed": len(changed), "station_ids": changed}, ok=True)
+
 @app.route("/api/admin/hydro/reload-static", methods=["POST"])
 @app.route("/api/hydro/reload-static", methods=["POST"])
 def api_hydro_reload_static():
@@ -5248,6 +5315,7 @@ def api_hydro_station_patch_path_rejected(station_id):
 def api_hydro_station_patch(station_id):
     import re as _re_hydro_patch
     import runtime_config
+    import hydro_api, hydro_station_overrides
     sid = str(station_id or "")
     if not _re_hydro_patch.fullmatch(r"[A-Za-z0-9_.:-]{1,80}", sid):
         return _hydro_json("invalid_station_id", ok=False, error="Ungültige station_id", code=400)
@@ -5259,12 +5327,14 @@ def api_hydro_station_patch(station_id):
     if unknown:
         return _hydro_json("invalid_request", ok=False, error=f"Unbekannte Felder: {', '.join(unknown)}", code=400)
     key = "HYDRO_STATION_OVERRIDES"
-    overrides = dict(runtime_config.get(key, {}) or {})
+    overrides = hydro_station_overrides.load()
     cur = dict(overrides.get(sid, {}) or {})
     changed = []
     if "enabled" in data:
         if not isinstance(data["enabled"], bool):
             return _hydro_json("invalid_request", ok=False, error="enabled muss bool sein", code=400)
+        if data["enabled"] and hydro_api.apply_station_override((hydro_api._static_index()).get(sid, {}), overrides).get("impact_eligible_auto") is not True:
+            return _hydro_json("not_impact_eligible", ok=False, error="Station ist nicht impact_eligible_auto", code=400)
         cur["enabled"] = data["enabled"]; changed.append("enabled")
     for k in ("default_lag_min", "estimated_lag_min"):
         if k in data:
@@ -5289,7 +5359,7 @@ def api_hydro_station_patch(station_id):
                 return _hydro_json("invalid_request", ok=False, error="mark_q_m3s muss >= 0 sein", code=400)
             cur["mark_q_m3s"] = vv; changed.append("mark_q_m3s")
     overrides[sid] = cur
-    runtime_config.patch_exact_key(key, overrides)  # B244: kein deep-merge (löscht mark_q_m3s)
+    hydro_station_overrides.save(overrides)
     return _hydro_json("ok", data={"station_id": sid, "overrides": cur, "changed_keys": changed}, ok=True)
 
 if __name__ == "__main__":
