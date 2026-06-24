@@ -3077,3 +3077,10 @@ Status: erledigt. MapView.jsx: zwei schaltbare Layer — Flussabschnitte als Pol
 Warnfarbe (#dc2626), betroffene Orte als 💧-DivIcon-Symbol (keine Einfaerbung des Punktes). Popups
 mit q_current/q_forecast/q_threshold/impact_source/Entfernungen; Stations-Popup um Prognose/Warngrenze
 erweitert. JSX mit esbuild validiert. Offen: P65.
+
+
+## B246 — Drift-Alarm nur bei echter Verschlechterung (2026-06-24)
+- Drift ist jetzt strikt eine relative Verschlechterung gegenüber der Baseline: `mae_recent > mae_baseline + DRIFT_MAE_THRESHOLD_KM`.
+- Der absolute Kurzhorizont-Grenzwert bleibt als Qualitätsziel erhalten, löst aber keine Drift-Mail mehr aus, wenn das Modell stabil ist oder sich verbessert.
+- `/api/drift` bleibt kompatibel und ergänzt `model_status`, `quality_target_met`, `quality_status` und `quality_message` für Dashboard-Hinweise.
+- Alarm-Mails mit Betreff `⚠️ WetterExtended – Model-Drift erkannt` werden ausschließlich bei echtem relativen Drift versendet.

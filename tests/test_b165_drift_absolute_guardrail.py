@@ -1,8 +1,7 @@
 """
 tests/test_b165_drift_absolute_guardrail.py
 
-B165: Der Drift-Detektor erkennt jetzt auch einen KONSTANT hohen Kurzhorizont-Fehler
-(Verletzung der Zieldefinition ≤30 min < 1 km), nicht nur relative Verschlechterung.
+B165/B246: Der Kurzhorizont-Grenzwert ist ein Qualitätsziel und löst ohne relative Verschlechterung keinen Drift-Alarm aus.
 
 _read_history und _has_ml_model werden gemockt; _STATUS_FILE/_EVAL_DIR auf tmp gelenkt.
 
@@ -33,17 +32,17 @@ def _isolate(tmp_path, monkeypatch):
     yield
 
 
-def test_absolute_guardrail_fires_on_constant_high_short_horizon(monkeypatch):
+def test_quality_target_missed_does_not_fire_drift_on_constant_high_short_horizon(monkeypatch):
     # Konstant ~10 km bei +10/+30 min, KEINE relative Verschlechterung (recent==baseline).
     recent = [_rec(1 + i, [{"horizon": 10, "mae_km": 10.0}, {"horizon": 30, "mae_km": 10.0}]) for i in range(4)]
     baseline = [_rec(40 + i, [{"horizon": 10, "mae_km": 10.0}, {"horizon": 30, "mae_km": 10.0}]) for i in range(4)]
     monkeypatch.setattr(dd, "_read_history", lambda: recent + baseline, raising=True)
 
     res = dd.check_drift()
-    assert res["drift_detected"] is True
-    assert res["drift_reason"] in ("absolute", "relative+absolute")
+    assert res["drift_detected"] is False
+    assert res["drift_reason"] is None
+    assert res["quality_target_met"] is False
     assert res["mae_recent_short_km"] is not None and res["mae_recent_short_km"] > 1.0
-    # relativ stabil → der relative Pfad allein hätte NICHT ausgelöst
     assert (res["delta_km"] or 0.0) <= dd.DRIFT_MAE_THRESHOLD_KM
 
 
@@ -67,7 +66,7 @@ def test_long_horizon_does_not_trigger_short_guardrail(monkeypatch):
     res = dd.check_drift()
     # Kurzhorizont-MAE (nur +10 min) ist gut → absolute Schwelle nicht verletzt
     assert res["mae_recent_short_km"] <= dd.DRIFT_MAE_ABS_MAX_KM
-    assert res["drift_reason"] != "absolute"
+    assert res["drift_detected"] is False
 
 
 def test_no_absolute_alarm_without_ml_model(monkeypatch):
@@ -78,7 +77,7 @@ def test_no_absolute_alarm_without_ml_model(monkeypatch):
 
     res = dd.check_drift()
     # Ohne ML-Modell (kinematischer Fallback) KEIN absoluter Alarm.
-    assert res["drift_reason"] != "absolute"
+    assert res["drift_detected"] is False
 
 
 def test_relative_drift_still_detected(monkeypatch):

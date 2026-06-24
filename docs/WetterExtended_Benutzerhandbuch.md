@@ -448,7 +448,7 @@ Lernkurven (Loss über Epochen) für LSTM und ConvLSTM als Recharts-Grafik.
 
 Closed-Loop-Verifikation: MAE, Hit-Rate und durchschnittliche Abweichung pro Horizont über einstellbaren Zeitraum.
 
-**Absoluter Kurzhorizont-Wächter (B165):** Zusätzlich zur relativen Trendüberwachung schlägt die Drift-Detection Alarm, sobald der mittlere Positionsfehler der Horizonte ≤ `DRIFT_SHORT_HORIZON_MAX_MIN` (Standard 30 min) die absolute Grenze `DRIFT_MAE_ABS_MAX_KM` (Standard 1,0 km) überschreitet — auch wenn sich der Fehler nicht *verschlechtert*. Das setzt die Zielvorgabe „≤30 min < 1 km" durch. Der Alarm-Grund (`relative`/`absolute`/`relative+absolute`) erscheint in der Drift-Mail und unter `/api/drift`. Nur bei aktivem ML-Modell aktiv (kein Alarm im kinematischen Fallback).
+**Drift und Qualitätsziel:** Die Drift-Detection trennt zwei Konzepte strikt: **Drift** ist ausschließlich eine Verschlechterung gegenüber der Baseline (`mae_recent > mae_baseline + DRIFT_MAE_THRESHOLD_KM`) und löst nur dann eine Alarm-Mail aus. Der Kurzhorizont-Grenzwert `DRIFT_MAE_ABS_MAX_KM` für Horizonte ≤ `DRIFT_SHORT_HORIZON_MAX_MIN` ist dagegen ein **Qualitätsziel**. Wird dieses Ziel nicht erreicht, erscheint im Dashboard/API-Status nur ein Qualitäts-Hinweis (`quality_status`), aber keine Drift-Mail, solange sich das Modell gegenüber der Baseline verbessert oder stabil bleibt. `/api/drift` liefert zusätzlich `model_status` (`improved`, `stable`, `drift`) sowie `quality_target_met`/`quality_status`.
 
 ## ML-Lernfortschritt — Champion vs. Challenger (Z02/P54) [NEU]
 

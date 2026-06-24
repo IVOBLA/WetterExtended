@@ -26,8 +26,8 @@ DRIFT_WINDOW_RECENT_H = int(os.getenv("DRIFT_WINDOW_RECENT_H", "24"))
 DRIFT_WINDOW_BASELINE_H = int(os.getenv("DRIFT_WINDOW_BASELINE_H", "168"))
 DRIFT_MAE_THRESHOLD_KM = float(os.getenv("DRIFT_MAE_THRESHOLD_KM", "2.0"))
 DRIFT_MIN_POINTS = int(os.getenv("DRIFT_MIN_POINTS", "3"))
-# B165: Absoluter Kurzhorizont-Wächter — kodiert die Zieldefinition
-# (≤30 min < 1 km). Greift unabhängig vom relativen Trend.
+# Absoluter Kurzhorizont-Grenzwert: Qualitätsziel, kein Drift-Auslöser.
+# Zielverletzungen werden separat im Status ausgewiesen.
 DRIFT_MAE_ABS_MAX_KM = float(os.getenv("DRIFT_MAE_ABS_MAX_KM", "1.0"))
 DRIFT_SHORT_HORIZON_MAX_MIN = float(os.getenv("DRIFT_SHORT_HORIZON_MAX_MIN", "30"))
 
@@ -115,6 +115,10 @@ def check_drift() -> dict:
         "mae_recent_short_km": mae_recent_short,
         "short_horizon_max_min": DRIFT_SHORT_HORIZON_MAX_MIN,
         "abs_threshold_km": DRIFT_MAE_ABS_MAX_KM,
+        "quality_target_met": None,
+        "quality_status": "unknown",
+        "quality_message": "Zu wenige Kurzhorizont-Messpunkte für Qualitätsziel-Auswertung.",
+        "model_status": "unknown",
         "delta_km": None,
         "threshold_km": DRIFT_MAE_THRESHOLD_KM,
         "recent_points": len(recent_recs),
@@ -135,43 +139,39 @@ def check_drift() -> dict:
         if delta > DRIFT_MAE_THRESHOLD_KM:
             result["drift_detected"] = True
             result["drift_reason"] = "relative"
+            result["model_status"] = "drift"
             result["message"] = (
                 f"⚠️ Model-Drift erkannt: MAE verschlechtert um {delta:.2f} km "
                 f"(recent={mae_recent:.2f} km vs. baseline={mae_baseline:.2f} km, "
                 f"Threshold={DRIFT_MAE_THRESHOLD_KM} km)"
             )
             debug_log(f"[DRIFT] {result['message']}")
+        elif mae_recent < mae_baseline:
+            result["model_status"] = "improved"
+            result["message"] = (
+                f"ℹ️ Modellqualität verbessert: delta={delta:+.2f} km "
+                f"(recent={mae_recent:.2f} km, baseline={mae_baseline:.2f} km)"
+            )
         else:
+            result["model_status"] = "stable"
             result["message"] = (
                 f"Model stabil: delta={delta:+.2f} km "
                 f"(recent={mae_recent:.2f} km, baseline={mae_baseline:.2f} km)"
             )
 
-    # B165: Absoluter Kurzhorizont-Wächter — erzwingt die Zieldefinition
-    # (≤ DRIFT_SHORT_HORIZON_MAX_MIN min < DRIFT_MAE_ABS_MAX_KM km). Greift
-    # UNABHÄNGIG vom relativen Trend (ein konstant hoher Kurzhorizont-Fehler galt
-    # bisher als „stabil"). Nur bei aktivem ML-Modell, sonst erzeugt der erwartbar
-    # höhere kinematische Fallback-Fehler Fehlalarme.
-    if (
-        mae_recent_short is not None
-        and len(recent_recs) >= DRIFT_MIN_POINTS
-        and mae_recent_short > DRIFT_MAE_ABS_MAX_KM
-        and _has_ml_model()
-    ):
-        result["drift_detected"] = True
-        result["drift_reason"] = (
-            "relative+absolute" if result.get("drift_reason") == "relative" else "absolute"
-        )
-        _abs_msg = (
-            f"⚠️ Kurzhorizont-Genauigkeit verletzt Zielvorgabe: "
-            f"MAE(≤{int(DRIFT_SHORT_HORIZON_MAX_MIN)} min) = {mae_recent_short:.2f} km "
-            f"> {DRIFT_MAE_ABS_MAX_KM} km (Ziel < 1 km)."
-        )
-        result["message"] = (
-            f"{result['message']} | {_abs_msg}"
-            if result.get("drift_reason") == "relative+absolute" else _abs_msg
-        )
-        debug_log(f"[DRIFT] {_abs_msg}")
+    if mae_recent_short is not None and len(recent_recs) >= DRIFT_MIN_POINTS:
+        quality_missed = mae_recent_short > DRIFT_MAE_ABS_MAX_KM
+        result["quality_target_met"] = not quality_missed
+        result["quality_status"] = "missed" if quality_missed else "met"
+        if quality_missed:
+            result["quality_message"] = (
+                "Das Modell verbessert sich, erreicht die konfigurierte Zielqualität jedoch noch nicht."
+                if mae_recent is not None and mae_baseline is not None and mae_recent <= mae_baseline
+                else f"Qualitätsziel noch nicht erreicht: MAE(≤{int(DRIFT_SHORT_HORIZON_MAX_MIN)} min) "
+                     f"= {mae_recent_short:.2f} km > {DRIFT_MAE_ABS_MAX_KM} km."
+            )
+        else:
+            result["quality_message"] = "Qualitätsziel erreicht."
 
     try:
         from forecast_error_diagnosis import build_forecast_error_diagnosis
