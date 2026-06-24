@@ -298,31 +298,9 @@ def log_api_call(service: str, url: str = "", status_code: int = 200,
     except Exception:
         pass  # Nie den Hauptprozess blockieren
 
-    try:
-        from external_response_logger import persist_external_response
-        _body = resp_body.get("body_json") if resp_body.get("body_json") is not None else resp_body.get("body_text")
-        if resp_body.get("binary"):
-            _body = {
-                "binary": True,
-                "content_type": content_type,
-                "content_length": resp_body.get("content_length"),
-                "sha256": resp_body.get("sha256"),
-                "saved_to": resp_body.get("saved_to"),
-            }
-        persist_external_response(
-            service,
-            url=s_url,
-            method=method,
-            status_code=status_code,
-            duration_ms=duration_ms,
-            request_headers=None,
-            response_headers=None,
-            response_body=_body,
-            fallback=bool(error),
-            error=error,
-        )
-    except Exception:
-        pass
+    # B241: Generisches API-Call-Logging darf keine Response-Snapshots in
+    # train_data/external_responses/<service>/ schreiben. Externe Response-Artefakte
+    # werden nur noch von expliziten Snapshot-/Debug-Pfaden erzeugt.
 
 
 def log_http_response(

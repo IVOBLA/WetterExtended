@@ -191,6 +191,8 @@ def build_upstream_basin_graph(basins, flowlines) -> dict:
 
 def get_upstream_basin_ids(station_basin_id, graph) -> list[str]:
     if not station_basin_id: return []
+    if str(station_basin_id) in {str(x) for x in (graph.get("cycle_nodes") or [])}:
+        return []
     seen={str(station_basin_id)}; q=deque([str(station_basin_id)])
     up=graph.get("upstream_by_basin") or {}
     while q:

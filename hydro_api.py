@@ -81,11 +81,14 @@ def _impact_eligible_station_count() -> int:
     return sum(1 for station in _station_rows() if (station.get("impact_eligible_auto", station.get("impact_eligible")) is True))
 
 def _overrides() -> dict:
-    file_overrides = hydro_station_overrides.load()
-    if file_overrides:
-        return file_overrides
     legacy = runtime_config.get("HYDRO_STATION_OVERRIDES", {}) or {}
-    return legacy if isinstance(legacy, dict) else {}
+    legacy = legacy if isinstance(legacy, dict) else {}
+    file_overrides = hydro_station_overrides.load()
+    if not isinstance(file_overrides, dict):
+        file_overrides = {}
+    merged = dict(file_overrides)
+    merged.update(legacy)
+    return merged
 
 def apply_station_override(station: dict, overrides: dict | None = None) -> dict:
     sid = str(station.get("station_id"))
@@ -227,6 +230,8 @@ def station_features(include_disabled=False, map_view=False):
     active = {str(e.get("station_id")): e for e in normalized_impacts(True, include_disabled=include_disabled) if e.get("status") in {"pending","confirmed","ambiguous"}}
     feats = []
     for sid, st in idx.items():
+        if "station_id" not in st:
+            st = {**st, "station_id": sid}
         st = apply_station_override(st, overrides)
         l = by_id.get(sid, {})
         lon = st.get("lon", l.get("lon")); lat = st.get("lat", l.get("lat"))
