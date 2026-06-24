@@ -3062,3 +3062,11 @@ impact_eligible_auto Station die Vereinigung der Flowlines in {station_basin} u 
 (topologisch, kein Hardcode) inkl. segment_length_km. status.river_segment_count ergaenzt.
 Neuer Endpoint /api/hydro/impact-segments liefert nur Stationen mit ueberschrittener Warngrenze (P61),
 angereichert um q_current/q_forecast/q_threshold/impact_source/updated_at. Offen: P63, P64, P65.
+
+## P63 — Betroffene Orte /api/hydro/affected-places (2026-06-24)
+
+Status: erledigt. impact_segments wurde in geteilte Helfer (_active_segment_features,
+_affected_place_rows) refaktoriert (kein Zirkelbezug) und fuellt nun affected_places je Segment.
+Neuer Endpoint /api/hydro/affected-places: Watchlist-Orte im Puffer HYDRO_IMPACT_PLACE_BUFFER_KM
+(Default 1.0 km) um aktive Abschnitte, mit Popup-Daten (place_name, river, station, impact_source,
+q-Werte, distance_to_river_km, distance_to_station_km). Offen: P64, P65.

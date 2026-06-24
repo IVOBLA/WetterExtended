@@ -1173,6 +1173,9 @@ HYDRO_FORECAST_SINGLE_HIT_DWELL_MIN = 10.0
 # kein Ersatz fuer amtliche Hochwasserwarnungen.
 HYDRO_FORECAST_RUNOFF_COEFF = 0.4
 HYDRO_FORECAST_ROUTING_ATTENUATION = 1.0
+# P63: Pufferradius (km) um den betroffenen Flussabschnitt, in dem Watchlist-Orte als
+# betroffen markiert werden.
+HYDRO_IMPACT_PLACE_BUFFER_KM = 1.0
 HYDRO_MAP_MIN_Q_M3S = 0.0
 HYDRO_MAP_MARK_Q_M3S = None
 HYDRO_KMZ_INCLUDE_CATCHMENTS = False

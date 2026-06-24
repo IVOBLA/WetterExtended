@@ -5293,6 +5293,11 @@ def api_hydro_impact_segments():
     return _hydro_safe(lambda: __import__("hydro_api").impact_segments(), "hydro_impact_segments_error")
 
 
+@app.route("/api/hydro/affected-places")
+def api_hydro_affected_places():
+    return _hydro_safe(lambda: __import__("hydro_api").affected_places(), "hydro_affected_places_error")
+
+
 @app.route("/api/hydro/import-status")
 def api_hydro_import_status():
     return _hydro_safe(lambda: {"status": "ok", "job": _hydro_import_job()}, "hydro_status_error")

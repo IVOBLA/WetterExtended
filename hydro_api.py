@@ -354,31 +354,107 @@ def catchments_all():
     return fc
 
 
-def impact_segments():
-    """GeoJSON der betroffenen Flussabschnitte: nur Stationen mit ueberschrittener Warngrenze
-    (gemessen oder prognostiziert). Reichert das statische Segment-Generat um Live-/Forecast-q an."""
+def _segment_linestrings(geom):
+    if not isinstance(geom, dict):
+        return []
+    t = geom.get("type"); c = geom.get("coordinates")
+    if t == "LineString" and isinstance(c, list):
+        return [c]
+    if t == "MultiLineString" and isinstance(c, list):
+        return list(c)
+    return []
+
+
+def _active_segment_features():
+    """Aktive Flussabschnitte (Warngrenze ueberschritten) mit q-Kontext; ohne affected_places.
+    Liefert zusaetzlich die Stationskoordinaten je station_id."""
     fc = _json(STATIC_GENERATED / "station_river_segments.geojson", {"type": "FeatureCollection", "features": []})
     if not isinstance(fc, dict):
-        return {"type": "FeatureCollection", "features": []}
+        return [], {}
     seg_by_sid = {str((f.get("properties") or {}).get("station_id")): f for f in fc.get("features", []) if isinstance(f, dict)}
     live = _json(LIVE_LATEST, {})
     updated_at = live.get("fetched_at") if isinstance(live, dict) else None
-    out = []
+    out = []; station_coords = {}
     for feat in station_features(include_disabled=False).get("features", []):
         p = feat.get("properties") or {}
         if not p.get("q_threshold_exceeded"):
             continue
-        seg = seg_by_sid.get(str(p.get("station_id")))
+        sid = str(p.get("station_id"))
+        seg = seg_by_sid.get(sid)
         if not seg:
             continue
+        coords = (feat.get("geometry") or {}).get("coordinates") or [None, None]
+        station_coords[sid] = (coords[0], coords[1])
         props = dict(seg.get("properties") or {})
         props.update({
             "impact_source": p.get("impact_source"),
             "q_current": p.get("q_current"),
             "q_forecast": p.get("q_forecast"),
             "q_threshold": p.get("q_threshold"),
-            "affected_places": [],
             "updated_at": updated_at,
         })
         out.append({"type": "Feature", "geometry": seg.get("geometry"), "properties": props})
-    return {"type": "FeatureCollection", "features": out}
+    return out, station_coords
+
+
+def _place_buffer_km() -> float:
+    try:
+        return float(runtime_config.get("HYDRO_IMPACT_PLACE_BUFFER_KM", getattr(config, "HYDRO_IMPACT_PLACE_BUFFER_KM", 1.0)) or 1.0)
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def _affected_place_rows(seg_features, station_coords):
+    from hydro_geography import point_to_linestring_distance_m, haversine_m
+    buffer_km = _place_buffer_km()
+    places = runtime_config.get("LOCATIONS_WATCHLIST", getattr(config, "LOCATIONS_WATCHLIST", [])) or []
+    rows = []
+    for seg in seg_features:
+        sp = seg.get("properties") or {}
+        sid = str(sp.get("station_id"))
+        lines = _segment_linestrings(seg.get("geometry") or {})
+        if not lines:
+            continue
+        scoord = station_coords.get(sid)
+        for place in places:
+            try:
+                plat = float(place.get("lat")); plon = float(place.get("lon"))
+            except (TypeError, ValueError):
+                continue
+            d_river = min((point_to_linestring_distance_m(plon, plat, ls) for ls in lines), default=float("inf"))
+            if d_river / 1000.0 > buffer_km:
+                continue
+            d_station = haversine_m(plon, plat, scoord[0], scoord[1]) if scoord and scoord[0] is not None else None
+            rows.append({
+                "place_name": place.get("name"), "lon": plon, "lat": plat,
+                "station_id": sid, "station_name": sp.get("station_name"), "river": sp.get("river"),
+                "impact_source": sp.get("impact_source"),
+                "distance_to_river_km": round(d_river / 1000.0, 3),
+                "distance_to_station_km": round(d_station / 1000.0, 3) if d_station is not None else None,
+                "q_current": sp.get("q_current"), "q_forecast": sp.get("q_forecast"), "q_threshold": sp.get("q_threshold"),
+            })
+    return rows
+
+
+def impact_segments():
+    """GeoJSON der betroffenen Flussabschnitte (nur ueberschrittene Warngrenze), inkl. betroffener Orte."""
+    seg_features, station_coords = _active_segment_features()
+    rows = _affected_place_rows(seg_features, station_coords)
+    names_by_sid = {}
+    for r in rows:
+        names_by_sid.setdefault(str(r["station_id"]), []).append(r["place_name"])
+    for seg in seg_features:
+        sid = str((seg.get("properties") or {}).get("station_id"))
+        seg["properties"]["affected_places"] = names_by_sid.get(sid, [])
+    return {"type": "FeatureCollection", "features": seg_features}
+
+
+def affected_places():
+    """GeoJSON der betroffenen Orte (Watchlist-Orte im Puffer um aktive Flussabschnitte)."""
+    seg_features, station_coords = _active_segment_features()
+    rows = _affected_place_rows(seg_features, station_coords)
+    feats = []
+    for r in rows:
+        props = {k: v for k, v in r.items() if k not in ("lon", "lat")}
+        feats.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [r["lon"], r["lat"]]}, "properties": props})
+    return {"type": "FeatureCollection", "features": feats}

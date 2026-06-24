@@ -2710,3 +2710,10 @@ oder beides. Ist keine Warngrenze gesetzt, gilt die Station nie als betroffen.
 Bei überschrittener Warngrenze wird der betroffene Flussabschnitt einer Station auf der Karte
 hervorgehoben. Der Abschnitt umfasst das Gewässer im Einzugsgebiet der Station sowie in deren
 oberliegenden Einzugsgebieten und wird aus der Gewässer-Topologie abgeleitet.
+
+## Betroffene Orte
+
+Liegen beobachtete Orte (Watchlist) innerhalb eines einstellbaren Pufferradius um einen aktiven
+Flussabschnitt, werden sie als betroffen markiert. Pro Ort werden das betroffene Gewässer, die
+zugehörige Station, die Quelle der Überschreitung sowie die Entfernungen zum Fluss und zur Station
+angezeigt. Der Pufferradius ist konfigurierbar.
