@@ -138,6 +138,29 @@ def _isolate_evaluation_writes(tmp_path, monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _isolate_external_response_logger(tmp_path, monkeypatch):
+    """B241: Phase-9-Tests (z. B. test_b149 'service t' -> example.invalid) schreiben über
+    http_retry -> debug_utils.log_api_call -> external_response_logger.persist_external_response
+    (Default base_dir='.') echte Dateien nach train_data/external_responses/<service>/ und
+    lecken so in den Produktions-Debug-Export. Diese Fixture lenkt jeden Aufruf pro Test ins
+    tmp-Verzeichnis um (lazy-import in debug_utils greift den Modul-Attribut-Patch). Reine
+    Test-Isolation, kein Produktionscode (analog B216/B233)."""
+    try:
+        import external_response_logger as _erl
+    except Exception:
+        yield
+        return
+    _orig = _erl.persist_external_response
+
+    def _redirected(*args, **kwargs):
+        kwargs["base_dir"] = str(tmp_path)
+        return _orig(*args, **kwargs)
+
+    monkeypatch.setattr(_erl, "persist_external_response", _redirected)
+    yield
+
+
 def _drop_numpy_contaminated_modules():
     """
     B127/B219: Entfernt kontaminierte `prediction`/`model_training`-Imports.

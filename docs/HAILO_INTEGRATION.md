@@ -3005,3 +3005,11 @@ Linienstil und Popup-Felder.
   Promotion-Pfaden: Promotion nur wenn mae_new <= kin_baseline. Encoding-robust (delta|absolute),
   Baseline-Werte in training_meta.validation.
 - Test: tests/test_b243_baseline_gate.py.
+
+## B241 — Test-Isolation: external_response_logger (Service "t"/example.invalid) (2026-06-24)
+- Status: Neulieferung (war nicht eingespielt).
+- Ursache: test_b149 (service="t") schrieb über persist_external_response(base_dir=".")
+  echte Dateien nach train_data/external_responses/t/ — Leck in den Debug-Export.
+- Fix: autouse-Fixture _isolate_external_response_logger in tests/conftest.py lenkt
+  persist_external_response pro Test ins tmp. KI-Befund F6 war Fehldiagnose.
+- Test: tests/test_b241_external_response_isolation.py.
