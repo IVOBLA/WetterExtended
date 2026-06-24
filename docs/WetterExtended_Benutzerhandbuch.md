@@ -2681,3 +2681,10 @@ relativ zur aktuellen Position (statt einer absoluten Kartenposition). Das erlei
 Modell die Aufgabe und reduziert die Tendenz, Vorhersagen zur Kartenmitte zu ziehen. Die
 Umstellung wirkt automatisch nach dem nächsten erfolgreichen Training; bis dahin bleibt die
 bisherige Vorhersage unverändert aktiv.
+
+### Optischer Fluss: Qualitätsgate für große Radar-Lücken (P59)
+Bei längeren Radarausfällen (> 8 Minuten zwischen zwei Frames) wird der optische Fluss
+automatisch verworfen und durch die EWMA-Bewegungsgeschichte ersetzt. Das verhindert
+systematische Richtungsfehler, die bei großen Pixelverschiebungen im Lucas-Kanade-Algorithmus
+auftreten. Der Schwellwert `OF_MAX_FRAME_INTERVAL_MIN` (Standard: 8 min) ist im Admin-Panel
+unter Runtime-Konfiguration anpassbar.

@@ -280,6 +280,10 @@ PX_TO_KMH: float = 4.0
 # Fehlende Frames (Lücken 10–20 min) werden über die echten History-Timestamps
 # korrigiert (object_tracking.py speed_kmh, prediction.py _actual_frame_min).
 FRAME_INTERVAL_MIN: float = 5.0
+# P59: Maximales Frame-Intervall für Optical-Flow-Nutzung. Lucas-Kanade versagt bei
+# Pixelverschiebungen > Suchfenstergröße (große Frame-Lücken durch ARSO-Ausfall).
+# Bei _fm_of > Schwellwert → EWMA/History-Fallback statt OF.
+OF_MAX_FRAME_INTERVAL_MIN: float = 8.0
 
 # ── Kinematisches Tracking / EWMA (P27) ──────────────────────────────────────
 TRACK_HISTORY_LEN: int = 6          # History-Buffer pro Zelle in Frames (min. 2, empfohlen 4–8)

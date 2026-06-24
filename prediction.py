@@ -57,6 +57,7 @@ from config import (
     ML_FORCE_KINEMATIC as _STATIC_ML_FORCE_KINEMATIC,
     MAX_CELL_SPEED_KMH as _STATIC_MAX_CELL_SPEED_KMH,
     BBOX_KAERNTEN_EXTENDED as _STATIC_BBOX_KAERNTEN_EXTENDED,
+    OF_MAX_FRAME_INTERVAL_MIN as _STATIC_OF_MAX_FM,
     STEERING_BLEND_ENABLED as _STATIC_STEERING_BLEND_ENABLED,
     STEERING_BLEND_MAX_ACTIVE_FRAMES as _STATIC_STEERING_BLEND_MAX_ACTIVE_FRAMES,
     STEERING_BLEND_MIN_ANGLE_DEG as _STATIC_STEERING_BLEND_MIN_ANGLE_DEG,
@@ -489,9 +490,16 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
         _fm_of = _actual_frame_min(_history_full, float(_FRAME_MIN) if _FRAME_MIN else 5.0)
         if not _fm_of or _fm_of <= 0.0:
             _fm_of = 5.0
-        avg_vx = _safe_float(obj.get("of_vx", 0.0)) / _fm_of
-        avg_vy = _safe_float(obj.get("of_vy", 0.0)) / _fm_of
-        src = f"optflow_fm{round(_fm_of, 1)}"
+        # P59: Lucas-Kanade versagt bei großen Pixelverschiebungen (lange Frame-Lücken).
+        # Bei _fm_of > OF_MAX_FRAME_INTERVAL_MIN wird OF verworfen → EWMA-Fallback.
+        _of_max = float(_runtime_cfg.get("OF_MAX_FRAME_INTERVAL_MIN", _STATIC_OF_MAX_FM)
+                        if _runtime_cfg else _STATIC_OF_MAX_FM)
+        if _fm_of <= _of_max:
+            avg_vx = _safe_float(obj.get("of_vx", 0.0)) / _fm_of
+            avg_vy = _safe_float(obj.get("of_vy", 0.0)) / _fm_of
+            src = f"optflow_fm{round(_fm_of, 1)}"
+        else:
+            obj["of_error_reason"] = f"interval_too_large_fm{round(_fm_of, 1)}"
 
     # B166: Diagnose-Marker — Merge/Split-Glättung wurde auf den History/EWMA-Pfad
     # angewandt (beim optischen Fluss nicht relevant, da feldbasiert/sprung-robust).
