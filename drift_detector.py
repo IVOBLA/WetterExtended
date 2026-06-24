@@ -173,6 +173,28 @@ def check_drift() -> dict:
         else:
             result["quality_message"] = "Qualitätsziel erreicht."
 
+        # Wenn noch kein Baseline-Fenster vorhanden ist, kann der relative
+        # Drift-Pfad oben nicht greifen. In diesem Bootstrap-Fall behalten wir
+        # den bisherigen Alarm für deutlich verfehlte Kurzhorizont-Qualität bei,
+        # damit ein neu gestartetes System mit bereits schlechtem ML-Modell nicht
+        # stumm bleibt. Sobald eine Baseline vorhanden ist, bleibt das absolute
+        # Qualitätsziel bewusst ein separater Status und löst keinen Drift aus.
+        if (
+            quality_missed
+            and not result["drift_detected"]
+            and mae_baseline is None
+            and len(baseline_recs) < DRIFT_MIN_POINTS
+            and _has_ml_model()
+        ):
+            result["drift_detected"] = True
+            result["drift_reason"] = "bootstrap_quality"
+            result["model_status"] = "drift"
+            result["message"] = (
+                f"⚠️ Model-Drift/Qualitätsalarm ohne Baseline: "
+                f"MAE(≤{int(DRIFT_SHORT_HORIZON_MAX_MIN)} min) "
+                f"= {mae_recent_short:.2f} km > {DRIFT_MAE_ABS_MAX_KM} km."
+            )
+
     try:
         from forecast_error_diagnosis import build_forecast_error_diagnosis
         _diag = build_forecast_error_diagnosis(
