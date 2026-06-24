@@ -3013,3 +3013,12 @@ Linienstil und Popup-Felder.
 - Fix: autouse-Fixture _isolate_external_response_logger in tests/conftest.py lenkt
   persist_external_response pro Test ins tmp. KI-Befund F6 war Fehldiagnose.
 - Test: tests/test_b241_external_response_isolation.py.
+
+## B244 — Null-Threshold mark_q_m3s persistiert durch _deep_merge (2026-06-24)
+- Ursache: api_hydro_station_patch (app.py) rief runtime_config.patch({HYDRO_STATION_OVERRIDES:...})
+  auf. _deep_merge rekursierte in den Station-Sub-Dict und kopierte mark_q_m3s aus _OVERRIDES
+  zurück, obwohl cur.pop("mark_q_m3s") es entfernt hatte. Der alte Schwellwert blieb aktiv.
+- Fix: runtime_config.patch_exact_key(top_key, value) ersetzt einen Top-Level-Schlüssel
+  vollständig ohne deep-merge; api_hydro_station_patch nutzt patch_exact_key statt patch().
+- Reproduziert und verifiziert via Simulation (mark_q_m3s: 150.0 nach Löschung zurückgekehrt).
+- Test: tests/test_b244_hydro_null_threshold.py.
