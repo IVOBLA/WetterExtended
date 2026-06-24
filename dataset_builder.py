@@ -38,6 +38,7 @@ from config import (
     ML_FORECAST_HORIZONS_MIN,
     ML_SEQUENCE_LENGTH,
     ML_STATION_FEATURES,
+    ML_TARGET_ENCODING,
     SAVE_PATHS,
 )
 from data_quality import validate_sample
@@ -243,11 +244,20 @@ def build_dataset(model_save_dir=None):
             if not valid:
                 continue
 
+            # P58: Delta-Encoding — Ziel ist die Verschiebung relativ zur aktuellen
+            # Position (seq_objects[-1]). Absolute Konvention bleibt via Config wählbar.
+            _now_x = _safe_float(seq_objects[-1].get("x", 0.0))
+            _now_y = _safe_float(seq_objects[-1].get("y", 0.0))
             targets = []
             for fmap in future_obj_maps:
                 if oid in fmap:
                     fo = fmap[oid]
-                    targets.extend([_safe_float(fo.get("x", 0.0)), _safe_float(fo.get("y", 0.0))])
+                    _fx = _safe_float(fo.get("x", 0.0))
+                    _fy = _safe_float(fo.get("y", 0.0))
+                    if ML_TARGET_ENCODING == "delta":
+                        targets.extend([_fx - _now_x, _fy - _now_y])
+                    else:
+                        targets.extend([_fx, _fy])
                 else:
                     targets.extend([float("nan"), float("nan")])  # maskierter Horizont
 

@@ -668,15 +668,26 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
 
 
 
-def _compute_ml_shadow(obj, horizon, x_raw, y_raw):
+def _decode_ml_position(obj, x_raw, y_raw, target_encoding):
+    """P58: ML-Rohausgabe -> upscaled px für pixel_to_geo. Bei 'delta' ist die
+    Modellausgabe die Verschiebung relativ zur aktuellen Position (obj['x']/['y'])."""
+    if target_encoding == "delta":
+        bx = _safe_float(obj.get("x", 0.0)) + float(x_raw)
+        by = _safe_float(obj.get("y", 0.0)) + float(y_raw)
+    else:
+        bx = float(x_raw)
+        by = float(y_raw)
+    return bx * _UF, by * _UF
+
+
+def _compute_ml_shadow(obj, horizon, x_raw, y_raw, target_encoding="absolute"):
     """P52: ML-Challenger-Punkt (Schatten) aus ML-Rohwert; NICHT ausgeliefert.
     Spiegelt die Transform des erlaubten Zweigs. Liefert Shadow-Feldwerte als dict
     oder None (NaN/Fehler)."""
     if x_raw != x_raw or y_raw != y_raw:  # NaN
         return None
     try:
-        sx = float(x_raw) * _UF
-        sy = float(y_raw) * _UF
+        sx, sy = _decode_ml_position(obj, x_raw, y_raw, target_encoding)
         slat, slon = pixel_to_geo(sx, sy)
         ok, reason, metrics = validate_forecast_point(obj, horizon, slat, slon, mode="ml")
         return {
@@ -1107,6 +1118,11 @@ def predict_positions(objects: list, timestamp: str, stations: list):
     except Exception as _rt_exc:
         _runtime_status = {"runtime_mode": "kinematic_fallback", "fallback_reason": f"runtime_status_failed: {_rt_exc}", "active_horizons": []}
 
+    # P58: Ziel-Encoding aus dem TRAINIERTEN Modell lesen (nicht aus config), damit
+    # ältere absolut-trainierte Modelle weiterhin absolut dekodiert werden.
+    _tm = _runtime_status.get("training_meta")
+    _target_encoding = str(_tm.get("target_encoding", "absolute")) if isinstance(_tm, dict) else "absolute"
+
     # P-T08: Partielle Horizont-Abdeckung. Ein Horizont ist ML-fähig, wenn x- UND
     # y-Modell vorhanden sind. has_lgbm = mindestens ein Horizont (statt alle).
     _lgbm_horizons = [
@@ -1363,15 +1379,14 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                 # P52: ML-Shadow-Scoring — Challenger mitberechnen (nicht ausliefern).
                 # Champion (Kinematik) oben bleibt unveraendert; nur forecast_ml_* auf obj.
                 if _shadow_enabled:
-                    _shadow = _compute_ml_shadow(obj, horizon, _x_raw, _y_raw)
+                    _shadow = _compute_ml_shadow(obj, horizon, _x_raw, _y_raw, _target_encoding)
                     if _shadow:
                         obj.update(_shadow)
                 continue
 
             # ML-Modell trainiert auf pre-upscale obj["x"]/ ["y"] → _UF anwenden.
             # Der Zielpunkt wird vor jeder Veröffentlichung streng plausibilisiert.
-            x_pred = float(_x_raw) * _UF
-            y_pred = float(_y_raw) * _UF
+            x_pred, y_pred = _decode_ml_position(obj, _x_raw, _y_raw, _target_encoding)
             lat, lon = pixel_to_geo(x_pred, y_pred)
             _valid_ml, _reject_reason, _metrics = validate_forecast_point(obj, horizon, lat, lon, mode="ml")
             if not _valid_ml:
