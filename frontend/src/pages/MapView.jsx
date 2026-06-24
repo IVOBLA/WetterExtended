@@ -2,9 +2,18 @@ import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   MapContainer, TileLayer, CircleMarker, Polyline,
-  Polygon, Circle, Popup, ImageOverlay, Tooltip,
+  Polygon, Circle, Popup, ImageOverlay, Tooltip, Marker,
   useMapEvents, Rectangle, useMap,
 } from 'react-leaflet'
+import L from 'leaflet'
+
+// P64: Einheitliche Hydro-Warnfarbe (Flussabschnitt) + Ortssymbol (kein farbiger Punkt).
+const HYDRO_WARN_COLOR = '#dc2626'
+const HYDRO_PLACE_ICON = L.divIcon({
+  className: 'hydro-place-icon',
+  html: '<div style="font-size:18px;line-height:18px;filter:drop-shadow(0 0 1px #000)">💧</div>',
+  iconSize: [18, 18], iconAnchor: [9, 9],
+})
 import api, { abortApiRequests } from '../api.js'
 import { formatCbIrLabel, getCbThresholdState } from '../utils/cbThreshold.js'
 import { hasValidHydroImpactLine, hydroFeatureCollection } from '../utils/hydro.js'
@@ -613,6 +622,10 @@ export default function MapView() {
   const [lightningAge,   setLightningAge]   = useState(15)  // Minuten
   const [hydroStations, setHydroStations] = useState({ type:'FeatureCollection', features: [] })
   const [hydroCatchments, setHydroCatchments] = useState({})
+  const [hydroSegments, setHydroSegments] = useState({ type:'FeatureCollection', features: [] })
+  const [hydroPlaces, setHydroPlaces] = useState({ type:'FeatureCollection', features: [] })
+  const [showHydroSegments, setShowHydroSegments] = useState(true)
+  const [showHydroPlaces, setShowHydroPlaces] = useState(true)
 
   // Animation
   const [frames,     setFrames]     = useState([])
@@ -708,6 +721,8 @@ export default function MapView() {
       if (bounds?.bounds) setRadarBounds(bounds.bounds)
       if (lightningData?.strikes) setLightning(lightningData.strikes)
       api.get('/api/hydro/stations?map=1').then(d => setHydroStations(hydroFeatureCollection(d))).catch(() => setHydroStations({ type:'FeatureCollection', features: [] }))
+      api.get('/api/hydro/impact-segments').then(d => setHydroSegments(hydroFeatureCollection(d))).catch(() => setHydroSegments({ type:'FeatureCollection', features: [] }))
+      api.get('/api/hydro/affected-places').then(d => setHydroPlaces(hydroFeatureCollection(d))).catch(() => setHydroPlaces({ type:'FeatureCollection', features: [] }))
 
       // Schritt 2: Frame-Timestamp bestimmen, objects/forecast synchron laden.
       // Auch ohne Animation wird immer der neueste Frame-Timestamp verwendet —
@@ -994,6 +1009,16 @@ export default function MapView() {
             onChange={e => setShowGhosts(e.target.checked)} />
           🔮 Zell-Prognose
         </label>
+        <label className="flex items-center gap-1 select-none">
+          <input type="checkbox" checked={showHydroSegments}
+            onChange={e => setShowHydroSegments(e.target.checked)} />
+          💧 Impact-Flussabschnitte
+        </label>
+        <label className="flex items-center gap-1 select-none">
+          <input type="checkbox" checked={showHydroPlaces}
+            onChange={e => setShowHydroPlaces(e.target.checked)} />
+          📍 Betroffene Orte
+        </label>
         <span className="text-gray-600">+{ghostLead} min</span>
         <input type="range" min="0" max="60" step="5" value={ghostLead}
           disabled={!showGhosts}
@@ -1023,6 +1048,48 @@ export default function MapView() {
         )}
 
 
+        {showHydroSegments && (hydroSegments.features || []).map((f, i) => {
+          const g = f.geometry || {}
+          const segs = g.type === 'MultiLineString' ? (g.coordinates || []) : (g.type === 'LineString' ? [g.coordinates || []] : [])
+          const sp = f.properties || {}
+          return segs.map((ls, j) => (
+            <Polyline key={`hydroseg_${i}_${j}`} positions={ls.map(c => [c[1], c[0]])}
+              pathOptions={{ color: HYDRO_WARN_COLOR, weight: 4, opacity: 0.9 }}>
+              <Popup>
+                <div><strong>{sp.river || 'Gewässer'} – betroffener Abschnitt</strong></div>
+                <div>Station: {sp.station_name || sp.station_id}</div>
+                <div>Quelle: {sp.impact_source || '—'}</div>
+                <div>Q aktuell: {sp.q_current ?? '—'} m³/s</div>
+                <div>Q Prognose: {sp.q_forecast ?? '—'} m³/s</div>
+                <div>Warngrenze: {sp.q_threshold ?? '—'} m³/s</div>
+                <div>Länge: {sp.segment_length_km ?? '—'} km</div>
+                <div>Betroffene Orte: {(sp.affected_places || []).join(', ') || '—'}</div>
+                <div>Stand: {sp.updated_at || '—'}</div>
+              </Popup>
+            </Polyline>
+          ))
+        })}
+        {showHydroPlaces && (hydroPlaces.features || []).map((f, i) => {
+          const c = f.geometry?.coordinates || []
+          if (c.length < 2) return null
+          const pp = f.properties || {}
+          return (
+            <Marker key={`hydroplace_${i}`} position={[c[1], c[0]]} icon={HYDRO_PLACE_ICON}>
+              <Popup>
+                <div><strong>Hydro-Impact aktiv</strong></div>
+                <div>Ort: {pp.place_name || '—'}</div>
+                <div>Gewässer: {pp.river || '—'}</div>
+                <div>Betroffene Station: {pp.station_name || pp.station_id}</div>
+                <div>Quelle: {pp.impact_source || '—'}</div>
+                <div>Q aktuell: {pp.q_current ?? '—'} m³/s</div>
+                <div>Q Prognose: {pp.q_forecast ?? '—'} m³/s</div>
+                <div>Warngrenze: {pp.q_threshold ?? '—'} m³/s</div>
+                <div>Entfernung Fluss: {pp.distance_to_river_km ?? '—'} km</div>
+                <div>Entfernung Station: {pp.distance_to_station_km ?? '—'} km</div>
+              </Popup>
+            </Marker>
+          )
+        })}
         {(hydroStations.features || []).map(f => {
           const p = f.properties || {}
           const coords = f.geometry?.coordinates || []
@@ -1046,6 +1113,9 @@ export default function MapView() {
                   <div>Messzeit: {p.measured_at || '—'}</div>
                   <div>letzter Hydro-Impact: {impact.cell_id ? `${impact.cell_id} (${impact.status})` : '—'}</div>
                   <div>Status: {p.status || '—'}</div>
+                  {p.q_threshold_exceeded && <div><strong>Warngrenze überschritten ({p.impact_source || '—'})</strong></div>}
+                  <div>Q Prognose: {p.q_forecast ?? '—'} m³/s</div>
+                  <div>Warngrenze: {p.q_threshold ?? '—'} m³/s</div>
                   {p.marked && <div><strong>Markiert: Q ≥ Schwelle</strong></div>}
                 </Popup>
               </CircleMarker>
