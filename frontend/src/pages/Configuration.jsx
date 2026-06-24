@@ -211,10 +211,28 @@ export default function Configuration() {
   const [hydroMsg, setHydroMsg] = useState('')
   const [hydroFilter, setHydroFilter] = useState('all')
 
+  async function reloadHydroAdminData({ nocache = false } = {}) {
+    const suffix = nocache ? '&nocache=true' : ''
+    const statusSuffix = nocache ? '?nocache=true' : ''
+    const [stations, status] = await Promise.all([
+      api.get(`/api/hydro/stations?include_disabled=1${suffix}`).catch(() => null),
+      api.get(`/api/hydro/status${statusSuffix}`).catch(() => null),
+    ])
+    if (stations) {
+      setHydroStations(hydroFeatureCollection(stations).features.map(f => f.properties || {}))
+    } else {
+      setHydroStations([])
+    }
+    if (status) {
+      setHydroStatus(status?.data || status)
+    } else {
+      setHydroStatus({ status: 'hydro_status_error' })
+    }
+  }
+
   useEffect(() => {
     api.get('/api/config').then(d => setText(JSON.stringify(d, null, 2))).catch(() => {})
-    api.get('/api/hydro/stations?include_disabled=1').then(d => setHydroStations(hydroFeatureCollection(d).features.map(f => f.properties || {}))).catch(() => setHydroStations([]))
-    api.get('/api/hydro/status').then(d => setHydroStatus(d?.data || d)).catch(() => setHydroStatus({ status: 'hydro_status_error' }))
+    reloadHydroAdminData().catch(() => {})
   }, [])
 
   async function save() {
@@ -255,12 +273,7 @@ export default function Configuration() {
         await pollHydroImport()
       }
       setHydroMsg(okMsg)
-      const [stations, status] = await Promise.all([
-        api.get('/api/hydro/stations?include_disabled=1&nocache=true').catch(() => null),
-        api.get('/api/hydro/status?nocache=true').catch(() => null),
-      ])
-      if (stations) setHydroStations(hydroFeatureCollection(stations).features.map(f => f.properties || {}))
-      if (status) setHydroStatus(status?.data || status)
+      await reloadHydroAdminData({ nocache: true })
     } catch (e) {
       setHydroMsg('❌ Fehler: ' + (e?.payload?.error || e?.message || 'unbekannt'))
     } finally {
@@ -277,7 +290,7 @@ export default function Configuration() {
       } else {
         await api.patch(`/api/hydro/stations/${st.station_id}`, patch)
       }
-      setHydroStations(prev => prev.map(s => s.station_id === sid ? { ...s, ...patch } : s))
+      await reloadHydroAdminData({ nocache: true })
       setHydroMsg('✅ Station aktualisiert.')
     } catch (err) {
       setHydroMsg('❌ Fehler: ' + (err?.payload?.error || err?.message || 'unbekannt'))
@@ -286,11 +299,11 @@ export default function Configuration() {
 
   const hydroImpactEligibleCount = hydroStations.filter(st => (st.impact_eligible_auto ?? st.impact_eligible) === true).length
   const hydroImpactNotEligibleCount = hydroStations.length - hydroImpactEligibleCount
-  const hydroEnabledCount = hydroStations.filter(st => st.impact_effective === true || st.enabled === true).length
+  const hydroEnabledCount = hydroStations.filter(st => st.impact_effective === true).length
   const hydroDisabledCount = hydroImpactEligibleCount - hydroEnabledCount
   const displayedHydroStations = hydroStations.filter(st => {
     const eligible = (st.impact_eligible_auto ?? st.impact_eligible) === true
-    const active = st.impact_effective === true || st.enabled === true
+    const active = st.impact_effective === true
     if (hydroFilter === 'enabled') return active
     if (hydroFilter === 'disabled') return eligible && !active
     if (hydroFilter === 'eligible') return eligible
@@ -343,13 +356,13 @@ export default function Configuration() {
         <div className="max-h-48 overflow-auto border rounded">
           {hydroStations.length === 0 ? <div className="p-2 text-xs text-gray-500">Keine Hydro-Stationen geladen.</div> : displayedHydroStations.map(st => (
             <div key={st.station_id} className="flex items-center justify-between gap-2 px-2 py-1 border-b text-xs">
-              <span className="flex-1"><strong>{st.name || st.station_id}</strong> · {st.river || '—'}<br/><span className="text-gray-500">auto={String(st.impact_eligible_auto ?? st.impact_eligible)} · enabled={String(st.impact_enabled ?? st.enabled)} · effective={String(st.impact_effective ?? st.enabled)} · {st.topology_source || 'none'} · {st.upstream_source_quality || '—'} · {st.exclusion_reason || (Array.isArray(st.reason) ? st.reason[0] : st.reason) || '—'}</span></span>
+              <span className="flex-1"><strong>{st.name || st.station_id}</strong> · {st.river || '—'}<br/><span className="text-gray-500">auto={String(st.impact_eligible_auto ?? st.impact_eligible)} · enabled={String(st.impact_enabled ?? st.enabled)} · effective={String(st.impact_effective)} · {st.topology_source || 'none'} · {st.upstream_source_quality || '—'} · {st.exclusion_reason || (Array.isArray(st.reason) ? st.reason[0] : st.reason) || '—'}</span></span>
               <label className="flex items-center gap-1" title="Markierungs-Durchfluss dieser Station (m³/s); leer = globaler Wert">
                 <span className="text-gray-500">Q≥</span>
                 <input type="number" min="0" step="0.1" disabled={!!hydroBusy} defaultValue={st.mark_q_m3s ?? ''} className="w-16 border rounded px-1"
                   onBlur={e => { const v = e.target.value.trim(); const num = v === '' ? null : Number(v); patchHydroStation(st, { mark_q_m3s: Number.isFinite(num) ? num : null }) }} />
               </label>
-              <input type="checkbox" disabled={!!hydroBusy || ((st.impact_eligible_auto ?? st.impact_eligible) !== true)} checked={(st.impact_effective ?? st.enabled) === true} onChange={e => patchHydroStation(st, { enabled: e.target.checked })} />
+              <input type="checkbox" disabled={!!hydroBusy || ((st.impact_eligible_auto ?? st.impact_eligible) !== true)} checked={(st.impact_effective) === true} onChange={e => patchHydroStation(st, { enabled: e.target.checked })} />
             </div>
           ))}
         </div>
