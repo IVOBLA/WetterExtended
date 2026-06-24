@@ -187,6 +187,42 @@ def _atomic_switch_current(version_id):
     os.replace(tmp_link, current_link)
 
 
+def _kinematic_baseline_mae(X_recent, y_recent, model_dir, eval_horizons, avail_cols):
+    """B243: MAE der rein kinematischen Vorhersage (Position + v*Horizont) auf denselben
+    Samples wie evaluate_on_recent. Encoding-robust (delta|absolute). Feature-Indizes
+    x,y,vx,vy = 0,1,2,3 (ML_CELL_FEATURES). Liefert (mae_by_horizon, mae_total)."""
+    result_by_h, valid = {}, []
+    if np is None or joblib is None:
+        return result_by_h, float("inf")
+    _enc = ML_TARGET_ENCODING
+    scaler_x_path = os.path.join(model_dir, "scaler_X.joblib")
+    if not os.path.exists(scaler_x_path):
+        return result_by_h, float("inf")
+    try:
+        scaler_X = joblib.load(scaler_x_path)
+        raw = scaler_X.inverse_transform(X_recent)
+    except Exception:
+        return result_by_h, float("inf")
+    x0, y0, vx, vy = raw[:, 0], raw[:, 1], raw[:, 2], raw[:, 3]
+    for h_idx, horizon in enumerate(eval_horizons):
+        c0, c1 = h_idx * 2, h_idx * 2 + 1
+        if c0 not in avail_cols or c1 not in avail_cols:
+            continue
+        if _enc == "delta":
+            pred_x = vx * float(horizon)
+            pred_y = vy * float(horizon)
+        else:
+            pred_x = x0 + vx * float(horizon)
+            pred_y = y0 + vy * float(horizon)
+        diff = np.abs(np.stack([pred_x, pred_y], axis=1) - y_recent[:, c0:c1 + 1])
+        if np.all(np.isnan(diff)):
+            continue
+        h_mae = float(np.nanmean(diff))
+        result_by_h[str(horizon)] = h_mae
+        valid.append(h_mae)
+    return result_by_h, (float(np.mean(valid)) if valid else float("inf"))
+
+
 def evaluate_on_recent(model_dir, hours=24):
     if np is None or lgb is None or joblib is None:
         return {"mae_total": float("inf"), "mae_by_horizon": {}, "samples": 0}
@@ -250,7 +286,16 @@ def evaluate_on_recent(model_dir, hours=24):
         mae_by_horizon[str(horizon)] = _h_mae
         _valid_h_maes.append(_h_mae)
     mae_total = float(np.mean(_valid_h_maes)) if _valid_h_maes else float("inf")
-    return {"mae_total": mae_total, "mae_by_horizon": mae_by_horizon, "samples": len(idx)}
+
+    # B243: kinematische Baseline-MAE auf denselben recent-Samples.
+    kin_mae_by_horizon, kin_mae_total = _kinematic_baseline_mae(
+        X_recent, y_recent, model_dir, _eval_horizons, _avail_cols
+    )
+    return {
+        "mae_total": mae_total, "mae_by_horizon": mae_by_horizon,
+        "kin_mae_total": kin_mae_total, "kin_mae_by_horizon": kin_mae_by_horizon,
+        "samples": len(idx),
+    }
 
 def _masked_mse(y_true, y_pred):
     """P-T08: MSE-Loss der maskierte Ziele (NaN) ignoriert.
@@ -846,6 +891,7 @@ def retrain_all():
     promotion_samples = int(new_eval.get("samples", 0) or 0)
     _mae_new     = float(new_eval.get("mae_total", float("inf")))
     _mae_old     = float(old_eval.get("mae_total", float("inf")))
+    _kin_baseline_mae = float(new_eval.get("kin_mae_total", float("inf")))  # B243
 
     # P30: Zentrale Compat-Prüfung vor jeder Promotion (Cold-Start + regulär).
     # Prüft: Horizonte, Feature-Anzahl (aus training_meta.json).
@@ -882,6 +928,18 @@ def retrain_all():
             f"[TRAINING] REJECTED {timestamp} "
             f"(samples={promotion_samples} < {MIN_SAMPLES_FOR_PROMOTION} — "
             f"keine Promotion ohne ausreichende Validierung)"
+        )
+    elif (
+        isinstance(_kin_baseline_mae, (int, float))
+        and _kin_baseline_mae < float("inf")
+        and _mae_new > _kin_baseline_mae
+    ):
+        # B243: ML schlägt den kinematischen Fallback nicht -> keine Promotion.
+        status = "rejected_below_kinematic_baseline"
+        debug_log(
+            f"[TRAINING] REJECTED {timestamp}: ML mae_new={_mae_new:.4f} > "
+            f"kinematische Baseline={_kin_baseline_mae:.4f} — kein ML-Vorteil, "
+            f"kinematischer Fallback bleibt aktiv."
         )
     elif promotion_samples >= LARGE_SAMPLE_THRESHOLD and _mae_new < _mae_old * TOLERANCE_LARGE:
         status = "promoted"
@@ -946,6 +1004,8 @@ def retrain_all():
         "mae_new": new_eval.get("mae_total"),
         "mae_by_horizon_old": old_eval.get("mae_by_horizon", {}),
         "mae_by_horizon_new": new_eval.get("mae_by_horizon", {}),
+        "kin_baseline_mae": new_eval.get("kin_mae_total"),                 # B243
+        "kin_baseline_by_horizon": new_eval.get("kin_mae_by_horizon", {}),  # B243
         "samples_recent": promotion_samples,
         "samples_required": MIN_SAMPLES_FOR_PROMOTION,
         "samples_missing": max(0, MIN_SAMPLES_FOR_PROMOTION - promotion_samples),

@@ -2994,3 +2994,14 @@ Linienstil und Popup-Felder.
 - Phasen-Status (Hailo): unverändert; betrifft nur LSTM/LGBM-Kinematik-Vorhersage, nicht die
   geplante U-Net-Radar-Nowcasting-Phase B.
 - Test: tests/test_p58_delta_encoding.py. Wirkung erst nach Neutraining (>=50 Sequenzen).
+
+## B243 — Promotion-Gate gegen kinematische Baseline (KI-Befund F4) (2026-06-23)
+- Ursache: retrain_all promotete ML nur gegen das vorherige ML (mae_new<mae_old), nie gegen
+  den kinematischen Fallback. Dadurch wurde ein Modell aktiviert, das laut Shadow-Scoring
+  schlechter als kinematisch ist (h10 ML 7.62 vs kin 4.67 km).
+- Fix: _kinematic_baseline_mae berechnet die kinematische Vorhersage (Position + v*Horizont,
+  Feature-Idx 0..3) auf denselben recent-Samples; evaluate_on_recent liefert kin_mae_total/
+  kin_mae_by_horizon. Neue Reject-Bedingung rejected_below_kinematic_baseline vor beiden
+  Promotion-Pfaden: Promotion nur wenn mae_new <= kin_baseline. Encoding-robust (delta|absolute),
+  Baseline-Werte in training_meta.validation.
+- Test: tests/test_b243_baseline_gate.py.
