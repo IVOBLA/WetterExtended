@@ -622,6 +622,10 @@ ML_NUM_FEATURES = len(ML_CELL_FEATURES) + len(ML_STATION_FEATURES) + len(ML_TIME
 # müssen Modelle neu trainiert werden (model_training.py).
 ML_SEQUENCE_LENGTH = 6
 ML_FORECAST_HORIZONS_MIN = [10, 20, 30, 40, 60]
+# P58: Ziel-Encoding der ML-Position. "delta" = Verschiebung relativ zur aktuellen
+# Position (leichter lernbar, kein Regress zur Karten-Mitte). "absolute" = alte
+# Konvention. NICHT runtime-overridable (definiert das Trainingsziel).
+ML_TARGET_ENCODING = "delta"
 # Pfeilfarben pro Forecast-Horizont (HEX inkl. #).
 FORECAST_ARROW_COLORS = {
     10: "#ff00ff",

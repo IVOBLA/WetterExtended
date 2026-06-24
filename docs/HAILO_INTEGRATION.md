@@ -2980,3 +2980,17 @@ Linienstil und Popup-Felder.
   bringen (NaN-tolerant), dann errs = |preds - y_h_raw|. holdout.mae_px liegt danach im selben
   Rohraum wie evaluate_on_recent → vergleichbar und aussagekräftig.
 - Test: tests/test_b242_holdout_metric_unit.py.
+
+## P58 — ML-Ziel-Encoding auf Verschiebung (Delta) (2026-06-23)
+- Ursache: ML lernte absolute Zukunftspositionen (targets = fo["x"]/["y"]). Bei begrenzten
+  Daten -> Regression zur Karten-Mitte (Shadow h10: hit-rate 1,6 % bei mae 7.62 km).
+- Fix: config.ML_TARGET_ENCODING="delta"; dataset_builder encodiert Targets als Verschiebung
+  zu seq_objects[-1]; model_training schreibt target_encoding in training_meta;
+  prediction._decode_ml_position dekodiert encoding-aware (delta -> obj-Position + Delta).
+  prediction liest das Encoding aus dem trainierten Modell (training_meta), Default
+  "absolute" -> bestehende Modelle bleiben unverändert (keine Regression bis Neutraining).
+- Metrik-Invarianz: Verschiebungsfehler == Positionsfehler -> evaluate_on_recent/Holdout
+  bleiben bedeutungsgleich.
+- Phasen-Status (Hailo): unverändert; betrifft nur LSTM/LGBM-Kinematik-Vorhersage, nicht die
+  geplante U-Net-Radar-Nowcasting-Phase B.
+- Test: tests/test_p58_delta_encoding.py. Wirkung erst nach Neutraining (>=50 Sequenzen).

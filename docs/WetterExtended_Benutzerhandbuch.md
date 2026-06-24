@@ -2674,3 +2674,10 @@ Abdeckung), den Schweregrad und die empfohlene Prüfung — statt einer allgemei
 Ursachenliste. Der Drift-Grund wird im Klartext angezeigt; eine relative Verschlechterung
 wird nur dann rot hervorgehoben, wenn der aktuelle Fehler tatsächlich über dem
 7-Tage-Mittel liegt.
+
+### Verbesserte ML-Positionsvorhersage (P58)
+Das Vorhersagemodell lernt ab dem nächsten Training die Zellbewegung als Verschiebung
+relativ zur aktuellen Position (statt einer absoluten Kartenposition). Das erleichtert dem
+Modell die Aufgabe und reduziert die Tendenz, Vorhersagen zur Kartenmitte zu ziehen. Die
+Umstellung wirkt automatisch nach dem nächsten erfolgreichen Training; bis dahin bleibt die
+bisherige Vorhersage unverändert aktiv.

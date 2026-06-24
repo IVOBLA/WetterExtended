@@ -64,7 +64,7 @@ if (
 else:
     Sequential = load_model = Input = LSTM = Dense = Dropout = EarlyStopping = ModelCheckpoint = Adam = None
 
-from config import DATA_RETENTION_DAYS, MIN_SEQUENCES_LSTM, ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, SAVE_PATHS
+from config import DATA_RETENTION_DAYS, MIN_SEQUENCES_LSTM, ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH, ML_TARGET_ENCODING, SAVE_PATHS
 
 MIN_SAMPLES_FOR_PROMOTION = 50
 LARGE_SAMPLE_THRESHOLD = 500
@@ -788,6 +788,7 @@ def retrain_all():
             "lstm": {"trained": lstm_result.get("trained", False), "val_loss": lstm_result.get("val_loss")},
             "horizons_trained": list(_get_training_horizons()),   # P0-2 + P23: Runtime-Horizonte
             "feature_count": int(ML_NUM_FEATURES),               # P23: Feature-Dimension bei Training
+            "target_encoding": ML_TARGET_ENCODING,               # P58: delta|absolute
             "lgbm": {
                 "trained": lgbm_result.get("trained", False),
                 "best_scores": lgbm_result.get("best_scores", {}),
@@ -828,6 +829,7 @@ def retrain_all():
             "num_samples": 0,
             "rejected_samples": 0,
             "rejection_reasons": {},
+            "target_encoding": ML_TARGET_ENCODING,               # P58: delta|absolute
         }
 
     new_eval = evaluate_on_recent(version_dir)
