@@ -606,6 +606,9 @@ def _status_reason(status: str, promotion_samples: int) -> str:
         "rejected": "Neues Modell war nicht besser als das aktive Modell.",
         "rejected_incompatible": "Modell ist inkompatibel zu aktuellen Horizonten oder Features.",
         "rejected_invalid_holdout": "Holdout-Prüfung ungültig. Modell wurde nicht aktiviert.",
+        "rejected_below_kinematic_baseline": "Modell wurde nicht aktiviert, weil sein MAE schlechter als die kinematische Baseline war. Kinematik bleibt in diesem Vergleich überlegen.",
+        "fallback_kinematic": "Kinematischer Fallback ist aktiv, weil kein nutzbares ML-Modell verwendet werden kann.",
+        "insufficient_samples": f"Zu wenige Samples für eine belastbare Aktivierung oder Bewertung. Es fehlen {missing} Promotion-/Validierungs-Samples.",
         "no_data": "Kein nutzbarer Datensatz für diesen Trainingslauf vorhanden.",
     }
     text = mapping.get(status, status)

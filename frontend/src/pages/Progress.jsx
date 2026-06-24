@@ -1,69 +1,80 @@
 import React, { useEffect, useState } from 'react'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts'
 import api from '../api.js'
 
+const STATUS_TEXT = {
+  promoted: 'Wurde bei diesem Trainingslauf aktiviert. Das bedeutet nicht automatisch, dass es heute noch aktiv ist.',
+  rejected: 'Nicht aktiviert: kein ausreichender Vorteil gegenüber dem bisher aktiven Modell.',
+  rejected_below_kinematic_baseline: 'Nicht aktiviert: ML war schlechter als die kinematische Baseline.',
+  rejected_invalid_holdout: 'Nicht aktiviert: Holdout-Prüfung lieferte ungültige Werte.',
+  cold_start_promoted_low_confidence: 'Erstes ML-Modell aktiviert, aber mit niedriger Vertrauensstufe wegen weniger Vergleichssamples.',
+  fallback_kinematic: 'Kinematischer Fallback aktiv: kein nutzbares ML-Modell verfügbar.',
+  insufficient_samples: 'Zu wenige Samples für eine belastbare Aktivierung oder Bewertung.',
+  cold_start_insufficient_samples: 'Zu wenige Samples für die Erstaktivierung eines ML-Modells.',
+  rejected_low_samples: 'Nicht aktiviert: zu wenige aktuelle Vergleichssamples.',
+  rejected_incompatible: 'Nicht aktiviert: Modell passt nicht zur aktuellen Horizonte-/Feature-Konfiguration.',
+  cold_start_rejected_invalid_model: 'Nicht aktiviert: Modellartefakte fehlen, sind inkompatibel oder ungültig.',
+  no_data: 'Kein nutzbarer Datensatz für diesen Trainingslauf vorhanden.',
+}
+
+function fmt(value, digits = 3) {
+  return Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : '—'
+}
+
+function statusReason(v) {
+  return v.status_reason || v.validation?.status_reason || STATUS_TEXT[v.status || v.validation?.status] || 'Kein Statusgrund vorhanden.'
+}
+
 export default function Progress() {
-  const [versions, setVersions] = useState([])
+  const [progress, setProgress] = useState({ versions: [], active_version: null, active_meta: null })
   const [loaded, setLoaded] = useState(false)
   const [loadError, setLoadError] = useState(null)
   const [fcStats, setFcStats] = useState(null)
 
-  // /api/forecast_stats ist die Quelle der Wahrheit fuer den AKTIVEN Produktiv-Modus
-  // (B116: ml_blocked_reason == null => ML aktiv). /api/progress liefert nur die
-  // Trainings-Historie und darf NICHT zur Modus-Bestimmung herangezogen werden.
   function loadProgress() {
     setLoadError(null)
     setLoaded(false)
-    api.get('/api/forecast_stats?hours=24')
-      .then(s => setFcStats(s))
-      .catch(() => setFcStats(null))
+    api.get('/api/forecast_stats?hours=24').then(s => setFcStats(s)).catch(() => setFcStats(null))
     api.get('/api/progress')
-      .then(d => { setVersions(d.versions || []); setLoaded(true) })
+      .then(d => { setProgress({ versions: d.versions || [], active_version: d.active_version || null, active_meta: d.active_meta || null }); setLoaded(true) })
       .catch(err => { setLoadError(err?.message || 'Laden fehlgeschlagen'); setLoaded(true) })
   }
 
   useEffect(() => { loadProgress() }, [])
 
-  const mlActive      = fcStats ? (fcStats.ml_blocked_reason == null) : null
+  const versions = progress.versions || []
+  const activeMeta = progress.active_meta
+  const activeValidation = activeMeta?.validation || {}
+  const mlActive = fcStats ? (fcStats.ml_blocked_reason == null) : null
   const blockedReason = fcStats?.ml_blocked_reason || null
-  const runtimeStatus = fcStats?.runtime_status || {}
+  const horizons = activeMeta?.horizons_trained || versions.find(v => v.horizons_trained?.length)?.horizons_trained || [10, 20, 30, 40, 60]
+  const mlBetterThanKin = Number.isFinite(Number(activeValidation.mae_new)) && Number.isFinite(Number(activeValidation.kin_baseline_mae))
+    ? Number(activeValidation.mae_new) < Number(activeValidation.kin_baseline_mae)
+    : null
 
-  const horizons = [10, 20, 30, 40, 60]
-  const lstmSeries = versions.map((v, i) => ({ idx: i + 1, val_loss: v.lstm?.val_loss }))
+  const lstmSeries = versions.map((v, i) => ({ idx: i + 1, version: v.version_id || v.version, val_loss: v.lstm?.val_loss }))
   const maeSeries = versions.map((v, i) => {
-    const h = v.validation?.mae_by_horizon_new || {}
-    const row = { idx: i + 1 }
-    horizons.forEach(hz => { row[`+${hz}m`] = h[String(hz)] })
+    const ml = v.validation?.mae_by_horizon_new || {}
+    const kin = v.validation?.kin_baseline_by_horizon || {}
+    const row = { idx: i + 1, version: v.version_id || v.version }
+    horizons.forEach(hz => { row[`ML +${hz}m`] = ml[String(hz)]; row[`Kinematik +${hz}m`] = kin[String(hz)] })
+    return row
+  })
+  const diffSeries = versions.map((v, i) => {
+    const ml = v.validation?.mae_by_horizon_new || {}
+    const kin = v.validation?.kin_baseline_by_horizon || {}
+    const row = { idx: i + 1, version: v.version_id || v.version }
+    horizons.forEach(hz => {
+      const a = Number(ml[String(hz)]); const b = Number(kin[String(hz)])
+      row[`Δ +${hz}m`] = Number.isFinite(a) && Number.isFinite(b) ? a - b : null
+    })
     return row
   })
   const aucSeries = versions.map((v, i) => ({ idx: i + 1, auc: v.intensification?.auc }))
 
-  const statusReason = (v) => v.validation?.status_reason || ({
-    cold_start_promoted_low_confidence: 'Erstes ML-Modell wurde aktiviert, aber wegen weniger Promotion-Samples mit niedriger Vertrauensstufe markiert.',
-    cold_start_insufficient_samples: 'Erstaktivierung blockiert: zu wenige aktuelle Promotion-/Validierungs-Samples und kein brauchbarer Modellkandidat.',
-    rejected_low_samples: 'Nicht promoted: zu wenige aktuelle Promotion-/Validierungs-Samples. Aktives Modell bleibt unverändert.',
-    promoted: 'Modell aktiv geschaltet.',
-    rejected: 'Schlechter als Vorgänger.',
-    rejected_incompatible: 'Inkompatibel zu aktueller Konfiguration.',
-    rejected_invalid_holdout: 'Holdout ungültig.',
-  }[v.validation?.status] || '—')
-
   function Chart({ title, data, lines }) {
-    return (
-      <div className="card mb-4">
-        <h3 className="text-lg font-medium mb-2">{title}</h3>
-        <ResponsiveContainer width="100%" height={250}>
-          <LineChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="idx" />
-            <YAxis />
-            <Tooltip />
-            <Legend />
-            {lines.map(l => <Line key={l} type="monotone" dataKey={l} stroke="#2563eb" dot={{ r: 3 }} connectNulls />)}
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-    )
+    const colors = ['#2563eb', '#16a34a', '#dc2626', '#9333ea', '#ea580c', '#0891b2', '#4b5563', '#84cc16', '#f43f5e', '#0f766e']
+    return <div className="card mb-4"><h3 className="text-lg font-medium mb-2">{title}</h3><ResponsiveContainer width="100%" height={270}><LineChart data={data}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="idx" /><YAxis /><Tooltip /><Legend />{lines.map((l, idx) => <Line key={l} type="monotone" dataKey={l} stroke={colors[idx % colors.length]} dot={{ r: 3 }} connectNulls />)}</LineChart></ResponsiveContainer></div>
   }
 
   return (
@@ -71,136 +82,55 @@ export default function Progress() {
       <h1 className="text-2xl font-bold mb-4">Lernfortschritt</h1>
 
       <div className="card mb-4 bg-blue-50 border-blue-200 text-sm text-blue-900">
-        <p className="font-semibold mb-1">📊 Diese Seite zeigt wie sich die ML-Modelle über die Trainingsversionen entwickeln.</p>
-        <p>Jeder Punkt auf den Grafiken entspricht einem abgeschlossenen Trainings-Lauf.
-        Die X-Achse zeigt die Versions-Nummer (neueste rechts). Je niedriger MAE und val_loss,
-        desto präziser die Vorhersage.</p>
+        <p className="font-semibold mb-1">📊 Diese Seite zeigt Trainingsqualität, aktive Version und Vergleich zur kinematischen Baseline.</p>
+        <p><b>promoted</b> = wurde bei diesem Trainingslauf aktiviert. <b>active</b> = aktuell über <code>train_data/models/current</code> genutztes Modell.</p>
       </div>
 
-      {fcStats && (
-        <div className={`card mb-4 text-sm border ${mlActive
-          ? 'bg-green-50 border-green-300 text-green-900'
-          : 'bg-amber-50 border-amber-300 text-amber-900'}`}>
-          <p>
-            <b>Aktueller Forecast-Modus:</b>{' '}
-            {mlActive
-              ? '🤖 ML-Modell aktiv — das trainierte Modell wird für die Vorhersage genutzt.'
-              : '📐 Kinematischer Fallback (Bewegungsextrapolation ohne ML).'}
-          </p>
-          {!mlActive && blockedReason && (
-            <p className="mt-1 text-xs"><b>Grund:</b> {blockedReason}</p>
-          )}
-          {runtimeStatus.current_exists && runtimeStatus.ml_model_artifacts_valid && !runtimeStatus.ml_model_promoted && (
-            <p className="mt-1 text-xs font-semibold text-red-700">WARNUNG: current zeigt auf eine nicht-promoted Version.</p>
-          )}
-          {!mlActive && versions.length > 0 && (
-            <p className="mt-1 text-xs">
-              Hinweis: Es existieren bereits {versions.length} Trainings-Version(en),
-              aber das aktuelle Modell ist nicht aktiv (siehe Grund). Beim nächsten
-              kompatiblen Trainings-Lauf wird automatisch wieder ML genutzt.
-            </p>
-          )}
+      <div className={`card mb-4 text-sm border ${mlActive ? 'bg-green-50 border-green-300 text-green-900' : 'bg-amber-50 border-amber-300 text-amber-900'}`}>
+        <h2 className="font-semibold mb-2">Aktiver Forecast-Status</h2>
+        <div className="grid md:grid-cols-2 gap-2">
+          <div><b>Forecast-Modus:</b> {mlActive === null ? 'unbekannt' : mlActive ? '🤖 ML aktiv' : '📐 Kinematik aktiv'}</div>
+          <div><b>Aktive Modellversion:</b> {progress.active_version || '—'}</div>
+          <div><b>Aktiver Timestamp:</b> {activeMeta?.timestamp_utc || '—'}</div>
+          <div><b>Aktiver MAE:</b> {fmt(activeValidation.mae_new)}</div>
+          <div><b>Aktive kinematische Baseline:</b> {fmt(activeValidation.kin_baseline_mae)}</div>
+          <div><b>ML besser als Kinematik:</b> {mlBetterThanKin === null ? '—' : mlBetterThanKin ? 'ja' : 'nein'}</div>
         </div>
-      )}
+        {!mlActive && blockedReason && <p className="mt-2 text-xs"><b>Grund:</b> {blockedReason}</p>}
+      </div>
 
-      {loaded && loadError && (
-        <div className="card mb-4 bg-red-50 border border-red-300 text-red-900 text-sm">
-          <p className="font-semibold mb-2">⚠️ Lernfortschritt konnte nicht geladen werden</p>
-          <p>Die Trainings-Historie wurde nicht zurückgegeben. Trainierte Modelle können
-             trotzdem vorhanden sein — dies ist ein Ladefehler, kein Hinweis auf fehlendes Training.</p>
-          <p className="mt-1 text-xs text-red-700">Details: {loadError}</p>
-          <button
-            onClick={loadProgress}
-            className="mt-2 px-3 py-1 rounded bg-red-600 text-white text-xs hover:bg-red-700"
-          >
-            Erneut versuchen
-          </button>
+      {loaded && loadError && <div className="card mb-4 bg-red-50 border border-red-300 text-red-900 text-sm"><p className="font-semibold">⚠️ Lernfortschritt konnte nicht geladen werden</p><p>{loadError}</p><button onClick={loadProgress} className="mt-2 px-3 py-1 rounded bg-red-600 text-white text-xs hover:bg-red-700">Erneut versuchen</button></div>}
+
+      {loaded && !loadError && versions.length === 0 && <div className="card mb-4 bg-amber-50 border border-amber-300 text-amber-900 text-sm"><p className="font-semibold mb-2">⏳ Noch kein Trainings-Lauf abgeschlossen</p><p>Das System sammelt automatisch Trainingsdaten. Die Grafiken erscheinen nach dem ersten Training.</p></div>}
+
+      {versions.length > 0 && <>
+        <Chart title="LSTM val_loss (Validierungsverlust)" data={lstmSeries} lines={['val_loss']} />
+        <Chart title="LightGBM MAE und kinematische Baseline pro Horizont (px)" data={maeSeries} lines={horizons.flatMap(h => [`ML +${h}m`, `Kinematik +${h}m`])} />
+        <Chart title="Differenz ML - Kinematik pro Horizont (px)" data={diffSeries} lines={horizons.map(h => `Δ +${h}m`)} />
+        <div className="text-xs text-gray-500 -mt-2 mb-4 px-1">Positive Differenz = ML schlechter als Kinematik. Negative Differenz = ML besser als Kinematik.</div>
+        <Chart title="Intensification AUC" data={aucSeries} lines={['auc']} />
+
+        <div className="card mb-4">
+          <h3 className="text-lg font-medium mb-2">Horizontvergleich der aktiven Version</h3>
+          <ResponsiveContainer width="100%" height={260}><BarChart data={horizons.map(h => {
+            const ml = Number(activeValidation.mae_by_horizon_new?.[String(h)]); const kin = Number(activeValidation.kin_baseline_by_horizon?.[String(h)])
+            return { horizon: `+${h}m`, 'ML MAE': Number.isFinite(ml) ? ml : null, 'Kinematik MAE': Number.isFinite(kin) ? kin : null, 'ML - Kinematik': Number.isFinite(ml) && Number.isFinite(kin) ? ml - kin : null }
+          })}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="horizon" /><YAxis /><Tooltip /><Legend /><Bar dataKey="ML MAE" fill="#2563eb" /><Bar dataKey="Kinematik MAE" fill="#16a34a" /><Bar dataKey="ML - Kinematik" fill="#dc2626" /></BarChart></ResponsiveContainer>
         </div>
-      )}
 
-      {loaded && !loadError && versions.length === 0 && (
-        <div className="card mb-4 bg-amber-50 border border-amber-300 text-amber-900 text-sm">
-          <p className="font-semibold mb-2">⏳ Noch kein Trainings-Lauf abgeschlossen</p>
-          <p>
-            Das System sammelt automatisch Trainingsdaten, sobald Gewitterzellen erkannt
-            werden. Alle Radar-Frames werden bereits archiviert.
-          </p>
-          <p className="mt-2">
-            Der erste Trainings-Lauf startet automatisch (täglich um 03:00 Uhr), sobald
-            genügend Zell-Sequenzen gesammelt wurden. Die Grafiken erscheinen nach dem
-            ersten erfolgreichen Training.
-          </p>
+        <div className="card overflow-x-auto">
+          <h3 className="text-lg font-medium mb-2">Versionen</h3>
+          <p className="text-xs text-gray-500 mb-2"><b>Aktiv</b> wird ausschließlich aus <code>current</code> ermittelt. Eine ältere promoted-Zeile kann daher inaktiv sein.</p>
+          <table className="w-full text-sm">
+            <thead><tr className="border-b"><th className="text-left p-1">Version</th><th className="text-left p-1">Aktiv</th><th className="text-left p-1">MAE Kandidat</th><th className="text-left p-1">MAE bisher aktiv/alt</th><th className="text-left p-1">Kinematik-MAE</th><th className="text-left p-1">ML-Vorteil gegenüber Kinematik</th><th className="text-left p-1">Status</th><th className="text-left p-1">Entscheidungsgrund</th></tr></thead>
+            <tbody>{versions.map((v, i) => {
+              const mae = Number(v.validation?.mae_new); const kin = Number(v.validation?.kin_baseline_mae)
+              const advantage = Number.isFinite(mae) && Number.isFinite(kin) ? kin - mae : null
+              return <tr key={v.version_id || i} className={`border-b ${v.is_active ? 'bg-green-50' : ''}`}><td className="p-1">{v.version_id || v.version || v.timestamp_utc}</td><td className="p-1 font-semibold">{v.is_active ? 'ja' : 'nein'}</td><td className="p-1">{fmt(v.validation?.mae_new)}</td><td className="p-1">{fmt(v.validation?.mae_old)}</td><td className="p-1">{fmt(v.validation?.kin_baseline_mae)}</td><td className={`p-1 ${advantage > 0 ? 'text-green-700' : advantage < 0 ? 'text-red-700' : ''}`}>{advantage === null ? '—' : fmt(advantage)}</td><td className="p-1">{v.status || v.validation?.status || '—'}</td><td className="p-1">{statusReason(v)}</td></tr>
+            })}</tbody>
+          </table>
         </div>
-      )}
-
-      {versions.length > 0 && (
-        <>
-          <Chart title="LSTM val_loss (Validierungsverlust)" data={lstmSeries} lines={['val_loss']} />
-          <div className="text-xs text-gray-500 -mt-2 mb-4 px-1">
-            <b>Was zeigt dieser Graph:</b> Der Validierungsverlust (Loss) des LSTM-Zeitreihenmodells
-            nach jedem Training. LSTM lernt Muster aus den letzten N Radar-Frames. Ein sinkender
-            val_loss bedeutet, das Modell generalisiert besser auf unbekannte Daten.
-            <br/><b>Ziel:</b> Abnehmende Tendenz. Anstieg = Overfitting oder zu wenig Trainingsdaten.
-            <br/><b>Einheit:</b> MSE (Mean Squared Error) über normalisierte Positionsvorhersagen.
-          </div>
-
-          <Chart title="LightGBM MAE pro Horizont (px)" data={maeSeries} lines={horizons.map(h => `+${h}m`)} />
-          <div className="text-xs text-gray-500 -mt-2 mb-4 px-1">
-            <b>Was zeigt dieser Graph:</b> Der mittlere absolute Positionsfehler (MAE) des
-            LightGBM-Modells in Bildpixeln, getrennt nach Vorhersage-Horizont (+10 bis +60 min).
-            <br/><b>Einheit:</b> Pixel (1 px ≈ 0,5 km im originalen Radarbild).
-            <br/><b>Interpretation:</b> Längere Horizonte haben typischerweise höheren Fehler — normal.
-            Ein MAE von 5 px bei +10 min bedeutet die Zellposition wird im Schnitt 2–3 km verfehlt.
-            <br/><b>Ziel:</b> Möglichst niedrige Werte bei allen Horizonten.
-          </div>
-
-          <Chart title="Intensification AUC" data={aucSeries} lines={['auc']} />
-          <div className="text-xs text-gray-500 -mt-2 mb-4 px-1">
-            <b>Was zeigt dieser Graph:</b> Area Under the ROC Curve für die binäre
-            Intensivierungs-Klassifikation (wächst die Zelle in den nächsten 20 min?).
-            <br/><b>Interpretation:</b> 0,5 = zufällig (wie Münzwurf), 1,0 = perfekt.
-            Ein Wert über 0,7 gilt als brauchbar, über 0,8 als gut.
-            <br/><b>Ziel:</b> Wert stabil über 0,7.
-          </div>
-
-          <div className="card">
-            <h3 className="text-lg font-medium mb-2">Versionen</h3>
-            <p className="text-xs text-gray-500 mb-2">
-              Jede Zeile = ein Trainings-Lauf. <b>Dataset-Samples</b> = Trainingsbeispiele im kumulativen Dataset.
-              <b> Train-Samples</b> = tatsächlich für Training genutzte Samples. <b> Holdout-Samples</b> = zurückgehaltene Vergleichsdaten.
-              <b> Promotion-Samples</b> = aktuelle Validierungs-/Vergleichssamples für Aktivierung oder Modellwechsel.
-              <b> MAE total</b> = gemittelter absoluter Fehler über alle Horizonte (niedriger = besser).
-              <b> Status</b>: <span className="text-green-700">promoted</span> = Modell ist aktiv,
-              <span className="text-gray-500"> rejected</span> = schlechter als Vorgänger.
-            </p>
-            <table className="w-full text-sm">
-              <thead><tr className="border-b">
-                <th className="text-left p-1">Timestamp</th><th className="text-left p-1">Dataset-Samples</th>
-                <th className="text-left p-1">Train-Samples</th><th className="text-left p-1">Holdout-Samples</th>
-                <th className="text-left p-1">Promotion-Samples</th><th className="text-left p-1">Promotion benötigt</th>
-                <th className="text-left p-1">Low confidence</th><th className="text-left p-1">MAE total</th>
-                <th className="text-left p-1">Status</th><th className="text-left p-1">Erklärung</th>
-              </tr></thead>
-              <tbody>
-                {versions.map((v, i) => (
-                  <tr key={i} className="border-b">
-                    <td className="p-1">{v.timestamp_utc}</td>
-                    <td className="p-1">{v.dataset?.total_samples ?? v.num_samples ?? '—'}</td>
-                    <td className="p-1">{v.dataset?.train_samples ?? '—'}</td>
-                    <td className="p-1">{v.dataset?.holdout_samples ?? v.holdout?.samples ?? '—'}</td>
-                    <td className="p-1">{v.validation?.samples_recent ?? '—'}</td>
-                    <td className="p-1">{v.validation?.samples_required ?? '—'}</td>
-                    <td className="p-1">{v.validation?.low_confidence ? 'ja' : 'nein'}</td>
-                    <td className="p-1">{v.validation?.mae_new?.toFixed?.(4) ?? '—'}</td>
-                    <td className="p-1">{v.validation?.status ?? '—'}</td>
-                    <td className="p-1">{statusReason(v)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
+      </>}
     </div>
   )
 }

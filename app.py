@@ -1817,15 +1817,113 @@ def _json_finite_safe(value):
     return value
 
 
-@app.route("/api/progress")
-def api_progress():
+def _progress_current_version(models_dir: str | None = None):
+    """Ermittelt die wirklich aktive Modellversion aus train_data/models/current.
+
+    Robust gegen fehlende oder kaputte Symlinks: in diesen Fällen wird None
+    zurückgegeben und /api/progress bleibt weiterhin erfolgreich abrufbar.
+    """
+    base = models_dir or SAVE_PATHS.get("models", "train_data/models")
+    current = os.path.join(base, "current")
+    try:
+        if os.path.islink(current):
+            target = os.path.realpath(current)
+            return os.path.basename(target) if os.path.isdir(target) and os.path.basename(target).startswith("v_") else None
+        if os.path.isdir(current):
+            target = os.path.realpath(current)
+            return os.path.basename(target) if os.path.basename(target).startswith("v_") else None
+    except Exception:
+        return None
+    return None
+
+
+def _progress_status_reason(status, validation=None):
+    validation = validation if isinstance(validation, dict) else {}
+    existing = validation.get("status_reason")
+    if existing:
+        return existing
+    samples = validation.get("samples_recent")
+    required = validation.get("samples_required")
+    missing = validation.get("samples_missing")
+    sample_text = ""
+    if missing is not None and required is not None:
+        sample_text = f" Es fehlen {missing} von {required} erforderlichen Promotion-/Validierungs-Samples."
+    mapping = {
+        "promoted": "Dieses Modell wurde in seinem Trainingslauf aktiviert. Ob es aktuell noch genutzt wird, zeigt ausschließlich active/is_active.",
+        "rejected": "Modell wurde nicht aktiviert, weil es gegenüber dem bisher aktiven Modell keinen ausreichenden MAE-Vorteil hatte.",
+        "rejected_below_kinematic_baseline": "Modell wurde nicht aktiviert, weil sein MAE schlechter als die kinematische Baseline war. Kinematik bleibt in diesem Vergleich überlegen.",
+        "rejected_invalid_holdout": "Modell wurde nicht aktiviert, weil die Holdout-Prüfung ungültige oder nicht endliche Fehlerwerte geliefert hat.",
+        "cold_start_promoted_low_confidence": "Erstes ML-Modell wurde aktiviert, aber wegen weniger aktueller Vergleichssamples mit niedriger Vertrauensstufe markiert.",
+        "fallback_kinematic": "Kinematischer Fallback ist aktiv, weil kein nutzbares ML-Modell verwendet werden kann.",
+        "insufficient_samples": "Zu wenige Samples für eine belastbare Aktivierung oder Bewertung." + sample_text,
+        "cold_start_insufficient_samples": "Zu wenige Samples für die Erstaktivierung eines ML-Modells." + sample_text,
+        "rejected_low_samples": "Modell wurde nicht aktiviert, weil zu wenige aktuelle Vergleichssamples vorhanden sind." + sample_text,
+        "rejected_incompatible": "Modell wurde nicht aktiviert, weil Horizonte oder Feature-Anzahl nicht zur aktuellen Konfiguration passen.",
+        "cold_start_rejected_invalid_model": "Erstes Modell wurde nicht aktiviert, weil Modellartefakte fehlen, inkompatibel sind oder das Training ungültig war.",
+        "no_data": "Kein nutzbarer Datensatz für diesen Trainingslauf vorhanden.",
+    }
+    return mapping.get(status) or "Kein Statusgrund vorhanden."
+
+
+def _progress_normalize_meta(meta: dict, active_version: str | None, fallback_version: str | None = None):
+    version_id = meta.get("version_id") or meta.get("version") or fallback_version
+    validation = meta.get("validation") if isinstance(meta.get("validation"), dict) else {}
+    dataset = meta.get("dataset") if isinstance(meta.get("dataset"), dict) else {}
+    status = validation.get("status") or meta.get("status") or "unknown"
+    normalized = dict(meta)
+    normalized["version_id"] = version_id
+    normalized["is_active"] = bool(version_id and active_version and version_id == active_version)
+    normalized["status"] = status
+    normalized["status_reason"] = _progress_status_reason(status, validation)
+    normalized["promotion_samples"] = validation.get("samples_recent", meta.get("promotion_samples"))
+    normalized["horizons_trained"] = meta.get("horizons_trained") or meta.get("horizons") or meta.get("ML_FORECAST_HORIZONS_MIN") or []
+    normalized["feature_count"] = meta.get("feature_count")
+    normalized["validation"] = {
+        "mae_old": validation.get("mae_old"),
+        "mae_new": validation.get("mae_new"),
+        "kin_baseline_mae": validation.get("kin_baseline_mae"),
+        "mae_by_horizon_old": validation.get("mae_by_horizon_old", {}),
+        "mae_by_horizon_new": validation.get("mae_by_horizon_new", {}),
+        "kin_baseline_by_horizon": validation.get("kin_baseline_by_horizon", {}),
+        "samples_recent": validation.get("samples_recent"),
+        "samples_required": validation.get("samples_required"),
+        "samples_missing": validation.get("samples_missing"),
+        "low_confidence": validation.get("low_confidence"),
+        "status": status,
+        "status_reason": normalized["status_reason"],
+    }
+    normalized["dataset"] = {
+        "total_samples": dataset.get("total_samples", meta.get("num_samples")),
+        "train_samples": dataset.get("train_samples"),
+        "holdout_samples": dataset.get("holdout_samples", meta.get("holdout", {}).get("samples") if isinstance(meta.get("holdout"), dict) else None),
+    }
+    return normalized
+
+
+def _progress_payload():
+    models_dir = SAVE_PATHS.get("models", "train_data/models")
+    active_version = _progress_current_version(models_dir)
     rows = []
-    for p in sorted(glob.glob(os.path.join(SAVE_PATHS["models"], "v_*/training_meta.json"))):
+    for meta_path in sorted(glob.glob(os.path.join(models_dir, "v_*/training_meta.json"))):
         try:
-            rows.append(json.load(open(p, encoding="utf-8")))
+            with open(meta_path, encoding="utf-8") as fh:
+                rows.append(_progress_normalize_meta(json.load(fh), active_version, os.path.basename(os.path.dirname(meta_path))))
         except Exception:
             continue
-    return jsonify({"versions": _json_finite_safe(rows)})
+    active_meta = None
+    if active_version:
+        active_path = os.path.join(models_dir, active_version, "training_meta.json")
+        try:
+            with open(active_path, encoding="utf-8") as fh:
+                active_meta = _progress_normalize_meta(json.load(fh), active_version, active_version)
+        except Exception:
+            active_meta = next((r for r in rows if r.get("version_id") == active_version), None)
+    return _json_finite_safe({"active_version": active_version, "active_meta": active_meta, "versions": rows})
+
+
+@app.route("/api/progress")
+def api_progress():
+    return jsonify(_progress_payload())
 
 
 @app.route("/api/severity_accuracy")
