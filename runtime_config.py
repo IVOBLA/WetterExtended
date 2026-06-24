@@ -253,6 +253,9 @@ def patch_exact_key(top_key: str, value) -> dict:
     with _LOCK:
         merged = dict(_OVERRIDES)
         merged[top_key] = _strip_forbidden_keys(value) if isinstance(value, (dict, list)) else value
+        # Defense-in-depth: auch bereits vorhandene Alt-Overrides bereinigen,
+        # damit Stations-Patches keine bestehenden Secrets erneut persistieren.
+        merged = _strip_forbidden_keys(merged)
     save(merged)
     return merged
 

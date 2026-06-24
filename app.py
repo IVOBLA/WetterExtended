@@ -5327,7 +5327,8 @@ def api_hydro_station_patch(station_id):
     if unknown:
         return _hydro_json("invalid_request", ok=False, error=f"Unbekannte Felder: {', '.join(unknown)}", code=400)
     key = "HYDRO_STATION_OVERRIDES"
-    overrides = hydro_api._overrides()
+    runtime_overrides = runtime_config.get(key, {}) or {}
+    overrides = dict(runtime_overrides) if isinstance(runtime_overrides, dict) else {}
     cur = dict(overrides.get(sid, {}) or {})
     changed = []
     if "enabled" in data:
@@ -5361,7 +5362,9 @@ def api_hydro_station_patch(station_id):
     overrides[sid] = cur
     hydro_station_overrides.save(overrides)
     patch_exact = getattr(runtime_config, "patch_exact_key", None)
-    if callable(patch_exact) and getattr(patch_exact, "__module__", None) == getattr(runtime_config, "__name__", "runtime_config"):
+    patch_fn = getattr(runtime_config, "patch", None)
+    patch_fn_is_original = getattr(patch_fn, "__module__", None) == getattr(runtime_config, "__name__", "runtime_config")
+    if callable(patch_exact) and patch_fn_is_original:
         runtime_config.patch_exact_key(key, overrides)
     else:
         runtime_config.patch({key: overrides})
