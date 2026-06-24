@@ -17,16 +17,16 @@ def _capture(monkeypatch, tmp_path):
     return captured
 
 
-def _status_absolute():
+def _status_relative():
     return {
         "drift_detected": True,
-        "drift_reason": "absolute",
+        "drift_reason": "relative",
         "mae_recent_km": 10.260346666666669,
-        "mae_baseline_km": 20.147165,
+        "mae_baseline_km": 7.0,
         "mae_recent_short_km": 7.389958333333335,
         "short_horizon_max_min": 30.0,
         "abs_threshold_km": 1.0,
-        "delta_km": -9.853,
+        "delta_km": 3.260346666666669,
         "threshold_km": 2.0,
         "diagnosis_summary": {
             "severity": "critical",
@@ -41,8 +41,9 @@ def _status_absolute():
 
 def test_mail_contains_translated_findings_and_reason(monkeypatch, tmp_path):
     cap = _capture(monkeypatch, tmp_path)
-    en.send_drift_alert(_status_absolute())
+    en.send_drift_alert(_status_relative())
     body = cap["body"]
+    assert cap["subject"] == "⚠️ WetterExtended – Model-Drift erkannt"
     # Deutsch übersetzter Finding statt englischem Roh-String
     assert "Richtungsfehler der Bewegung dominiert" in body
     assert "Forecast direction error probably dominates" not in body
@@ -50,25 +51,21 @@ def test_mail_contains_translated_findings_and_reason(monkeypatch, tmp_path):
     assert "Empfohlene Prüfung" in body
     assert "kritisch" in body
     # Lesbarer Drift-Grund
-    assert "Kurzhorizont-Zielverletzung" in body
+    assert "Relativer MAE-Anstieg" in body
 
 
-def test_negative_delta_not_shown_as_red_worsening(monkeypatch, tmp_path):
+def test_non_worsening_status_does_not_send_mail(monkeypatch, tmp_path):
     cap = _capture(monkeypatch, tmp_path)
-    en.send_drift_alert(_status_absolute())
-    body = cap["body"]
-    # Kein irreführendes "+-" und keine rote Verschlechterung bei negativem Delta
-    assert "+-9" not in body
-    assert "-9.85 km" in body
-    assert "Verschlechterung (relativ)" not in body
-    # km-Werte gerundet (kein langer Float)
-    assert "10.260346666666669" not in body
-    assert "10.26 km" in body
+    st = _status_relative()
+    st["mae_baseline_km"] = 20.147165
+    st["delta_km"] = -9.853
+    en.send_drift_alert(st)
+    assert "body" not in cap
 
 
 def test_positive_delta_keeps_red_worsening(monkeypatch, tmp_path):
     cap = _capture(monkeypatch, tmp_path)
-    st = _status_absolute()
+    st = _status_relative()
     st["drift_reason"] = "relative"
     st["delta_km"] = 3.5
     en.send_drift_alert(st)
@@ -79,7 +76,7 @@ def test_positive_delta_keeps_red_worsening(monkeypatch, tmp_path):
 
 def test_fallback_when_no_diagnosis(monkeypatch, tmp_path):
     cap = _capture(monkeypatch, tmp_path)
-    st = _status_absolute()
+    st = _status_relative()
     st.pop("diagnosis_summary")
     en.send_drift_alert(st)
     body = cap["body"]

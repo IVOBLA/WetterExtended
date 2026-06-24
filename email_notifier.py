@@ -813,6 +813,19 @@ def send_drift_alert(status: dict) -> None:
     Nutzt dieselbe SMTP-Konfiguration wie Sturmwarnungen.
     Cooldown: max. 1 Alert alle 6 Stunden (dateibasiert, überlebt Neustarts).
     """
+    recent = status.get("mae_recent_km")
+    base = status.get("mae_baseline_km")
+    delta = status.get("delta_km")
+    if not (
+        isinstance(recent, (int, float)) and not isinstance(recent, bool)
+        and isinstance(base, (int, float)) and not isinstance(base, bool)
+        and isinstance(delta, (int, float)) and not isinstance(delta, bool)
+        and recent > base
+        and delta > float(status.get("threshold_km", 0))
+    ):
+        debug_log("[DRIFT-MAIL] Kein echter relativer Drift — Mail übersprungen.")
+        return
+
     if not _is_configured():
         debug_log("[DRIFT-MAIL] SMTP nicht konfiguriert — kein Alert.")
         return
@@ -836,7 +849,7 @@ def send_drift_alert(status: dict) -> None:
     except Exception as exc:
         debug_log(f"[DRIFT-MAIL] Cooldown-Pruefung Fehler: {exc}")
 
-    subject = "⚠️ WetterExtended: Model-Drift erkannt"
+    subject = "⚠️ WetterExtended – Model-Drift erkannt"
     delta = status.get("delta_km", "?")
     recent = status.get("mae_recent_km", "?")
     base = status.get("mae_baseline_km", "?")
