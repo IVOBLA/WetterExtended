@@ -262,7 +262,14 @@ def write_branch_repo(
         encoding="utf-8",
     )
 
-    run_git(["add", "README.md", "debug_exports"], cwd=temp_repo)
+    eval_src = repo_dir / "train_data" / "evaluation"
+    eval_dst = temp_repo / "evaluation"
+    eval_dst.mkdir(parents=True, exist_ok=True)
+    for diag_name in ("forecast_quality_diagnosis_latest.json", "forecast_quality_diagnosis_error.json"):
+        src = eval_src / diag_name
+        if src.exists():
+            shutil.copy2(src, eval_dst / diag_name)
+    run_git(["add", "README.md", "debug_exports", "evaluation"], cwd=temp_repo)
     run_git(["commit", "-m", "chore(debug-export): publish latest last24h ZIP"], cwd=temp_repo)
     return manifest
 

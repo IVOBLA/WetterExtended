@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from export_security import redact_json_text, redact_text
+from export_diagnosis import run_forecast_quality_diagnosis_before_export
 
 # DIAGNOSE B115: Export-Absturz-Analyse
 # Wahrscheinliche Ursache: unbehandelte Exception oder OOM beim Log-Read.
@@ -53,6 +54,8 @@ _ALWAYS_INCLUDE_NAMES = {
     "accuracy_history.jsonl",
     "forecast_error_details.jsonl",
     "forecast_error_diagnosis.json",
+    "forecast_quality_diagnosis_latest.json",
+    "forecast_quality_diagnosis_error.json",
     "config.py",
 }
 _EXCLUDED_NAMES = {".admin_password"}
@@ -709,6 +712,7 @@ def create_debug_export_zip(
         tmp_path = Path(tmp_path)
 
     started = time.perf_counter()
+    forecast_quality_diagnosis = run_forecast_quality_diagnosis_before_export(hours=hours, base_dir=base_dir, save_paths=save_paths)
     candidates, diagnostics = _build_candidates_with_diagnostics(base_dir, save_paths)
     included_roots: set[str] = set()
     excluded_files: list[str] = []
@@ -824,6 +828,7 @@ def create_debug_export_zip(
                 "max_files": max_files,
                 "max_total_bytes": max_total_bytes,
                 "hydro_export": hydro_info,
+                "forecast_quality_diagnosis": forecast_quality_diagnosis,
             }
             manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
             zf.writestr(f"{root_name}/manifest.json", manifest_bytes)

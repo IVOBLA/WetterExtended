@@ -8,11 +8,13 @@ export default function Accuracy() {
   const [apiHealth, setApiHealth] = useState({ total: 0, by_service: {} })
   const [mlQuality, setMlQuality] = useState({ horizons: [], series: {} })
   const [mlHorizon, setMlHorizon] = useState(10)
+  const [qualityDiagnosis, setQualityDiagnosis] = useState({ status: 'missing', important_findings: [], recommendations: [] })
 
   useEffect(() => {
     api.get(`/api/accuracy?hours=${hours}`).then(setData).catch(() => {})
     api.get(`/api/api_health?hours=${hours}`).then(setApiHealth).catch(() => {})
     api.get(`/api/ml_quality?hours=${hours}`).then(setMlQuality).catch(() => {})
+    api.get('/api/forecast_quality_diagnosis').then(setQualityDiagnosis).catch(() => {})
   }, [hours])
 
   const horizons = data.current.horizons.map(h => h.horizon)
@@ -60,6 +62,33 @@ export default function Accuracy() {
         </select>
         <div className="text-sm text-gray-500 mt-2">
           Treffer-Toleranz: <b>{tolKm} km</b> (siehe config.VERIFICATION_TOLERANCE_KM)
+        </div>
+      </div>
+
+
+      <div className="card mb-4">
+        <h3 className="text-lg font-medium mb-2">Automatische Forecast-Qualitätsdiagnose</h3>
+        <div className="text-sm mb-2">
+          <span className="font-semibold">Zeitpunkt:</span> {qualityDiagnosis.checked_at_utc || qualityDiagnosis.timestamp_utc || '—'}
+          <span className="font-semibold ml-4">Status:</span> {qualityDiagnosis.status || 'missing'}
+        </div>
+        <div className="grid md:grid-cols-2 gap-4 text-sm">
+          <div>
+            <div className="font-semibold mb-1">Wichtigste Findings</div>
+            {(qualityDiagnosis.important_findings || []).length ? (
+              <ul className="list-disc ml-5">
+                {(qualityDiagnosis.important_findings || []).slice(0, 5).map((item, idx) => <li key={idx}>{item}</li>)}
+              </ul>
+            ) : <div className="text-gray-500">Keine Findings vorhanden.</div>}
+          </div>
+          <div>
+            <div className="font-semibold mb-1">Wichtigste Empfehlungen</div>
+            {(qualityDiagnosis.recommendations || []).length ? (
+              <ul className="list-disc ml-5">
+                {(qualityDiagnosis.recommendations || []).slice(0, 5).map((item, idx) => <li key={idx}>{item}</li>)}
+              </ul>
+            ) : <div className="text-gray-500">Keine Empfehlungen vorhanden.</div>}
+          </div>
         </div>
       </div>
 

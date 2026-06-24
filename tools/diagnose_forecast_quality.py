@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+"""Offline-Forecast-Qualitätsdiagnose für den 24h-Debug-Export."""
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import statistics
+import sys
+import traceback
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO))
+
+try:
+    from config import SAVE_PATHS
+except Exception:  # pragma: no cover
+    SAVE_PATHS = {"evaluation": "train_data/evaluation", "objects": "train_data/objects", "radar": "train_data/radar"}
+
+from export_diagnosis import ERROR_NAME, LATEST_NAME, utc_now_z
+
+
+def _parse_ts(v: Any):
+    if not v:
+        return None
+    try:
+        return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _f(v: Any):
+    try:
+        if v is None:
+            return None
+        x = float(v)
+        return x if math.isfinite(x) else None
+    except Exception:
+        return None
+
+
+def _read_jsonl(path: Path, hours: int) -> list[dict]:
+    if not path.exists():
+        return []
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    rows = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            rec = json.loads(line)
+        except Exception:
+            continue
+        if not isinstance(rec, dict):
+            continue
+        ts = next((_parse_ts(rec.get(k)) for k in ("verified_at_utc", "target_timestamp_utc", "forecast_created_at_utc", "timestamp_utc") if _parse_ts(rec.get(k))), None)
+        if ts is None or ts >= cutoff:
+            rows.append(rec)
+    return rows
+
+
+def _ratio(rows, pred):
+    return round(sum(1 for r in rows if pred(r)) / len(rows), 4) if rows else None
+
+
+def _feature_stats(rows: list[dict], names: list[str]) -> dict:
+    out = {}
+    for name in names:
+        vals = [r.get(name) for r in rows if name in r]
+        out[name] = {
+            "present_samples": len(vals),
+            "missing_ratio": round(1 - (len(vals) / len(rows)), 4) if rows else None,
+            "null_ratio": round(sum(v in (None, "") for v in vals) / len(vals), 4) if vals else None,
+            "zero_ratio": round(sum((_f(v) == 0.0) for v in vals) / len(vals), 4) if vals else None,
+            "fallback_ratio": _ratio(rows, lambda r, n=name: bool(r.get(f"{n}_fallback") or r.get(f"{n}_is_fallback") or r.get("fallback"))),
+        }
+    return out
+
+
+def _id_matching(rows: list[dict], outliers: list[dict]) -> dict:
+    suspect_terms = ("switch", "reid", "merge", "split", "ghost", "nearest", "lost")
+    suspect = []
+    for r in rows:
+        text = " ".join(str(r.get(k, "")) for k in ("match_type", "lineage_status", "tracking_status", "event", "forecast_reject_reason")).lower()
+        if any(t in text for t in suspect_terms):
+            suspect.append(r)
+    outlier_ids = {str(r.get("cell_id") or r.get("object_id") or "") for r in outliers}
+    return {
+        "suspect_count": len(suspect),
+        "affected_cell_ids": sorted({str(r.get("cell_id") or r.get("object_id")) for r in suspect if r.get("cell_id") or r.get("object_id")})[:50],
+        "outlier_related_count": sum(1 for r in suspect if str(r.get("cell_id") or r.get("object_id") or "") in outlier_ids),
+        "example_events": [{k: r.get(k) for k in ("forecast_created_at_utc", "target_timestamp_utc", "horizon_min", "cell_id", "object_id", "match_type", "lineage_status")} for r in suspect[:10]],
+    }
+
+
+def build_diagnosis(base_dir: Path, hours: int) -> dict:
+    ev = Path(SAVE_PATHS.get("evaluation", "train_data/evaluation"))
+    if not ev.is_absolute():
+        ev = base_dir / ev
+    details = _read_jsonl(ev / "forecast_error_details.jsonl", hours)
+    verified = [r for r in details if _f(r.get("forecast_error_km")) is not None]
+    outliers = sorted(verified, key=lambda r: _f(r.get("forecast_error_km")) or 0, reverse=True)[:10]
+    px_geo = []
+    for r in verified:
+        km = _f(r.get("forecast_error_km"))
+        dx = _f(r.get("forecast_error_x_px")); dy = _f(r.get("forecast_error_y_px"))
+        px = math.hypot(dx or 0, dy or 0) if dx is not None or dy is not None else None
+        if km is not None and px is not None:
+            km_per_px = km / px if px > 0 else None
+            if (px == 0 and km > 1) or (km_per_px is not None and (km_per_px < 0.05 or km_per_px > 5)):
+                px_geo.append({"cell_id": r.get("cell_id") or r.get("object_id"), "error_km": km, "pixel_error_px": round(px, 3), "km_per_px": round(km_per_px, 4) if km_per_px else None})
+    terrain = ["dem_elevation_m", "dem_slope_toward_cell", "dem_barrier_ahead", "terrain_blocking_score", "orographic_lift_score", "valley_alignment_score", "valley_channeling_score"]
+    weather = ["wind_speed", "wind_dir", "wind_direction", "temperature", "pressure", "humidity", "grosswetterlage"]
+    ir_rows = [r for r in details if r.get("ir_first_seen_utc") or r.get("radar_first_seen_utc") or r.get("ir_lead_time_min") is not None]
+    leads = []
+    seen = set()
+    no_lead = 0
+    for r in ir_rows:
+        cid = r.get("cell_id") or r.get("object_id")
+        key = (cid, r.get("ir_first_seen_utc"), r.get("radar_first_seen_utc"))
+        if key in seen:
+            continue
+        seen.add(key)
+        lead = _f(r.get("ir_lead_time_min"))
+        if lead is None:
+            ir = _parse_ts(r.get("ir_first_seen_utc")); radar = _parse_ts(r.get("radar_first_seen_utc"))
+            if ir and radar:
+                lead = (radar - ir).total_seconds() / 60.0
+        if lead is None or lead <= 0:
+            no_lead += 1
+        else:
+            leads.append(lead)
+    findings = []
+    if outliers:
+        findings.append(f"Größter Forecast-Ausreißer: {(_f(outliers[0].get('forecast_error_km')) or 0):.2f} km.")
+    if px_geo:
+        findings.append(f"{len(px_geo)} Pixel-vs-Geo-Verdachtsfälle gefunden.")
+    missing_target = sum(1 for r in details if r.get("no_target_frame") is True or str(r.get("match_type") or "").lower() == "no_target_frame")
+    if missing_target:
+        findings.append(f"{missing_target} Forecasts ohne Ziel-Radarframe.")
+    recs = []
+    if px_geo:
+        recs.append("Pixel→Geo/BBOX/Crop-Upscale-Kette anhand der Verdachtsfälle prüfen.")
+    if missing_target:
+        recs.append("Radarframe-Coverage und Verifikationstoleranz im Exportfenster prüfen.")
+    return {
+        "schema": 1,
+        "status": "ok",
+        "checked_at_utc": utc_now_z(),
+        "hours": hours,
+        "sample_counts": {"forecast_error_details": len(details), "verified_forecasts": len(verified)},
+        "forecast_outliers": [{"cell_id": r.get("cell_id") or r.get("object_id"), "error_km": _f(r.get("forecast_error_km")), "forecast_position": {"lat": _f(r.get("forecast_lat")), "lon": _f(r.get("forecast_lon"))}, "actual_position": {"lat": _f(r.get("actual_lat")), "lon": _f(r.get("actual_lon"))}, "horizon_min": _f(r.get("horizon_min")), "forecast_created_at_utc": r.get("forecast_created_at_utc")} for r in outliers],
+        "pixel_geo_consistency": {"suspect_count": len(px_geo), "examples": px_geo[:10]},
+        "id_matching": _id_matching(details, outliers),
+        "missing_target_frames": {"count": missing_target, "ratio": round(missing_target / len(details), 4) if details else None},
+        "dem_orography": _feature_stats(details, terrain),
+        "weather_features": _feature_stats(details, weather),
+        "ir_precursors": {"median_lead_time_min": round(statistics.median(leads), 2) if leads else None, "matched_count": len(leads), "no_lead_count": no_lead},
+        "model_usage": {"status": "not_available"},
+        "important_findings": findings,
+        "recommendations": recs or ["Keine akuten Diagnoseempfehlungen aus lokalen 24h-Daten ableitbar."],
+    }
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--hours", type=int, default=24)
+    ap.add_argument("--base-dir", default=str(REPO))
+    args = ap.parse_args(argv)
+    base = Path(args.base_dir).resolve()
+    ev = Path(SAVE_PATHS.get("evaluation", "train_data/evaluation"))
+    if not ev.is_absolute():
+        ev = base / ev
+    ev.mkdir(parents=True, exist_ok=True)
+    try:
+        diag = build_diagnosis(base, args.hours)
+        (ev / LATEST_NAME).write_text(json.dumps(diag, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
+        (ev / ERROR_NAME).unlink(missing_ok=True)
+        print(str(ev / LATEST_NAME))
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        (ev / ERROR_NAME).write_text(json.dumps({"status": "error", "error": f"{type(exc).__name__}: {exc}", "traceback": traceback.format_exc(), "timestamp_utc": utc_now_z()}, ensure_ascii=False, indent=2), encoding="utf-8")
+        return 1
+
+if __name__ == "__main__":
+    raise SystemExit(main())
