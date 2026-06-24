@@ -2697,3 +2697,10 @@ die grobe Niederschlagsmenge im getroffenen Einzugsgebiet (Regenrate × beregnet
 ueber einen einstellbaren Abflussbeiwert. Der prognostizierte Wert addiert sich auf den aktuell
 gemessenen Durchfluss. Diese Schaetzung dient der Vorwarnung und ist kein Ersatz fuer amtliche
 Hochwasserwarnungen. Abflussbeiwert und Daempfung sind in der Konfiguration einstellbar.
+
+## Warnsymbol bei Überschreitung der Pegel-Warngrenze
+
+Eine Hydro-Station gilt als betroffen, sobald der aktuell gemessene ODER der prognostizierte
+Durchfluss die eingestellte Warngrenze (Markierungs-Durchfluss pro Station bzw. global) erreicht
+oder überschreitet. In diesem Fall wird die Quelle der Überschreitung angezeigt: gemessen, Prognose
+oder beides. Ist keine Warngrenze gesetzt, gilt die Station nie als betroffen.

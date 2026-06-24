@@ -239,6 +239,26 @@ def normalized_impacts(latest_only=False, include_disabled=False):
 def station_features(include_disabled=False, map_view=False):
     idx = _static_index(); live = _json(LIVE_LATEST, {})
     overrides = _overrides()
+    _global_mark_q = runtime_config.get("HYDRO_MAP_MARK_Q_M3S", None)
+    try:
+        from hydro_impact import load_latest_hydro_forecast as _llf
+        _fc_events = _llf() or []
+    except Exception:
+        _fc_events = []
+    _forecast_q_by_sid = {}
+    for _e in _fc_events:
+        if not isinstance(_e, dict):
+            continue
+        _fsid = str(_e.get("station_id"))
+        _qf = _e.get("q_forecast_m3s")
+        if _qf is None:
+            continue
+        try:
+            _qf = float(_qf)
+        except (TypeError, ValueError):
+            continue
+        if _fsid not in _forecast_q_by_sid or _qf > _forecast_q_by_sid[_fsid]:
+            _forecast_q_by_sid[_fsid] = _qf
     map_min_q = 0.0; map_mark_q = None
     if map_view:
         try: map_min_q = float(runtime_config.get("HYDRO_MAP_MIN_Q_M3S", 0.0) or 0.0)
@@ -265,6 +285,20 @@ def station_features(include_disabled=False, map_view=False):
         ev = None if not station_enabled else active.get(sid)
         status_value = "disabled" if not station_enabled else (ev.get("status") if ev else ("ok" if enabled() else "disabled"))
         props = {"station_id": sid, "name": l.get("name") or st.get("station_name") or sid, "river": l.get("river") or st.get("river_name") or "", "q_m3s": l.get("q_m3s"), "w_cm": l.get("w_cm"), "measured_at": l.get("measured_at"), "status": status_value, "enabled": station_enabled, "impact_eligible_auto": st.get("impact_eligible_auto"), "impact_enabled": st.get("impact_enabled"), "impact_effective": st.get("impact_effective"), "active": station_enabled and not bool(st.get("ignored", False)), "ignored": bool(st.get("ignored", False)), "impact_active": bool(ev) if station_enabled else False, "last_hydro_impact": ev if station_enabled else None, "station_basin": st.get("station_basin"), "upstream_catchment_ids": st.get("upstream_catchment_ids", []), "impact_eligible": st.get("impact_eligible"), "topology_source": st.get("topology_source"), "upstream_source_quality": st.get("upstream_source_quality"), "source_quality": st.get("source_quality"), "catchment_area_km2": st.get("catchment_area_km2"), "mark_q_m3s": st.get("mark_q_m3s"), "exclusion_reason": st.get("exclusion_reason") or ((st.get("reason") or [None])[0] if isinstance(st.get("reason"), list) else st.get("reason")), "reason": "station_disabled_by_admin" if not station_enabled and st.get("impact_eligible_auto") else st.get("reason")}
+        # P61: Warngrenzen-Ueberschreitung (gemessen oder prognostiziert) + Quelle.
+        try: _qcur = float(props.get("q_m3s"))
+        except (TypeError, ValueError): _qcur = None
+        _p61_smk = st.get("mark_q_m3s")
+        try: _p61_thr = float(_p61_smk) if _p61_smk is not None else (float(_global_mark_q) if _global_mark_q is not None else None)
+        except (TypeError, ValueError): _p61_thr = None
+        _qfc = _forecast_q_by_sid.get(sid)
+        _p61_meas = bool(_p61_thr is not None and _qcur is not None and _qcur >= _p61_thr)
+        _p61_fore = bool(_p61_thr is not None and _qfc is not None and _qfc >= _p61_thr)
+        props["q_current"] = _qcur
+        props["q_forecast"] = _qfc
+        props["q_threshold"] = _p61_thr
+        props["q_threshold_exceeded"] = bool(station_enabled and (_p61_meas or _p61_fore))
+        props["impact_source"] = ("both" if (_p61_meas and _p61_fore) else ("measured" if _p61_meas else ("forecast" if _p61_fore else None)))
         if map_view:
             try: _qn = float(props.get("q_m3s"))
             except (TypeError, ValueError): _qn = None

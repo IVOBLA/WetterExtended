@@ -3047,3 +3047,10 @@ Geplante Folgephasen der Hydro-Impact-Visualisierung:
 - P63 (offen): GET /api/hydro/affected-places + Popup-Datenfelder.
 - P64 (offen): Frontend-Layer (Flussabschnitte, betroffene Orte als Symbol), Popups, Sichtbarkeit.
 - P65 (offen): ML-Gate (nur impact_eligible_auto erzeugt Catchment-/Upstream-Hydro-Features).
+
+## P61 — Warngrenzen-Ueberschreitung (binaer) + impact_source (2026-06-24)
+
+Status: erledigt. station_features liefert zusaetzlich q_current, q_forecast (aus P60),
+q_threshold (mark_q_m3s je Station bzw. HYDRO_MAP_MARK_Q_M3S global), q_threshold_exceeded (bool)
+und impact_source (measured/forecast/both). Bestehendes Feld impact_active (Zell-Overlap) unveraendert.
+Grundlage fuer P62 (impact-segments) und P64 (Ortssymbol). Offen: P62, P63, P64, P65.
