@@ -246,6 +246,92 @@ def _build_upstream_diagnostics_bundle(index, upstream_graph, basins, flowlines,
     }
 
 
+def _river_segment_length_km(geom) -> float:
+    def _rings(g):
+        if g.geom_type == "LineString":
+            return [list(g.coords)]
+        if g.geom_type == "MultiLineString":
+            return [list(p.coords) for p in g.geoms]
+        return []
+    total = 0.0
+    for cs in _rings(geom):
+        for (x1, y1), (x2, y2) in zip(cs, cs[1:]):
+            total += haversine_m(x1, y1, x2, y2)
+    return total / 1000.0
+
+
+def _build_river_segment_features(index, flowlines, basins) -> list:
+    """Leitet je impact_eligible Station den betroffenen Flussabschnitt ausschliesslich aus
+    der Topologie ab: Flowlines, deren Lage in {station_basin} u upstream_catchment_ids faellt,
+    werden zu einer (Multi-)LineString-Geometrie vereinigt. Keine Hardcodes."""
+    if not SHAPELY_AVAILABLE or not flowlines or not basins:
+        return []
+    from collections import defaultdict
+    basin_polys = []
+    for b in basins:
+        bid = _basin_id(b)
+        if not bid:
+            continue
+        try:
+            g = shape(b.get("geometry") or {})
+        except Exception:
+            continue
+        if g.is_empty:
+            continue
+        basin_polys.append((str(bid), make_valid(g) if not g.is_valid else g))
+    basin_flowlines = defaultdict(list)
+    for fl in flowlines:
+        geom = fl.get("geometry") or {}
+        if geom.get("type") not in ("LineString", "MultiLineString"):
+            continue
+        try:
+            line = shape(geom)
+        except Exception:
+            continue
+        if line.is_empty:
+            continue
+        rp = line.representative_point()
+        for bid, bg in basin_polys:
+            try:
+                if bg.contains(rp):
+                    basin_flowlines[bid].append(line)
+                    break
+            except Exception:
+                continue
+    feats = []
+    for item in index:
+        if not item.get("impact_eligible_auto"):
+            continue
+        basin_set = set()
+        if item.get("station_basin"):
+            basin_set.add(str(item.get("station_basin")))
+        for uid in item.get("upstream_catchment_ids") or []:
+            basin_set.add(str(uid))
+        lines = []
+        for bid in basin_set:
+            lines.extend(basin_flowlines.get(bid, []))
+        if not lines:
+            continue
+        try:
+            merged = unary_union(lines)
+        except Exception:
+            continue
+        if merged.is_empty:
+            continue
+        feats.append({
+            "type": "Feature",
+            "geometry": mapping(merged),
+            "properties": {
+                "station_id": str(item.get("station_id")),
+                "station_name": item.get("station_name"),
+                "river": item.get("river_name"),
+                "segment_length_km": round(_river_segment_length_km(merged), 3),
+                "upstream_catchment_ids": item.get("upstream_catchment_ids") or [],
+            },
+        })
+    return feats
+
+
 def build_station_index(stations_geojson: str, basins_geojson: str | None, flowlines_geojson: str | None, output_dir: str | None = None) -> dict:
     output_dir = output_dir or os.path.join(getattr(config, "HYDRO_STATIC_DIR", "train_data/hydro/static"), "generated")
     default_lag = getattr(config, "HYDRO_DEFAULT_LAG_MIN", [20, 180])
@@ -258,6 +344,7 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
         _write_json(os.path.join(output_dir, "station_network_index.json"), {"stations": [], "by_station_id": {}})
         _write_json(os.path.join(output_dir, "hydro_stations.geojson"), {"type": "FeatureCollection", "features": []})
         _write_json(os.path.join(output_dir, "station_catchments.geojson"), {"type": "FeatureCollection", "features": []})
+        _write_json(os.path.join(output_dir, "station_river_segments.geojson"), {"type": "FeatureCollection", "features": []})
         _write_json(os.path.join(output_dir, "hydro_static_status.json"), status)
         return status
 
@@ -398,5 +485,8 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
     _write_json(os.path.join(output_dir, "station_network_index.json"), {"stations": index, "by_station_id": {str(i.get("station_id")): i for i in index}})
     _write_json(os.path.join(output_dir, "hydro_stations.geojson"), {"type": "FeatureCollection", "features": station_features})
     _write_json(os.path.join(output_dir, "station_catchments.geojson"), {"type": "FeatureCollection", "features": catchment_features})
+    river_segment_features = _build_river_segment_features(index, flowlines, basins)
+    status["river_segment_count"] = len(river_segment_features)
+    _write_json(os.path.join(output_dir, "station_river_segments.geojson"), {"type": "FeatureCollection", "features": river_segment_features})
     _write_json(os.path.join(output_dir, "hydro_static_status.json"), status)
     return status

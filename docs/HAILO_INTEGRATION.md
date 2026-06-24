@@ -3054,3 +3054,11 @@ Status: erledigt. station_features liefert zusaetzlich q_current, q_forecast (au
 q_threshold (mark_q_m3s je Station bzw. HYDRO_MAP_MARK_Q_M3S global), q_threshold_exceeded (bool)
 und impact_source (measured/forecast/both). Bestehendes Feld impact_active (Zell-Overlap) unveraendert.
 Grundlage fuer P62 (impact-segments) und P64 (Ortssymbol). Offen: P62, P63, P64, P65.
+
+## P62 — Flussabschnitt-Generat + /api/hydro/impact-segments (2026-06-24)
+
+Status: erledigt. build_station_index schreibt station_river_segments.geojson: je
+impact_eligible_auto Station die Vereinigung der Flowlines in {station_basin} u upstream_catchment_ids
+(topologisch, kein Hardcode) inkl. segment_length_km. status.river_segment_count ergaenzt.
+Neuer Endpoint /api/hydro/impact-segments liefert nur Stationen mit ueberschrittener Warngrenze (P61),
+angereichert um q_current/q_forecast/q_threshold/impact_source/updated_at. Offen: P63, P64, P65.
