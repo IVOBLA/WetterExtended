@@ -23,13 +23,16 @@ import { loadRiskGridAfterHealth, nextRiskGridDelayMs } from '../utils/riskGridP
  * Format-Beispiele: '2026-06-09_13-41-02' oder '2026-06-09T13:41:02'
  */
 
-const formatIrObservationTime = value => value
-  ? new Date(value).toLocaleString('de-AT', { timeZone: 'Europe/Vienna', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-  : '—'
+const formatIrObservationTime = value => {
+  const d = parseViennaLocalTimestamp(value)
+  return d
+    ? d.toLocaleString('de-AT', { timeZone: 'Europe/Vienna', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : '—'
+}
 
 const irDataAgeMin = ir => {
-  const ts = ir.last_seen_observation_timestamp || ir.source_timestamp || ir.last_timestamp
-  const d = ts ? new Date(ts) : null
+  const ts = ir.last_seen_observation_timestamp || ir.observation_timestamp || ir.source_timestamp || ir.last_timestamp
+  const d = parseViennaLocalTimestamp(ts)
   return d && !Number.isNaN(d.getTime()) ? Math.max(0, Math.round((Date.now() - d.getTime()) / 60000)) : null
 }
 
@@ -1226,8 +1229,8 @@ export default function MapFullscreen() {
                       ? <span style={{color:'#6b7280'}}>↓ Löst sich auf</span>
                       : <span>→ Stabil</span>}
                 </b></div>
-                <div>Erste Ortung: <b>{formatIrObservationTime(ir.first_seen_observation_timestamp || ir.first_seen_timestamp)}</b></div>
-                <div>Letzte Ortung: <b>{formatIrObservationTime(ir.last_seen_observation_timestamp || ir.source_timestamp || ir.last_timestamp)}</b></div>
+                <div>Erste Ortung: <b>{formatIrObservationTime(ir.first_seen_observation_timestamp || ir.observation_timestamp || ir.first_seen_timestamp)}</b></div>
+                <div>Letzte Ortung: <b>{formatIrObservationTime(ir.last_seen_observation_timestamp || ir.observation_timestamp || ir.source_timestamp || ir.last_timestamp)}</b></div>
                 <div>Datenalter: {irDataAgeMin(ir) ?? '—'} min</div>
                 {ir.availability_latency_min != null && (
                   <div>Bildlatenz: {Number(ir.availability_latency_min).toFixed(0)} min</div>
