@@ -32,6 +32,8 @@ HYDRO_ENABLED_ENV = "HYDRO_ENABLED"
 MIN_OVERLAP_AREA_KM2 = float(os.environ.get("HYDRO_MIN_OVERLAP_AREA_KM2", "1.0"))
 MIN_OVERLAP_RATIO_CELL = float(os.environ.get("HYDRO_MIN_OVERLAP_RATIO_CELL", "0.03"))
 MIN_DURATION_MIN = float(os.environ.get("HYDRO_MIN_DURATION_MIN", "5"))
+HYDRO_FORECAST_RUNOFF_COEFF = float(os.environ.get("HYDRO_FORECAST_RUNOFF_COEFF", "0.4"))
+HYDRO_FORECAST_ROUTING_ATTENUATION = float(os.environ.get("HYDRO_FORECAST_ROUTING_ATTENUATION", "1.0"))
 RELEVANT_INTENSITIES = {"strong", "severe", "extreme", "rot", "violett", "red", "purple", "heavy"}
 
 _HYDRO_BASE = Path(SAVE_PATHS.get("hydro", "train_data/hydro/live/"))
@@ -386,6 +388,28 @@ def _precip_rate_mm_h(cell: dict[str, Any]) -> float:
     return 0.0
 
 
+def compute_q_forecast_m3s(q_current, precip_rate_mm_h, overlap_area_km2, runoff_coeff=HYDRO_FORECAST_RUNOFF_COEFF, routing_attenuation=HYDRO_FORECAST_ROUTING_ATTENUATION) -> dict[str, Any]:
+    """Prognostizierter Abfluss (m3/s) nach der Rational-Methode.
+
+    Δq = C · i · A / 3.6  (i in mm/h, A in km² → m³/s); q_forecast = q_current + Δq · Daempfung.
+    Grobe Schaetzung, kein Ersatz fuer amtliche Hochwasserwarnungen. Fehlt q_current,
+    bleibt q_forecast_m3s None (Δq wird trotzdem berichtet)."""
+    try:
+        qc = float(q_current) if q_current is not None else None
+    except (TypeError, ValueError):
+        qc = None
+    try:
+        i = float(precip_rate_mm_h or 0.0)
+        a = float(overlap_area_km2 or 0.0)
+        c = float(runoff_coeff)
+        att = float(routing_attenuation)
+    except (TypeError, ValueError):
+        return {"delta_q_m3s": 0.0, "q_forecast_m3s": qc}
+    delta_q = max(0.0, c * i * a / 3.6) * max(0.0, att)
+    q_fc = (qc + delta_q) if qc is not None else None
+    return {"delta_q_m3s": round(delta_q, 3), "q_forecast_m3s": (round(q_fc, 3) if q_fc is not None else None)}
+
+
 def _shift_cell_to_forecast(cell: dict[str, Any], dlon: float, dlat: float) -> dict[str, Any]:
     """Erzeugt eine Zellkopie mit zur Forecast-Position verschobener Kontur."""
     fc = dict(cell)
@@ -428,6 +452,10 @@ def evaluate_hydro_forecast_impact(objects: list, timestamp: str | None = None) 
     min_ratio = _runtime_float("HYDRO_MIN_OVERLAP_RATIO_CELL", MIN_OVERLAP_RATIO_CELL)
     created = _parse_time(timestamp)
     catchments = list(_load_catchments())
+    latest_hydro = _load_json(LATEST_HYDRO_PATH, {})
+    q_current_by_sid = {str(s.get("station_id")): s.get("q_m3s") for s in latest_hydro.get("stations", []) if isinstance(s, dict)} if isinstance(latest_hydro, dict) else {}
+    runoff_coeff = _runtime_float("HYDRO_FORECAST_RUNOFF_COEFF", HYDRO_FORECAST_RUNOFF_COEFF)
+    routing_attenuation = _runtime_float("HYDRO_FORECAST_ROUTING_ATTENUATION", HYDRO_FORECAST_ROUTING_ATTENUATION)
     events = []
     for cell in objects or []:
         if str(cell.get("status", cell.get("state", "active"))).lower().startswith("inactive"):
@@ -491,6 +519,9 @@ def evaluate_hydro_forecast_impact(objects: list, timestamp: str | None = None) 
                 "precip_rate_mm_h": round(rate, 2),
                 "estimated_precip_mm": estimated_precip_mm,
                 "forecast_impact_score": round(score, 4),
+                "q_current_m3s": q_current_by_sid.get(sid),
+                **compute_q_forecast_m3s(q_current_by_sid.get(sid), rate, max_area, runoff_coeff, routing_attenuation),
+                "lead_min": min(hit_times) if hit_times else None,
                 "catchment_id": catchment_id,
                 "upstream_catchment_ids": sorted(upstream_id_set),
                 "cell_lat": clat, "cell_lon": clon,

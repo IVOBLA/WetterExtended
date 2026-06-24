@@ -2688,3 +2688,12 @@ automatisch verworfen und durch die EWMA-Bewegungsgeschichte ersetzt. Das verhin
 systematische Richtungsfehler, die bei großen Pixelverschiebungen im Lucas-Kanade-Algorithmus
 auftreten. Der Schwellwert `OF_MAX_FRAME_INTERVAL_MIN` (Standard: 8 min) ist im Admin-Panel
 unter Runtime-Konfiguration anpassbar.
+
+## Prognostizierter Pegel-Durchfluss (m³/s)
+
+Trifft eine Zelle laut Vorhersage ein oberliegendes Einzugsgebiet einer Hydro-Station, schaetzt das
+System neben der Vorwarnung jetzt auch einen prognostizierten Pegel-Durchfluss in m³/s. Grundlage ist
+die grobe Niederschlagsmenge im getroffenen Einzugsgebiet (Regenrate × beregnete Flaeche), umgerechnet
+ueber einen einstellbaren Abflussbeiwert. Der prognostizierte Wert addiert sich auf den aktuell
+gemessenen Durchfluss. Diese Schaetzung dient der Vorwarnung und ist kein Ersatz fuer amtliche
+Hochwasserwarnungen. Abflussbeiwert und Daempfung sind in der Konfiguration einstellbar.

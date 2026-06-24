@@ -3031,3 +3031,19 @@ Linienstil und Popup-Felder.
 - Fix: config.OF_MAX_FRAME_INTERVAL_MIN=8.0 (runtime-overridable). Bei _fm_of>Schwellwert wird
   OF verworfen und auf EWMA/History zurückgefallen; of_error_reason="interval_too_large_fm{x}".
 - Test: tests/test_p59_of_interval_gate.py.
+
+## P60 — Prognostizierter Pegel-Abfluss q_forecast (m³/s, Rational-Methode) (2026-06-24)
+
+Status: erledigt. Forecast-Hydro-Events (P57) werden um `q_current_m3s`, `delta_q_m3s`,
+`q_forecast_m3s` und `lead_min` angereichert. Berechnung: Δq = C·i·A/3.6 (Rational-Methode),
+C=`HYDRO_FORECAST_RUNOFF_COEFF` (0.4), Daempfung=`HYDRO_FORECAST_ROUTING_ATTENUATION` (1.0).
+Reine Funktion `hydro_impact.compute_q_forecast_m3s`. Keine zusaetzlichen Fremdrequests.
+Voraussetzung fuer P61 (Warngrenzen-Ueberschreitung gemessen/prognostiziert) und die
+Hydro-Impact-Visualisierung (P62–P64).
+
+Geplante Folgephasen der Hydro-Impact-Visualisierung:
+- P61 (offen): impact_active (binaer: Warngrenze ueberschritten) + impact_source (Info) in station_features.
+- P62 (offen): Generat station_river_segments.geojson + GET /api/hydro/impact-segments.
+- P63 (offen): GET /api/hydro/affected-places + Popup-Datenfelder.
+- P64 (offen): Frontend-Layer (Flussabschnitte, betroffene Orte als Symbol), Popups, Sichtbarkeit.
+- P65 (offen): ML-Gate (nur impact_eligible_auto erzeugt Catchment-/Upstream-Hydro-Features).
