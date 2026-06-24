@@ -496,6 +496,7 @@ if [[ "$LOCAL_INSTALL" == true ]]; then
             --exclude=/train_data/cell_filters/ \
             --exclude=/train_data/cell_lineage/ \
             --exclude=/train_data/hydro/ \
+            --exclude=/data/config/hydro_station_overrides.json \
             "$LOCAL_SOURCE/" "$TARGET/"
         log_info "Quellcode nach $TARGET kopiert (geschützte Benutzerdaten ausgeschlossen)."
     else
@@ -1053,6 +1054,7 @@ DIRS=(
     train_data/hydro/static/generated
     train_data/hydro/live
     train_data/hydro/impact
+    data/config
     data/radar
     data
     logs

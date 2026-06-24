@@ -153,19 +153,44 @@ def _cycles(nodes, edges):
         if n not in visited: dfs(n,[])
     return found
 
+def _remove_cycle_closing_edges(nodes, edges):
+    """Markiert nur DFS-Rueckkanten als cycle_removed und behaelt alle anderen Kanten.
+
+    Cycle-Nodes werden weiter traversiert; Endlosschleifen verhindert die DFS-
+    Farbe/visited-Logik. Damit werden lokale Zyklen nicht mehr als globale
+    Basin-/Stationssperre behandelt.
+    """
+    by_from=defaultdict(list)
+    for idx,e in enumerate(edges):
+        by_from[e["from_basin_id"]].append((idx,e))
+    visiting=set(); visited=set(); removed=set(); cycles=[]
+    def dfs(n,path):
+        visiting.add(n); path.append(n)
+        for idx,e in by_from.get(n,[]):
+            nb=e["to_basin_id"]
+            if nb in visiting:
+                removed.add(idx); cycles.append(path[path.index(nb):]+[nb])
+            elif nb not in visited:
+                dfs(nb,path)
+        path.pop(); visiting.remove(n); visited.add(n)
+    for n in nodes:
+        if n not in visited: dfs(n,[])
+    return removed, cycles
+
 def build_upstream_basin_graph(basins, flowlines) -> dict:
     ids=[normalize_basin_id(b) for b in basins if normalize_basin_id(b)]
     adj=build_basin_adjacency_from_flowlines(flowlines, basins); edges=adj["edges"]
-    cycles=_cycles(ids, edges); cyc_nodes={x for c in cycles for x in c}
+    removed_edges, cycles = _remove_cycle_closing_edges(ids, edges); cyc_nodes={x for c in cycles for x in c}
     up=defaultdict(list); down=defaultdict(list)
-    for e in edges:
-        if e["from_basin_id"] in cyc_nodes or e["to_basin_id"] in cyc_nodes: e["confidence"]="cycle_blocked"; continue
+    for idx,e in enumerate(edges):
+        if idx in removed_edges:
+            e["confidence"]="cycle_removed"; e["cycle_resolution"]="removed_back_edge"; continue
         down[e["from_basin_id"]].append(e["to_basin_id"]); up[e["to_basin_id"]].append(e["from_basin_id"])
-    return {"nodes":ids,"edges":edges,"upstream_by_basin":{k:sorted(set(v)) for k,v in up.items()},"downstream_by_basin":{k:sorted(set(v)) for k,v in down.items()},"confident_edge_count":sum(1 for e in edges if e.get("confidence")=="confident"),"cycle_count":len(cycles),"cycle_nodes":sorted(cyc_nodes),"cycles":cycles,"matches":adj["matches"],"diagnostics":adj["diagnostics"],"topology_quality":"confident" if edges and not cycles and any(e.get("confidence")=="confident" for e in edges) else ("upstream_graph_cycle" if cycles else "upstream_topology_missing")}
+    confident=sum(1 for e in edges if e.get("confidence")=="confident")
+    return {"nodes":ids,"edges":edges,"upstream_by_basin":{k:sorted(set(v)) for k,v in up.items()},"downstream_by_basin":{k:sorted(set(v)) for k,v in down.items()},"confident_edge_count":confident,"cycle_count":len(cycles),"cycle_removed_edge_count":len(removed_edges),"cycle_nodes":sorted(cyc_nodes),"cycles":cycles,"matches":adj["matches"],"diagnostics":adj["diagnostics"],"topology_quality":"confident" if confident else ("upstream_topology_missing" if not edges else "cycle_edges_removed")}
 
 def get_upstream_basin_ids(station_basin_id, graph) -> list[str]:
     if not station_basin_id: return []
-    if str(station_basin_id) in set(graph.get("cycle_nodes") or []): return []
     seen={str(station_basin_id)}; q=deque([str(station_basin_id)])
     up=graph.get("upstream_by_basin") or {}
     while q:

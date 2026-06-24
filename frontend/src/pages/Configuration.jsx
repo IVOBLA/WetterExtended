@@ -209,6 +209,7 @@ export default function Configuration() {
   const [hydroStatus, setHydroStatus] = useState(null)
   const [hydroBusy, setHydroBusy] = useState('')
   const [hydroMsg, setHydroMsg] = useState('')
+  const [hydroFilter, setHydroFilter] = useState('all')
 
   useEffect(() => {
     api.get('/api/config').then(d => setText(JSON.stringify(d, null, 2))).catch(() => {})
@@ -271,7 +272,11 @@ export default function Configuration() {
     const sid = st.station_id
     setHydroMsg('')
     try {
-      await api.patch(`/api/hydro/stations/${st.station_id}`, patch)
+      if (Object.keys(patch).length === 1 && Object.prototype.hasOwnProperty.call(patch, 'enabled')) {
+        await api.post(`/api/admin/hydro/stations/${st.station_id}/${patch.enabled ? 'enable' : 'disable'}`, {})
+      } else {
+        await api.patch(`/api/hydro/stations/${st.station_id}`, patch)
+      }
       setHydroStations(prev => prev.map(s => s.station_id === sid ? { ...s, ...patch } : s))
       setHydroMsg('✅ Station aktualisiert.')
     } catch (err) {
@@ -279,7 +284,19 @@ export default function Configuration() {
     }
   }
 
-  const hydroImpactEligibleCount = hydroStations.filter(st => st.impact_eligible === true).length
+  const hydroImpactEligibleCount = hydroStations.filter(st => (st.impact_eligible_auto ?? st.impact_eligible) === true).length
+  const hydroImpactNotEligibleCount = hydroStations.length - hydroImpactEligibleCount
+  const hydroEnabledCount = hydroStations.filter(st => st.impact_effective === true || st.enabled === true).length
+  const hydroDisabledCount = hydroImpactEligibleCount - hydroEnabledCount
+  const displayedHydroStations = hydroStations.filter(st => {
+    const eligible = (st.impact_eligible_auto ?? st.impact_eligible) === true
+    const active = st.impact_effective === true || st.enabled === true
+    if (hydroFilter === 'enabled') return active
+    if (hydroFilter === 'disabled') return eligible && !active
+    if (hydroFilter === 'eligible') return eligible
+    if (hydroFilter === 'ineligible') return !eligible
+    return true
+  })
   const upstreamTopologyMissing = hydroStatus?.static_status === 'upstream_topology_missing' || hydroStatus?.impact_not_eligible_reason === 'upstream_topology_missing'
 
   const filteredGroups = PARAM_GROUPS.map(g => ({
@@ -301,7 +318,8 @@ export default function Configuration() {
         <div className="mb-3 rounded border bg-gray-50 p-2 text-xs text-gray-700">
           <div><strong>Status:</strong> {hydroStatus?.status || 'wird geladen'}</div>
           <div><strong>Static:</strong> {hydroStatus?.static_status || '—'} · <strong>Live:</strong> {hydroStatus?.live_ok ? 'ok' : (hydroStatus?.live_ready ? 'nicht ok' : 'fehlt')}</div>
-          <div>{hydroStations.length} Hydro-Stationen geladen · {hydroImpactEligibleCount} impact-eligible</div>
+          <div>{hydroStations.length} Hydro-Stationen geladen · {hydroImpactEligibleCount} impact-eligible · {hydroImpactNotEligibleCount} nicht impact-eligible</div>
+          <div>{hydroEnabledCount} aktiviert · {hydroDisabledCount} deaktiviert</div>
           {upstreamTopologyMissing && <div className="text-amber-700">Hinweis: Upstream-Topologie fehlt noch</div>}
           {hydroStatus?.last_error && <div className="text-red-700"><strong>Fehler:</strong> {hydroStatus.last_error}</div>}
         </div>
@@ -309,6 +327,13 @@ export default function Configuration() {
           <button className="btn" disabled={!!hydroBusy} onClick={() => runHydroAction('fetch-live', '/api/hydro/fetch-live', '✅ Live-Hydro geladen.')}>{hydroBusy === 'fetch-live' ? '⏳ lädt …' : 'Live-Hydro jetzt laden'}</button>
           <button className="btn" disabled={!!hydroBusy} onClick={() => runHydroAction('reload-static', '/api/hydro/reload-static', '✅ Static-Hydro neu eingelesen.')}>{hydroBusy === 'reload-static' ? '⏳ Rebuild läuft … (eigener Prozess, kann dauern)' : 'Static-Hydro neu einlesen'}</button>
           <button className="btn" disabled={!!hydroBusy} onClick={() => runHydroAction('verify', '/api/hydro/verify', '✅ Pending-Verifikation geprüft.')}>{hydroBusy === 'verify' ? '⏳ prüft …' : 'Pending Verifikation prüfen'}</button>
+          <button className="btn" disabled={!!hydroBusy} onClick={() => runHydroAction('enable-all', '/api/admin/hydro/stations/enable-all', '✅ Alle impact-eligible Stationen aktiviert.')}>Alle impact-eligible aktivieren</button>
+          <button className="btn" disabled={!!hydroBusy} onClick={() => runHydroAction('disable-all', '/api/admin/hydro/stations/disable-all', '✅ Alle impact-eligible Stationen deaktiviert.')}>Alle impact-eligible deaktivieren</button>
+        </div>
+        <div className="flex flex-wrap gap-2 mb-3 text-xs">
+          {[['all','Alle'],['enabled','Nur aktivierte'],['disabled','Nur deaktivierte'],['eligible','Nur eligible'],['ineligible','Nur nicht eligible']].map(([key,label]) => (
+            <button key={key} className={`btn ${hydroFilter === key ? 'bg-blue-100' : ''}`} onClick={() => setHydroFilter(key)}>{label}</button>
+          ))}
         </div>
         {(hydroBusy || hydroMsg) && (
           <div className={`mb-3 rounded border p-2 text-sm ${hydroBusy ? 'bg-blue-50 border-blue-300 text-blue-800' : (hydroMsg.startsWith('✅') ? 'bg-green-50 border-green-300 text-green-800' : 'bg-red-50 border-red-300 text-red-800')}`}>
@@ -316,15 +341,15 @@ export default function Configuration() {
           </div>
         )}
         <div className="max-h-48 overflow-auto border rounded">
-          {hydroStations.length === 0 ? <div className="p-2 text-xs text-gray-500">Keine Hydro-Stationen geladen.</div> : hydroStations.map(st => (
+          {hydroStations.length === 0 ? <div className="p-2 text-xs text-gray-500">Keine Hydro-Stationen geladen.</div> : displayedHydroStations.map(st => (
             <div key={st.station_id} className="flex items-center justify-between gap-2 px-2 py-1 border-b text-xs">
-              <span className="flex-1"><strong>{st.name || st.station_id}</strong> · {st.river || '—'}</span>
+              <span className="flex-1"><strong>{st.name || st.station_id}</strong> · {st.river || '—'}<br/><span className="text-gray-500">auto={String(st.impact_eligible_auto ?? st.impact_eligible)} · enabled={String(st.impact_enabled ?? st.enabled)} · effective={String(st.impact_effective ?? st.enabled)} · {st.topology_source || 'none'} · {st.upstream_source_quality || '—'} · {st.exclusion_reason || (Array.isArray(st.reason) ? st.reason[0] : st.reason) || '—'}</span></span>
               <label className="flex items-center gap-1" title="Markierungs-Durchfluss dieser Station (m³/s); leer = globaler Wert">
                 <span className="text-gray-500">Q≥</span>
                 <input type="number" min="0" step="0.1" disabled={!!hydroBusy} defaultValue={st.mark_q_m3s ?? ''} className="w-16 border rounded px-1"
                   onBlur={e => { const v = e.target.value.trim(); const num = v === '' ? null : Number(v); patchHydroStation(st, { mark_q_m3s: Number.isFinite(num) ? num : null }) }} />
               </label>
-              <input type="checkbox" disabled={!!hydroBusy} checked={st.enabled !== false} onChange={e => patchHydroStation(st, { enabled: e.target.checked })} />
+              <input type="checkbox" disabled={!!hydroBusy || ((st.impact_eligible_auto ?? st.impact_eligible) !== true)} checked={(st.impact_effective ?? st.enabled) === true} onChange={e => patchHydroStation(st, { enabled: e.target.checked })} />
             </div>
           ))}
         </div>
