@@ -533,6 +533,21 @@ def _write_api_logs_to_zip(zf: zipfile.ZipFile, root_name: str, base_dir: Path, 
 
 
 
+def _json_finite_safe(value):
+    """Ersetzt nicht-finite Floats rekursiv durch None für strikt gültiges JSON."""
+    import math as _math
+
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, float):
+        return value if _math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _json_finite_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_finite_safe(v) for v in value]
+    return value
+
+
 def _build_progress_snapshot(base_dir: Path, save_paths: dict | None) -> dict:
     models_dir = Path((save_paths or {}).get("models", base_dir / "train_data" / "models"))
     if not models_dir.is_absolute():
@@ -819,7 +834,7 @@ def create_debug_export_zip(
 
             try:
                 progress_snapshot = _build_progress_snapshot(base_dir, save_paths)
-                data = json.dumps(progress_snapshot, ensure_ascii=False, indent=2, default=str).encode("utf-8")
+                data = json.dumps(_json_finite_safe(progress_snapshot), ensure_ascii=False, indent=2, default=str, allow_nan=False).encode("utf-8")
                 zf.writestr(f"{root_name}/diagnostics/progress_snapshot.json", data)
                 total_files += 1
                 total_bytes += len(data)

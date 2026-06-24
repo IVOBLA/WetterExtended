@@ -47,7 +47,9 @@ export default function Progress() {
   const activeValidation = activeMeta?.validation || {}
   const mlActive = fcStats ? (fcStats.ml_blocked_reason == null) : null
   const blockedReason = fcStats?.ml_blocked_reason || null
-  const horizons = activeMeta?.horizons_trained || versions.find(v => v.horizons_trained?.length)?.horizons_trained || [10, 20, 30, 40, 60]
+  const horizons = activeMeta?.horizons_trained?.length
+    ? activeMeta.horizons_trained
+    : (versions.find(v => v.horizons_trained?.length)?.horizons_trained || [10, 20, 30, 40, 60])
   const mlBetterThanKin = Number.isFinite(Number(activeValidation.mae_new)) && Number.isFinite(Number(activeValidation.kin_baseline_mae))
     ? Number(activeValidation.mae_new) < Number(activeValidation.kin_baseline_mae)
     : null
