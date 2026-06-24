@@ -49,11 +49,12 @@ def test_upstream_ids_from_basin_graph():
     assert hug.get_upstream_basin_ids("B3", g) == ["B1", "B2", "B3"]
 
 @pytest.mark.skipif(not hug.SHAPELY_AVAILABLE, reason="Shapely fehlt")
-def test_cycle_detection_blocks_uncertain_impact():
+def test_cycle_detection_removes_only_back_edge_and_keeps_upstream():
     bs=[basin("B1",0,1), basin("B2",1,2)]
     g=hug.build_upstream_basin_graph(bs, [flow("F1", [[0.2,.5],[1.8,.5]]), flow("F2", [[1.8,.6],[0.2,.6]])])
     assert g["cycle_count"] > 0
-    assert hug.get_upstream_basin_ids("B2", g) == []
+    assert g["cycle_removed_edge_count"] == 1
+    assert hug.get_upstream_basin_ids("B2", g) == ["B1", "B2"]
 
 @pytest.mark.skipif(not SHAPELY_AVAILABLE, reason="Shapely fehlt")
 def test_station_gets_upstream_union_when_graph_confident(tmp_path):

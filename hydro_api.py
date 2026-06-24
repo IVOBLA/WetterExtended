@@ -1,7 +1,7 @@
 """API-Helfer fuer Hydro-Impact-Status, Stationen und Events."""
 from __future__ import annotations
 
-import json, os
+import json, os, logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -10,6 +10,8 @@ import config
 import runtime_config
 import hydro_station_overrides
 from config import SAVE_PATHS
+
+log = logging.getLogger(__name__)
 
 BASE = Path(SAVE_PATHS.get("hydro", "train_data/hydro/live"))
 STATIC_GENERATED = Path(getattr(config, "HYDRO_STATIC_DIR", "train_data/hydro/static")) / "generated"
@@ -99,10 +101,15 @@ def apply_station_override(station: dict, overrides: dict | None = None) -> dict
         merged.update(ov)
     auto_known = "impact_eligible_auto" in merged
     auto = bool(merged.get("impact_eligible_auto", merged.get("impact_eligible") is True))
-    if not auto_known and merged.get("impact_eligible") is False and not override_has_enabled:
-        admin_enabled = True
+    if override_has_enabled:
+        requested_enabled = bool(ov.get("enabled"))
+    elif not auto_known and merged.get("impact_eligible") is False:
+        requested_enabled = True
     else:
-        admin_enabled = bool(merged.get("impact_enabled", merged.get("enabled", True)))
+        requested_enabled = bool(merged.get("impact_enabled", merged.get("enabled", True)))
+    if auto_known and not auto and requested_enabled:
+        log.warning("Ignoriere Hydro-Station-Override enabled=true fuer nicht impact_eligible_auto Station %s", sid)
+    admin_enabled = bool(requested_enabled and (auto or not auto_known))
     effective = bool(auto and admin_enabled) if auto_known else admin_enabled
     merged["_impact_auto_known"] = auto_known
     merged["_override_has_enabled"] = override_has_enabled

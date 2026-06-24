@@ -279,7 +279,7 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
         if not pt:
             index.append({
                 "station_id": sid, "station_name": name, "river_name": river,
-                "impact_eligible_auto": False, "impact_enabled": _station_admin_enabled(sid), "impact_effective": False, "enabled": _station_admin_enabled(sid), "visible": False, "impact_eligible": False, "quality": "unresolved",
+                "impact_eligible_auto": False, "impact_enabled": False, "impact_effective": False, "enabled": False, "visible": False, "impact_eligible": False, "quality": "unresolved",
                 "source_quality": "station_point_missing",
                 "topology_source": "none",
                 "upstream_source_quality": "station_point_missing",
@@ -348,6 +348,8 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
         quality = "exact" if impact_eligible else basin_match_quality
         area = polygon_area_km2(union_geom or {}) if union_geom else 0.0
         station_enabled = _station_admin_enabled(sid)
+        impact_enabled = bool(station_enabled) if impact_eligible else False
+        impact_effective = bool(impact_eligible and impact_enabled)
         item = {
             "station_id": sid, "station_name": name, "river_name": river, "lon": lon, "lat": lat,
             "snapped_flowline_id": str(_prop(flowline, ["flowline_id", "id"], "")) if flowline else None,
@@ -360,8 +362,8 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
             "outlet_id": _prop(basin or {}, ["outlet_id"], None),
             "source_schema": _prop(basin or {}, ["source_schema"], None),
             "default_lag_min": default_lag, "estimated_lag_min": default_lag,
-            "impact_eligible_auto": impact_eligible, "impact_enabled": station_enabled, "impact_effective": bool(impact_eligible and station_enabled),
-            "enabled": station_enabled, "visible": station_enabled, "impact_eligible": impact_eligible,
+            "impact_eligible_auto": impact_eligible, "impact_enabled": impact_enabled, "impact_effective": impact_effective,
+            "enabled": impact_effective, "visible": impact_effective, "impact_eligible": impact_eligible,
             "quality": quality, "source_quality": source_quality, "exclusion_reason": reason[0] if reason else None, "reason": reason, "nearest_basin_hint": nearest_basin_hint,
         }
         index.append(item)
@@ -369,7 +371,7 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
         if impact_eligible:
             catchment_features.append({"type": "Feature", "geometry": union_geom, "properties": item})
     impact_enabled = sum(1 for i in index if i.get("impact_eligible_auto"))
-    visible_enabled = sum(1 for i in index if i.get("enabled") is not False and i.get("visible") is not False)
+    visible_enabled = sum(1 for i in index if i.get("impact_effective") is True)
     matched = sum(1 for i in index if i.get("station_basin"))
     missing = []
     if not basins:

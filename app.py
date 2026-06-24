@@ -5209,7 +5209,7 @@ def _hydro_set_station_enabled(station_id, enabled):
     if sid not in idx:
         return _hydro_json("not_found", ok=False, error="Station nicht gefunden", code=404)
     station = hydro_api.apply_station_override(idx[sid])
-    if enabled and station.get("impact_eligible_auto") is not True:
+    if station.get("impact_eligible_auto") is not True:
         return _hydro_json("not_impact_eligible", ok=False, error="Station ist nicht impact_eligible_auto", code=400)
     cur = hydro_station_overrides.patch_station(sid, {"enabled": bool(enabled)})
     return _hydro_json("ok", data={"station_id": sid, "overrides": cur}, ok=True)
@@ -5333,7 +5333,7 @@ def api_hydro_station_patch(station_id):
     if "enabled" in data:
         if not isinstance(data["enabled"], bool):
             return _hydro_json("invalid_request", ok=False, error="enabled muss bool sein", code=400)
-        if data["enabled"] and hydro_api.apply_station_override((hydro_api._static_index()).get(sid, {}), overrides).get("impact_eligible_auto") is not True:
+        if hydro_api.apply_station_override((hydro_api._static_index()).get(sid, {}), overrides).get("impact_eligible_auto") is not True:
             return _hydro_json("not_impact_eligible", ok=False, error="Station ist nicht impact_eligible_auto", code=400)
         cur["enabled"] = data["enabled"]; changed.append("enabled")
     for k in ("default_lag_min", "estimated_lag_min"):
