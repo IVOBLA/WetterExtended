@@ -99,7 +99,7 @@ def apply_station_override(station: dict, overrides: dict | None = None) -> dict
     override_has_enabled = isinstance(ov, dict) and "enabled" in ov
     if isinstance(ov, dict):
         merged.update(ov)
-    auto_known = "impact_eligible_auto" in merged
+    auto_known = "impact_eligible_auto" in merged or "impact_eligible" in merged
     auto = bool(merged.get("impact_eligible_auto", merged.get("impact_eligible") is True))
     if override_has_enabled:
         requested_enabled = bool(ov.get("enabled"))
@@ -244,9 +244,10 @@ def station_features(include_disabled=False, map_view=False):
         lon = st.get("lon", l.get("lon")); lat = st.get("lat", l.get("lat"))
         if lon is None or lat is None: continue
         station_enabled = bool(st.get("impact_effective"))
-        admin_disabled = st.get("impact_enabled") is False and (st.get("_override_has_enabled") or not (st.get("_impact_auto_known") and st.get("impact_eligible_auto") is False))
-        explicit_disabled = admin_disabled
-        if admin_disabled and not include_disabled:
+        # Public callers must only see stations whose Hydro impact is actually
+        # effective. Admin/debug callers pass include_disabled=1 and need the
+        # full list, including ineligible stations for diagnosis and editing.
+        if not station_enabled and not include_disabled:
             continue
         ev = None if not station_enabled else active.get(sid)
         status_value = "disabled" if not station_enabled else (ev.get("status") if ev else ("ok" if enabled() else "disabled"))

@@ -7,8 +7,8 @@ import hydro_api
 
 def _setup(monkeypatch, overrides, global_mark):
     monkeypatch.setattr(hydro_api, "_static_index", lambda: {
-        "S1": {"lat": 1.0, "lon": 1.0, "station_name": "A"},
-        "S2": {"lat": 2.0, "lon": 2.0, "station_name": "B"},
+        "S1": {"lat": 1.0, "lon": 1.0, "station_name": "A", "impact_eligible": True},
+        "S2": {"lat": 2.0, "lon": 2.0, "station_name": "B", "impact_eligible": True},
     })
     monkeypatch.setattr(hydro_api, "_json", lambda path, default=None: {"stations": [
         {"station_id": "S1", "q_m3s": 6.0}, {"station_id": "S2", "q_m3s": 6.0},
@@ -45,6 +45,7 @@ def test_disabled_station_visible_with_include_disabled(monkeypatch):
 
 @pytest.fixture
 def client():
+    pytest.importorskip("flask")
     import app as app_module
     app_module.app.config.update(TESTING=True)
     return app_module.app.test_client()
@@ -68,5 +69,6 @@ def test_frontend_admin_list_contract():
     s = (Path(__file__).resolve().parent.parent / "frontend" / "src" / "pages" / "Configuration.jsx").read_text(encoding="utf-8")
     assert "/api/hydro/stations?include_disabled=1" in s
     assert "async function patchHydroStation(" in s
-    assert "setHydroStations(prev => prev.map(" in s
+    assert "await reloadHydroAdminData({ nocache: true })" in s
+    assert "/api/hydro/status" in s
     assert "mark_q_m3s" in s
