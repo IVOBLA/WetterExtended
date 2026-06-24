@@ -2717,3 +2717,10 @@ Liegen beobachtete Orte (Watchlist) innerhalb eines einstellbaren Pufferradius u
 Flussabschnitt, werden sie als betroffen markiert. Pro Ort werden das betroffene Gewässer, die
 zugehörige Station, die Quelle der Überschreitung sowie die Entfernungen zum Fluss und zur Station
 angezeigt. Der Pufferradius ist konfigurierbar.
+
+## Hydro-Impact auf der Karte
+
+Die Karte zeigt bei überschrittener Warngrenze die betroffenen Flussabschnitte in einer einheitlichen
+Warnfarbe sowie betroffene Orte mit einem eigenen Symbol. Beide Ebenen lassen sich über die
+Karten-Steuerung einzeln ein- und ausblenden. Popups liefern den aktuellen und prognostizierten
+Durchfluss, die Warngrenze, die Quelle der Überschreitung und die Entfernungen.

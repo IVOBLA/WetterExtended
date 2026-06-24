@@ -3070,3 +3070,10 @@ _affected_place_rows) refaktoriert (kein Zirkelbezug) und fuellt nun affected_pl
 Neuer Endpoint /api/hydro/affected-places: Watchlist-Orte im Puffer HYDRO_IMPACT_PLACE_BUFFER_KM
 (Default 1.0 km) um aktive Abschnitte, mit Popup-Daten (place_name, river, station, impact_source,
 q-Werte, distance_to_river_km, distance_to_station_km). Offen: P64, P65.
+
+## P64 — Frontend-Layer Flussabschnitte + betroffene Orte (2026-06-24)
+
+Status: erledigt. MapView.jsx: zwei schaltbare Layer — Flussabschnitte als Polylinie in einheitlicher
+Warnfarbe (#dc2626), betroffene Orte als 💧-DivIcon-Symbol (keine Einfaerbung des Punktes). Popups
+mit q_current/q_forecast/q_threshold/impact_source/Entfernungen; Stations-Popup um Prognose/Warngrenze
+erweitert. JSX mit esbuild validiert. Offen: P65.
