@@ -3084,3 +3084,11 @@ erweitert. JSX mit esbuild validiert. Offen: P65.
 - Der absolute Kurzhorizont-Grenzwert bleibt als Qualitätsziel erhalten, löst aber keine Drift-Mail mehr aus, wenn das Modell stabil ist oder sich verbessert.
 - `/api/drift` bleibt kompatibel und ergänzt `model_status`, `quality_target_met`, `quality_status` und `quality_message` für Dashboard-Hinweise.
 - Alarm-Mails mit Betreff `⚠️ WetterExtended – Model-Drift erkannt` werden ausschließlich bei echtem relativen Drift versendet.
+
+### B238 — Automatische Forecast-Qualitätsdiagnose vor jedem 24h-Export ✅
+- Zentraler Pre-Export-Hook `run_forecast_quality_diagnosis_before_export()` startet vor dem Debug-ZIP-Build die lokale Diagnose `tools/diagnose_forecast_quality.py --hours 24`.
+- Ergebnisdateien bleiben stabil ohne Timestamp: `forecast_quality_diagnosis_latest.json` oder bei Fehlern `forecast_quality_diagnosis_error.json`; Fehler blockieren ZIP-/Git-Export nicht.
+- Admin-Panel „Genauigkeit" liest die JSON-Datei über `/api/forecast_quality_diagnosis`; keine Browser-Neuberechnung.
+- Debug-ZIP und Force-Push-Export-Branch enthalten die Diagnose; keine zusätzlichen Internet- oder API-Requests.
+- Drift-Mail bleibt getrennt und wird weiterhin nur bei relativer Verschlechterung über Threshold ausgelöst.
+- Tests: `tests/test_forecast_quality_export_diagnosis.py`.

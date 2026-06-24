@@ -539,6 +539,18 @@ def api_api_health_run():
         return jsonify({"all_ok": False, "error": str(exc)}), 500
 
 
+
+
+@app.route("/api/forecast_quality_diagnosis")
+def api_forecast_quality_diagnosis():
+    """Liefert die zuletzt vor einem 24h-Export erzeugte Qualitätsdiagnose."""
+    try:
+        from export_diagnosis import load_latest_forecast_quality_diagnosis
+        return jsonify(load_latest_forecast_quality_diagnosis(save_paths=SAVE_PATHS))
+    except Exception as exc:
+        return jsonify({"status": "error", "error": str(exc), "important_findings": [], "recommendations": []}), 500
+
+
 @app.route("/api/drift")
 def api_drift():
     """

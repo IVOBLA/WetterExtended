@@ -54,3 +54,11 @@ python tools/diagnose_forecast_error_details.py
 cat train_data/evaluation/forecast_error_diagnosis.json | python -m json.tool
 curl -s http://localhost:5000/api/forecast_error_breakdown | python -m json.tool
 ```
+
+## Automatische 24h-Export-Qualitätsdiagnose
+
+Vor jedem 24h-Debug-Export wird zentral `run_forecast_quality_diagnosis_before_export()` ausgeführt. Der Runner startet `tools/diagnose_forecast_quality.py --hours 24` und nutzt ausschließlich lokal vorhandene Evaluierungs-, Radar-, Objekt- und Feature-Dateien. Es werden keine zusätzlichen Internet- oder API-Requests erzeugt.
+
+Die Diagnose schreibt genau eine aktuelle Ergebnisdatei nach `train_data/evaluation/forecast_quality_diagnosis_latest.json`. Wenn die Diagnose fehlschlägt, wird stattdessen `train_data/evaluation/forecast_quality_diagnosis_error.json` mit Fehlermeldung, Stacktrace und UTC-Zeitpunkt erzeugt. Exportfehler werden dadurch nicht ausgelöst; ZIP- und Git-Export laufen weiter und enthalten die jeweilige Datei.
+
+Die Diagnose ist bewusst leichtgewichtig für Raspberry Pi 5 ausgelegt: sie liest vorhandene JSON/JSONL-Dateien im 24h-Fenster, erzeugt keine Historie und überschreibt immer denselben Dateinamen, damit der Debug-Export-Branch nicht aufbläht.
