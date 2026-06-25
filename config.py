@@ -1048,6 +1048,9 @@ DATA_CLEANUP_CRON_MINUTE: int = 30
 # data/radar/ braucht nur 2 Tage — Frontend-Animation nutzt max. 24h.
 DATA_CLEANUP_RETENTION_OVERRIDE: dict = {
     "data/radar/": 2,          # 2 Tage — ~580 Dateien × 10 KB = ~6 MB/Tag
+    # B248: externe API-Responses als Debug-Archiv; kurze Retention um Disk-Druck auf Pi 5 zu begrenzen.
+    # 2079 Dateien/Tag × ~2 KB = ~4 MB/Tag unkomprimiert; 2 Tage reichen für Debug-Exports.
+    "train_data/external_responses/": 2,
 }
 DATA_CLEANUP_PATHS: list = [
     "data/radar/",             # Live-Radarbilder fuer Frontend-Animation (kurze Retention!)
@@ -1060,6 +1063,8 @@ DATA_CLEANUP_PATHS: list = [
     "train_data/ir_cells/",
     "train_data/cloud/",      # enthält sowohl TIFFs (ir108_*.tif) als auch JSONs
     "train_data/arome/",
+    # B248: externe API-Response-Logs (2079 Dateien/Tag; 2 Tage Retention via Override oben).
+    "train_data/external_responses/",
 ]
 
 # -------------------------------------------------------

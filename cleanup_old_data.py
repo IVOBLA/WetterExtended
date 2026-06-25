@@ -57,7 +57,15 @@ def _prune_eval_jsonl_by_age(filename: str, max_age_hours: int) -> int:
                 drop = False
                 try:
                     rec = json.loads(line)
-                    raw = rec.get("ts") or rec.get("ts_utc") or ""
+                    # B248: zusätzlich verified_at_utc (forecast_error_details.jsonl)
+                    # und forecast_created_at_utc als Zeitstempel-Kandidaten prüfen.
+                    raw = (
+                        rec.get("ts")
+                        or rec.get("ts_utc")
+                        or rec.get("verified_at_utc")
+                        or rec.get("forecast_created_at_utc")
+                        or ""
+                    )
                     ts = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
                     if ts.tzinfo is None:
                         ts = ts.replace(tzinfo=timezone.utc)
@@ -114,34 +122,38 @@ def cleanup_old_data() -> dict:
             continue
 
         try:
-            for fname in os.listdir(abs_path):
-                fpath = os.path.join(abs_path, fname)
-                if not os.path.isfile(fpath):
-                    continue
-                try:
-                    mtime_ts = os.path.getmtime(fpath)
-                    mtime = datetime.fromtimestamp(mtime_ts)
-                    file_age_days = (datetime.now() - mtime).days
-                    # Bedingung: Datei loeschen wenn Speicher knapp ODER Datei zu alt
-                    free_now = _free_gb()
-                    too_old = mtime_ts < cutoff_ts
-                    low_space = _MIN_FREE > 0 and free_now < _MIN_FREE
-                    if not too_old and not low_space:
-                        continue  # Platz vorhanden + Datei jung genug -> behalten
-                    size = os.path.getsize(fpath)
-                    os.remove(fpath)
-                    deleted_count += 1
-                    freed_bytes += size
-                    if too_old:
-                        debug_log(f"[CLEANUP] {fname} geloescht (zu_alt, Alter: {file_age_days}d)")
-                    elif low_space:
-                        debug_log(
-                            f"[CLEANUP] {fname} geloescht (Speicher: {free_now:.1f} GB frei < "
-                            f"{_MIN_FREE} GB Limit, Alter: {file_age_days}d)"
-                        )
-                except Exception as exc:
-                    errors.append(f"{fpath}: {exc}")
-                    debug_log(f"[CLEANUP] Fehler bei {fpath}: {exc}")
+            # B248: rekursiv laufen, damit Service-Unterverzeichnisse wie
+            # train_data/external_responses/open_meteo/ ebenfalls rotiert werden.
+            for root, _dirs, files in os.walk(abs_path):
+                for fname in files:
+                    fpath = os.path.join(root, fname)
+                    if not os.path.isfile(fpath):
+                        continue
+                    try:
+                        mtime_ts = os.path.getmtime(fpath)
+                        mtime = datetime.fromtimestamp(mtime_ts)
+                        file_age_days = (datetime.now() - mtime).days
+                        # Bedingung: Datei loeschen wenn Speicher knapp ODER Datei zu alt
+                        free_now = _free_gb()
+                        too_old = mtime_ts < cutoff_ts
+                        low_space = _MIN_FREE > 0 and free_now < _MIN_FREE
+                        if not too_old and not low_space:
+                            continue  # Platz vorhanden + Datei jung genug -> behalten
+                        size = os.path.getsize(fpath)
+                        os.remove(fpath)
+                        deleted_count += 1
+                        freed_bytes += size
+                        rel_file = os.path.relpath(fpath, abs_path)
+                        if too_old:
+                            debug_log(f"[CLEANUP] {rel_file} geloescht (zu_alt, Alter: {file_age_days}d)")
+                        elif low_space:
+                            debug_log(
+                                f"[CLEANUP] {rel_file} geloescht (Speicher: {free_now:.1f} GB frei < "
+                                f"{_MIN_FREE} GB Limit, Alter: {file_age_days}d)"
+                            )
+                    except Exception as exc:
+                        errors.append(f"{fpath}: {exc}")
+                        debug_log(f"[CLEANUP] Fehler bei {fpath}: {exc}")
         except Exception as exc:
             errors.append(f"{abs_path}: {exc}")
             debug_log(f"[CLEANUP] Fehler beim Lesen von {abs_path}: {exc}")
@@ -162,8 +174,10 @@ def cleanup_old_data() -> dict:
         from config import EVAL_LOG_RETENTION_HOURS as _eval_hours
     except Exception:
         _eval_hours = 48
+    # B248: forecast_error_details.jsonl ebenfalls rotieren (511 MB / 407k Zeilen in 24h).
+    # Verwendet verified_at_utc als Zeitstempel (wird jetzt von _prune_eval_jsonl_by_age erkannt).
     _eval_pruned = 0
-    for _fn in ("api_call_counts.jsonl", "api_health.jsonl"):
+    for _fn in ("api_call_counts.jsonl", "api_health.jsonl", "forecast_error_details.jsonl"):
         _eval_pruned += _prune_eval_jsonl_by_age(_fn, _eval_hours)
     result["eval_lines_pruned"] = _eval_pruned
     if _eval_pruned:
