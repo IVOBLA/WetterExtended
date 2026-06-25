@@ -153,8 +153,10 @@ def _release_ml_job_lock(owner: dict | None = None) -> None:
         pass
 
 
-def _update_ml_job_lock(**updates) -> dict:
+def _update_existing_ml_job_lock(job_id: str, **updates) -> dict:
     owner = _read_json(ML_JOB_LOCK_FILE)
+    if not owner or owner.get("job_id") != job_id:
+        return owner
     owner.update(updates)
     _write_json(ML_JOB_LOCK_FILE, owner)
     return owner
@@ -215,7 +217,7 @@ def create_backup(reset_type: str = "manual") -> dict:
 
 
 def _run_backup_job(job_id: str, reset_type: str = "manual") -> None:
-    owner = _read_json(ML_JOB_LOCK_FILE) or {"kind": "backup", "job_id": job_id}
+    owner = _update_existing_ml_job_lock(job_id, pid=os.getpid()) or {"kind": "backup", "job_id": job_id}
     try:
         try:
             from debug_utils import debug_log
@@ -301,8 +303,8 @@ def start_backup_background(reset_type: str = "manual") -> dict:
         ctx = multiprocessing.get_context("fork") if hasattr(os, "fork") else multiprocessing
         process = ctx.Process(target=_run_backup_job, args=(job_id, reset_type), daemon=False)
         process.start()
-        _update_ml_job_lock(pid=process.pid)
-        _backup_status_payload(status="running", pid=process.pid, progress="Backup wird erstellt...")
+        if (_read_json(ML_JOB_LOCK_FILE) or {}).get("job_id") == job_id:
+            _backup_status_payload(status="running", pid=process.pid, progress="Backup wird erstellt...")
     except Exception:
         _release_ml_job_lock(owner)
         raise

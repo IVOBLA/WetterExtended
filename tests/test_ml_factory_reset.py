@@ -122,6 +122,34 @@ def test_manual_backup_starts_background_and_reports_status(monkeypatch, tmp_pat
     assert status["backup"]["id"].endswith("_train_data.zip")
 
 
+def test_fast_background_backup_does_not_recreate_released_lock(monkeypatch, tmp_path):
+    ml_reset, base = _patch_paths(monkeypatch, tmp_path)
+    _seed(base)
+
+    class ImmediateProcess:
+        pid = 424242
+
+        def __init__(self, target, args=(), daemon=None):
+            self._target = target
+            self._args = args
+
+        def start(self):
+            self._target(*self._args)
+
+    class ImmediateContext:
+        Process = ImmediateProcess
+
+    monkeypatch.setattr(ml_reset.multiprocessing, "get_context", lambda _method: ImmediateContext())
+
+    result = ml_reset.start_backup_background("manual")
+
+    assert result["started"] is True
+    assert not ml_reset.ML_JOB_LOCK_FILE.exists()
+    status = ml_reset.backup_job_status()
+    assert status["finished"] is True
+    assert status["running"] is False
+
+
 def test_reset_blocked_while_backup_lock_exists(monkeypatch, tmp_path):
     ml_reset, _base = _patch_paths(monkeypatch, tmp_path)
     owner = ml_reset._acquire_ml_job_lock("backup", "test_backup")
