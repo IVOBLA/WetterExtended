@@ -844,6 +844,20 @@ VERIFICATION_MAX_SEARCH_RADIUS_KM = 25.0
 # Runtime-ueberschreibbar via runtime_overrides.json (VERIFICATION_NN_MAX_MATCH_KM).
 VERIFICATION_NN_MAX_MATCH_KM = 10.0
 
+# B247: Maximale implizite Ist-Geschwindigkeit für einen gültigen Verifikations-Match (km/h).
+# Actual-Speed = haversine(Origin, Actual) / horizon_min * 60. Überschreitet ein ID-/NN-Match
+# diesen Wert, wird er als id_lost/nn_rejected gewertet und der nächstbessere Kandidat gesucht.
+# Physikalisch: Gewitterzellen bewegen sich < MAX_CELL_SPEED_KMH. 120 km/h ist konservativ.
+# Runtime-überschreibbar via runtime_overrides.json (VERIFICATION_MATCH_MAX_ACTUAL_SPEED_KMH).
+VERIFICATION_MATCH_MAX_ACTUAL_SPEED_KMH: float = 120.0
+
+# B247: Mindest-core_ratio des gematchten Zielobjekts für einen gültigen ID-/NN-Match,
+# wenn das Origin-Objekt konvektiv ist (core_ratio > 0). 0.0 = Anforderung deaktiviert.
+# >0 = nur konvektive Zellen (Rot/Violett ≥54 dBZ) dürfen gematcht werden.
+# Verhindert Match auf rein stratiforme Zellen nach Merge-Auflösung.
+# Runtime-überschreibbar via runtime_overrides.json (VERIFICATION_CORE_MIN_RATIO).
+VERIFICATION_CORE_MIN_RATIO: float = 0.0
+
 # Backward-Compatibility für bestehende Module
 LSTM_SEQUENCE_LENGTH = ML_SEQUENCE_LENGTH
 LSTM_NUM_FEATURES = ML_NUM_FEATURES
