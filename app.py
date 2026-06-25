@@ -1773,6 +1773,63 @@ def api_admin_ml_reset():
         debug_log(f"[ML_RESET] Reset fehlgeschlagen: {exc}")
         return jsonify({"error": str(exc)}), 500
 
+
+
+@app.route("/api/admin/ml/schema")
+@require_role("admin")
+def api_admin_ml_schema():
+    from feature_schema import get_current_feature_schema, scan_training_sources
+    current_schema = get_current_feature_schema()
+    active_schema = {}
+    active_model_schema_hash = None
+    try:
+        meta_path = os.path.join(SAVE_PATHS.get("models", "train_data/models"), "current", "training_meta.json")
+        if os.path.exists(meta_path):
+            with open(meta_path, encoding="utf-8") as f:
+                meta = json.load(f)
+            active_schema = meta.get("feature_schema") or {
+                "feature_schema_hash": meta.get("feature_schema_hash"),
+                "schema_version": meta.get("feature_schema_version"),
+                "feature_names": meta.get("feature_names"),
+                "num_features": meta.get("feature_count"),
+            }
+            active_model_schema_hash = active_schema.get("feature_schema_hash")
+    except Exception as exc:
+        debug_log(f"[ML_SCHEMA] active model schema konnte nicht gelesen werden: {exc}")
+    scan = scan_training_sources()
+    return jsonify({
+        "current_schema": current_schema,
+        "active_model_schema": active_schema,
+        "compatible": bool(active_model_schema_hash and active_model_schema_hash == current_schema.get("feature_schema_hash")),
+        "dataset_scan": scan,
+    })
+
+
+@app.route("/api/admin/ml/dataset-scan", methods=["POST"])
+@require_role("admin")
+def api_admin_ml_dataset_scan():
+    from feature_schema import scan_training_sources
+    data = request.get_json(silent=True) or {}
+    allow_legacy = data.get("schema_policy") == "allow_legacy" or bool(data.get("allow_legacy", False))
+    return jsonify(scan_training_sources(allow_legacy=allow_legacy))
+
+
+@app.route("/api/admin/ml/retrain", methods=["POST"])
+@require_role("admin")
+def api_admin_ml_retrain():
+    data = request.get_json(silent=True) or {}
+    policy = data.get("schema_policy", "compatible_only")
+    if policy not in {"compatible_only", "allow_legacy"}:
+        return jsonify({"started": False, "error": "ungueltige schema_policy"}), 400
+    try:
+        runtime_config.patch({"ML_ALLOW_LEGACY_SAMPLES": policy == "allow_legacy"})
+        from training_control import start_training_background
+        started, payload = start_training_background(source=f"admin_ml_retrain:{policy}")
+        return jsonify(payload), (200 if started else 409)
+    except Exception as exc:
+        debug_log(f"[ML_SCHEMA] Retrain fehlgeschlagen: {exc}")
+        return jsonify({"started": False, "error": str(exc)}), 500
+
 @app.route("/api/training")
 def api_training():
     return jsonify({

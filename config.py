@@ -630,6 +630,9 @@ ML_FORECAST_HORIZONS_MIN = [10, 20, 30, 40, 60]
 # Position (leichter lernbar, kein Regress zur Karten-Mitte). "absolute" = alte
 # Konvention. NICHT runtime-overridable (definiert das Trainingsziel).
 ML_TARGET_ENCODING = "delta"
+DATASET_SCHEMA_VERSION = "v1"
+ML_ALLOW_LEGACY_SAMPLES = False
+ML_ALLOW_SCHEMA_MISMATCH = False
 # Pfeilfarben pro Forecast-Horizont (HEX inkl. #).
 FORECAST_ARROW_COLORS = {
     10: "#ff00ff",

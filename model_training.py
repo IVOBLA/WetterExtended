@@ -64,6 +64,8 @@ if (
 else:
     Sequential = load_model = Input = LSTM = Dense = Dropout = EarlyStopping = ModelCheckpoint = Adam = None
 
+from feature_schema import get_current_feature_schema
+
 from config import (
     DATA_RETENTION_DAYS, MIN_SEQUENCES_LSTM,
     ML_FORECAST_HORIZONS_MIN, ML_NUM_FEATURES, ML_SEQUENCE_LENGTH,
@@ -518,6 +520,8 @@ def _check_model_compatibility(model_dir: str) -> dict:
 
     trained_horizons = meta.get("horizons_trained") or meta.get("horizons") or meta.get("ML_FORECAST_HORIZONS_MIN")
     trained_features = meta.get("feature_count")
+    trained_schema_hash = meta.get("feature_schema_hash")
+    current_schema = get_current_feature_schema()
 
     try:
         import runtime_config as _rc_mt
@@ -525,6 +529,11 @@ def _check_model_compatibility(model_dir: str) -> dict:
     except Exception:
         runtime_horizons = list(ML_FORECAST_HORIZONS_MIN)
 
+    if trained_schema_hash is not None and trained_schema_hash != current_schema.get("feature_schema_hash"):
+        return {
+            "compatible": False,
+            "reason": f"Feature-Schema-Hash: trainiert={trained_schema_hash}, aktuell={current_schema.get('feature_schema_hash')}",
+        }
     if trained_horizons is not None and sorted(trained_horizons) != sorted(runtime_horizons):
         return {
             "compatible": False,
@@ -829,14 +838,21 @@ def retrain_all():
             debug_log(f"[TRAINING] Intensity-Regressoren: {reg_meta}")
         except Exception as _exc:
             debug_log(f"[TRAINING] Intensity-Regressoren übersprungen: {_exc}")
+        _feature_schema = get_current_feature_schema()
         meta = {
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "feature_schema_hash": _feature_schema["feature_schema_hash"],
+            "feature_schema_version": _feature_schema["schema_version"],
+            "feature_schema": _feature_schema,
             "version": timestamp,
             "ML_FORECAST_HORIZONS_MIN": list(_get_training_horizons()),   # P0-2
             "horizons": list(_get_training_horizons()),                    # P0-2
             "num_samples": int(len(X)) if has_data else 0,
             "rejected_samples": int(dataset.get("rejected_samples", 0)),
             "rejection_reasons": dataset.get("rejection_reasons", {}),
+            "schema_compatible_samples": int(dataset.get("schema_compatible_samples", 0)),
+            "schema_legacy_samples": int(dataset.get("schema_legacy_samples", 0)),
+            "schema_mismatch_samples": int(dataset.get("schema_mismatch_samples", 0)),
             "lstm": {"trained": lstm_result.get("trained", False), "val_loss": lstm_result.get("val_loss")},
             "horizons_trained": list(_get_training_horizons()),   # P0-2 + P23: Runtime-Horizonte
             "feature_count": int(ML_NUM_FEATURES),               # P23: Feature-Dimension bei Training
@@ -867,6 +883,10 @@ def retrain_all():
                 "train_samples": int(len(X_train_full)) if has_data else 0,
                 "holdout_samples": int(len(X_holdout)) if has_data else 0,
                 "sequence_length": ML_SEQUENCE_LENGTH,
+                "feature_schema_hash": _feature_schema["feature_schema_hash"],
+                "schema_compatible_samples": int(dataset.get("schema_compatible_samples", 0)),
+                "schema_legacy_samples": int(dataset.get("schema_legacy_samples", 0)),
+                "schema_mismatch_samples": int(dataset.get("schema_mismatch_samples", 0)),
             },
             "holdout": _compute_holdout_metrics(
                 X_holdout, y_holdout,
@@ -879,8 +899,12 @@ def retrain_all():
         }
         meta = _write_training_meta(os.path.join(version_dir, "training_meta.json"), meta)
     except Exception:
+        _feature_schema = get_current_feature_schema()
         meta = {
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "feature_schema_hash": _feature_schema["feature_schema_hash"],
+            "feature_schema_version": _feature_schema["schema_version"],
+            "feature_schema": _feature_schema,
             "version": timestamp,
             "ML_FORECAST_HORIZONS_MIN": list(_get_training_horizons()),   # P0-2
             "horizons": list(_get_training_horizons()),                    # P0-2
