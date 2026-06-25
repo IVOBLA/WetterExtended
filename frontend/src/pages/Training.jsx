@@ -19,6 +19,8 @@ export default function Training() {
   const [mlStatus, setMlStatus] = useState(null)
   const [mlBackups, setMlBackups] = useState([])
   const [mlBusy, setMlBusy] = useState(false)
+  const [mlSchema, setMlSchema] = useState(null)
+  const [schemaPolicy, setSchemaPolicy] = useState('compatible_only')
 
   useEffect(() => {
     // B99: Countdown — Live-Refresh alle 60 s (sinkt sichtbar bei Sturmereignissen)
@@ -29,6 +31,7 @@ export default function Training() {
     const fetchMl = () => {
       api.get('/api/admin/ml/status').then(setMlStatus).catch(() => {})
       api.get('/api/admin/ml/backups').then(d => setMlBackups(d.backups || [])).catch(() => {})
+      api.get('/api/admin/ml/schema').then(setMlSchema).catch(() => {})
     }
     fetchReadiness()
     fetchTrainingStatus()
@@ -77,6 +80,7 @@ export default function Training() {
     setMlStatus(st)
     const b = await api.get('/api/admin/ml/backups')
     setMlBackups(b.backups || [])
+    try { setMlSchema(await api.get('/api/admin/ml/schema')) } catch (_) {}
   }
 
   const runMlReset = async (mode) => {
@@ -111,6 +115,32 @@ export default function Training() {
     if (!window.confirm(`Backup ${id} löschen?`)) return
     await api.delete(`/api/admin/ml/backups/${encodeURIComponent(id)}`)
     await refreshMl()
+  }
+
+  const scanDataset = async () => {
+    setMlBusy(true)
+    try {
+      const data = await api.post('/api/admin/ml/dataset-scan', { schema_policy: schemaPolicy })
+      setMlSchema(prev => ({ ...(prev || {}), dataset_scan: data, current_schema: data.current_schema || prev?.current_schema }))
+      setMsg('Dataset-Scan abgeschlossen — es wurde kein Modell trainiert.')
+    } catch (e) {
+      setMsg('Dataset-Scan fehlgeschlagen: ' + e.message)
+    } finally {
+      setMlBusy(false)
+    }
+  }
+
+  const retrainWithSchemaPolicy = async () => {
+    setMlBusy(true)
+    try {
+      const data = await api.post('/api/admin/ml/retrain', { schema_policy: schemaPolicy })
+      setMsg(data.message || 'Training mit Schema-Policy gestartet')
+      try { setTrainingStatus(await api.get('/api/training/status')) } catch (_) {}
+    } catch (e) {
+      setMsg('Retrain fehlgeschlagen: ' + e.message)
+    } finally {
+      setMlBusy(false)
+    }
   }
 
   const save = async () => {
@@ -204,6 +234,29 @@ export default function Training() {
           <button className="btn" disabled={mlBusy} onClick={createMlBackup}>Backup erstellen</button>
           <button className="btn" disabled={mlBusy} onClick={() => runMlReset('models_only')}>ML zurücksetzen</button>
           <button className="btn-danger" disabled={mlBusy} onClick={() => runMlReset('full_new_data_only')}>ML zurücksetzen & nur neue Daten sammeln</button>
+        </div>
+        <div className="border rounded p-3 mb-4 bg-slate-50 text-sm">
+          <h3 className="font-semibold mb-2">Feature-Schema-Kompatibilität</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
+            <div><b>Schema-Version:</b> {mlSchema?.current_schema?.schema_version || '—'}</div>
+            <div><b>Schema-Hash:</b> <code className="text-xs">{mlSchema?.current_schema?.feature_schema_hash || '—'}</code></div>
+            <div><b>Feature-Anzahl:</b> {mlSchema?.current_schema?.num_features ?? '—'}</div>
+            <div><b>Kompatible Quellen:</b> {mlSchema?.dataset_scan?.compatible_samples ?? '—'}</div>
+            <div><b>Legacy-Quellen:</b> {mlSchema?.dataset_scan?.legacy_samples ?? '—'}</div>
+            <div><b>Schema-Mismatch:</b> {mlSchema?.dataset_scan?.mismatch_samples ?? '—'}</div>
+            <div><b>Verwendbar:</b> {mlSchema?.dataset_scan?.used_samples ?? '—'}</div>
+            <div><b>Abgelehnt:</b> {mlSchema?.dataset_scan?.rejected_samples ?? '—'}</div>
+            <div><b>Modell kompatibel:</b> {mlSchema?.compatible ? 'ja' : 'nein'}</div>
+          </div>
+          <div className="mb-2"><b>Modell-Schema-Hash:</b> <code className="text-xs">{mlSchema?.active_model_schema?.feature_schema_hash || '—'}</code></div>
+          <div className="mb-2"><b>Top-Ablehnungsgründe:</b> {Object.entries(mlSchema?.dataset_scan?.rejection_reasons || {}).map(([k,v]) => `${k}: ${v}`).join(', ') || '—'}</div>
+          <label className="inline-flex items-center gap-2 mr-3"><input type="radio" checked={schemaPolicy === 'compatible_only'} onChange={() => setSchemaPolicy('compatible_only')} /> Nur kompatible Daten trainieren</label>
+          <label className="inline-flex items-center gap-2"><input type="radio" checked={schemaPolicy === 'allow_legacy'} onChange={() => setSchemaPolicy('allow_legacy')} /> Legacy-Daten erlauben</label>
+          {schemaPolicy === 'allow_legacy' && <div className="bg-amber-100 border border-amber-300 text-amber-900 rounded p-2 mt-2">Legacy-Daten können mit altem Feature-Set erzeugt worden sein und die Modellqualität verschlechtern.</div>}
+          <div className="flex flex-wrap gap-2 mt-3">
+            <button className="btn" disabled={mlBusy} onClick={scanDataset}>Dataset neu prüfen</button>
+            <button className="btn-primary" disabled={mlBusy} onClick={retrainWithSchemaPolicy}>Nur kompatible Daten trainieren</button>
+          </div>
         </div>
         <h3 className="font-semibold mb-2">ML Backups</h3>
         <div className="overflow-x-auto">

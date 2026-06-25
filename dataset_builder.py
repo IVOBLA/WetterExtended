@@ -42,6 +42,20 @@ from config import (
     SAVE_PATHS,
 )
 from data_quality import validate_sample
+from feature_schema import compare_sample_schema, extract_source_schema, get_current_feature_schema, schema_metadata
+
+
+def _schema_policy_allows_legacy():
+    try:
+        import runtime_config as _rc
+        return bool(_rc.get("ML_ALLOW_LEGACY_SAMPLES", False))
+    except Exception:
+        try:
+            from config import ML_ALLOW_LEGACY_SAMPLES
+            return bool(ML_ALLOW_LEGACY_SAMPLES)
+        except Exception:
+            return False
+
 
 
 def _get_ds_horizons() -> list:
@@ -114,7 +128,8 @@ def _frame_features(obj, stations, ts):
 
 
 def _empty_result():
-    return {"X": [], "y": [], "y_raw": [], "ids": [], "rejected_samples": 0, "rejection_reasons": {}}
+    schema = get_current_feature_schema()
+    return {"X": [], "y": [], "y_raw": [], "ids": [], "rejected_samples": 0, "rejection_reasons": {}, "feature_schema_hash": schema["feature_schema_hash"], "schema_compatible_samples": 0, "schema_legacy_samples": 0, "schema_mismatch_samples": 0}
 
 
 def _dependencies_available():
@@ -188,11 +203,36 @@ def build_dataset(model_save_dir=None):
     tabular_rows = []
     rejection_reasons = {}
     n_rejected = 0
+    current_schema = get_current_feature_schema()
+    allow_legacy = _schema_policy_allows_legacy()
+    schema_compatible_samples = 0
+    schema_legacy_samples = 0
+    schema_mismatch_samples = 0
 
     # Fix #5: Kein festes max_h_steps mehr — Timestamp-Suche erledigt die Begrenzung
     for i in range(ML_SEQUENCE_LENGTH - 1, len(frames)):
         seq_slice = frames[i - ML_SEQUENCE_LENGTH + 1 : i + 1]
         now_ts = seq_slice[-1][2]
+        compatible_slice = True
+        slice_reason = None
+        for _op_s, _wp_s, _ts_s, _objs_s, _w_s in seq_slice:
+            _ok_schema, _reason_schema = compare_sample_schema(extract_source_schema(_objs_s, _w_s), current_schema)
+            if _ok_schema:
+                continue
+            if _reason_schema == "legacy_missing_schema":
+                schema_legacy_samples += 1
+                if allow_legacy:
+                    continue
+            else:
+                schema_mismatch_samples += 1
+            compatible_slice = False
+            slice_reason = _reason_schema or "feature_schema_mismatch"
+            break
+        if not compatible_slice:
+            n_rejected += 1
+            rejection_reasons[slice_reason] = rejection_reasons.get(slice_reason, 0) + 1
+            continue
+        schema_compatible_samples += 1
         seq_obj_maps = [{str(o.get("id")): o for o in frm[3] if isinstance(o, dict) and "id" in o} for frm in seq_slice]
 
         common_ids = set(seq_obj_maps[0].keys())
@@ -269,9 +309,11 @@ def build_dataset(model_save_dir=None):
 
             X_rows.append(seq_features)
             y_rows.append(targets)
-            ids.append({"id": oid, "timestamp": now_ts.strftime("%Y-%m-%d_%H-%M-%S")})
+            _meta = schema_metadata(seq_slice[-1][0], seq_slice[-1][1])
+            ids.append({"id": oid, "timestamp": now_ts.strftime("%Y-%m-%d_%H-%M-%S"), **_meta})
 
             tab_row = {k: v for k, v in zip(ML_CELL_FEATURES + ML_STATION_FEATURES + ["hour_sin", "hour_cos", "month_sin", "month_cos"], seq_features[-1])}
+            tab_row.update(_meta)
             for h_min, (tx, ty) in zip(_get_ds_horizons(), np.array(targets).reshape(-1, 2)):
                 tab_row[f"target_x_{h_min}"] = tx
                 tab_row[f"target_y_{h_min}"] = ty
@@ -328,7 +370,7 @@ def build_dataset(model_save_dir=None):
     debug_log(f"[DATASET] {len(X_rows)} kept, {n_rejected} rejected (reasons: {rejection_reasons})")
     # Timestamps pro Sample extrahieren (aus ids-Liste, 1:1 zu X/y)
     _ts_list = [entry.get("timestamp", "") for entry in ids]
-    return {"X": X_scaled, "y": y_scaled, "y_raw": y_raw, "ids": ids, "timestamps": _ts_list, "rejected_samples": n_rejected, "rejection_reasons": rejection_reasons}
+    return {"X": X_scaled, "y": y_scaled, "y_raw": y_raw, "ids": ids, "timestamps": _ts_list, "rejected_samples": n_rejected, "rejection_reasons": rejection_reasons, "feature_schema_hash": current_schema["feature_schema_hash"], "feature_schema": current_schema, "schema_compatible_samples": schema_compatible_samples, "schema_legacy_samples": schema_legacy_samples, "schema_mismatch_samples": schema_mismatch_samples}
 
 
 def _merge_contaminated(o_now, o_fut):
@@ -376,10 +418,37 @@ def build_classification_dataset():
             debug_log(f"[DATASET-CLS] Fehler beim Laden von {op}: {exc}")
 
     rows = []
+    current_schema = get_current_feature_schema()
+    allow_legacy = _schema_policy_allows_legacy()
+    schema_compatible_samples = 0
+    schema_legacy_samples = 0
+    schema_mismatch_samples = 0
+    n_rejected = 0
+    rejection_reasons = {}
     # Fix R1: Kein festes horizon_step mehr — Timestamp-Suche
     for i in range(ML_SEQUENCE_LENGTH - 1, len(frames)):
         seq_slice = frames[i - ML_SEQUENCE_LENGTH + 1 : i + 1]
         now_ts = seq_slice[-1][2]
+        compatible_slice = True
+        slice_reason = None
+        for _op_s, _wp_s, _ts_s, _objs_s, _w_s in seq_slice:
+            _ok_schema, _reason_schema = compare_sample_schema(extract_source_schema(_objs_s, _w_s), current_schema)
+            if _ok_schema:
+                continue
+            if _reason_schema == "legacy_missing_schema":
+                schema_legacy_samples += 1
+                if allow_legacy:
+                    continue
+            else:
+                schema_mismatch_samples += 1
+            compatible_slice = False
+            slice_reason = _reason_schema or "feature_schema_mismatch"
+            break
+        if not compatible_slice:
+            n_rejected += 1
+            rejection_reasons[slice_reason] = rejection_reasons.get(slice_reason, 0) + 1
+            continue
+        schema_compatible_samples += 1
         now_map = {str(o.get("id")): o for o in seq_slice[-1][3]
                    if isinstance(o, dict) and "id" in o}
 

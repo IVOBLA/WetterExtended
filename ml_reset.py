@@ -255,6 +255,11 @@ def reset_ml(mode: str) -> dict:
     removed_models = _remove_models()
     removed_dataset = _remove_dataset()
     archived = _archive_training_sources() if mode == "full_new_data_only" else []
+    try:
+        from feature_schema import get_current_feature_schema
+        _schema = get_current_feature_schema()
+    except Exception:
+        _schema = {}
     status = {
         "status": "reset_done",
         "mode": mode,
@@ -266,6 +271,9 @@ def reset_ml(mode: str) -> dict:
         "removed_models_entries": removed_models,
         "removed_dataset_entries": removed_dataset,
         "archived_training_sources": archived,
+        "feature_schema_hash": _schema.get("feature_schema_hash"),
+        "feature_schema_version": _schema.get("schema_version"),
+        "schema_status": "reset_to_current_runtime_schema",
     }
     _write_json(STATUS_FILE, status)
     return {"ok": True, "backup": backup, "reset": status, "status": ml_status()}
