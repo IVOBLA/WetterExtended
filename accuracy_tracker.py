@@ -33,6 +33,8 @@ from config import (
     VERIFICATION_TIME_TOLERANCE_S,
     VERIFICATION_MAX_SEARCH_RADIUS_KM,
     VERIFICATION_NN_MAX_MATCH_KM,
+    VERIFICATION_MATCH_MAX_ACTUAL_SPEED_KMH,
+    VERIFICATION_CORE_MIN_RATIO,
     FRAME_INTERVAL_MIN,
 )
 from debug_utils import debug_log
@@ -61,6 +63,58 @@ def _nn_max_match_km() -> float:
         except Exception:
             pass
     return float(VERIFICATION_NN_MAX_MATCH_KM)
+
+
+def _max_actual_speed_kmh() -> float:
+    """B247: Maximale implizite Ist-Geschwindigkeit für einen gültigen Match, runtime-überschreibbar."""
+    if _runtime_cfg is not None:
+        try:
+            return float(_runtime_cfg.get("VERIFICATION_MATCH_MAX_ACTUAL_SPEED_KMH", VERIFICATION_MATCH_MAX_ACTUAL_SPEED_KMH))
+        except Exception:
+            pass
+    return float(VERIFICATION_MATCH_MAX_ACTUAL_SPEED_KMH)
+
+
+def _core_min_ratio() -> float:
+    """B247: Mindest-core_ratio des Zielobjekts für Match-Akzeptanz, runtime-überschreibbar."""
+    if _runtime_cfg is not None:
+        try:
+            return float(_runtime_cfg.get("VERIFICATION_CORE_MIN_RATIO", VERIFICATION_CORE_MIN_RATIO))
+        except Exception:
+            pass
+    return float(VERIFICATION_CORE_MIN_RATIO)
+
+
+def _match_valid_b247(obj: dict, matched: dict, horizon_min: int) -> bool:
+    """B247: True wenn Match physikalisch plausibel ist (Speed-Gate + Core-Anforderung).
+    Speed-Gate: implizite Ist-Geschwindigkeit Origin→Actual ≤ VERIFICATION_MATCH_MAX_ACTUAL_SPEED_KMH.
+    Core-Gate:  wenn Origin konvektiv (core_ratio > 0) muss Actual ebenfalls konvektiv sein.
+    Beide Gates können durch Runtime-Konfiguration deaktiviert/gelockert werden.
+    """
+    # Speed-Gate
+    _spd_limit = _max_actual_speed_kmh()
+    if _spd_limit > 0.0 and horizon_min > 0:
+        o_lat = _safe_float(obj.get("origin_lat", obj.get("lat")))
+        o_lon = _safe_float(obj.get("origin_lon", obj.get("lon")))
+        a_lat = _safe_float(matched.get("lat"))
+        a_lon = _safe_float(matched.get("lon"))
+        if None not in (o_lat, o_lon, a_lat, a_lon):
+            _disp_km = _haversine_km(o_lat, o_lon, a_lat, a_lon)
+            if _disp_km is not None:
+                _speed = _disp_km / (float(horizon_min) / 60.0)
+                if _speed > _spd_limit:
+                    return False
+
+    # Core-Gate: nur wenn Origin konvektiv ist
+    _min_core = _core_min_ratio()
+    if _min_core > 0.0:
+        _origin_core = float(obj.get("core_ratio") or 0.0)
+        if _origin_core > 0.0:
+            _actual_core = float(matched.get("core_ratio") or 0.0)
+            if _actual_core < _min_core:
+                return False
+
+    return True
 
 
 def _is_nn_rejected(match_src, matched, dist_km, threshold_km) -> bool:
@@ -258,16 +312,29 @@ def _match_actual(obj: dict, target_objs: list, horizon_min: int
     oid = str(obj.get("id"))
     cell_id = str(obj.get("cell_id", obj.get("id", "")))
 
+    # B247: ID-Match mit Speed-Gate + Core-Anforderung.
+    # Besteht der Match die Validierung nicht, wird auf NN-Suche zurückgefallen statt
+    # ein physikalisch unplausibler Treffer zu zählen (Merge-Inheritance-Schutz).
     id_match = next((o for o in target_objs if str(o.get("id")) == oid), None)
     if id_match is not None and id_match.get("lat") is not None and id_match.get("lon") is not None:
         d = _haversine_km(fc_lat, fc_lon, float(id_match["lat"]), float(id_match["lon"]))
-        return id_match, d, "id"
+        if _match_valid_b247(obj, id_match, horizon_min):
+            return id_match, d, "id"
+        debug_log(
+            f"[MATCH][B247] ID-Match {oid} verworfen: Speed/Core-Validierung fehlgeschlagen "
+            f"(h={horizon_min}, match_dist={d:.1f} km) — NN-Fallback"
+        )
 
     if cell_id:
         cell_match = next((o for o in target_objs if str(o.get("cell_id", o.get("id", ""))) == cell_id), None)
         if cell_match is not None and cell_match.get("lat") is not None and cell_match.get("lon") is not None:
             d = _haversine_km(fc_lat, fc_lon, float(cell_match["lat"]), float(cell_match["lon"]))
-            return cell_match, d, "cell_id"
+            if _match_valid_b247(obj, cell_match, horizon_min):
+                return cell_match, d, "cell_id"
+            debug_log(
+                f"[MATCH][B247] cell_id-Match {cell_id} verworfen: Speed/Core-Validierung fehlgeschlagen "
+                f"(h={horizon_min}) — NN-Fallback"
+            )
 
     best = None
     best_d = math.inf
@@ -279,7 +346,8 @@ def _match_actual(obj: dict, target_objs: list, horizon_min: int
         if lat is None or lon is None:
             continue
         d = _haversine_km(fc_lat, fc_lon, float(lat), float(lon))
-        if d < best_d and d <= VERIFICATION_MAX_SEARCH_RADIUS_KM:
+        # B247: NN-Kandidaten ebenfalls auf Plausibilität prüfen
+        if d < best_d and d <= VERIFICATION_MAX_SEARCH_RADIUS_KM and _match_valid_b247(obj, cand, horizon_min):
             best_d = d
             best = cand
 

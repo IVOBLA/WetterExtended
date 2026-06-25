@@ -3092,3 +3092,12 @@ erweitert. JSX mit esbuild validiert. Offen: P65.
 - Debug-ZIP und Force-Push-Export-Branch enthalten die Diagnose; keine zusätzlichen Internet- oder API-Requests.
 - Drift-Mail bleibt getrennt und wird weiterhin nur bei relativer Verschlechterung über Threshold ausgelöst.
 - Tests: `tests/test_forecast_quality_export_diagnosis.py`.
+
+## B247 — Verifikations-Matching: Speed-Gate + Core-Anforderung (2026-06-25)
+- `_match_valid_b247(obj, matched, horizon_min)`: prüft ID-/cell_id-/NN-Matches auf zwei Bedingungen:
+  1. Implizite Ist-Geschwindigkeit (Origin→Actual) ≤ `VERIFICATION_MATCH_MAX_ACTUAL_SPEED_KMH` (120 km/h, runtime-überschreibbar).
+  2. Wenn Origin konvektiv (core_ratio > 0): Actual muss ebenfalls core_ratio ≥ `VERIFICATION_CORE_MIN_RATIO` besitzen.
+- Besteht ein ID-/cell_id-Match die Validierung nicht, wird auf NN-Suche zurückgefallen (Ghost-Match wird verhindert, nicht nur markiert).
+- Behebt: 5.659 High-Speed-Matches (>120 km/h) und 1.874 Merge-Ghost-Matches in `forecast_error_details.jsonl` (max 515 km/h, p99=143 km/h).
+- Neue Konstanten `VERIFICATION_MATCH_MAX_ACTUAL_SPEED_KMH` und `VERIFICATION_CORE_MIN_RATIO` in `config.py` (runtime-überschreibbar).
+- Tests: `tests/test_b247_match_speed_gate.py`.
