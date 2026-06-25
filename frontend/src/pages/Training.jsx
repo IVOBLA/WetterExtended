@@ -23,8 +23,11 @@ export default function Training() {
   const [schemaPolicy, setSchemaPolicy] = useState('compatible_only')
   const [backupJobId, setBackupJobId] = useState(null)
   const [backupStatus, setBackupStatus] = useState(null)
+  const [resetStatus, setResetStatus] = useState(null)
+  const [resetJobId, setResetJobId] = useState(null)
   const backupRunning = Boolean(backupStatus?.running)
-  const mlActionsDisabled = mlBusy || backupRunning
+  const resetRunning = Boolean(resetStatus?.running)
+  const mlActionsDisabled = mlBusy || backupRunning || resetRunning
   const runtimeStatus = readiness?.runtime_status || mlStatus?.runtime_status || mlSchema?.runtime_status || {}
   const modelActive = runtimeStatus.runtime_mode === 'ml' && runtimeStatus.ml_model_available === true
   const modelVersion = runtimeStatus.active_model_version || runtimeStatus.ml_model_version || null
@@ -48,6 +51,7 @@ export default function Training() {
       api.get('/api/admin/ml/backups').then(d => setMlBackups(d.backups || [])).catch(() => {})
       api.get('/api/admin/ml/schema').then(setMlSchema).catch(() => {})
       api.get('/api/admin/ml/backup/status').then(setBackupStatus).catch(() => {})
+      api.get('/api/admin/ml/reset/status').then(setResetStatus).catch(() => {})
     }
     fetchReadiness()
     fetchTrainingStatus()
@@ -99,14 +103,34 @@ export default function Training() {
     try { setMlSchema(await api.get('/api/admin/ml/schema')) } catch (_) {}
   }
 
+  const formatSection = (section) => `${section.path}: ${section.files} Dateien, ${section.dirs} Ordner, ${section.size_mb} MB`
+
   const runMlReset = async (mode) => {
-    const ok = window.confirm('Alle Trainingsdaten werden gesichert.\n\nDanach werden Modelle entfernt.\n\nBei "Nur neue Daten" werden zusätzlich alle bisherigen Trainingsdaten archiviert.\n\nNeue Modelle entstehen ausschließlich aus künftig neu gesammelten Daten.\n\nFortfahren?')
-    if (!ok) return
     setMlBusy(true)
     try {
-      const data = await api.post('/api/admin/ml/reset', { mode })
-      setMsg(`Backup erfolgreich erstellt: ${data.backup?.id || '—'}`)
-      await refreshMl()
+      const plan = await api.get(`/api/admin/ml/reset/preview?mode=${encodeURIComponent(mode)}`)
+      const lines = [
+        'Backup wird vor dem Reset erstellt.',
+        '',
+        'Gelöscht:',
+        ...(plan.delete_sections || []).map(formatSection),
+        '',
+        'Archiviert (aus aktiver Trainingsquelle entfernt, nicht endgültig gelöscht):',
+        ...((plan.archive_sections || []).length ? (plan.archive_sections || []).map(formatSection) : ['—']),
+        '',
+        'Erhalten:',
+        ...(plan.preserved_sections || []).map(formatSection),
+        '',
+        'Nach dem Reset ist kein ML-Modell aktiv; der kinematische Fallback übernimmt und neue Trainingsdaten werden ab jetzt gesammelt.',
+        '',
+        'Fortfahren?'
+      ]
+      const ok = window.confirm(lines.join('\n'))
+      if (!ok) return
+      const data = await api.post('/api/admin/ml/reset/start', { mode })
+      setResetJobId(data.job_id)
+      setResetStatus({ running: true, finished: false, failed: false, job_id: data.job_id, status: data.status, plan: data.plan, current_step: 'preflight', progress: 'Reset läuft', percent: 1 })
+      setMsg('ML-Reset läuft im Hintergrund...')
     } catch (e) {
       setMsg('ML-Reset fehlgeschlagen: ' + e.message)
     } finally {
@@ -138,6 +162,32 @@ export default function Training() {
     pollBackupStatus()
     return () => clearInterval(timer)
   }, [backupRunning, backupJobId])
+
+
+  useEffect(() => {
+    if (!resetRunning && !resetJobId) return undefined
+    const pollResetStatus = async () => {
+      try {
+        const status = await api.get('/api/admin/ml/reset/status')
+        setResetStatus(status)
+        if (status.finished) {
+          setResetJobId(null)
+          setMsg(`ML-Reset abgeschlossen. Backup: ${status.backup?.id || status.result?.backup_id || '—'}. Gelöscht: ${status.deleted_counts?.files || 0} Dateien/${status.deleted_counts?.dirs || 0} Ordner/${status.deleted_counts?.size_mb || 0} MB. Archiviert: ${status.archived_counts?.files || 0} Dateien/${status.archived_counts?.dirs || 0} Ordner/${status.archived_counts?.size_mb || 0} MB. ML-Modell fehlt, kinematischer Fallback aktiv, neue Trainingsdaten werden ab jetzt gesammelt.`)
+          await refreshMl()
+        } else if (status.failed) {
+          setResetJobId(null)
+          setMsg('ML-Reset fehlgeschlagen: ' + (status.error || 'Unbekannter Fehler'))
+        }
+      } catch (e) {
+        setResetJobId(null)
+        setResetStatus(prev => ({ ...(prev || {}), running: false, failed: true, error: e.message }))
+        setMsg('ML-Reset-Status konnte nicht gelesen werden: ' + e.message)
+      }
+    }
+    const timer = setInterval(pollResetStatus, 1500)
+    pollResetStatus()
+    return () => clearInterval(timer)
+  }, [resetRunning, resetJobId])
 
   const createMlBackup = async () => {
     setMlBusy(true)
@@ -319,6 +369,9 @@ export default function Training() {
           <label className="inline-flex items-center gap-2"><input type="radio" checked={schemaPolicy === 'allow_legacy'} onChange={() => setSchemaPolicy('allow_legacy')} /> Legacy-Daten erlauben</label>
           {schemaPolicy === 'allow_legacy' && <div className="bg-amber-100 border border-amber-300 text-amber-900 rounded p-2 mt-2">Legacy-Daten können mit altem Feature-Set erzeugt worden sein und die Modellqualität verschlechtern.</div>}
           {backupRunning && <div className="text-blue-800 text-sm mt-2">Backup läuft... {backupStatus?.progress || ''}</div>}
+          {resetRunning && <div className="text-blue-800 text-sm mt-2 flex items-center gap-2"><span className="inline-block h-4 w-4 rounded-full border-2 border-current border-t-transparent animate-spin" aria-hidden="true" /> ML-Reset läuft: {resetStatus?.current_step || resetStatus?.progress || '—'} ({resetStatus?.percent || 0}%)</div>}
+          {resetStatus?.finished && <div className="bg-green-50 border border-green-200 text-green-900 rounded p-2 mt-2">Reset abgeschlossen · Backup: {resetStatus.backup?.id || resetStatus.result?.backup_id || '—'} · Gelöscht: {resetStatus.deleted_counts?.files || 0} Dateien/{resetStatus.deleted_counts?.dirs || 0} Ordner/{resetStatus.deleted_counts?.size_mb || 0} MB · Archiviert: {resetStatus.archived_counts?.files || 0} Dateien/{resetStatus.archived_counts?.dirs || 0} Ordner/{resetStatus.archived_counts?.size_mb || 0} MB · ML-Modell fehlt, kinematischer Fallback aktiv.</div>}
+          {resetStatus?.failed && <div className="bg-red-50 border border-red-300 text-red-800 rounded p-2 mt-2">Reset fehlgeschlagen: {resetStatus.error || 'Unbekannter Fehler'}</div>}
           <div className="flex flex-wrap gap-2 mt-3">
             <button className="btn" disabled={mlActionsDisabled} onClick={scanDataset}>Dataset neu prüfen</button>
             <button className="btn-primary" disabled={mlActionsDisabled} onClick={retrainWithSchemaPolicy}>Nur kompatible Daten trainieren</button>
