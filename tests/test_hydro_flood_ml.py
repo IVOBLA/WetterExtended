@@ -86,3 +86,71 @@ def test_dataset_scan_labels_future_q_without_w_features(tmp_path, monkeypatch):
     assert sample["target_q_threshold_exceeded"] is True
     assert sample["target_flood_expected"] is True
     assert not any(k.startswith("w_cm") for k in sample)
+
+
+def test_feldkirchen_live_q_is_used_when_latest_hydro_is_newer_than_risk_cache(tmp_path, monkeypatch):
+    risk = tmp_path / "latest_hydro_flood_risk.json"
+    live_file = tmp_path / "latest_hydro.json"
+    monkeypatch.setattr(hydro_flood_ml, "HYDRO_RISK_PATH", risk)
+    import hydro_fetch
+    monkeypatch.setattr(hydro_fetch, "LATEST_FILE", live_file)
+    risk.write_text(json.dumps({"input_hash": "old", "stations": [{"station_id": "2002485", "current_q_m3s": None}]}), encoding="utf-8")
+    live = {"fetched_at": "2026-06-25T13:03:35Z", "stations": [{"station_id": "2002485", "q_m3s": 0.96, "data_age_min": 18.58}]}
+    live_file.write_text(json.dumps(live), encoding="utf-8")
+    import os, time
+    os.utime(risk, (time.time() - 100, time.time() - 100))
+    os.utime(live_file, None)
+    monkeypatch.setattr(hydro_flood_ml.runtime_config, "get", lambda k, d=None: None if k == "HYDRO_MAP_MARK_Q_M3S" else d)
+    assert hydro_flood_ml.is_flood_risk_cache_valid(json.loads(risk.read_text()), live=live, cells=[]) is False
+    doc = hydro_flood_ml.evaluate_live_flood_risk(stations=[{"station_id": "2002485", "mark_q_m3s": 8}], live=live, cells=[], write=False)
+    row = doc["stations"][0]
+    assert row["current_q_m3s"] == 0.96
+    assert row["current_q_missing"] is False
+
+
+def test_stale_flood_risk_cache_is_invalidated_after_hydro_fetch(tmp_path, monkeypatch):
+    risk = tmp_path / "latest_hydro_flood_risk.json"
+    live_file = tmp_path / "latest_hydro.json"
+    monkeypatch.setattr(hydro_flood_ml, "HYDRO_RISK_PATH", risk)
+    import hydro_fetch
+    monkeypatch.setattr(hydro_fetch, "LATEST_FILE", live_file)
+    live = {"fetched_at": "new", "stations": []}
+    live_file.write_text(json.dumps(live), encoding="utf-8")
+    risk.write_text(json.dumps({"input_hash": hydro_flood_ml.flood_risk_input_hash(live=live, cells=[])}), encoding="utf-8")
+    import os, time
+    os.utime(risk, (time.time() - 120, time.time() - 120))
+    os.utime(live_file, None)
+    assert hydro_flood_ml.is_flood_risk_cache_valid(json.loads(risk.read_text()), live=live, cells=[]) is False
+
+
+def test_threshold_value_and_source_are_consistent(monkeypatch):
+    monkeypatch.setattr(hydro_flood_ml.runtime_config, "get", lambda k, d=None: None if k == "HYDRO_MAP_MARK_Q_M3S" else d)
+    row = hydro_flood_ml.build_feature_row({"station_id": "2002485", "mark_q_m3s": 8}, live={"stations": [{"station_id": "2002485", "q_m3s": 0.96}]})
+    assert row["station_q_threshold_m3s"] == 8
+    assert row["station_q_threshold_source"] != "missing"
+    assert row["station_q_threshold_missing"] is False
+    assert round(row["current_q_distance_to_threshold_m3s"], 2) == 7.04
+
+
+def test_missing_threshold_is_not_evaluable(monkeypatch):
+    monkeypatch.setattr(hydro_flood_ml.runtime_config, "get", lambda k, d=None: None if k == "HYDRO_MAP_MARK_Q_M3S" else d)
+    sc = hydro_flood_ml.heuristic_score(hydro_flood_ml.build_feature_row({"station_id": "S", "q_m3s": 1}))
+    assert sc["flood_evaluable"] is False
+    assert sc["flood_status"] == "missing_threshold"
+    assert sc["flood_expected"] is False
+
+
+def test_data_age_exported_from_current_data_age_min(monkeypatch):
+    monkeypatch.setattr(hydro_flood_ml.runtime_config, "get", lambda k, d=None: 8 if k == "HYDRO_MAP_MARK_Q_M3S" else d)
+    live = {"stations": [{"station_id": "S", "q_m3s": 1, "data_age_min": 18.58}]}
+    doc = hydro_flood_ml.evaluate_live_flood_risk(stations=[{"station_id": "S"}], live=live, write=False)
+    assert doc["stations"][0]["current_data_age_min"] == 18.58
+    assert doc["stations"][0]["data_age_min"] == 18.58
+
+
+def test_missing_precip_source_is_not_confirmed_zero(monkeypatch):
+    monkeypatch.setattr(hydro_flood_ml.runtime_config, "get", lambda k, d=None: 8 if k == "HYDRO_MAP_MARK_Q_M3S" else d)
+    row = hydro_flood_ml.build_feature_row({"station_id": "S", "q_m3s": 1})
+    assert row["precip_evaluable"] is False
+    assert row["precip_status"] == "missing"
+    assert row["effective_catchment_precip_sum_mm"] is None

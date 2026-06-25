@@ -5427,10 +5427,12 @@ def api_hydro_verification():
 def api_hydro_flood_risk():
     def _load():
         import hydro_flood_ml, hydro_fetch
+        live = hydro_fetch.load_latest_hydro_live(max_age_seconds=None)
+        cells = _latest_objects()
         doc = hydro_flood_ml.HYDRO_RISK_PATH.exists() and hydro_flood_ml._read_json(hydro_flood_ml.HYDRO_RISK_PATH, None)
-        if isinstance(doc, dict):
+        if hydro_flood_ml.is_flood_risk_cache_valid(doc, live=live, cells=cells):
             return doc
-        return hydro_flood_ml.evaluate_live_flood_risk(live=hydro_fetch.load_latest_hydro_live(max_age_seconds=None), cells=_latest_objects())
+        return hydro_flood_ml.evaluate_live_flood_risk(live=live, cells=cells)
     return _hydro_safe(_load, "hydro_flood_risk_error")
 
 @app.route("/api/hydro/flood-risk/status")
@@ -5658,6 +5660,7 @@ def api_hydro_station_patch(station_id):
                 return _hydro_json("invalid_request", ok=False, error=f"{k} außerhalb 0–720", code=400)
             cur[k] = int(val) if val.is_integer() else val
             changed.append(k)
+    invalidate_flood_risk = "mark_q_m3s" in data
     if "mark_q_m3s" in data:
         v = data["mark_q_m3s"]
         if v is None:
@@ -5679,7 +5682,12 @@ def api_hydro_station_patch(station_id):
         runtime_config.patch_exact_key(key, overrides)
     else:
         runtime_config.patch({key: overrides})
-    return _hydro_json("ok", data={"station_id": sid, "overrides": cur, "changed_keys": changed}, ok=True)
+    if invalidate_flood_risk:
+        try:
+            __import__("hydro_flood_ml").HYDRO_RISK_PATH.unlink(missing_ok=True)
+        except Exception:
+            pass
+    return _hydro_json("ok", data={"station_id": sid, "overrides": cur, "changed_keys": changed, "flood_risk_invalidated": bool(invalidate_flood_risk)}, ok=True)
 
 if __name__ == "__main__":
     # Fix P04: Standardmäßig nur auf 127.0.0.1 lauschen.

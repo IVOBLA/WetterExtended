@@ -6,7 +6,7 @@ bzw. train_data/models/hydro_flood.
 """
 from __future__ import annotations
 
-import json, math, os, tempfile
+import hashlib, json, math, os, tempfile
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -55,6 +55,56 @@ def _atomic_json(path: Path, data: Any) -> None:
 def _read_json(path: Path, default: Any):
     try: return json.loads(path.read_text(encoding="utf-8"))
     except Exception: return default
+
+
+def _path_mtime(path: Path) -> float | None:
+    try: return path.stat().st_mtime
+    except OSError: return None
+
+
+def _objects_signature(cells: list[dict] | None) -> dict:
+    items = []
+    for c in cells or []:
+        if not isinstance(c, dict):
+            continue
+        items.append({
+            "id": c.get("id") or c.get("cell_id"),
+            "ts": c.get("timestamp") or c.get("source_timestamp") or c.get("last_seen"),
+            "rr15": c.get("nowcast_rr_mm15"),
+            "rate": c.get("nowcast_rain_rate_1h") or c.get("rain_rate_mm_h") or c.get("precip_rate_mm_h"),
+            "overlap": c.get("_hydro_overlap"),
+        })
+    return {"count": len(items), "items": items}
+
+
+def flood_risk_input_hash(live: dict | None = None, cells: list[dict] | None = None) -> str:
+    overrides = runtime_config.get("HYDRO_STATION_OVERRIDES", {}) or {}
+    live_sig = {
+        "fetched_at": (live or {}).get("fetched_at"),
+        "mtime": _path_mtime(getattr(__import__("hydro_fetch"), "LATEST_FILE", Path("train_data/hydro/live/latest_hydro.json"))),
+        "stations": [
+            {"station_id": str(s.get("station_id") or ""), "q_m3s": s.get("q_m3s"), "data_age_min": s.get("data_age_min"), "measured_at": s.get("measured_at")}
+            for s in ((live or {}).get("stations") or []) if isinstance(s, dict)
+        ],
+    }
+    payload = {
+        "live": live_sig,
+        "station_thresholds": overrides,
+        "global_threshold": runtime_config.get("HYDRO_MAP_MARK_Q_M3S", getattr(config, "HYDRO_MAP_MARK_Q_M3S", None)),
+        "objects": _objects_signature(cells),
+    }
+    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def is_flood_risk_cache_valid(doc: dict | None, live: dict | None = None, cells: list[dict] | None = None) -> bool:
+    if not isinstance(doc, dict) or not doc.get("input_hash"):
+        return False
+    risk_mtime = _path_mtime(HYDRO_RISK_PATH)
+    hydro_mtime = _path_mtime(getattr(__import__("hydro_fetch"), "LATEST_FILE", Path("train_data/hydro/live/latest_hydro.json")))
+    if risk_mtime is not None and hydro_mtime is not None and hydro_mtime > risk_mtime:
+        return False
+    return doc.get("input_hash") == flood_risk_input_hash(live=live, cells=cells)
 
 
 def _f(v, default=None):
@@ -152,14 +202,19 @@ def build_feature_row(station: dict, live: dict|None=None, cells: list[dict]|Non
     eff_sum = obs["observed_catchment_precip_sum_mm"] if use_obs else cellp["cell_catchment_precip_sum_mm"]
     qdist = (thr - q) if (thr is not None and q is not None) else None
     ratio = (q / thr) if (thr not in (None, 0) and q is not None) else None
-    return {**obs, **cellp, "station_id": sid, "station_name": live_station.get("name") or live_station.get("station_name") or station.get("name") or sid, "river": live_station.get("river") or station.get("river") or station.get("river_name") or "", "station_lat": _f(station.get("lat"), _f(live_station.get("lat"))), "station_lon": _f(station.get("lon"), _f(live_station.get("lon"))), "current_q_m3s": q, "current_q_missing": q is None, "station_q_threshold_m3s": thr, "mark_q_m3s": thr, "station_q_threshold_missing": thr is None, "station_q_threshold_source": src, "current_q_ratio_threshold": ratio, "current_q_distance_to_threshold_m3s": qdist, "current_q_above_threshold": bool(thr is not None and q is not None and q >= thr), "current_q_trend_10min": 0.0, "current_q_trend_30min": 0.0, "current_q_trend_60min": 0.0, "q_trend_per_hour": 0.0, "already_rising_flag": False, "current_data_age_min": _f(live_station.get("data_age_min")), "hydro_data_stale": False, "catchment_area_km2": _f(station.get("catchment_area_km2"),0.0), "upstream_catchment_count": len(station.get("upstream_catchment_ids") or []), "impact_eligible": bool(station.get("impact_effective", station.get("impact_eligible", True))), "source_quality": station.get("source_quality"), "topology_source": station.get("topology_source"), "upstream_source_quality": station.get("upstream_source_quality"), "effective_catchment_precip_sum_mm": eff_sum or 0.0, "effective_catchment_precip_weighted_sum_mm": (eff_sum if use_obs else cellp["cell_catchment_precip_weighted_sum_mm"]) or 0.0, "effective_catchment_precip_max_rate_mm_h": obs["observed_catchment_precip_max_rate_mm_h"] if use_obs else cellp["cell_catchment_max_intensity"], "effective_catchment_precip_mean_rate_mm_h": obs["observed_catchment_precip_mean_rate_mm_h"] if use_obs else cellp["cell_catchment_max_intensity"], "effective_precip_source_type": eff_type, "effective_precip_source_quality": obs["observed_precip_source_quality"] if use_obs else ("medium" if eff_type in {"nowcast","cell_derived"} else "missing"), "effective_precip_is_proxy": eff_type in {"cell_derived","proxy"}, "effective_precip_missing": eff_type == "missing", "precip_source_type": eff_type, "precip_source_quality": obs["observed_precip_source_quality"] if use_obs else ("medium" if eff_type != "missing" else "missing"), "precip_is_observed": use_obs, "precip_is_proxy": eff_type in {"cell_derived","proxy"}, "precip_source_name": obs.get("precip_source_name") or eff_type, "precip_source_timestamp": obs.get("precip_source_timestamp"), "precip_source_age_min": obs.get("observed_precip_data_age_min")}
+    precip_evaluable = eff_type != "missing"
+    precip_status = "observed" if use_obs else ("cell_derived" if eff_type in {"nowcast", "cell_derived"} else "missing")
+    precip_status_label = {"observed": "gemessener Niederschlag im Einzugsgebiet", "cell_derived": "aus erkannter Regenzelle abgeleitet", "missing": "keine verwertbaren Niederschlagsdaten zugeordnet"}[precip_status]
+    precip_quality_label = {"observed": "hoch", "cell_derived": "mittel", "missing": "nicht bewertbar"}[precip_status]
+    eff_sum_out = eff_sum if precip_evaluable else None
+    return {**obs, **cellp, "station_id": sid, "station_name": live_station.get("name") or live_station.get("station_name") or station.get("name") or sid, "river": live_station.get("river") or station.get("river") or station.get("river_name") or "", "station_lat": _f(station.get("lat"), _f(live_station.get("lat"))), "station_lon": _f(station.get("lon"), _f(live_station.get("lon"))), "current_q_m3s": q, "current_q_missing": q is None, "station_q_threshold_m3s": thr, "mark_q_m3s": thr, "station_q_threshold_missing": thr is None, "station_q_threshold_source": src if thr is not None else "missing", "current_q_ratio_threshold": ratio, "current_q_distance_to_threshold_m3s": qdist, "current_q_above_threshold": bool(thr is not None and q is not None and q >= thr), "current_q_trend_10min": 0.0, "current_q_trend_30min": 0.0, "current_q_trend_60min": 0.0, "q_trend_per_hour": 0.0, "already_rising_flag": False, "current_data_age_min": _f(live_station.get("data_age_min")), "data_age_min": _f(live_station.get("data_age_min")), "hydro_data_stale": False, "catchment_area_km2": _f(station.get("catchment_area_km2"),0.0), "upstream_catchment_count": len(station.get("upstream_catchment_ids") or []), "impact_eligible": bool(station.get("impact_effective", station.get("impact_eligible", True))), "source_quality": station.get("source_quality"), "topology_source": station.get("topology_source"), "upstream_source_quality": station.get("upstream_source_quality"), "effective_catchment_precip_sum_mm": eff_sum_out, "effective_catchment_precip_weighted_sum_mm": (eff_sum if use_obs else cellp["cell_catchment_precip_weighted_sum_mm"]) if precip_evaluable else None, "effective_catchment_precip_max_rate_mm_h": obs["observed_catchment_precip_max_rate_mm_h"] if use_obs else cellp["cell_catchment_max_intensity"], "effective_catchment_precip_mean_rate_mm_h": obs["observed_catchment_precip_mean_rate_mm_h"] if use_obs else cellp["cell_catchment_max_intensity"], "effective_precip_source_type": eff_type, "effective_precip_source_quality": obs["observed_precip_source_quality"] if use_obs else ("medium" if eff_type in {"nowcast","cell_derived"} else "missing"), "effective_precip_is_proxy": eff_type in {"cell_derived","proxy"}, "effective_precip_missing": eff_type == "missing", "precip_evaluable": precip_evaluable, "precip_status": precip_status, "precip_status_label": precip_status_label, "precip_quality_label": precip_quality_label, "precip_source_type": eff_type, "precip_source_quality": obs["observed_precip_source_quality"] if use_obs else ("medium" if eff_type != "missing" else "missing"), "precip_is_observed": use_obs, "precip_is_proxy": eff_type in {"cell_derived","proxy"}, "precip_source_name": obs.get("precip_source_name") or (eff_type if precip_evaluable else None), "precip_source_timestamp": obs.get("precip_source_timestamp"), "precip_source_age_min": obs.get("observed_precip_data_age_min")}
 
 
 def heuristic_score(row: dict) -> dict:
     reasons=[]; warnings=[]
     if row.get("station_q_threshold_missing"):
         warnings.append("missing_station_q_threshold")
-        return {"hydro_flood_risk_score": 0.0, "flood_expected": False, "confidence": 0.2, "reasons": reasons, "warning_reasons": warnings, "model_source": "heuristic_scoring"}
+        return {"hydro_flood_risk_score": 0.0, "flood_expected": False, "flood_evaluable": False, "flood_status": "missing_threshold", "confidence": 0.2, "reasons": reasons, "warning_reasons": warnings, "model_source": "heuristic_scoring"}
     q = _f(row.get("current_q_m3s")); thr = _f(row.get("station_q_threshold_m3s")); precip = _f(row.get("effective_catchment_precip_sum_mm"),0.0) or 0.0
     ratio = q/thr if q is not None and thr else 0.0
     score = min(1.0, max(0.0, ratio*0.55 + min(precip/30.0,1.0)*0.25 + min((_f(row.get("cell_catchment_overlap_area_km2_sum"),0.0) or 0.0)/20.0,1.0)*0.1 + min((_f(row.get("cell_catchment_max_core_ratio"),0.0) or 0.0),1.0)*0.1))
@@ -167,7 +222,7 @@ def heuristic_score(row: dict) -> dict:
     if precip > 0: reasons.append("Niederschlag im oberliegenden Einzugsgebiet")
     if ratio >= 0.8: reasons.append("current_q_m3s nahe am Q-Grenzwert")
     if row.get("effective_precip_is_proxy"): warnings.append("precipitation_proxy_used")
-    return {"hydro_flood_risk_score": round(score,3), "flood_expected": bool(score >= 0.75), "confidence": round(0.45 + score*0.4,3), "reasons": reasons, "warning_reasons": warnings, "model_source": "heuristic_scoring"}
+    return {"hydro_flood_risk_score": round(score,3), "flood_expected": bool(score >= 0.75), "flood_evaluable": True, "flood_status": "ok", "confidence": round(0.45 + score*0.4,3), "reasons": reasons, "warning_reasons": warnings, "model_source": "heuristic_scoring"}
 
 
 def evaluate_live_flood_risk(stations: list[dict]|None=None, live: dict|None=None, cells: list[dict]|None=None, write: bool=True) -> dict:
@@ -178,8 +233,8 @@ def evaluate_live_flood_risk(stations: list[dict]|None=None, live: dict|None=Non
     for st in stations or []:
         row = build_feature_row(st, live=live, cells=cells or [])
         sc = heuristic_score(row)
-        out.append({k: row.get(k) for k in ["station_id","station_name","river","current_q_m3s","station_q_threshold_m3s","station_q_threshold_source","station_q_threshold_missing","current_q_ratio_threshold","current_q_distance_to_threshold_m3s","effective_catchment_precip_sum_mm","effective_catchment_precip_weighted_sum_mm","effective_precip_source_type","effective_precip_source_quality","cell_catchment_count","cell_catchment_overlap_area_km2_sum","data_age_min","hydro_data_stale"]} | {"generated_at": generated, "flood_probability": None, "predicted_q_delta_m3s": None, **sc})
-    doc = {"status":"ok", "generated_at": generated, "stations": out, "readiness": readiness_status()}
+        out.append({k: row.get(k) for k in ["station_id","station_name","river","current_q_m3s","current_q_missing","station_q_threshold_m3s","station_q_threshold_source","station_q_threshold_missing","current_q_ratio_threshold","current_q_distance_to_threshold_m3s","effective_catchment_precip_sum_mm","effective_catchment_precip_weighted_sum_mm","effective_precip_source_type","effective_precip_source_quality","precip_evaluable","precip_status","precip_status_label","precip_quality_label","cell_catchment_count","cell_catchment_overlap_area_km2_sum","current_data_age_min","data_age_min","hydro_data_stale"]} | {"generated_at": generated, "flood_probability": None, "predicted_q_delta_m3s": None, **sc})
+    doc = {"status":"ok", "generated_at": generated, "input_hash": flood_risk_input_hash(live=live, cells=cells or []), "stations": out, "readiness": readiness_status()}
     if write: _atomic_json(HYDRO_RISK_PATH, doc)
     return doc
 
