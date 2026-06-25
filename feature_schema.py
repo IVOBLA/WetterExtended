@@ -122,7 +122,7 @@ def compare_sample_schema(sample_schema: dict, current_schema: dict | None = Non
     if sample_schema.get("feature_schema_hash") == current_schema.get("feature_schema_hash"):
         return True, None
     if sample_schema.get("feature_names") and list(sample_schema["feature_names"]) != list(current_schema["feature_names"]):
-        return False, "feature_count_mismatch"
+        return False, "feature_names_mismatch"
     if sample_schema.get("horizons_min") and list(sample_schema["horizons_min"]) != list(current_schema["horizons_min"]):
         return False, "horizon_mismatch"
     if sample_schema.get("target_encoding") and sample_schema["target_encoding"] != current_schema["target_encoding"]:

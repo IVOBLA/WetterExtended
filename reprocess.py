@@ -9,6 +9,7 @@ from object_tracking import detect_and_track_objects
 from model_training import retrain_all
 from pathlib import Path
 from config import SAVE_PATHS, ML_SEQUENCE_LENGTH as sequence_length
+from feature_schema import attach_schema_metadata
 
 # Schalter: Nur wenn True, werden vorhandene Objektdateien überschrieben
 RECREATE_OBJECTS = True
@@ -41,7 +42,15 @@ def reprocess_all_objects():
             continue
 
         with open(json_path, "w") as f:
-            json.dump(objects, f, indent=2)
+            json.dump(
+                attach_schema_metadata(
+                    objects,
+                    source_object_file=json_path,
+                    source_weather_file=weather_path,
+                ),
+                f,
+                indent=2,
+            )
 
     # 🔁 Trainingsdaten sammeln
     object_files = sorted(glob.glob(os.path.join(SAVE_PATHS["objects"].rstrip("/"), "*.json")))
