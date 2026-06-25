@@ -8,7 +8,10 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
-DATASET_SCHEMA_VERSION = "v1"
+try:
+    from config import DATASET_SCHEMA_VERSION as DATASET_SCHEMA_VERSION
+except Exception:
+    DATASET_SCHEMA_VERSION = "v1"
 TIME_FEATURES = ["hour_sin", "hour_cos", "month_sin", "month_cos"]
 
 
@@ -64,11 +67,28 @@ def schema_metadata(source_object_file: str | None = None, source_weather_file: 
     return {
         "feature_schema_hash": schema["feature_schema_hash"],
         "feature_schema_version": schema["schema_version"],
+        "schema_version": schema["schema_version"],
         "feature_names": list(schema["feature_names"]),
+        "feature_count": int(schema["num_features"]),
+        "horizons_min": list(schema["horizons_min"]),
+        "target_encoding": schema["target_encoding"],
         "created_at": datetime.now(timezone.utc).isoformat(),
         "source_object_file": source_object_file,
         "source_weather_file": source_weather_file,
     }
+
+
+def attach_schema_metadata(payload: Any, source_object_file: str | None = None, source_weather_file: str | None = None) -> Any:
+    """Hängt aktuellen Schema-Metadaten an neu erzeugte Trainingsquellen an."""
+    meta = schema_metadata(source_object_file, source_weather_file)
+    if isinstance(payload, list):
+        for item in payload:
+            if isinstance(item, dict):
+                item.update(meta)
+        return payload
+    if isinstance(payload, dict):
+        payload.update(meta)
+    return payload
 
 
 def extract_source_schema(obj: Any, weather: Any = None) -> dict:
@@ -102,7 +122,7 @@ def compare_sample_schema(sample_schema: dict, current_schema: dict | None = Non
     if sample_schema.get("feature_schema_hash") == current_schema.get("feature_schema_hash"):
         return True, None
     if sample_schema.get("feature_names") and list(sample_schema["feature_names"]) != list(current_schema["feature_names"]):
-        return False, "feature_names_mismatch"
+        return False, "feature_count_mismatch"
     if sample_schema.get("horizons_min") and list(sample_schema["horizons_min"]) != list(current_schema["horizons_min"]):
         return False, "horizon_mismatch"
     if sample_schema.get("target_encoding") and sample_schema["target_encoding"] != current_schema["target_encoding"]:
