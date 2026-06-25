@@ -43,3 +43,15 @@ def test_hydro_admin_shows_loaded_station_count_instead_of_empty_state_for_non_e
     assert "hydroImpactEligibleCount} impact-eligible" in src
     assert "Upstream-Topologie fehlt noch" in src
     assert "hydroStations.length === 0" in src
+
+def test_hydro_station_checkbox_uses_patch_endpoint_only():
+    src = _read("frontend/src/pages/Configuration.jsx")
+    assert "api.patch(`/api/hydro/stations/${st.station_id}`, patch)" in src
+    assert "api.post(`/api/admin/hydro/stations/${st.station_id}/${patch.enabled ? 'enable' : 'disable'}" not in src
+
+
+def test_hydro_popup_does_not_show_score_confidence():
+    src = _read("frontend/src/pages/MapView.jsx")
+    assert "Risiko-Score" not in src
+    assert "Confidence" not in src
+    assert "Q-Messzeit" in src

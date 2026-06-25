@@ -24,3 +24,12 @@ import { normalizeHydroFloodPopup } from '../hydroFloodPopup.js'
   assert.equal(normalizeHydroFloodPopup({}, { flood_evaluable: true, station_q_threshold_m3s: 8, station_q_threshold_source: 'station_override', reasons: [] }).reasonsLabel, 'keine Auslösegründe')
   assert.equal(normalizeHydroFloodPopup({}, { flood_evaluable: false, reasons: [] }).reasonsLabel, 'nicht ermittelt')
 }
+{
+  const n = normalizeHydroFloodPopup({}, { current_q_m3s: 0.89, current_q_measured_at: '2026-06-25T11:45:00Z' })
+  assert.equal(n.currentQLabel, '0.89')
+  assert.equal(n.currentQTimestampLabel, '25.06.2026 13:45')
+}
+{
+  const n = normalizeHydroFloodPopup({}, { precip_status: 'missing', precip_status_label: 'keine verwertbaren Niederschlagsdaten zugeordnet' })
+  assert.equal(n.precipStatusLabel, 'keine verwertbaren Niederschlagsdaten zugeordnet')
+}

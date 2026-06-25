@@ -10,6 +10,42 @@ const validNumber = value => value !== null && value !== undefined && value !== 
 const fmt = (value, digits = 2) => validNumber(value) ? Number(value).toFixed(digits) : '—'
 const translate = value => HYDRO_REASON_LABELS[value] || value
 
+
+function parseTimestamp(value) {
+  if (!value) return null
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function formatViennaTimestamp(value) {
+  const date = parseTimestamp(value)
+  if (!date) return 'unbekannt'
+  return new Intl.DateTimeFormat('de-AT', {
+    timeZone: 'Europe/Vienna',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date).replace(',', '')
+}
+
+function currentQTimestamp(p, flood) {
+  if (flood.current_q_measured_at) return { value: flood.current_q_measured_at, source: flood.current_q_timestamp_source || 'hydro_live.measured_at' }
+  if (flood.measured_at) return { value: flood.measured_at, source: 'hydro_live.measured_at' }
+  if (p.measured_at) return { value: p.measured_at, source: 'hydro_live.measured_at' }
+  if (flood.fetched_at) return { value: flood.fetched_at, source: 'hydro_live.fetched_at_fallback' }
+  if (p.fetched_at) return { value: p.fetched_at, source: 'hydro_live.fetched_at_fallback' }
+  return { value: null, source: 'missing' }
+}
+
+function timestampSourceLabel(source) {
+  if (source === 'hydro_live.fetched_at_fallback') return 'Fetch-Zeitpunkt, Messzeit fehlt'
+  if (source === 'hydro_live.measured_at') return 'Messzeit Hydro-Live'
+  return 'unbekannt'
+}
+
 function thresholdSourceLabel(source) {
   if (source === 'station_override') return 'stationsspezifisch'
   if (source === 'global_fallback') return 'globaler Fallback'
@@ -33,13 +69,19 @@ export function normalizeHydroFloodPopup(p = {}, flood = {}) {
   const precipValue = precipEvaluable ? `${fmt(flood.effective_catchment_precip_sum_mm)} mm` : 'nicht bewertbar'
   const precipStatusLabel = flood.precip_status_label || (precipEvaluable ? 'aus erkannter Regenzelle abgeleitet' : 'keine verwertbaren Niederschlagsdaten zugeordnet')
   const precipQualityLabel = flood.precip_quality_label || (precipEvaluable ? (flood.effective_precip_source_quality === 'high' ? 'hoch' : 'mittel') : 'nicht bewertbar')
-  const dataAge = validNumber(flood.current_data_age_min) ? flood.current_data_age_min : (validNumber(flood.data_age_min) ? flood.data_age_min : p.data_age_min)
+  const qTimestamp = currentQTimestamp(p, flood)
+  const qTimestampDate = parseTimestamp(qTimestamp.value)
+  const calculatedAge = qTimestampDate ? Math.max(0, (Date.now() - qTimestampDate.getTime()) / 60000) : null
+  const dataAge = validNumber(flood.current_data_age_min) ? flood.current_data_age_min : (validNumber(flood.data_age_min) ? flood.data_age_min : (validNumber(p.data_age_min) ? p.data_age_min : calculatedAge))
   const reasonItems = (Array.isArray(flood.reasons) ? flood.reasons : []).map(translate).filter(Boolean)
   const warningItems = (Array.isArray(flood.warning_reasons) ? flood.warning_reasons : []).map(translate).filter(Boolean)
   const reasonsLabel = reasonItems.length ? reasonItems.join(', ') : (floodNotEvaluable ? 'nicht ermittelt' : 'keine Auslösegründe')
   return {
     currentQLabel: validNumber(currentQ) ? fmt(currentQ) : '—',
     thresholdLabel: thresholdMissing ? '—' : fmt(threshold),
+    currentQMeasuredAt: qTimestamp.value,
+    currentQTimestampLabel: formatViennaTimestamp(qTimestamp.value),
+    currentQTimestampSourceLabel: timestampSourceLabel(qTimestamp.source),
     thresholdSourceLabel: thresholdMissing ? '—' : thresholdSourceLabel(thresholdSource),
     distanceLabel: validNumber(distance) ? fmt(distance) : '—',
     dataAgeLabel: validNumber(dataAge) ? Number(dataAge).toFixed(1) : '—',

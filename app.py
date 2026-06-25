@@ -5498,6 +5498,23 @@ def _hydro_import_job():
 
 
 
+def _sync_hydro_station_overrides(overrides):
+    import runtime_config
+    key = "HYDRO_STATION_OVERRIDES"
+    patch_exact = getattr(runtime_config, "patch_exact_key", None)
+    patch_fn = getattr(runtime_config, "patch", None)
+    patch_fn_is_original = getattr(patch_fn, "__module__", None) == getattr(runtime_config, "__name__", "runtime_config")
+    if callable(patch_exact) and patch_fn_is_original:
+        runtime_config.patch_exact_key(key, overrides)
+    else:
+        runtime_config.patch({key: overrides})
+
+def _invalidate_hydro_flood_risk_cache():
+    try:
+        __import__("hydro_flood_ml").HYDRO_RISK_PATH.unlink(missing_ok=True)
+    except Exception:
+        pass
+
 @app.route("/api/admin/hydro/stations")
 def api_admin_hydro_stations():
     return api_hydro_stations()
@@ -5514,8 +5531,14 @@ def _hydro_set_station_enabled(station_id, enabled):
     station = hydro_api.apply_station_override(idx[sid])
     if station.get("impact_eligible_auto") is not True and enabled:
         return _hydro_json("not_impact_eligible", ok=False, error="Station ist nicht impact_eligible_auto", code=400)
-    cur = hydro_station_overrides.patch_station(sid, {"enabled": bool(enabled)})
-    return _hydro_json("ok", data={"station_id": sid, "overrides": cur}, ok=True)
+    overrides = hydro_station_overrides.load()
+    cur = dict(overrides.get(sid, {}) or {})
+    cur["enabled"] = bool(enabled)
+    overrides[sid] = cur
+    hydro_station_overrides.save(overrides)
+    _sync_hydro_station_overrides(overrides)
+    _invalidate_hydro_flood_risk_cache()
+    return _hydro_json("ok", data={"station_id": sid, "overrides": cur, "flood_risk_invalidated": True}, ok=True)
 
 @app.route("/api/admin/hydro/stations/<station_id>/enable", methods=["POST"])
 def api_admin_hydro_station_enable(station_id):
@@ -5534,7 +5557,9 @@ def api_admin_hydro_enable_all():
         if hydro_api.apply_station_override(st, overrides).get("impact_eligible_auto") is True:
             cur=dict(overrides.get(sid,{}) or {}); cur["enabled"]=True; overrides[sid]=cur; changed.append(sid)
     hydro_station_overrides.save(overrides)
-    return _hydro_json("ok", data={"changed": len(changed), "station_ids": changed}, ok=True)
+    _sync_hydro_station_overrides(overrides)
+    _invalidate_hydro_flood_risk_cache()
+    return _hydro_json("ok", data={"changed": len(changed), "station_ids": changed, "flood_risk_invalidated": True}, ok=True)
 
 @app.route("/api/admin/hydro/stations/disable-all", methods=["POST"])
 def api_admin_hydro_disable_all():
@@ -5544,7 +5569,9 @@ def api_admin_hydro_disable_all():
         if hydro_api.apply_station_override(st, overrides).get("impact_eligible_auto") is True:
             cur=dict(overrides.get(sid,{}) or {}); cur["enabled"]=False; overrides[sid]=cur; changed.append(sid)
     hydro_station_overrides.save(overrides)
-    return _hydro_json("ok", data={"changed": len(changed), "station_ids": changed}, ok=True)
+    _sync_hydro_station_overrides(overrides)
+    _invalidate_hydro_flood_risk_cache()
+    return _hydro_json("ok", data={"changed": len(changed), "station_ids": changed, "flood_risk_invalidated": True}, ok=True)
 
 @app.route("/api/admin/hydro/stations/bulk-update", methods=["POST"])
 def api_admin_hydro_bulk_update():
@@ -5562,7 +5589,9 @@ def api_admin_hydro_bulk_update():
             return _hydro_json("not_impact_eligible", ok=False, error=f"Station {sid} ist nicht impact_eligible_auto", code=400)
         cur=dict(overrides.get(sid,{}) or {}); cur["enabled"]=want; overrides[sid]=cur; changed.append(sid)
     hydro_station_overrides.save(overrides)
-    return _hydro_json("ok", data={"changed": len(changed), "station_ids": changed}, ok=True)
+    _sync_hydro_station_overrides(overrides)
+    _invalidate_hydro_flood_risk_cache()
+    return _hydro_json("ok", data={"changed": len(changed), "station_ids": changed, "flood_risk_invalidated": True}, ok=True)
 
 @app.route("/api/admin/hydro/reload-static", methods=["POST"])
 @app.route("/api/hydro/reload-static", methods=["POST"])
@@ -5660,7 +5689,7 @@ def api_hydro_station_patch(station_id):
                 return _hydro_json("invalid_request", ok=False, error=f"{k} außerhalb 0–720", code=400)
             cur[k] = int(val) if val.is_integer() else val
             changed.append(k)
-    invalidate_flood_risk = "mark_q_m3s" in data
+    invalidate_flood_risk = any(k in data for k in ("enabled", "mark_q_m3s"))
     if "mark_q_m3s" in data:
         v = data["mark_q_m3s"]
         if v is None:
@@ -5675,16 +5704,10 @@ def api_hydro_station_patch(station_id):
             cur["mark_q_m3s"] = vv; changed.append("mark_q_m3s")
     overrides[sid] = cur
     hydro_station_overrides.save(overrides)
-    patch_exact = getattr(runtime_config, "patch_exact_key", None)
-    patch_fn = getattr(runtime_config, "patch", None)
-    patch_fn_is_original = getattr(patch_fn, "__module__", None) == getattr(runtime_config, "__name__", "runtime_config")
-    if callable(patch_exact) and patch_fn_is_original:
-        runtime_config.patch_exact_key(key, overrides)
-    else:
-        runtime_config.patch({key: overrides})
+    _sync_hydro_station_overrides(overrides)
     if invalidate_flood_risk:
         try:
-            __import__("hydro_flood_ml").HYDRO_RISK_PATH.unlink(missing_ok=True)
+            _invalidate_hydro_flood_risk_cache()
         except Exception:
             pass
     return _hydro_json("ok", data={"station_id": sid, "overrides": cur, "changed_keys": changed, "flood_risk_invalidated": bool(invalidate_flood_risk)}, ok=True)

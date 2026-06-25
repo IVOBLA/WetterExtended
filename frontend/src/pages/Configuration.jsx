@@ -285,11 +285,7 @@ export default function Configuration() {
     const sid = st.station_id
     setHydroMsg('')
     try {
-      if (Object.keys(patch).length === 1 && Object.prototype.hasOwnProperty.call(patch, 'enabled')) {
-        await api.post(`/api/admin/hydro/stations/${st.station_id}/${patch.enabled ? 'enable' : 'disable'}`, {})
-      } else {
-        await api.patch(`/api/hydro/stations/${st.station_id}`, patch)
-      }
+      await api.patch(`/api/hydro/stations/${st.station_id}`, patch)
       await reloadHydroAdminData({ nocache: true })
       setHydroMsg('✅ Station aktualisiert.')
     } catch (err) {
@@ -359,7 +355,7 @@ export default function Configuration() {
             const missingFloodThreshold = (st.mark_q_m3s === null || st.mark_q_m3s === undefined || st.mark_q_m3s === '') && (hydroStatus?.hydro_global_mark_q_m3s === null || hydroStatus?.hydro_global_mark_q_m3s === undefined || hydroStatus?.hydro_global_mark_q_m3s === '')
             return (
             <div key={st.station_id} className="flex items-center justify-between gap-2 px-2 py-1 border-b text-xs">
-              <span className="flex-1"><strong>{st.name || st.station_id}</strong> · {st.river || '—'}<br/><span className="text-gray-500">auto={String(st.impact_eligible_auto ?? st.impact_eligible)} · enabled={String(st.impact_enabled ?? st.enabled)} · effective={String(st.impact_effective)} · {st.topology_source || 'none'} · {st.upstream_source_quality || '—'} · {st.exclusion_reason || (Array.isArray(st.reason) ? st.reason[0] : st.reason) || '—'}</span>{missingFloodThreshold && <><br/><span className="text-amber-700 font-medium">Für diese Station fehlt Q≥; Hydro-Flood-Risk ist nicht bewertbar.</span></>}</span>
+              <span className="flex-1"><strong>{st.name || st.station_id}</strong> · {st.river || '—'}<br/><span className="text-gray-500">auto={String(st.impact_eligible_auto ?? st.impact_eligible)} · admin enabled={String(st.impact_enabled ?? st.enabled)} · effective={String(st.impact_effective)} · {st.topology_source || 'none'} · {st.upstream_source_quality || '—'} · {st.exclusion_reason || (Array.isArray(st.reason) ? st.reason[0] : st.reason) || '—'}</span>{missingFloodThreshold && <><br/><span className="text-amber-700 font-medium">Für diese Station fehlt Q≥; Hydro-Flood-Risk ist nicht bewertbar.</span></>}</span>
               <label className="flex items-center gap-1" title="Q ≥ ist der stationsspezifische Hydro-Flood-Risk-Grenzwert (m³/s); leer = bestehender globaler Fallback, falls konfiguriert">
                 <span className="text-gray-500">Q≥</span>
                 <input type="number" min="0" step="0.1" disabled={!!hydroBusy} defaultValue={st.mark_q_m3s ?? ''} className="w-16 border rounded px-1"
