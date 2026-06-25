@@ -90,14 +90,13 @@ def test_models_only_reset_removes_artifacts_but_keeps_raw_and_config(monkeypatc
     assert (base / "hydro/static/catchments.json").exists()
 
 
-def test_factory_reset_archives_training_sources_only(monkeypatch, tmp_path):
+def test_factory_reset_deletes_training_sources_only(monkeypatch, tmp_path):
     ml_reset, base = _patch_paths(monkeypatch, tmp_path)
     _seed(base)
     ml_reset.reset_ml("full_new_data_only")
     assert not (base / "objects/2026-01-01_00-00-00.json").exists()
     assert not (base / "weather/2026-01-01_00-00-00.json").exists()
-    assert list((base / "archived_training_sources").glob("*/objects/2026-01-01_00-00-00.json"))
-    assert list((base / "archived_training_sources").glob("*/weather/2026-01-01_00-00-00.json"))
+    assert not (base / "archived_training_sources").exists()
     assert (base / "runtime_overrides.json").exists()
     assert (base / "hydro/static/catchments.json").exists()
     status = json.loads((base / "ml_reset_status.json").read_text())
