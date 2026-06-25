@@ -258,6 +258,27 @@ def _detail_record(obj: dict, ts: datetime, target_ts: datetime, horizon_min: in
         "radar_age_min": _safe_float(obj.get("radar_age_min"), 0.0), "no_target_frame": bool(no_target_frame),
         "id_lost": bool((not no_target_frame) and matched is not None and str(matched.get("id")) != str(obj.get("id"))),
         "missed": bool((not no_target_frame) and matched is None),
+        # B249: DEM-Features aus Tracking-Objekt für Fehler-Attribution (Diagnose + ML).
+        # Werte 0.0/None wenn DEM-Tiles beim Forecast-Zeitpunkt nicht geladen waren.
+        "dem_elevation_m":       _safe_float(obj.get("dem_elevation_m")),
+        "dem_slope_toward_cell": _safe_float(obj.get("dem_slope_toward_cell")),
+        "dem_barrier_ahead":     _safe_float(obj.get("dem_barrier_ahead")),
+        "valley_alignment":      _safe_float(obj.get("valley_alignment")),
+        "terrain_blocking_score":_safe_float(obj.get("terrain_blocking_score")),
+        "orographic_lift_score": _safe_float(obj.get("orographic_lift_score")),
+        # B249: Wetter-Features aus Tracking-Objekt (700-hPa-Wind, AROME, Nowcast).
+        "wind_speed_700hPa":     _safe_float(obj.get("wind_speed_700hPa")),
+        "wind_dir_cos":          _safe_float(obj.get("wind_dir_cos")),
+        "wind_dir_sin":          _safe_float(obj.get("wind_dir_sin")),
+        "cape":                  _safe_float(obj.get("cape")),
+        "arome_li":              _safe_float(obj.get("arome_li")),
+        "arome_t2m":             _safe_float(obj.get("arome_t2m")),
+        "wind_speed_500hPa":     _safe_float(obj.get("wind_speed_500hPa")),
+        "nowcast_rr_mm15":       _safe_float(obj.get("nowcast_rr_mm15")),
+        "lightning_count_10km":  _safe_float(obj.get("lightning_count_10km")),
+        "kinematic_speed_kmh":   _safe_float(obj.get("kinematic_speed_kmh")),
+        "core_ratio":            _safe_float(obj.get("core_ratio")),
+        "area":                  _safe_float(obj.get("area")),
     }
 
 def _effective_target_tolerance_s(time_tol_s: int) -> int:
