@@ -1,4 +1,5 @@
 import json
+import stat
 import zipfile
 
 
@@ -78,3 +79,20 @@ def test_factory_reset_archives_training_sources_only(monkeypatch, tmp_path):
     assert (base / "hydro/static/catchments.json").exists()
     status = json.loads((base / "ml_reset_status.json").read_text())
     assert status["next_action"] == "collect_new_data"
+
+
+def test_backup_preserves_current_model_symlink(monkeypatch, tmp_path):
+    ml_reset, base = _patch_paths(monkeypatch, tmp_path)
+    (base / "models/v_1").mkdir(parents=True)
+    (base / "models/v_1/model.txt").write_text("model")
+    (base / "models/current").symlink_to("v_1", target_is_directory=True)
+
+    backup = ml_reset.create_backup("models_only")
+    path = tmp_path / backup["path"]
+
+    with zipfile.ZipFile(path) as zf:
+        current = zf.getinfo("train_data/models/current")
+        mode = current.external_attr >> 16
+        assert stat.S_ISLNK(mode)
+        assert zf.read("train_data/models/current").decode("utf-8") == "v_1"
+        assert "train_data/models/current/" not in zf.namelist()

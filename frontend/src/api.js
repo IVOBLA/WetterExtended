@@ -115,7 +115,7 @@ const api = {
     }
     const disposition = r.headers.get('content-disposition') || '';
     const match = disposition.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);
-    const filename = match ? decodeURIComponent(match[1] || match[2]) : 'wetterextended_debug_last24h.zip';
+    const filename = match ? decodeURIComponent(match[1] || match[2]) : (url.split('/').pop()?.split('?')[0] || 'download.bin');
     return { blob: await r.blob(), filename };
   },
 };
