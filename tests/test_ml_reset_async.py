@@ -423,3 +423,94 @@ def test_ml_reset_verifies_known_preserved_paths_still_exist(monkeypatch, tmp_pa
     verified = {s["path"]: s["ok"] for s in result["reset"]["verification"]["preserved_sections_verified"]}
     for path in ["train_data/install_backups", "train_data/runtime_overrides.json.bak", "train_data/runtime_overrides.json.lock", "train_data/hydro/static", "train_data/statistics", "train_data/dem", "train_data/cell_filters", "backups"]:
         assert verified[path] is True
+
+
+def test_ml_reset_hydro_parent_is_container_only(monkeypatch, tmp_path):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "hydro" / "static" / "source" / "flowlines.geojson")
+    _file(td / "hydro" / "live" / "old.json")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    sec = _section_by_path(plan, "train_data/hydro")
+    assert sec["action"] == "container_only"
+    assert sec["protected"] is True
+
+
+def test_ml_reset_does_not_delete_hydro_parent(monkeypatch, tmp_path):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "hydro" / "live" / "old.json")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    assert all(s["path"] != "train_data/hydro" for s in plan["delete_sections"] + plan["delete_children_sections"])
+
+
+def test_ml_reset_keeps_hydro_static_source_files(monkeypatch, tmp_path):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "hydro" / "static" / "source" / "flowlines.geojson")
+    ml_reset.reset_ml("full_new_data_only")
+    assert (td / "hydro" / "static" / "source" / "flowlines.geojson").exists()
+
+
+def test_ml_reset_deletes_hydro_live(monkeypatch, tmp_path):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "hydro" / "live" / "old.json")
+    ml_reset.reset_ml("full_new_data_only")
+    assert not (td / "hydro" / "live").exists()
+
+
+@pytest.mark.parametrize("name", ["history", "impact", "verification", "dynamic", "cache", "runtime"])
+def test_ml_reset_deletes_hydro_dynamic_subdirs(monkeypatch, tmp_path, name):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "hydro" / name / "old.json")
+    ml_reset.reset_ml("full_new_data_only")
+    assert not (td / "hydro" / name).exists()
+
+
+def test_ml_reset_verify_ignores_preserved_hydro_static(monkeypatch, tmp_path):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "hydro" / "static" / "source" / "flowlines.geojson")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    verification = ml_reset.verify_reset_result(plan)
+    assert verification["verification_status"] == "passed"
+    assert verification["leftovers_total"]["files"] == 0
+
+
+def test_ml_reset_verify_fails_on_hydro_live_leftovers(monkeypatch, tmp_path):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "hydro" / "live" / "old.json")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    verification = ml_reset.verify_reset_result(plan)
+    assert verification["verification_status"] == "leftovers"
+    assert verification["leftovers_total"]["files"] == 1
+    failed = next(s for s in verification["deleted_sections_verified"] if s["path"] == "train_data/hydro/live")
+    assert "train_data/hydro/live/old.json" in failed["leftovers"]
+
+
+def test_ml_reset_refuses_delete_plan_containing_hydro_static(monkeypatch, tmp_path):
+    _root, _td = _patch_paths(monkeypatch, tmp_path)
+    plan = {"delete_sections": [{"path": "train_data/hydro/static", "action": "delete_after_backup"}], "delete_children_sections": []}
+    with pytest.raises(RuntimeError, match="Hydro static reference data must not be deleted"):
+        ml_reset._assert_delete_plan_safe(plan)
+
+
+def test_ml_reset_refuses_delete_plan_containing_hydro_parent(monkeypatch, tmp_path):
+    _root, _td = _patch_paths(monkeypatch, tmp_path)
+    plan = {"delete_sections": [{"path": "train_data/hydro", "action": "delete_after_backup"}], "delete_children_sections": []}
+    with pytest.raises(RuntimeError, match="Hydro static reference data must not be deleted"):
+        ml_reset._assert_delete_plan_safe(plan)
+
+
+def test_ml_reset_preview_lists_hydro_static_as_preserved(monkeypatch, tmp_path):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "hydro" / "static" / "source" / "flowlines.geojson")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    sec = _section_by_path(plan, "train_data/hydro/static")
+    assert sec["action"] == "preserve_static_reference"
+    assert sec["reason"] == "static_hydro_reference_data"
+
+
+def test_ml_reset_preview_lists_hydro_live_as_deleted(monkeypatch, tmp_path):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "hydro" / "live" / "old.json")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    sec = _section_by_path(plan, "train_data/hydro/live")
+    assert sec["action"] == "delete_after_backup"
+    assert sec["reason"] == "dynamic_hydro_live_data"

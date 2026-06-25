@@ -44,7 +44,7 @@ KNOWN_RUNTIME_STATUS = {"ml_backup_status.json", "ml_reset_status.json"}
 KNOWN_CONFIG_PRESERVE = {"runtime_overrides.json", "runtime_overrides.json.bak", "runtime_overrides.json.lock"}
 KNOWN_BACKUP_PRESERVE = {"install_backups"}
 
-DYNAMIC_HYDRO_CHILDREN = {"live", "history", "measurements", "timeseries", "impact", "impacts", "verification", "evaluations", "forecast", "forecasts", "nowcast", "nowcasts", "cache", "responses", "observations"}
+DYNAMIC_HYDRO_CHILDREN = {"live", "history", "measurements", "timeseries", "impact", "impacts", "verification", "evaluations", "forecast", "forecasts", "nowcast", "nowcasts", "dynamic", "cache", "runtime", "responses", "observations"}
 FULL_DELETE_CHILDREN = {"models", "dataset", "objects", "weather", "arome", "cape", "cloud", "evaluation", "external_responses", "archived_training_sources"}
 DYNAMIC_NAME_HINTS = ("cache", "raw", "tmp", "temp", "forecast", "nowcast", "radar", "ir", "analysis", "pending", "eval", "verification", "response")
 RESET_STEPS = ["preflight", "backup", "validate_backup", "delete_dynamic_data", "verify_delete", "write_status", "finished"]
@@ -237,6 +237,30 @@ def _section_counts(path: Path, root: Path | None = None, max_examples: int = 8)
     return {"files": files, "dirs": dirs, "bytes": bytes_total, "size_mb": round(bytes_total / 1024 / 1024, 2), "examples": examples}
 
 
+
+def _section_counts_excluding(path: Path, excluded_rel_paths: set[str], root: Path | None = None) -> dict:
+    counts = _section_counts(path, root)
+    if not excluded_rel_paths or not (path.exists() or path.is_symlink()):
+        return counts
+    root = root or PROJECT_ROOT
+    files = counts["files"]
+    dirs = counts["dirs"]
+    bytes_total = counts["bytes"]
+    examples = [e for e in counts["examples"] if not any(e == ex or e.startswith(ex + "/") for ex in excluded_rel_paths)]
+    for rel in excluded_rel_paths:
+        excluded = PROJECT_ROOT / rel
+        try:
+            is_inside = excluded == path or path.resolve(strict=False) in excluded.resolve(strict=False).parents
+        except OSError:
+            is_inside = False
+        if not is_inside or not (excluded.exists() or excluded.is_symlink()):
+            continue
+        sub = _section_counts(excluded, root)
+        files = max(0, files - sub["files"])
+        dirs = max(0, dirs - sub["dirs"] - (1 if excluded.is_dir() and not excluded.is_symlink() else 0))
+        bytes_total = max(0, bytes_total - sub["bytes"])
+    return {"files": files, "dirs": dirs, "bytes": bytes_total, "size_mb": round(bytes_total / 1024 / 1024, 2), "examples": examples[:8]}
+
 def _action_for_preserved(path: str) -> tuple[str, str]:
     if path == "backups":
         return "preserve_backup", "Root-Backups dürfen niemals automatisch gelöscht werden."
@@ -281,7 +305,7 @@ def _train_child_section(child: Path, mode: str) -> dict:
     if (mode == "models_only" and name in {"models", "dataset"}) or (mode == "full_new_data_only" and name in FULL_DELETE_CHILDREN):
         return _section(name, child, "delete_after_backup", TRAIN_DATA_DIR, "Dynamische ML-/Rohdaten-/Cache-/Evaluationshistorie wird nach validiertem Backup gelöscht.", will_recreate=name in {"models", "dataset", "objects", "weather"})
     if name == "hydro":
-        return _section("hydro", child, "delete_children_after_backup", TRAIN_DATA_DIR, "Hydro wird nur unterordnerweise klassifiziert: statische Referenzen bleiben, dynamische Historien werden gelöscht.")
+        return _section("hydro", child, "container_only", TRAIN_DATA_DIR, "mixed_hydro_container_children_are_classified_individually", protected=True)
     if name in {"statistics", "cell_filters", "dem"}:
         action, reason = _action_for_preserved(rel)
         return _section(name, child, action, TRAIN_DATA_DIR, reason, protected=True)
@@ -297,9 +321,10 @@ def _hydro_child_section(child: Path, mode: str) -> dict:
     name = child.name.lower()
     rel = f"train_data/hydro/{child.name}"
     if child.is_file() or rel == "train_data/hydro/static" or name in STATIC_HYDRO_CHILDREN:
-        return _section(f"hydro/{child.name}", child, "preserve_static_reference", TRAIN_DATA_DIR, "Statische Hydro-/Geografie-/Terrain-Referenzdaten bleiben erhalten.", protected=rel == "train_data/hydro/static")
+        return _section(f"hydro/{child.name}", child, "preserve_static_reference", TRAIN_DATA_DIR, "static_hydro_reference_data" if rel == "train_data/hydro/static" else "Statische Hydro-/Geografie-/Terrain-Referenzdaten bleiben erhalten.", protected=rel == "train_data/hydro/static")
     if mode == "full_new_data_only" and (f"hydro/{child.name}" in KNOWN_DYNAMIC_DELETE_PATHS or name in DYNAMIC_HYDRO_CHILDREN or any(h in name for h in DYNAMIC_NAME_HINTS)):
-        return _section(f"hydro/{child.name}", child, "delete_after_backup", TRAIN_DATA_DIR, "Dynamische Hydro-Messreihe/-Impact-/-Verification-Historie wird gelöscht.")
+        reason = "dynamic_hydro_live_data" if name == "live" else "Dynamische Hydro-Messreihe/-Impact-/-Verification-Historie wird gelöscht."
+        return _section(f"hydro/{child.name}", child, "delete_after_backup", TRAIN_DATA_DIR, reason)
     return _section(f"hydro/{child.name}", child, "manual_review_required", TRAIN_DATA_DIR, "Hydro-Unterordner ist fachlich nicht eindeutig klassifizierbar.")
 
 
@@ -323,8 +348,12 @@ def build_reset_plan(mode: str) -> dict:
         sec = _train_child_section(child, mode)
         if sec["action"] in {"delete_after_backup", "delete_runtime_status"}:
             delete_sections.append(sec)
-        elif sec["action"] == "delete_children_after_backup":
-            delete_children_sections.append(sec)
+        elif sec["action"] in {"delete_children_after_backup", "container_only"}:
+            if sec["action"] == "delete_children_after_backup":
+                delete_children_sections.append(sec)
+            else:
+                preserve_sections.append(sec)
+                protected_sections.append(sec)
             if child.name == "hydro" and child.is_dir() and not child.is_symlink():
                 for hchild in sorted(child.iterdir(), key=lambda p: p.name):
                     hsec = _hydro_child_section(hchild, mode)
@@ -765,6 +794,10 @@ def _archive_training_sources() -> list[dict]:
 
 
 
+def _is_hydro_static_or_parent(rel: str) -> bool:
+    return rel == "train_data/hydro" or rel == "train_data/hydro/static" or rel.startswith("train_data/hydro/static/")
+
+
 def _assert_delete_plan_safe(plan: dict) -> None:
     forbidden = set(PROTECTED_REL) | {".", "train_data"}
     for sec in plan.get("delete_sections", []) + plan.get("delete_children_sections", []):
@@ -772,6 +805,8 @@ def _assert_delete_plan_safe(plan: dict) -> None:
         action = sec.get("action")
         if action not in {"delete_after_backup", "delete_children_after_backup", "delete_runtime_status"}:
             continue
+        if _is_hydro_static_or_parent(rel):
+            raise RuntimeError("Hydro static reference data must not be deleted. Classify hydro children individually.")
         if rel in forbidden or any(rel == p or rel.startswith(p + "/") and p in {"backups"} for p in forbidden):
             raise RuntimeError(f"Geschützter Pfad im Löschplan: {rel}")
         path = PROJECT_ROOT / rel
@@ -804,9 +839,13 @@ def verify_reset_result(execution_plan: dict) -> dict:
     deleted_verified = []
     preserved_verified = []
     leftovers_files = leftovers_dirs = leftovers_bytes = 0
+    preserved_paths = {s.get("path", "") for s in execution_plan.get("preserve_sections", []) + execution_plan.get("protected_sections", []) if s.get("action", "").startswith("preserve_") or s.get("protected")}
     for sec in execution_plan.get("delete_sections", []) + execution_plan.get("delete_children_sections", []):
+        if sec.get("action") == "container_only":
+            continue
         path = PROJECT_ROOT / sec["path"]
-        counts = _section_counts(path, TRAIN_DATA_DIR) if (path.exists() or path.is_symlink()) else {"files": 0, "dirs": 0, "bytes": 0, "size_mb": 0.0, "examples": []}
+        excluded = {p for p in preserved_paths if p and (p == sec["path"] or p.startswith(sec["path"].rstrip("/") + "/"))}
+        counts = _section_counts_excluding(path, excluded, TRAIN_DATA_DIR) if (path.exists() or path.is_symlink()) else {"files": 0, "dirs": 0, "bytes": 0, "size_mb": 0.0, "examples": []}
         ok = counts["files"] == 0 and counts["dirs"] == 0
         if not ok:
             leftovers_files += counts["files"]
@@ -933,7 +972,7 @@ def _run_reset_job(job_id: str, mode: str) -> None:
         _reset_status_payload(status=final_status, running=False, finished=final_status == "finished", failed=final_status != "finished", job_id=job_id, pid=os.getpid(), mode=mode, finished_at=_utc_now().isoformat(), current_step="finished" if final_status == "finished" else "verify_delete", progress="Reset abgeschlossen" if final_status == "finished" else "Reset mit Restdaten abgeschlossen", percent=100, error=None if final_status == "finished" else "Abschlussprüfung fand Restdaten.", execution_plan=plan, plan=plan, backup=backup, result=result, delete_result={"deleted_sections": deleted_sections, "deleted_counts": deleted_counts}, deleted_counts=deleted_counts, archived_counts=archived_counts, verification=verification, preserved_sections=plan.get("preserved_sections", []))
     except Exception as exc:
         message = str(exc)
-        failure_status = "failed_safety_check" if "Geschützter Pfad" in message or "Manuelle Prüfung" in message or "Unsicherer Löschpfad" in message else "failed_delete"
+        failure_status = "failed_safety_check" if "Geschützter Pfad" in message or "Manuelle Prüfung" in message or "Unsicherer Löschpfad" in message or "Hydro static reference data" in message else "failed_delete"
         if "Backup" in message or "backup" in message:
             failure_status = "failed_backup"
         _reset_status_payload(status=failure_status, running=False, finished=False, failed=True, job_id=job_id, pid=os.getpid(), mode=mode, finished_at=_utc_now().isoformat(), current_step="failed", progress="Reset fehlgeschlagen", error=message, execution_plan=plan, plan=plan)
