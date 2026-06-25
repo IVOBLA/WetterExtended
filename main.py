@@ -35,6 +35,7 @@ from fetch_tawes_gust import fetch_tawes_stations, max_gust_near
 from ir_cell_detection import detect_ir_cells
 from ir_cell_tracking import mark_radar_matched_tracks, update_ir_tracking
 from climatology_features import enrich_objects as _clim_enrich
+from feature_schema import attach_schema_metadata
 import math as _math_main
 import runtime_config
 from locations_check import annotate_locations
@@ -747,7 +748,7 @@ def main_loop():
             _empty_obj_path = os.path.join(SAVE_PATHS["objects"], f"{timestamp}.json")
             try:
                 with open(_empty_obj_path, "w", encoding="utf-8") as _eof:
-                    json.dump([], _eof, ensure_ascii=False)
+                    json.dump(attach_schema_metadata([]), _eof, ensure_ascii=False)
                 debug_log(f"[NO-CELLS] Leeres Object-File gespeichert: {timestamp}")
             except Exception as _eoexc:
                 debug_log(f"[NO-CELLS] Object-File Schreibfehler: {_eoexc}")
@@ -839,7 +840,7 @@ def main_loop():
             if weather_data:
                 weather_file = os.path.join(SAVE_PATHS["weather"], f"{timestamp}.json")
                 with open(weather_file, "w", encoding="utf-8") as _wf:
-                    json.dump(weather_data, _wf, ensure_ascii=False)
+                    json.dump(attach_schema_metadata(weather_data, source_weather_file=weather_file), _wf, ensure_ascii=False)
                 debug_log(f"Wetterdaten gespeichert als {weather_file}")
             from config import ML_FORECAST_HORIZONS_MIN as _DEFAULT_HORIZONS
             from config import FORECAST_ARROW_COLORS as _DEFAULT_COLORS
@@ -910,7 +911,7 @@ def main_loop():
             object_file = os.path.join(SAVE_PATHS["objects"], f"{timestamp}.json")
             with open(object_file, "w", encoding="utf-8") as _of:
                 json.dump(
-                    [{k: v for k, v in o.items() if k != "kf"} for o in objects],
+                    attach_schema_metadata([{k: v for k, v in o.items() if k != "kf"} for o in objects], source_object_file=object_file),
                     _of, ensure_ascii=False,
                 )
             debug_log(f"Object-File gespeichert: {len(objects)} Objekte (vollständig angereichert)")

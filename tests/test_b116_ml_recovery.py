@@ -37,9 +37,12 @@ def test_compat_detects_feature_mismatch(tmp_path):
 def test_compat_accepts_matching(tmp_path):
     mt = importlib.import_module("model_training")
     from config import ML_NUM_FEATURES
+    schema = importlib.import_module("feature_schema").get_current_feature_schema()
     meta = {
         "horizons_trained": mt._get_training_horizons(),
         "feature_count": ML_NUM_FEATURES,
+        "feature_schema_hash": schema["feature_schema_hash"],
+        "feature_schema_version": schema["schema_version"],
     }
     (tmp_path / "training_meta.json").write_text(json.dumps(meta))
     res = mt._check_model_compatibility(str(tmp_path))

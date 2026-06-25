@@ -22,11 +22,15 @@ WetterExtended sammelt Trainingsdaten über längere Zeit. Wenn sich Feature-Nam
 - **legacy**: Die Quelle besitzt keinen Schema-Hash. Diese Samples werden standardmäßig abgelehnt.
 - **mismatch**: Ein Schema-Hash ist vorhanden, passt aber nicht zur aktuellen Runtime.
 
+## Trainingsdaten-Metadaten
+
+Neu erzeugte Object-/Weather-Quellen erhalten beim Speichern die aktuellen Schema-Metadaten: `feature_schema_hash`, `schema_version`, `feature_schema_version`, `feature_names`, `feature_count`, `horizons_min`, `target_encoding`, `created_at` sowie – wenn bekannt – `source_object_file` und `source_weather_file`. Leere No-Cell-Frames werden ebenfalls mit dem aktuellen Schema markiert.
+
 ## Training
 
-`dataset_builder.py` filtert Quellen vor Aufnahme in das Dataset. Standard ist `compatible_only`. Legacy-Samples können nur explizit per Admin-Policy `allow_legacy` erlaubt werden. Mismatch-Samples werden abgelehnt.
+`dataset_builder.py` filtert Quellen vor Aufnahme in das Dataset. Standard ist verpflichtend `compatible_only`: Scheduler, Hintergrundtraining, `retrain_all()`, Installations-Kompatibilitätsprüfung und manueller Admin-Start verwenden keine Legacy- oder Mismatch-Daten. Legacy-Samples können ausschließlich über den Expertenmodus `allow_legacy` im Admin-Retrain zusätzlich zugelassen werden; `ML_ALLOW_LEGACY_SAMPLES` ist standardmäßig `false`. Mismatch-Samples werden weiterhin abgelehnt.
 
-`training_meta.json` enthält den verwendeten `feature_schema_hash` und die komplette Schema-Beschreibung. Beim Laden und bei der Promotion prüft `model_training.py`, ob das Modell zum aktuellen Runtime-Schema passt. Bei Mismatch wird kein Modell geladen; die Vorhersage fällt auf den kinematischen Fallback zurück.
+`training_meta.json` enthält den verwendeten `feature_schema_hash`, `feature_schema_version` und die komplette Schema-Beschreibung. Beim Laden und bei der Promotion prüft `model_training.py`, ob das Modell zum aktuellen Runtime-Schema passt. Fehlt der Hash oder weicht er ab, wird kein Modell geladen; die Vorhersage fällt auf den kinematischen Fallback zurück.
 
 ## Admin-Bedienung und API
 

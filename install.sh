@@ -2186,7 +2186,7 @@ else
 fi
 
 # ==============================================================================
-# PHASE 8.9 — ML-Modell/Feature-Kompatibilität (B123)
+# PHASE 8.9 — ML-Modell/Feature-Schema-Kompatibilität (B123)
 # ==============================================================================
 # Prüft ob die Feature-Anzahl der vorhandenen Modelle (training_meta.json →
 # feature_count) zur aktuellen config.ML_NUM_FEATURES passt. Nutzt die
@@ -2194,7 +2194,7 @@ fi
 #   full    → inkompatible Modelle löschen (werden neu trainiert)
 #   upgrade → quarantänisieren (current → current_incompatible_<ts>), kein Löschen
 CURRENT_PHASE="Phase 8.9 — ML-Kompatibilität"
-log_step "Phase 8.9 — ML-Modell/Feature-Kompatibilität (B123)"
+log_step "Phase 8.9 — ML-Modell/Feature-Schema-Kompatibilität (B123)"
 
 if [[ -x "$VENV/bin/python3" ]]; then
     # Im Projektverzeichnis ausführen, damit config.py/model_training importierbar sind.
@@ -2224,7 +2224,7 @@ PYB123
     _COMPAT_RE="$(printf '%s' "$_COMPAT_JSON"   | "$VENV/bin/python3" -c "import json,sys; print(json.load(sys.stdin).get('reason',''))" 2>/dev/null || echo '')"
 
     if [[ "$_COMPAT_OK" == "True" ]]; then
-        check_ok "ML-Modelle kompatibel zu ML_NUM_FEATURES (${_COMPAT_RE:-keine Modelle vorhanden})"
+        check_ok "ML-Modelle kompatibel zum aktuellen Feature-Schema (${_COMPAT_RE:-keine Modelle vorhanden})"
     else
         check_warn "B123: ML-Feature-Mismatch erkannt — ${_COMPAT_RE}"
         if [[ "$MODE" == "full" ]]; then

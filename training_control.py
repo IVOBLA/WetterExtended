@@ -173,6 +173,9 @@ def run_configured_training_pipeline(run_id: str, source: str = "manual", progre
     from model_training import retrain_all
 
     runtime_config.reload_overrides()
+    allow_legacy = "allow_legacy" in str(source)
+    runtime_config.patch({"ML_ALLOW_LEGACY_SAMPLES": allow_legacy})
+    mark(f"Schema-Policy: {'allow_legacy' if allow_legacy else 'compatible_only'}")
     mark("Trainingspipeline gestartet")
     mark("Dataset-Rebuild und LSTM/LightGBM-Training laufen")
     meta = retrain_all()

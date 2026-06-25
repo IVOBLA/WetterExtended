@@ -367,7 +367,12 @@ def build_dataset(model_save_dir=None):
     pd.DataFrame(tabular_rows).to_parquet(os.path.join(SAVE_PATHS["dataset"], "tabular.parquet"), index=False)
 
     debug_log(f"[DATASET] Datensatz gebaut: X={X_scaled.shape}, y={y_scaled.shape}")
-    debug_log(f"[DATASET] {len(X_rows)} kept, {n_rejected} rejected (reasons: {rejection_reasons})")
+    debug_log(f"[DATASET] Feature schema: {current_schema.get('feature_schema_hash')} (version={current_schema.get('schema_version')})")
+    debug_log(f"[DATASET] Kompatible Samples: {schema_compatible_samples}")
+    debug_log(f"[DATASET] Legacy: {schema_legacy_samples}")
+    debug_log(f"[DATASET] Schema mismatch: {schema_mismatch_samples}")
+    debug_log(f"[DATASET] Verwendet: {len(X_rows)}")
+    debug_log(f"[DATASET] Abgelehnt: {n_rejected} (reasons: {rejection_reasons})")
     # Timestamps pro Sample extrahieren (aus ids-Liste, 1:1 zu X/y)
     _ts_list = [entry.get("timestamp", "") for entry in ids]
     return {"X": X_scaled, "y": y_scaled, "y_raw": y_raw, "ids": ids, "timestamps": _ts_list, "rejected_samples": n_rejected, "rejection_reasons": rejection_reasons, "feature_schema_hash": current_schema["feature_schema_hash"], "feature_schema": current_schema, "schema_compatible_samples": schema_compatible_samples, "schema_legacy_samples": schema_legacy_samples, "schema_mismatch_samples": schema_mismatch_samples}
