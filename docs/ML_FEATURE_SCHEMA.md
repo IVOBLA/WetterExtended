@@ -43,3 +43,9 @@ Im Admin-Panel werden kompatible, Legacy- und Mismatch-Quellen, Ablehnungsgründ
 ## Factory Reset
 
 Vor einem Reset wird weiterhin `train_data` als ZIP gesichert. Beim Modus „nur neue Daten“ werden alte `objects`/`weather` Quellen archiviert. Neue Samples erhalten den aktuellen Hash; Training nach Reset verwendet dadurch nur neue kompatible Daten. Alte Daten bleiben im Backup/Archiv erhalten.
+
+## HYDRO_FLOOD_ML_FEATURES
+
+`HYDRO_FLOOD_ML_FEATURES` ist eine eigene Featuregruppe in `config.py` und wird nicht mit `ML_CELL_FEATURES` vermischt. Sie enthält Abfluss-, Stationsgrenzwert-, Einzugsgebiets- und Niederschlagsfeatures für das eigenständige Hydro-Flood-Risk-Modell. `w_cm` ist weder Feature noch Target noch Prognose.
+
+Primäres Target ist `target_flood_expected`. Diagnose-Targets sind `target_q_delta_m3s`, `target_q_threshold_exceeded` und `target_q_distance_to_threshold_after_reaction_m3s`. Trainingsdaten liegen unter `train_data/hydro/ml/`, Modelle unter `train_data/models/hydro_flood/`.

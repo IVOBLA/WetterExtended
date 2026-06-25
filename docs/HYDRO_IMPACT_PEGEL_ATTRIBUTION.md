@@ -83,3 +83,15 @@ Hydro-Netzwerkfehler ohne HTTP-Response werden unter `train_data/external_respon
 ## Auto-Installation der statischen Hydro-Basis
 
 Im Full-Installationsmodus erzeugt `install.sh` die statische Hydro-Basis über `hydro_static_import.py --auto`. Die Daten stammen aus offiziellen freien INSPIRE-/Kärnten-Quellen, werden lokal gecached und nach EPSG:4326 GeoJSON konvertiert. Produktiver Hydro-Impact bleibt konservativ: `impact_eligible=true` wird nur gesetzt, wenn eine belastbare Upstream-Topologie aus expliziten Upstream-Catchments oder nachvollziehbaren Downstream-/GGN-Attributen vorliegt. Fehlt diese Topologie, meldet der Status `upstream_topology_missing` und Distanz-/Snapping-Informationen dienen nur der Diagnose.
+
+## Hydro-Flood-ML-Erweiterung
+
+Neben der bestehenden heuristischen Hydro-Impact- und `q_forecast_m3s`-Logik gibt es einen strikt getrennten Hydro-Flood-Risk-Pfad. Die bestehende Logik wird nicht ersetzt: `compute_cell_catchment_overlap`, `evaluate_hydro_impact`, `score_hydro_impact` und die Rational-Methoden-Schätzung bleiben als Attribution bzw. transparenter Fallback erhalten.
+
+Das neue Ziel ist ausschließlich die Hochwassergefahr (`flood_expected`) aus aktuellem Durchfluss `current_q_m3s`, dem stationsspezifischen Admin-Grenzwert `mark_q_m3s` (`Q ≥ ...`) und Niederschlag im oberliegenden Einzugsgebiet. Es wird kein zweiter Grenzwert eingeführt. Wenn `mark_q_m3s` fehlt, wird nur der bereits vorhandene globale `HYDRO_MAP_MARK_Q_M3S` als Fallback verwendet; fehlt auch dieser, liefert die Bewertung `missing_station_q_threshold` und setzt `flood_expected` nicht künstlich auf wahr.
+
+Hydro-Flood-ML lernt fachlich die spätere Änderung von `q_m3s` nach Niederschlag im Einzugsgebiet. Interne Label-Zuordnung verwendet nur die bestehenden Lag-/Verifikationswerte (`HYDRO_LAG_WINDOW_MIN`, `HYDRO_DEFAULT_LAG_MIN`, `HYDRO_VERIFY_MAX_GAP_MIN`, `HYDRO_VERIFY_MIN_DELTA_Q_M3S`). Es gibt keine öffentliche Hydro-Zeitforecast-Liste und keine `w_cm`-Prognose.
+
+Niederschlag wird priorisiert: gesicherte/observed Werte zuerst, dann Nowcast/Radar/Zellableitung, zuletzt Proxy. Ein Proxy darf beobachtete Werte nie überschreiben. Jede Bewertung dokumentiert Quelle, Qualität, Alter und Proxy/Observed-Status.
+
+Der Zellforecast bleibt unabhängig: Hydro liest aktuelle erkannte Zellen nur read-only zur Einzugsgebietszuordnung und schreibt keine Hydro-, `q_`, `w_`- oder `hq`-Features in `ML_CELL_FEATURES`.

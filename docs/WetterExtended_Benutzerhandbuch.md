@@ -2724,3 +2724,7 @@ Die Karte zeigt bei überschrittener Warngrenze die betroffenen Flussabschnitte 
 Warnfarbe sowie betroffene Orte mit einem eigenen Symbol. Beide Ebenen lassen sich über die
 Karten-Steuerung einzeln ein- und ausblenden. Popups liefern den aktuellen und prognostizierten
 Durchfluss, die Warngrenze, die Quelle der Überschreitung und die Entfernungen.
+
+## Hydro-Flood-Risk in der Karte
+
+Die Hydro-Popups zeigen zusätzlich zur Station den aktuellen Durchfluss `q_m3s`, den Grenzwert `Q ≥`, Abstand zum Grenzwert, Niederschlag im Einzugsgebiet, Niederschlagsquelle, Datenqualität, Hochwassergefahr ja/nein, Risiko-Score, Confidence und Gründe. Es werden keine Wasserstandsprognosen und keine Hydro-Zeithorizonte angezeigt.

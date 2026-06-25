@@ -271,6 +271,11 @@ def fetch_hydro_live(force: bool = False) -> dict:
         stamp = _utc_now().strftime("%Y-%m-%d_%H-%M-%S")
         _atomic_write_json(_LIVE_DIR / f"hydro_{stamp}.json", result)
         _atomic_write_json(LATEST_FILE, result)
+        try:
+            from hydro_flood_ml import append_hydro_history
+            append_hydro_history(result)
+        except Exception:
+            pass
         _write_status(result["status"])
         _log_api_call_safe(response, raw, duration_ms)
         return result
