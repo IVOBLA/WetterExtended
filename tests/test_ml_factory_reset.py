@@ -11,7 +11,7 @@ def _patch_paths(monkeypatch, tmp_path):
     base = tmp_path / "train_data"
     monkeypatch.setattr(ml_reset, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(ml_reset, "TRAIN_DATA_DIR", base)
-    monkeypatch.setattr(ml_reset, "BACKUP_DIR", base / "backups")
+    monkeypatch.setattr(ml_reset, "BACKUP_DIR", tmp_path / "backups")
     monkeypatch.setattr(ml_reset, "ARCHIVE_DIR", base / "archived_training_sources")
     monkeypatch.setattr(ml_reset, "STATUS_FILE", base / "ml_reset_status.json")
     monkeypatch.setattr(ml_reset, "BACKUP_STATUS_FILE", base / "ml_backup_status.json")
@@ -45,6 +45,7 @@ def test_backup_is_valid_and_complete(monkeypatch, tmp_path):
     _seed(base)
     backup = ml_reset.create_backup("models_only")
     path = tmp_path / backup["path"]
+    assert path.parent == tmp_path / "backups"
     assert path.exists() and path.stat().st_size > 0
     validation = ml_reset.validate_backup(path)
     assert validation["valid"], validation
@@ -57,6 +58,23 @@ def test_backup_is_valid_and_complete(monkeypatch, tmp_path):
     assert "train_data/weather/2026-01-01_00-00-00.json" in names
     assert "train_data/hydro/static/catchments.json" in names
     assert "train_data/runtime_overrides.json" in names
+
+
+def test_backup_excludes_legacy_train_data_backups(monkeypatch, tmp_path):
+    ml_reset, base = _patch_paths(monkeypatch, tmp_path)
+    _seed(base)
+    legacy_backup = base / "backups/20260101_000000_train_data.zip"
+    legacy_backup.parent.mkdir(parents=True)
+    legacy_backup.write_text("old")
+
+    backup = ml_reset.create_backup("models_only")
+    path = tmp_path / backup["path"]
+
+    assert path.parent == tmp_path / "backups"
+    assert not legacy_backup.exists()
+    assert (tmp_path / "backups/20260101_000000_train_data.zip").exists()
+    with zipfile.ZipFile(path) as zf:
+        assert not any(name.startswith("train_data/backups/") for name in zf.namelist())
 
 
 def test_models_only_reset_removes_artifacts_but_keeps_raw_and_config(monkeypatch, tmp_path):
@@ -101,6 +119,50 @@ def test_backup_preserves_current_model_symlink(monkeypatch, tmp_path):
         assert stat.S_ISLNK(mode)
         assert zf.read("train_data/models/current").decode("utf-8") == "v_1"
         assert "train_data/models/current/" not in zf.namelist()
+
+
+def test_backup_records_problematic_symlink_without_failing(monkeypatch, tmp_path):
+    ml_reset, base = _patch_paths(monkeypatch, tmp_path)
+    (base / "models/current").mkdir(parents=True)
+    (base / "models/current/model.txt").write_text("model")
+    (base / "models/current/v_bootstrap").symlink_to("v_bootstrap")
+
+    backup = ml_reset.create_backup("models_only")
+    path = tmp_path / backup["path"]
+
+    assert backup["valid"] is True
+    with zipfile.ZipFile(path) as zf:
+        manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+        loop_link = zf.getinfo("train_data/models/current/v_bootstrap")
+        mode = loop_link.external_attr >> 16
+        assert stat.S_ISLNK(mode)
+    assert "train_data/models/current/v_bootstrap" in manifest["skipped_entries"]
+    assert manifest["symlink_warnings"]
+
+
+def test_delete_backup_only_removes_root_backup_zip(monkeypatch, tmp_path):
+    ml_reset, _base = _patch_paths(monkeypatch, tmp_path)
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+    backup_path = backup_dir / "20260101_000000_train_data.zip"
+    with zipfile.ZipFile(backup_path, "w") as zf:
+        zf.writestr("manifest.json", "{}")
+
+    ml_reset.delete_backup(backup_path.name)
+
+    assert not backup_path.exists()
+
+
+def test_delete_backup_blocks_path_traversal(monkeypatch, tmp_path):
+    ml_reset, base = _patch_paths(monkeypatch, tmp_path)
+    base.mkdir(parents=True, exist_ok=True)
+    protected = base / "runtime_overrides.json"
+    protected.write_text('{"keep": true}')
+
+    with pytest.raises(ValueError):
+        ml_reset.delete_backup("../train_data/runtime_overrides.json")
+
+    assert protected.exists()
 
 
 def test_manual_backup_starts_background_and_reports_status(monkeypatch, tmp_path):
