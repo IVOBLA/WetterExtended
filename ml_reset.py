@@ -38,7 +38,13 @@ PROTECTED_REL = {
     "train_data/hydro/static",
 }
 STATIC_HYDRO_CHILDREN = {"static", "generated", "indices", "index", "stations", "catchments", "network", "terrain", "geo", "geography"}
-DYNAMIC_HYDRO_CHILDREN = {"history", "measurements", "timeseries", "impact", "impacts", "verification", "evaluations", "forecast", "forecasts", "nowcast", "nowcasts", "cache", "responses", "observations"}
+KNOWN_DYNAMIC_DELETE = {"cell_lineage", "lightning", "size_labels", "system", "wind"}
+KNOWN_DYNAMIC_DELETE_PATHS = {"hydro/live"}
+KNOWN_RUNTIME_STATUS = {"ml_backup_status.json", "ml_reset_status.json"}
+KNOWN_CONFIG_PRESERVE = {"runtime_overrides.json", "runtime_overrides.json.bak", "runtime_overrides.json.lock"}
+KNOWN_BACKUP_PRESERVE = {"install_backups"}
+
+DYNAMIC_HYDRO_CHILDREN = {"live", "history", "measurements", "timeseries", "impact", "impacts", "verification", "evaluations", "forecast", "forecasts", "nowcast", "nowcasts", "cache", "responses", "observations"}
 FULL_DELETE_CHILDREN = {"models", "dataset", "objects", "weather", "arome", "cape", "cloud", "evaluation", "external_responses", "archived_training_sources"}
 DYNAMIC_NAME_HINTS = ("cache", "raw", "tmp", "temp", "forecast", "nowcast", "radar", "ir", "analysis", "pending", "eval", "verification", "response")
 RESET_STEPS = ["preflight", "backup", "validate_backup", "delete_dynamic_data", "verify_delete", "write_status", "finished"]
@@ -234,8 +240,10 @@ def _section_counts(path: Path, root: Path | None = None, max_examples: int = 8)
 def _action_for_preserved(path: str) -> tuple[str, str]:
     if path == "backups":
         return "preserve_backup", "Root-Backups dürfen niemals automatisch gelöscht werden."
-    if path in {".env", "runtime_overrides.json", "train_data/runtime_overrides.json"}:
+    if path in {".env", "runtime_overrides.json", "train_data/runtime_overrides.json", "train_data/runtime_overrides.json.bak", "train_data/runtime_overrides.json.lock"}:
         return "preserve_config", "Konfigurationen dürfen niemals automatisch gelöscht werden."
+    if path == "train_data/install_backups":
+        return "preserve_backup", "Installationsbackups bleiben erhalten; Backups sollten künftig im Projekt-Root unter backups/ oder install_backups/ liegen."
     if path == "train_data/statistics":
         return "preserve_statistics", "Langzeitstatistiken bleiben erhalten."
     return "preserve_static_reference", "Statische Referenzdaten bleiben erhalten und werden nicht neu angefordert."
@@ -254,6 +262,22 @@ def _train_child_section(child: Path, mode: str) -> dict:
     if rel in PROTECTED_REL:
         action, reason = _action_for_preserved(rel)
         return _section(name, child, action, TRAIN_DATA_DIR, reason, protected=True)
+    if mode == "full_new_data_only" and name in KNOWN_DYNAMIC_DELETE:
+        return _section(name, child, "delete_after_backup", TRAIN_DATA_DIR, "Bekannter dynamischer ML-/Runtime-/Wetterdatenbereich wird nach validiertem Backup gelöscht.")
+    if name == "ml_backup_status.json":
+        return _section(name, child, "delete_runtime_status", TRAIN_DATA_DIR, "Backup-Statusdatei blockiert den Reset nicht und wird nach validiertem Backup entfernt.")
+    if name == "ml_reset_status.json":
+        return _section(name, child, "managed_by_reset_job", TRAIN_DATA_DIR, "Aktive Reset-Statusdatei wird vom laufenden Reset-Job überschrieben und final fortgeführt.", protected=True)
+    if name == "ml_job.lock":
+        return _section(name, child, "managed_by_reset_job", TRAIN_DATA_DIR, "Aktive ML-Job-Lockdatei wird durch die Job-Sperre verwaltet und blockiert den eigenen Reset-Plan nicht.", protected=True)
+    if name in KNOWN_CONFIG_PRESERVE:
+        action, reason = _action_for_preserved(rel)
+        return _section(name, child, action, TRAIN_DATA_DIR, reason, protected=True)
+    if name in KNOWN_BACKUP_PRESERVE:
+        action, reason = _action_for_preserved(rel)
+        sec = _section(name, child, action, TRAIN_DATA_DIR, reason, protected=True)
+        sec["warning"] = "train_data/install_backups liegt innerhalb von train_data. Backups sollten künftig im Projekt-Root unter backups/ oder install_backups/ liegen."
+        return sec
     if (mode == "models_only" and name in {"models", "dataset"}) or (mode == "full_new_data_only" and name in FULL_DELETE_CHILDREN):
         return _section(name, child, "delete_after_backup", TRAIN_DATA_DIR, "Dynamische ML-/Rohdaten-/Cache-/Evaluationshistorie wird nach validiertem Backup gelöscht.", will_recreate=name in {"models", "dataset", "objects", "weather"})
     if name == "hydro":
@@ -272,9 +296,9 @@ def _train_child_section(child: Path, mode: str) -> dict:
 def _hydro_child_section(child: Path, mode: str) -> dict:
     name = child.name.lower()
     rel = f"train_data/hydro/{child.name}"
-    if rel == "train_data/hydro/static" or name in STATIC_HYDRO_CHILDREN:
+    if child.is_file() or rel == "train_data/hydro/static" or name in STATIC_HYDRO_CHILDREN:
         return _section(f"hydro/{child.name}", child, "preserve_static_reference", TRAIN_DATA_DIR, "Statische Hydro-/Geografie-/Terrain-Referenzdaten bleiben erhalten.", protected=rel == "train_data/hydro/static")
-    if mode == "full_new_data_only" and (name in DYNAMIC_HYDRO_CHILDREN or any(h in name for h in DYNAMIC_NAME_HINTS)):
+    if mode == "full_new_data_only" and (f"hydro/{child.name}" in KNOWN_DYNAMIC_DELETE_PATHS or name in DYNAMIC_HYDRO_CHILDREN or any(h in name for h in DYNAMIC_NAME_HINTS)):
         return _section(f"hydro/{child.name}", child, "delete_after_backup", TRAIN_DATA_DIR, "Dynamische Hydro-Messreihe/-Impact-/-Verification-Historie wird gelöscht.")
     return _section(f"hydro/{child.name}", child, "manual_review_required", TRAIN_DATA_DIR, "Hydro-Unterordner ist fachlich nicht eindeutig klassifizierbar.")
 
@@ -293,9 +317,11 @@ def build_reset_plan(mode: str) -> dict:
     delete_children_sections = []
     manual_review_sections = []
     protected_sections = list(root_preserved)
+    managed_sections = []
+    warnings = []
     for child in sorted(TRAIN_DATA_DIR.iterdir(), key=lambda p: p.name) if TRAIN_DATA_DIR.exists() else []:
         sec = _train_child_section(child, mode)
-        if sec["action"] == "delete_after_backup":
+        if sec["action"] in {"delete_after_backup", "delete_runtime_status"}:
             delete_sections.append(sec)
         elif sec["action"] == "delete_children_after_backup":
             delete_children_sections.append(sec)
@@ -312,8 +338,14 @@ def build_reset_plan(mode: str) -> dict:
                             protected_sections.append(hsec)
         elif sec["action"] == "manual_review_required":
             manual_review_sections.append(sec)
+        elif sec["action"] == "managed_by_reset_job":
+            managed_sections.append(sec)
+            if sec.get("protected"):
+                protected_sections.append(sec)
         else:
             preserve_sections.append(sec)
+            if sec.get("warning"):
+                warnings.append(sec["warning"])
             if sec.get("protected"):
                 protected_sections.append(sec)
     # Show missing but protected important paths in preview.
@@ -323,7 +355,7 @@ def build_reset_plan(mode: str) -> dict:
             action, reason = _action_for_preserved(rel)
             sec = _section(Path(rel).name, path, action, PROJECT_ROOT if not rel.startswith("train_data/") else TRAIN_DATA_DIR, reason, protected=True)
             preserve_sections.append(sec); protected_sections.append(sec)
-    sections = delete_sections + delete_children_sections + preserve_sections + manual_review_sections + root_preserved
+    sections = delete_sections + delete_children_sections + managed_sections + preserve_sections + manual_review_sections + root_preserved
     delete_summary = _sum_sections(delete_sections + delete_children_sections)
     preserve_summary = _sum_sections(preserve_sections + root_preserved)
     manual_summary = _sum_sections(manual_review_sections)
@@ -340,6 +372,8 @@ def build_reset_plan(mode: str) -> dict:
         "manual_review_dirs": manual_summary["dirs"],
         "manual_review_bytes": manual_summary["bytes"],
         "manual_review_size_mb": manual_summary["size_mb"],
+        "managed_files": _sum_sections(managed_sections)["files"],
+        "managed_dirs": _sum_sections(managed_sections)["dirs"],
     }
     return {
         "mode": mode,
@@ -356,7 +390,10 @@ def build_reset_plan(mode: str) -> dict:
         "delete_sections": delete_sections,
         "delete_children_sections": delete_children_sections,
         "manual_review_sections": manual_review_sections,
+        "managed_sections": managed_sections,
+        "runtime_status_sections": managed_sections,
         "protected_sections": protected_sections,
+        "warnings": warnings,
         "archive_sections": [],
     }
 
@@ -733,7 +770,7 @@ def _assert_delete_plan_safe(plan: dict) -> None:
     for sec in plan.get("delete_sections", []) + plan.get("delete_children_sections", []):
         rel = sec.get("path", "")
         action = sec.get("action")
-        if action not in {"delete_after_backup", "delete_children_after_backup"}:
+        if action not in {"delete_after_backup", "delete_children_after_backup", "delete_runtime_status"}:
             continue
         if rel in forbidden or any(rel == p or rel.startswith(p + "/") and p in {"backups"} for p in forbidden):
             raise RuntimeError(f"Geschützter Pfad im Löschplan: {rel}")
@@ -862,7 +899,7 @@ def _run_reset_job(job_id: str, mode: str) -> None:
         if not plan:
             plan = build_reset_plan(mode)
         _mark_reset_step("preflight", job_id, pid=os.getpid(), mode=mode, execution_plan=plan, plan=plan)
-        if plan.get("manual_review_sections"):
+        if mode == "full_new_data_only" and plan.get("manual_review_sections"):
             raise RuntimeError("Manuelle Prüfung erforderlich: " + ", ".join(s.get("path", "") for s in plan["manual_review_sections"]))
         _assert_delete_plan_safe(plan)
         _mark_reset_step("backup", job_id)
@@ -948,6 +985,8 @@ def reset_ml(mode: str) -> dict:
     owner = _acquire_ml_job_lock("reset", f"reset_{_utc_now().strftime('%Y%m%d_%H%M%S_%f')}")
     try:
         plan = build_reset_plan(mode)
+        if mode == "full_new_data_only" and plan.get("manual_review_sections"):
+            raise RuntimeError("Manuelle Prüfung erforderlich: " + ", ".join(s.get("path", "") for s in plan["manual_review_sections"]))
         _assert_delete_plan_safe(plan)
         backup = create_backup(mode)
         validation = validate_backup(BACKUP_DIR / backup["id"])

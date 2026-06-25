@@ -112,6 +112,8 @@ export default function Training() {
       const deleteSections = plan.delete_sections || []
       const preserveSections = plan.preserve_sections || plan.preserved_sections || []
       const manualSections = plan.manual_review_sections || []
+      const managedSections = plan.managed_sections || plan.runtime_status_sections || []
+      const warnings = plan.warnings || []
       if (manualSections.length) {
         setMsg('ML-Reset blockiert: Manuelle Prüfung erforderlich für ' + manualSections.map(s => s.path).join(', '))
         return
@@ -123,14 +125,18 @@ export default function Training() {
         'Wird nach erfolgreichem Backup gelöscht:',
         ...(deleteSections.length ? deleteSections.map(formatSection) : ['—']),
         '',
+        'Wird vom Reset-Job verwaltet:',
+        ...(managedSections.length ? managedSections.map(formatSection) : ['—']),
+        '',
         'Bleibt erhalten:',
         ...(preserveSections.length ? preserveSections.map(formatSection) : ['—']),
         '',
         'Manuelle Prüfung erforderlich:',
         ...(manualSections.length ? manualSections.map(formatSection) : ['—']),
         '',
-        'Explizit erhalten: backups/, Konfigurationen, train_data/statistics/, DEM, Cell-Filter und statische Hydro-Daten.',
-        'Explizit gelöscht: alte dynamische Daten wie arome, cape, cloud, evaluation, external_responses und archived_training_sources.',
+        ...(warnings.length ? ['Warnungen:', ...warnings.map(w => `- ${w}`), ''] : []),
+        'Explizit erhalten: Root-Backups, Installationsbackups, Runtime-Konfigurationen, Statistik, DEM, Cell-Filter und statische Hydro-Daten.',
+        'Explizit gelöscht: dynamische Zellhistorie, Hydro-Live-Daten, Blitzhistorie, Wind-/Wettercache, System-/Runtime-Historie, alte Trainings-/Labeldaten sowie arome, cape, cloud, evaluation, external_responses und archived_training_sources.',
         '',
         'Nach dem Reset ist kein ML-Modell aktiv; der kinematische Fallback übernimmt und neue Trainingsdaten werden ab jetzt gesammelt.',
         '',
