@@ -160,6 +160,20 @@ def load_scalers():
     return joblib.load(scaler_x_path), joblib.load(scaler_y_path)
 
 
+def _fit_nan_aware_standard_scaler(values):
+    scaler = StandardScaler()
+    col_mean = np.nanmean(values, axis=0)
+    col_std = np.nanstd(values, axis=0)
+    col_mean = np.where(np.isnan(col_mean), 0.0, col_mean)
+    col_std = np.where(np.isnan(col_std) | (col_std == 0.0), 1.0, col_std)
+    scaler.mean_ = col_mean
+    scaler.scale_ = col_std
+    scaler.var_ = col_std ** 2
+    scaler.n_features_in_ = values.shape[1]
+    scaled = (values - col_mean) / col_std
+    return scaler, scaled
+
+
 def build_dataset(model_save_dir=None):
     missing_deps = _dependencies_available()
     if missing_deps:
@@ -333,24 +347,15 @@ def build_dataset(model_save_dir=None):
         os.makedirs(effective_model_dir, exist_ok=True)
     os.makedirs(SAVE_PATHS["dataset"], exist_ok=True)
 
-    scaler_X = StandardScaler()
     X_flat = X.reshape(-1, X.shape[-1])
-    X_scaled = scaler_X.fit_transform(X_flat).reshape(X.shape)
+    scaler_X, X_flat_scaled = _fit_nan_aware_standard_scaler(X_flat)
+    X_scaled = X_flat_scaled.reshape(X.shape)
 
     # P-T08: NaN-bewusste Standardisierung. y_raw enthält NaN für maskierte
     # Horizonte. StandardScaler kann NaN nicht fitten → Mittel/Streuung pro
     # Spalte aus den gültigen Werten berechnen und in den Scaler schreiben,
     # damit inverse_transform im Inferenz-Pfad korrekt bleibt. NaN bleibt NaN.
-    scaler_y = StandardScaler()
-    _col_mean = np.nanmean(y_raw, axis=0)
-    _col_std = np.nanstd(y_raw, axis=0)
-    _col_mean = np.where(np.isnan(_col_mean), 0.0, _col_mean)
-    _col_std = np.where(np.isnan(_col_std) | (_col_std == 0.0), 1.0, _col_std)
-    scaler_y.mean_ = _col_mean
-    scaler_y.scale_ = _col_std
-    scaler_y.var_ = _col_std ** 2
-    scaler_y.n_features_in_ = y_raw.shape[1]
-    y_scaled = (y_raw - _col_mean) / _col_std
+    scaler_y, y_scaled = _fit_nan_aware_standard_scaler(y_raw)
 
     if effective_model_dir is not None:
         joblib.dump(scaler_X, os.path.join(effective_model_dir, "scaler_X.joblib"))
