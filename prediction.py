@@ -1131,6 +1131,35 @@ def predict_positions(objects: list, timestamp: str, stations: list):
     _tm = _runtime_status.get("training_meta")
     _target_encoding = str(_tm.get("target_encoding", "absolute")) if isinstance(_tm, dict) else "absolute"
 
+    # B250: Feature-Konsistenz-Check. Weicht die aktuelle Feature-Liste von der beim
+    # Training gespeicherten ab, sind scaler_X-Spalten falsch belegt → Train/Serve-Skew.
+    # Prüfung nur wenn training_meta.feature_names vorhanden (neue Modelle nach B250).
+    _expected_features = list(CELL_KEYS) + list(STATION_KEYS) + ["hour_sin", "hour_cos", "month_sin", "month_cos"]
+    _trained_features = _tm.get("feature_names") if isinstance(_tm, dict) else None
+    if _trained_features is not None:
+        if list(_trained_features) != _expected_features:
+            _mismatch_detail = (
+                f"Trainiert: {len(_trained_features)} Features, "
+                f"Aktuell: {len(_expected_features)} Features. "
+                f"Erste Abweichung: "
+                + next(
+                    (f"Index {i}: trainiert='{_trained_features[i]}' aktuell='{_expected_features[i]}'"
+                     for i in range(min(len(_trained_features), len(_expected_features)))
+                     if _trained_features[i] != _expected_features[i]),
+                    "Längenunterschied"
+                )
+            )
+            debug_log(
+                f"[B250][KRITISCH] Feature-Mismatch zwischen Training und Inferenz: {_mismatch_detail}. "
+                f"Modell kann keine korrekte Vorhersage liefern — FORCE KINEMATIK für alle Objekte dieses Laufs."
+            )
+            # Alle Objekte dieses Laufs kinematisch behandeln
+            return _kinematic_fallback(objects)
+        else:
+            debug_log(
+                f"[B250] Feature-Konsistenz OK: {len(_expected_features)} Features in identischer Reihenfolge."
+            )
+
     # P-T08: Partielle Horizont-Abdeckung. Ein Horizont ist ML-fähig, wenn x- UND
     # y-Modell vorhanden sind. has_lgbm = mindestens ein Horizont (statt alle).
     _lgbm_horizons = [
