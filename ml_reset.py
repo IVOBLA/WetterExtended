@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import stat
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -96,6 +97,14 @@ def _iter_train_data_entries(zip_path: Path) -> Iterable[Path]:
         yield path
 
 
+def _write_zip_symlink(zf: zipfile.ZipFile, path: Path, arcname: str) -> None:
+    """Store a symlink entry in a ZIP without following its target."""
+    info = zipfile.ZipInfo(arcname)
+    info.create_system = 3
+    info.external_attr = (stat.S_IFLNK | 0o777) << 16
+    zf.writestr(info, os.readlink(path))
+
+
 def create_backup(reset_type: str = "manual") -> dict:
     TRAIN_DATA_DIR.mkdir(parents=True, exist_ok=True)
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
@@ -113,9 +122,11 @@ def create_backup(reset_type: str = "manual") -> dict:
         zf.writestr(MANIFEST_NAME, json.dumps(manifest, indent=2, ensure_ascii=False))
         for path in _iter_train_data_entries(zip_path):
             arc = Path("train_data") / path.relative_to(TRAIN_DATA_DIR)
-            if path.is_dir():
+            if path.is_symlink():
+                _write_zip_symlink(zf, path, arc.as_posix())
+            elif path.is_dir():
                 zf.writestr(arc.as_posix().rstrip("/") + "/", b"")
-            elif path.is_file() and not path.is_symlink():
+            elif path.is_file():
                 zf.write(path, arc.as_posix())
     os.replace(tmp_path, zip_path)
     info = validate_backup(zip_path)

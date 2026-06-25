@@ -111,6 +111,26 @@ export default function Training() {
     }
   }
 
+  const downloadMlBackup = async (id) => {
+    setMlBusy(true)
+    try {
+      const { blob, filename } = await api.download(`/api/admin/ml/backups/${encodeURIComponent(id)}/download`)
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename || id
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+      setMsg(`Backup heruntergeladen: ${filename || id}`)
+    } catch (e) {
+      setMsg('Backup-Download fehlgeschlagen: ' + e.message)
+    } finally {
+      setMlBusy(false)
+    }
+  }
+
   const deleteMlBackup = async (id) => {
     if (!window.confirm(`Backup ${id} löschen?`)) return
     await api.delete(`/api/admin/ml/backups/${encodeURIComponent(id)}`)
@@ -227,7 +247,7 @@ export default function Training() {
         )}
         {mlStatus?.last_backup?.id && (
           <div className="bg-green-50 border border-green-200 text-green-900 rounded p-2 text-sm mb-3">
-            Backup erfolgreich erstellt · <a className="underline" href={`/api/admin/ml/backups/${encodeURIComponent(mlStatus.last_backup.id)}/download`}>Backup herunterladen</a>
+            Backup erfolgreich erstellt · <button type="button" className="underline" disabled={mlBusy} onClick={() => downloadMlBackup(mlStatus.last_backup.id)}>Backup herunterladen</button>
           </div>
         )}
         <div className="flex flex-wrap gap-2 mb-4">
@@ -264,7 +284,7 @@ export default function Training() {
             <thead><tr className="border-b"><th className="text-left p-1">Datum</th><th className="text-left p-1">Größe</th><th className="text-left p-1">Reset-Typ</th><th className="text-left p-1">Download</th><th className="text-left p-1">Löschen</th></tr></thead>
             <tbody>
               {mlBackups.map(b => (
-                <tr key={b.id} className="border-b"><td className="p-1">{b.created}</td><td className="p-1">{b.size_mb} MB</td><td className="p-1">{b.reset_type}</td><td className="p-1"><a className="underline" href={`/api/admin/ml/backups/${encodeURIComponent(b.id)}/download`}>Download</a></td><td className="p-1"><button className="btn" onClick={() => deleteMlBackup(b.id)}>Löschen</button></td></tr>
+                <tr key={b.id} className="border-b"><td className="p-1">{b.created}</td><td className="p-1">{b.size_mb} MB</td><td className="p-1">{b.reset_type}</td><td className="p-1"><button type="button" className="underline" disabled={mlBusy} onClick={() => downloadMlBackup(b.id)}>Download</button></td><td className="p-1"><button className="btn" onClick={() => deleteMlBackup(b.id)}>Löschen</button></td></tr>
               ))}
               {mlBackups.length === 0 && <tr><td className="p-1 text-gray-500" colSpan="5">Keine Backups vorhanden.</td></tr>}
             </tbody>
