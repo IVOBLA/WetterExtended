@@ -3108,3 +3108,11 @@ erweitert. JSX mit esbuild validiert. Offen: P65.
 - `train_data/external_responses/` zu `DATA_CLEANUP_PATHS` hinzugefügt mit 2-Tage-Retention-Override (2.079 Dateien/Tag, ~4 MB/Tag auf Pi 5); Cleanup läuft rekursiv durch Service-Unterverzeichnisse.
 - `cleanup_log.jsonl` zeigte `eval_lines_pruned=0` trotz aktivierter Rotation — Ursache war fehlendes `verified_at_utc`-Handling.
 - Tests: `tests/test_b248_forecast_detail_rotation.py`.
+
+## B249 — DEM/Weather-Features in forecast_error_details.jsonl (2026-06-25)
+- `_detail_record()` in `accuracy_tracker.py` schreibt jetzt DEM- und Wetter-Features aus dem Forecast-Objekt in jede Verifikationszeile.
+- DEM-Felder: `dem_elevation_m`, `dem_slope_toward_cell`, `dem_barrier_ahead`, `valley_alignment`, `terrain_blocking_score`, `orographic_lift_score`.
+- Wetter-Felder: `wind_speed_700hPa`, `wind_dir_cos`, `wind_dir_sin`, `cape`, `arome_li`, `arome_t2m`, `wind_speed_500hPa`, `nowcast_rr_mm15`, `lightning_count_10km`.
+- Zusätzlich: `kinematic_speed_kmh`, `core_ratio`, `area` für Fehler-Attribution.
+- Behebt: `forecast_quality_diagnosis_latest.json` meldete `dem_orography.missing_ratio=1.0` und `weather_features.missing_ratio=1.0` — Features waren im Objekt vorhanden, aber nicht in das JSONL geschrieben.
+- Tests: `tests/test_b249_detail_record_features.py`.
