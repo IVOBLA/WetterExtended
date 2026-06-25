@@ -1790,7 +1790,9 @@ def api_admin_ml_reset():
 @require_role("admin")
 def api_admin_ml_schema():
     from feature_schema import get_current_feature_schema, scan_training_sources
+    from ml_readiness import get_forecast_runtime_status
     current_schema = get_current_feature_schema()
+    runtime_status = get_forecast_runtime_status(write_json=False)
     active_schema = {}
     active_model_schema_hash = None
     model_dir = os.path.join(SAVE_PATHS.get("models", "train_data/models"), "current")
@@ -1821,8 +1823,11 @@ def api_admin_ml_schema():
     return jsonify({
         "current_schema": current_schema,
         "active_model_schema": active_schema,
-        "compatible": bool(active_model_schema_hash and active_model_schema_hash == current_schema.get("feature_schema_hash")),
+        "compatible": bool(runtime_status.get("model_schema_compatible")),
         "active_model_path": model_dir,
+        "runtime_status": runtime_status,
+        "active_model_version": runtime_status.get("active_model_version"),
+        "active_model_schema_hash": runtime_status.get("active_model_schema_hash"),
         "training_meta_exists": meta_exists,
         "model_missing_schema_hash": model_missing_schema_hash,
         "incompatibility_reason": incompatibility_reason,
@@ -3784,7 +3789,10 @@ def api_training_status():
     """Liefert Status, Fehler und letztes Meta des laufenden/letzten Trainings."""
     try:
         from training_control import get_training_status
-        return jsonify(get_training_status())
+        from ml_readiness import get_forecast_runtime_status
+        status = get_training_status()
+        status["runtime_status"] = get_forecast_runtime_status(write_json=False)
+        return jsonify(status)
     except Exception as exc:
         debug_log(f"[API] Trainingsstatus Fehler: {exc}")
         return jsonify({

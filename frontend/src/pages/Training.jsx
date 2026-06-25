@@ -25,6 +25,17 @@ export default function Training() {
   const [backupStatus, setBackupStatus] = useState(null)
   const backupRunning = Boolean(backupStatus?.running)
   const mlActionsDisabled = mlBusy || backupRunning
+  const runtimeStatus = readiness?.runtime_status || mlStatus?.runtime_status || mlSchema?.runtime_status || {}
+  const modelActive = runtimeStatus.runtime_mode === 'ml' && runtimeStatus.ml_model_available === true
+  const modelVersion = runtimeStatus.active_model_version || runtimeStatus.ml_model_version || null
+  const modelSchemaHash = runtimeStatus.active_model_schema_hash || mlSchema?.active_model_schema_hash || null
+  const displayStatusLabels = {
+    ml_active: 'ML aktiv',
+    fallback: 'kinematischer Fallback',
+    incompatible: 'Modell inkompatibel',
+    missing_model: 'kein gültiges ML-Modell',
+  }
+  const displayStatus = runtimeStatus.display_status || (modelActive ? 'ml_active' : 'fallback')
 
   useEffect(() => {
     // B99: Countdown — Live-Refresh alle 60 s (sinkt sichtbar bei Sturmereignissen)
@@ -248,7 +259,7 @@ export default function Training() {
         {trainingStatus && !trainingStatus.running && (
           <div className="text-sm text-gray-800 mt-3 leading-6">
             <div><b>Letzter Status:</b> {trainingStatus.last_status || '—'} · <b>Beendet:</b> {trainingStatus.finished_at || '—'}</div>
-            <div><b>Modell aktiviert:</b> {['promoted', 'cold_start_promoted_low_confidence'].includes(trainingStatus.latest_training_meta?.validation?.status || trainingStatus.latest_training_meta?.status) ? 'ja' : 'nein'} · <b>Runtime-Modus:</b> {readiness?.runtime_status?.runtime_mode === 'ml' ? 'ML' : 'Fallback'}</div>
+            <div><b>Modell aktiviert:</b> {modelActive ? 'ja' : 'nein'} · <b>Runtime-Modus:</b> {modelActive ? 'ML' : 'Fallback'}</div>
             <div><b>Promotion-Samples:</b> {trainingStatus.latest_training_meta?.validation?.samples_recent ?? readiness?.latest_training?.promotion_samples_recent ?? '—'} · <b>Low confidence:</b> {(trainingStatus.latest_training_meta?.validation?.low_confidence || readiness?.latest_training?.low_confidence) ? 'ja' : 'nein'}</div>
             <div><a className="text-blue-700 underline" href="/progress">Zur Progress-Versionstabelle</a></div>
           </div>
@@ -264,7 +275,7 @@ export default function Training() {
       <div className="card mb-4">
         <h2 className="text-lg font-semibold mb-2">ML Training</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm mb-3">
-          <div><b>Aktive Modellversion:</b> {mlStatus?.active_model_version || 'Keine ML Modelle vorhanden'}</div>
+          <div><b>Aktive Modellversion:</b> {modelVersion || 'Kein gültig aktives ML-Modell'}</div>
           <div><b>Anzahl Modelle:</b> {mlStatus?.model_count ?? '—'}</div>
           <div><b>Dataset:</b> {mlStatus?.dataset_present ? 'vorhanden' : 'nicht vorhanden'} ({mlStatus?.samples ?? 0} Samples)</div>
           <div><b>Letztes Training:</b> {mlStatus?.latest_training || '—'}</div>
@@ -300,9 +311,9 @@ export default function Training() {
             <div><b>Schema-Mismatch:</b> {mlSchema?.dataset_scan?.mismatch_samples ?? '—'}</div>
             <div><b>Verwendbar:</b> {mlSchema?.dataset_scan?.used_samples ?? '—'}</div>
             <div><b>Abgelehnt:</b> {mlSchema?.dataset_scan?.rejected_samples ?? '—'}</div>
-            <div><b>Modell kompatibel:</b> {mlSchema?.compatible ? 'ja' : 'nein'}</div>
+            <div><b>Modell kompatibel:</b> {runtimeStatus.model_schema_compatible ? 'ja' : 'nein'}</div>
           </div>
-          <div className="mb-2"><b>Modell-Schema-Hash:</b> <code className="text-xs">{mlSchema?.active_model_schema?.feature_schema_hash || '—'}</code></div>
+          <div className="mb-2"><b>Modell-Schema-Hash:</b> <code className="text-xs">{modelSchemaHash || '—'}</code></div>
           <div className="mb-2"><b>Top-Ablehnungsgründe:</b> {Object.entries(mlSchema?.dataset_scan?.rejection_reasons || {}).map(([k,v]) => `${k}: ${v}`).join(', ') || '—'}</div>
           <label className="inline-flex items-center gap-2 mr-3"><input type="radio" checked={schemaPolicy === 'compatible_only'} onChange={() => setSchemaPolicy('compatible_only')} /> Nur kompatible Daten trainieren</label>
           <label className="inline-flex items-center gap-2"><input type="radio" checked={schemaPolicy === 'allow_legacy'} onChange={() => setSchemaPolicy('allow_legacy')} /> Legacy-Daten erlauben</label>
@@ -400,18 +411,16 @@ export default function Training() {
           {readiness.inference && (
             <div style={{
               border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 12px',
-              marginBottom: 12, background: readiness.runtime_status?.runtime_mode === 'ml' ? '#f0fdf4' : readiness.inference.ml_artifacts_available ? '#fffbeb' : '#fef2f2',
+              marginBottom: 12, background: modelActive ? '#f0fdf4' : displayStatus === 'incompatible' ? '#fef2f2' : readiness.inference.ml_artifacts_available ? '#fffbeb' : '#fef2f2',
             }}>
-              <div style={{ fontWeight: 800, color: readiness.runtime_status?.runtime_mode === 'ml' ? '#16a34a' : readiness.inference.ml_artifacts_available ? '#92400e' : '#b91c1c' }}>
-                {readiness.runtime_status?.runtime_mode === 'ml' && 'ML aktiv'}
-                {readiness.runtime_status?.runtime_mode !== 'ml' && readiness.inference.ml_artifacts_available && 'Modellartefakte vorhanden, aber Modell nicht aktiviert/promoted'}
-                {readiness.runtime_status?.runtime_mode !== 'ml' && !readiness.inference.ml_artifacts_available && 'ML nicht aktiv – kinematischer Fallback'}
+              <div style={{ fontWeight: 800, color: modelActive ? '#16a34a' : displayStatus === 'incompatible' ? '#b91c1c' : readiness.inference.ml_artifacts_available ? '#92400e' : '#b91c1c' }}>
+                {displayStatusLabels[displayStatus] || 'Fallback'}
               </div>
-              {readiness.inference.fallback_reason && (
-                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>Grund: {readiness.inference.fallback_reason}</div>
+              {runtimeStatus.fallback_reason && (
+                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>Grund: {runtimeStatus.fallback_reason}</div>
               )}
               <div style={{ fontSize: 12, color: '#374151', marginTop: 6 }}>
-                Technische Artefakte vorhanden: {readiness.inference.ml_artifacts_available ? 'ja' : 'nein'} · Fachlich promoted: {readiness.inference.promoted ? 'ja' : 'nein'} · Produktiver Runtime-Modus: {readiness.runtime_status?.runtime_mode === 'ml' ? 'ML aktiv' : 'Fallback'}
+                Technische Artefakte vorhanden: {readiness.inference.ml_artifacts_available ? 'ja' : 'nein'} · Fachlich promoted: {readiness.inference.promoted ? 'ja' : 'nein'} · Produktiver Runtime-Modus: {modelActive ? 'ML aktiv' : 'Fallback'}
               </div>
               <div style={{ fontSize: 12, color: '#374151', marginTop: 4 }}>
                 Aktive Horizonte: {readiness.runtime_status?.active_horizons?.length ? readiness.runtime_status.active_horizons.join(', ') + ' min' : 'keine'}
@@ -446,14 +455,14 @@ export default function Training() {
                 <div><b>Promotion-Samples:</b> {readiness.latest_training.promotion_samples_recent ?? 0} / {readiness.latest_training.promotion_samples_required ?? 50}</div>
                 <div><b>Fehlende Promotion-Samples:</b> {readiness.latest_training.promotion_samples_missing ?? '—'}</div>
                 <div><b>Low-confidence:</b> {readiness.latest_training.low_confidence ? 'ja' : 'nein'}</div>
-                <div><b>Technische Artefakte vorhanden:</b> {readiness.runtime_status?.ml_model_artifacts_valid ? 'ja' : 'nein'}</div>
-                <div><b>Fachlich promoted:</b> {readiness.runtime_status?.ml_model_promoted ? 'ja' : 'nein'}</div>
-                <div><b>ML-Modell verfügbar:</b> {readiness.runtime_status?.ml_model_available ? 'ja' : 'nein'}</div>
-                <div><b>Produktiver Runtime-Modus:</b> {readiness.runtime_status?.runtime_mode === 'ml' ? 'ML aktiv' : 'kinematischer Fallback'}</div>
-                <div><b>Modellversion:</b> {readiness.runtime_status?.ml_model_version || '—'}</div>
-                <div><b>Fallback-Grund:</b> {readiness.runtime_status?.fallback_reason || '—'}</div>
+                <div><b>Technische Artefakte vorhanden:</b> {runtimeStatus.ml_model_artifacts_valid ? 'ja' : 'nein'}</div>
+                <div><b>Fachlich promoted:</b> {runtimeStatus.ml_model_promoted ? 'ja' : 'nein'}</div>
+                <div><b>ML-Modell verfügbar:</b> {runtimeStatus.ml_model_available ? 'ja' : 'nein'}</div>
+                <div><b>Produktiver Runtime-Modus:</b> {modelActive ? 'ML aktiv' : 'kinematischer Fallback'}</div>
+                <div><b>Modellversion:</b> {modelVersion || '—'}</div>
+                <div><b>Fallback-Grund:</b> {runtimeStatus.fallback_reason || '—'}</div>
                 <div style={{ marginTop: 6, color: '#475569' }}>Promotion-Samples steuern die Qualitätssicherung bei Modellwechseln. Bei Cold Start kann ein erstes Modell als low_confidence aktiv sein.</div>
-                {readiness.runtime_status?.ml_model_artifacts_valid && !readiness.runtime_status?.ml_model_promoted && (
+                {runtimeStatus.ml_model_artifacts_valid && !runtimeStatus.ml_model_promoted && (
                   <div style={{ marginTop: 6, color: '#b45309' }}>Modellartefakte vorhanden, aber Modell nicht aktiviert/promoted.</div>
                 )}
               </div>
