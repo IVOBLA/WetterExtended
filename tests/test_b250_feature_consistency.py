@@ -117,3 +117,32 @@ def test_feature_names_key_present_in_expected_meta():
     assert len(simulated_meta["feature_names"]) == ML_NUM_FEATURES
     assert simulated_meta["feature_names"][0] == ML_CELL_FEATURES[0]  # "x"
     assert simulated_meta["feature_names"][-1] == "month_cos"
+
+
+def test_runtime_training_meta_reads_nested_readiness_meta():
+    """Runtime-Status enthält training_meta produktiv unter readiness.training_meta."""
+    import prediction as pred
+
+    meta = {
+        "feature_names": ["trained_feature"],
+        "target_encoding": "delta",
+    }
+    runtime_status = {
+        "runtime_mode": "ml",
+        "readiness": {"training_meta": meta},
+    }
+
+    assert pred._runtime_training_meta(runtime_status) is meta
+
+
+def test_runtime_training_meta_prefers_top_level_for_compatibility():
+    """Falls beide Strukturen existieren, bleibt Top-Level rückwärtskompatibel bevorzugt."""
+    import prediction as pred
+
+    top_level = {"feature_names": ["top"]}
+    nested = {"feature_names": ["nested"]}
+
+    assert pred._runtime_training_meta({
+        "training_meta": top_level,
+        "readiness": {"training_meta": nested},
+    }) is top_level

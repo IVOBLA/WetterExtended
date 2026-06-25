@@ -762,6 +762,27 @@ def _latest_runtime_mae_by_horizon(min_samples: int | None = None) -> dict:
                 out[key] = {"ml_mae": ml_mae, "kinematic_mae": kin_mae, "ml_samples": ml_n, "kinematic_samples": kin_n}
     return out
 
+def _runtime_training_meta(runtime_status: dict | None) -> dict:
+    """Liest training_meta robust aus Runtime-Status oder verschachtelter Readiness.
+
+    get_forecast_runtime_status() liefert training_meta derzeit unter
+    readiness.training_meta. Ältere Tests/Callsites können es zusätzlich auf
+    Top-Level bereitstellen; Top-Level bleibt deshalb rückwärtskompatibel
+    bevorzugt.
+    """
+    if not isinstance(runtime_status, dict):
+        return {}
+    top_level = runtime_status.get("training_meta")
+    if isinstance(top_level, dict):
+        return top_level
+    readiness = runtime_status.get("readiness")
+    if isinstance(readiness, dict):
+        nested = readiness.get("training_meta")
+        if isinstance(nested, dict):
+            return nested
+    return {}
+
+
 def _ml_runtime_gate_by_horizon(horizons, runtime_status: dict | None = None) -> dict:
     """Entscheidet pro Horizont, ob ML zur Laufzeit besser/gleich Kinematik ist."""
     runtime_status = runtime_status or {}
@@ -772,7 +793,8 @@ def _ml_runtime_gate_by_horizon(horizons, runtime_status: dict | None = None) ->
     margin = _runtime_float_value("ML_RUNTIME_GATING_MARGIN", _STATIC_ML_RUNTIME_GATING_MARGIN)
     mae_by_h = _latest_runtime_mae_by_horizon()
     status_text = str(runtime_status.get("runtime_mode", "")) + " " + str(runtime_status.get("fallback_reason", ""))
-    validation = runtime_status.get("training_meta", {}).get("validation", {}) if isinstance(runtime_status.get("training_meta"), dict) else {}
+    training_meta = _runtime_training_meta(runtime_status)
+    validation = training_meta.get("validation", {}) if isinstance(training_meta.get("validation"), dict) else {}
     cold_or_low = bool(runtime_status.get("low_confidence") or validation.get("low_confidence") or "cold_start" in status_text or "low_confidence" in status_text)
     out = {}
     for h in horizons:
@@ -1128,8 +1150,8 @@ def predict_positions(objects: list, timestamp: str, stations: list):
 
     # P58: Ziel-Encoding aus dem TRAINIERTEN Modell lesen (nicht aus config), damit
     # ältere absolut-trainierte Modelle weiterhin absolut dekodiert werden.
-    _tm = _runtime_status.get("training_meta")
-    _target_encoding = str(_tm.get("target_encoding", "absolute")) if isinstance(_tm, dict) else "absolute"
+    _tm = _runtime_training_meta(_runtime_status)
+    _target_encoding = str(_tm.get("target_encoding", "absolute"))
 
     # B250: Feature-Konsistenz-Check. Weicht die aktuelle Feature-Liste von der beim
     # Training gespeicherten ab, sind scaler_X-Spalten falsch belegt → Train/Serve-Skew.
