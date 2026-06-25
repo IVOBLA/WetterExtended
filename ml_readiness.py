@@ -41,6 +41,55 @@ def _read_training_meta(model_dir):
         return None, path, f"invalid_training_meta:{exc}"
 
 
+
+def _active_model_schema(meta):
+    if not isinstance(meta, dict):
+        return {}, None
+    schema = meta.get("feature_schema") or {
+        "feature_schema_hash": meta.get("feature_schema_hash"),
+        "schema_version": meta.get("feature_schema_version"),
+        "feature_names": meta.get("feature_names"),
+        "num_features": meta.get("feature_count"),
+    }
+    return schema, schema.get("feature_schema_hash")
+
+
+def _model_schema_status(meta):
+    try:
+        from feature_schema import get_current_feature_schema
+        current_schema = get_current_feature_schema()
+    except Exception as exc:
+        current_schema = {}
+        return {
+            "current_schema": current_schema,
+            "active_model_schema": {},
+            "active_model_schema_hash": None,
+            "model_schema_compatible": False,
+            "schema_incompatibility_reason": f"current_schema_unavailable:{exc}",
+        }
+    active_schema, active_hash = _active_model_schema(meta)
+    current_hash = current_schema.get("feature_schema_hash")
+    if not active_hash:
+        reason = "model_missing_feature_schema_hash"
+    elif active_hash != current_hash:
+        reason = "feature_schema_hash_mismatch"
+    else:
+        reason = None
+    return {
+        "current_schema": current_schema,
+        "active_model_schema": active_schema,
+        "active_model_schema_hash": active_hash,
+        "model_schema_compatible": bool(active_hash and active_hash == current_hash),
+        "schema_incompatibility_reason": reason,
+    }
+
+
+def _active_version_from_current(model_path, valid):
+    if not valid or not (os.path.exists(model_path) or os.path.islink(model_path)):
+        return None
+    name = _model_version_from_path(model_path)
+    return name if name and name.startswith("v_") else None
+
 def _promotion_status_from_meta(meta):
     if not isinstance(meta, dict):
         return None
@@ -269,7 +318,9 @@ def get_forecast_runtime_status(write_json=True, model_dir=None):
     summary = _meta_summary(meta)
     artifacts_valid = bool(readiness.get("ml_artifacts_available"))
     promoted = bool(readiness.get("promoted"))
-    valid = bool(artifacts_valid and promoted)
+    schema_status = _model_schema_status(meta)
+    schema_compatible = bool(schema_status.get("model_schema_compatible"))
+    valid = bool(artifacts_valid and promoted and schema_compatible)
     runtime_mode = "ml" if valid else "kinematic_fallback"
     mode_by_horizon = {str(h): ("ml" if valid and h in set(active) else "kinematic_fallback") for h in expected}
     result = _clean_json_value({
@@ -278,20 +329,25 @@ def get_forecast_runtime_status(write_json=True, model_dir=None):
         "ml_model_available": valid,
         "ml_model_artifacts_valid": artifacts_valid,
         "ml_model_promoted": promoted,
+        "model_schema_compatible": schema_compatible,
+        "active_model_schema_hash": schema_status.get("active_model_schema_hash") if valid else None,
+        "active_model_version": _active_version_from_current(model_path, valid),
+        "display_status": "ml_active" if valid else ("missing_model" if not artifacts_valid else ("incompatible" if not schema_compatible else "fallback")),
         "ml_low_confidence": summary.get("ml_low_confidence"),
         "low_confidence": summary.get("ml_low_confidence"),
         "model_dir": model_path,
-        "model_version": _model_version_from_path(model_path) if current_exists else None,
+        "model_version": _active_version_from_current(model_path, valid),
         "current_resolved_path": resolved,
         "ml_model_path": model_path,
         "ml_model_resolved_path": resolved,
-        "ml_model_version": _model_version_from_path(model_path) if valid else None,
+        "ml_model_version": _active_version_from_current(model_path, valid),
         "current_symlink": os.readlink(model_path) if current_is_link else None,
         "current_exists": bool(current_exists),
         "active_horizons": active if valid else [],
         "missing_horizons": missing if valid else expected,
         **summary,
-        "fallback_reason": None if valid else (readiness.get("fallback_reason") or "missing_or_invalid_current_model"),
+        **schema_status,
+        "fallback_reason": None if valid else (readiness.get("fallback_reason") if readiness.get("fallback_reason") == "missing_training_meta" else (schema_status.get("schema_incompatibility_reason") or readiness.get("fallback_reason") or "missing_or_invalid_current_model")),
         "forecast_mode_by_horizon": mode_by_horizon,
         "readiness": readiness,
     })

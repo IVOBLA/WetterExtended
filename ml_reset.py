@@ -452,15 +452,19 @@ def ml_status() -> dict:
     backups = list_backups()
     meta_path = current / "training_meta.json"
     latest_training = None
-    active_version = None
-    if current.exists() or current.is_symlink():
-        active_version = current.resolve().name if current.resolve().name.startswith("v_") else "current"
+    runtime_status = {}
+    try:
+        from ml_readiness import get_forecast_runtime_status
+        runtime_status = get_forecast_runtime_status(write_json=False, model_dir=str(current))
+    except Exception:
+        runtime_status = {}
+    active_version = runtime_status.get("active_model_version") or runtime_status.get("ml_model_version")
     if meta_path.exists():
         try:
             latest_training = json.loads(meta_path.read_text(encoding="utf-8")).get("created_at")
         except Exception:
             latest_training = None
-    return {"active_model_version": active_version, "model_count": len(versions), "models_present": bool(active_version), "dataset_present": dataset.exists(), "samples": samples, "latest_training": latest_training, "last_reset": reset_status, "last_backup": backups[0] if backups else None, "backups_count": len(backups)}
+    return {"active_model_version": active_version, "model_count": len(versions), "models_present": bool(active_version), "dataset_present": dataset.exists(), "samples": samples, "latest_training": latest_training, "runtime_status": runtime_status, "last_reset": reset_status, "last_backup": backups[0] if backups else None, "backups_count": len(backups)}
 
 
 def reset_ml(mode: str) -> dict:
