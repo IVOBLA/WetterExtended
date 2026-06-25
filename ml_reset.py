@@ -323,7 +323,42 @@ def build_reset_plan(mode: str) -> dict:
             action, reason = _action_for_preserved(rel)
             sec = _section(Path(rel).name, path, action, PROJECT_ROOT if not rel.startswith("train_data/") else TRAIN_DATA_DIR, reason, protected=True)
             preserve_sections.append(sec); protected_sections.append(sec)
-    return {"mode": mode, "will_backup": True, "backup_target": "backups/YYYYMMDD_HHMMSS_train_data.zip", "preserve_sections": preserve_sections, "preserved_sections": preserve_sections, "delete_sections": delete_sections, "delete_children_sections": delete_children_sections, "manual_review_sections": manual_review_sections, "protected_sections": protected_sections, "archive_sections": []}
+    sections = delete_sections + delete_children_sections + preserve_sections + manual_review_sections + root_preserved
+    delete_summary = _sum_sections(delete_sections + delete_children_sections)
+    preserve_summary = _sum_sections(preserve_sections + root_preserved)
+    manual_summary = _sum_sections(manual_review_sections)
+    summary = {
+        "delete_files": delete_summary["files"],
+        "delete_dirs": delete_summary["dirs"],
+        "delete_bytes": delete_summary["bytes"],
+        "delete_size_mb": delete_summary["size_mb"],
+        "preserve_files": preserve_summary["files"],
+        "preserve_dirs": preserve_summary["dirs"],
+        "preserve_bytes": preserve_summary["bytes"],
+        "preserve_size_mb": preserve_summary["size_mb"],
+        "manual_review_files": manual_summary["files"],
+        "manual_review_dirs": manual_summary["dirs"],
+        "manual_review_bytes": manual_summary["bytes"],
+        "manual_review_size_mb": manual_summary["size_mb"],
+    }
+    return {
+        "mode": mode,
+        "created_at": _utc_now().isoformat(),
+        "project_root": str(PROJECT_ROOT),
+        "train_data_root": str(TRAIN_DATA_DIR),
+        "backup": {"will_create": True, "target_dir": "backups", "target": "backups/YYYYMMDD_HHMMSS_train_data.zip", "protected": True},
+        "sections": sections,
+        "summary": summary,
+        "will_backup": True,
+        "backup_target": "backups/YYYYMMDD_HHMMSS_train_data.zip",
+        "preserve_sections": preserve_sections,
+        "preserved_sections": preserve_sections,
+        "delete_sections": delete_sections,
+        "delete_children_sections": delete_children_sections,
+        "manual_review_sections": manual_review_sections,
+        "protected_sections": protected_sections,
+        "archive_sections": [],
+    }
 
 def _sum_sections(sections: list[dict]) -> dict:
     files = sum(int(s.get("files") or 0) for s in sections)
@@ -726,6 +761,55 @@ def _execute_delete_plan(plan: dict) -> list[dict]:
         deleted.append(_delete_section(sec))
     return deleted
 
+
+def verify_reset_result(execution_plan: dict) -> dict:
+    checked_at = _utc_now().isoformat()
+    deleted_verified = []
+    preserved_verified = []
+    leftovers_files = leftovers_dirs = leftovers_bytes = 0
+    for sec in execution_plan.get("delete_sections", []) + execution_plan.get("delete_children_sections", []):
+        path = PROJECT_ROOT / sec["path"]
+        counts = _section_counts(path, TRAIN_DATA_DIR) if (path.exists() or path.is_symlink()) else {"files": 0, "dirs": 0, "bytes": 0, "size_mb": 0.0, "examples": []}
+        ok = counts["files"] == 0 and counts["dirs"] == 0
+        if not ok:
+            leftovers_files += counts["files"]
+            leftovers_dirs += counts["dirs"]
+            leftovers_bytes += counts["bytes"]
+        deleted_verified.append({
+            "path": sec["path"],
+            "expected": "empty_or_missing",
+            "exists": path.exists() or path.is_symlink(),
+            "actual_files": counts["files"],
+            "actual_dirs": counts["dirs"],
+            "actual_bytes": counts["bytes"],
+            "actual_size_mb": counts["size_mb"],
+            "ok": ok,
+            "leftovers": counts["examples"],
+        })
+    for sec in execution_plan.get("preserve_sections", []) + execution_plan.get("protected_sections", []):
+        path = PROJECT_ROOT / sec["path"]
+        if sec["path"].startswith("train_data/"):
+            path = PROJECT_ROOT / sec["path"]
+        exists = path.exists() or path.is_symlink()
+        counts = _section_counts(path, PROJECT_ROOT if not sec["path"].startswith("train_data/") else TRAIN_DATA_DIR) if exists else {"files": 0, "dirs": 0, "bytes": 0, "size_mb": 0.0, "examples": []}
+        preserved_verified.append({
+            "path": sec["path"],
+            "exists": exists,
+            "actual_files": counts["files"],
+            "actual_dirs": counts["dirs"],
+            "actual_bytes": counts["bytes"],
+            "actual_size_mb": counts["size_mb"],
+            "ok": exists or int(sec.get("files") or 0) == 0 and int(sec.get("dirs") or 0) == 0,
+        })
+    leftovers_total = {"files": leftovers_files, "dirs": leftovers_dirs, "bytes": leftovers_bytes, "size_mb": round(leftovers_bytes / 1024 / 1024, 2)}
+    return {
+        "verification_status": "passed" if leftovers_files == 0 and leftovers_dirs == 0 else "leftovers",
+        "checked_at": checked_at,
+        "deleted_sections_verified": deleted_verified,
+        "preserved_sections_verified": preserved_verified,
+        "leftovers_total": leftovers_total,
+    }
+
 def ml_status() -> dict:
     models_dir = _project_path(SAVE_PATHS.get("models", "train_data/models"))
     current = models_dir / "current"
@@ -773,10 +857,13 @@ def _training_running() -> bool:
 
 def _run_reset_job(job_id: str, mode: str) -> None:
     owner = _update_existing_ml_job_lock(job_id, pid=os.getpid()) or {"kind": "reset", "job_id": job_id}
-    plan = {}
+    plan = _read_json(STATUS_FILE).get("execution_plan") or {}
     try:
-        plan = build_reset_plan(mode)
-        _mark_reset_step("preflight", job_id, pid=os.getpid(), mode=mode, plan=plan)
+        if not plan:
+            plan = build_reset_plan(mode)
+        _mark_reset_step("preflight", job_id, pid=os.getpid(), mode=mode, execution_plan=plan, plan=plan)
+        if plan.get("manual_review_sections"):
+            raise RuntimeError("Manuelle Prüfung erforderlich: " + ", ".join(s.get("path", "") for s in plan["manual_review_sections"]))
         _assert_delete_plan_safe(plan)
         _mark_reset_step("backup", job_id)
         backup = create_backup(mode)
@@ -787,6 +874,7 @@ def _run_reset_job(job_id: str, mode: str) -> None:
         _mark_reset_step("delete_dynamic_data", job_id, backup=backup)
         deleted_sections = _execute_delete_plan(plan)
         _mark_reset_step("verify_delete", job_id)
+        verification = verify_reset_result(plan)
         archived = []
         try:
             from feature_schema import get_current_feature_schema
@@ -803,15 +891,20 @@ def _run_reset_job(job_id: str, mode: str) -> None:
             "schema_status": "reset_to_current_runtime_schema",
             "fallback": "ML-Modell fehlt, kinematischer Fallback aktiv, neue Trainingsdaten werden ab jetzt gesammelt.",
         }
-        _mark_reset_step("write_status", job_id, result=result, deleted_counts=deleted_counts, archived_counts=archived_counts)
-        _reset_status_payload(status="finished", running=False, finished=True, failed=False, job_id=job_id, pid=os.getpid(), mode=mode, finished_at=_utc_now().isoformat(), current_step="finished", progress="Reset abgeschlossen", percent=100, error=None, plan=plan, backup=backup, result=result, deleted_counts=deleted_counts, archived_counts=archived_counts, preserved_sections=plan.get("preserved_sections", []))
+        final_status = "finished" if verification.get("verification_status") == "passed" else "completed_with_leftovers"
+        _mark_reset_step("write_status", job_id, result=result, deleted_counts=deleted_counts, archived_counts=archived_counts, verification=verification)
+        _reset_status_payload(status=final_status, running=False, finished=final_status == "finished", failed=final_status != "finished", job_id=job_id, pid=os.getpid(), mode=mode, finished_at=_utc_now().isoformat(), current_step="finished" if final_status == "finished" else "verify_delete", progress="Reset abgeschlossen" if final_status == "finished" else "Reset mit Restdaten abgeschlossen", percent=100, error=None if final_status == "finished" else "Abschlussprüfung fand Restdaten.", execution_plan=plan, plan=plan, backup=backup, result=result, delete_result={"deleted_sections": deleted_sections, "deleted_counts": deleted_counts}, deleted_counts=deleted_counts, archived_counts=archived_counts, verification=verification, preserved_sections=plan.get("preserved_sections", []))
     except Exception as exc:
-        _reset_status_payload(status="failed", running=False, finished=False, failed=True, job_id=job_id, pid=os.getpid(), mode=mode, finished_at=_utc_now().isoformat(), current_step="failed", progress="Reset fehlgeschlagen", error=str(exc), plan=plan)
+        message = str(exc)
+        failure_status = "failed_safety_check" if "Geschützter Pfad" in message or "Manuelle Prüfung" in message or "Unsicherer Löschpfad" in message else "failed_delete"
+        if "Backup" in message or "backup" in message:
+            failure_status = "failed_backup"
+        _reset_status_payload(status=failure_status, running=False, finished=False, failed=True, job_id=job_id, pid=os.getpid(), mode=mode, finished_at=_utc_now().isoformat(), current_step="failed", progress="Reset fehlgeschlagen", error=message, execution_plan=plan, plan=plan)
     finally:
         _release_ml_job_lock(owner)
 
 
-def start_reset_background(mode: str) -> dict:
+def start_reset_background(mode: str, force: bool = False) -> dict:
     if mode not in RESET_MODES:
         raise ValueError(f"Ungueltiger Reset-Modus: {mode}")
     current = _lock_owner()
@@ -821,8 +914,10 @@ def start_reset_background(mode: str) -> dict:
         raise RuntimeError("Training läuft bereits")
     job_id = f"reset_{_utc_now().strftime('%Y%m%d_%H%M%S_%f')}"
     plan = build_reset_plan(mode)
+    if plan.get("manual_review_sections") and not force:
+        raise ValueError("Manuelle Prüfung erforderlich: " + ", ".join(s.get("path", "") for s in plan["manual_review_sections"]))
     owner = _acquire_ml_job_lock("reset", job_id)
-    _reset_status_payload(status="starting", running=True, finished=False, failed=False, job_id=job_id, pid=None, mode=mode, started_at=_utc_now().isoformat(), finished_at=None, current_step="preflight", progress="Reset wird gestartet", percent=0, error=None, plan=plan, backup=None, result=None, deleted_counts=None, archived_counts=None, preserved_sections=plan.get("preserved_sections", []))
+    _reset_status_payload(status="starting", running=True, finished=False, failed=False, job_id=job_id, pid=None, mode=mode, started_at=_utc_now().isoformat(), finished_at=None, current_step="preflight", progress="Reset wird gestartet", percent=0, error=None, execution_plan=plan, plan=plan, backup={}, delete_result={}, result=None, deleted_counts=None, archived_counts=None, verification={}, preserved_sections=plan.get("preserved_sections", []))
     try:
         ctx = multiprocessing.get_context("fork") if hasattr(os, "fork") else multiprocessing
         process = ctx.Process(target=_run_reset_job, args=(job_id, mode), daemon=False)
@@ -859,6 +954,7 @@ def reset_ml(mode: str) -> dict:
         if not validation.get("valid"):
             raise RuntimeError("Backup-Validierung fehlgeschlagen: " + "; ".join(validation.get("errors") or []))
         deleted_sections = _execute_delete_plan(plan)
+        verification = verify_reset_result(plan)
         archived = []
         try:
             from feature_schema import get_current_feature_schema
@@ -879,10 +975,13 @@ def reset_ml(mode: str) -> dict:
             "archived_counts": _sum_sections(archived),
             "archived_training_sources": archived,
             "preserved_sections": plan.get("preserve_sections", []),
+            "execution_plan": plan,
+            "verification": verification,
             "feature_schema_hash": _schema.get("feature_schema_hash"),
             "feature_schema_version": _schema.get("schema_version"),
             "schema_status": "reset_to_current_runtime_schema",
         }
+        status["status"] = "reset_done" if verification.get("verification_status") == "passed" else "completed_with_leftovers"
         _write_json(STATUS_FILE, status)
         return {"ok": True, "backup": backup, "reset": status, "status": ml_status()}
     finally:

@@ -44,6 +44,31 @@ Automatisch geschützt sind:
 
 Hydro wird nicht pauschal gelöscht. Unterordner werden einzeln als statische Referenz, dynamische Historie oder manuell zu prüfender Bereich klassifiziert.
 
+## Vorab-Plan und manuelle Prüfung
+
+Vor dem Start liefert `GET /api/admin/ml/reset/preview?mode=full_new_data_only`
+einen verbindlichen Reset-Plan. Der Plan scannt alle direkten Kinder von
+`train_data/` und zeigt pro Bereich Aktion, Begründung, Dateien, Ordner, Größe
+und Beispieldateien.
+
+Unbekannte Bereiche werden als `manual_review_required` markiert. Der Admin-Start
+blockiert dann, damit kein fachlich unklarer Ordner blind gelöscht wird.
+
+## Abschlussverifikation und Restdaten
+
+Der beim Start gespeicherte `execution_plan` ist die Quelle der Wahrheit für den
+Hintergrundjob. Nach Backup und Löschung prüft `verify_reset_result`, ob alle
+geplanten Löschbereiche leer oder entfernt sind und ob geschützte Bereiche noch
+existieren.
+
+- `finished`: Alle geplanten dynamischen Bereiche sind leer oder entfernt.
+- `completed_with_leftovers` / `failed_verification`: Mindestens ein geplanter
+  Löschbereich enthält noch Dateien oder Ordner. Die Statusdatei und das UI
+  listen Pfad, Datei-/Ordneranzahl, Größe und Beispiel-Restdateien.
+
+Die Statusdatei `train_data/ml_reset_status.json` enthält dafür `execution_plan`,
+`backup`, `delete_result` und `verification`.
+
 ## Warum danach kinematischer Fallback aktiv ist
 
 Nach dem Cold-Start sind ML-Modellartefakte und alte Datasets entfernt. Bis neue Trainingsdaten gesammelt und ein neues Modell trainiert wurde, läuft die Vorhersage ohne ML-Modell sauber im kinematischen Fallback weiter.
