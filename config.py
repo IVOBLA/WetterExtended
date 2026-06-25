@@ -1201,3 +1201,32 @@ HYDRO_IMPACT_PLACE_BUFFER_KM = 1.0
 HYDRO_MAP_MIN_Q_M3S = 0.0
 HYDRO_MAP_MARK_Q_M3S = None
 HYDRO_KMZ_INCLUDE_CATCHMENTS = False
+
+# Eigenständige Hydro-Flood-ML-Features; strikt getrennt von ML_CELL_FEATURES.
+HYDRO_FLOOD_ML_FEATURES = [
+    "current_q_m3s", "current_q_missing", "station_q_threshold_m3s",
+    "station_q_threshold_missing", "station_q_threshold_source",
+    "current_q_ratio_threshold", "current_q_distance_to_threshold_m3s",
+    "current_q_above_threshold", "current_q_trend_10min",
+    "current_q_trend_30min", "current_q_trend_60min", "q_trend_per_hour",
+    "already_rising_flag", "current_data_age_min", "hydro_data_stale",
+    "station_lat", "station_lon", "catchment_area_km2",
+    "upstream_catchment_count", "impact_eligible", "source_quality",
+    "topology_source", "upstream_source_quality",
+    "observed_catchment_precip_sum_mm",
+    "observed_catchment_precip_max_rate_mm_h",
+    "observed_catchment_precip_mean_rate_mm_h",
+    "observed_catchment_precip_area_km2", "observed_precip_source_quality",
+    "observed_precip_data_age_min", "observed_precip_available",
+    "cell_catchment_precip_sum_mm", "cell_catchment_precip_weighted_sum_mm",
+    "cell_catchment_count", "cell_catchment_max_intensity",
+    "cell_catchment_max_core_ratio", "cell_catchment_area_km2_sum",
+    "cell_catchment_overlap_area_km2_sum", "cell_catchment_overlap_ratio_max",
+    "cell_catchment_overlap_ratio_weighted",
+    "effective_catchment_precip_sum_mm",
+    "effective_catchment_precip_weighted_sum_mm",
+    "effective_catchment_precip_max_rate_mm_h",
+    "effective_catchment_precip_mean_rate_mm_h",
+    "effective_precip_source_type", "effective_precip_source_quality",
+    "effective_precip_is_proxy", "effective_precip_missing",
+]

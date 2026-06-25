@@ -5423,6 +5423,32 @@ def api_hydro_impacts_latest():
 def api_hydro_verification():
     return _hydro_safe(lambda: __import__("hydro_verification").get_hydro_verification_summary(), "hydro_verification_error")
 
+@app.route("/api/hydro/flood-risk")
+def api_hydro_flood_risk():
+    def _load():
+        import hydro_flood_ml, hydro_fetch
+        doc = hydro_flood_ml.HYDRO_RISK_PATH.exists() and hydro_flood_ml._read_json(hydro_flood_ml.HYDRO_RISK_PATH, None)
+        if isinstance(doc, dict):
+            return doc
+        return hydro_flood_ml.evaluate_live_flood_risk(live=hydro_fetch.load_latest_hydro_live(max_age_seconds=None), cells=_latest_objects())
+    return _hydro_safe(_load, "hydro_flood_risk_error")
+
+@app.route("/api/hydro/flood-risk/status")
+def api_hydro_flood_risk_status():
+    return _hydro_safe(lambda: __import__("hydro_flood_ml").flood_risk_status(), "hydro_flood_risk_status_error")
+
+@app.route("/api/hydro/flood-risk/accuracy")
+def api_hydro_flood_risk_accuracy():
+    return _hydro_safe(lambda: __import__("hydro_flood_ml").accuracy_status(), "hydro_flood_risk_accuracy_error")
+
+@app.route("/api/admin/hydro/flood-risk/dataset-scan", methods=["POST"])
+def api_admin_hydro_flood_risk_dataset_scan():
+    return _hydro_safe(lambda: __import__("hydro_flood_ml").build_dataset_scan(), "hydro_flood_risk_dataset_error")
+
+@app.route("/api/admin/hydro/flood-risk/retrain", methods=["POST"])
+def api_admin_hydro_flood_risk_retrain():
+    return _hydro_safe(lambda: __import__("hydro_flood_ml").train_model(), "hydro_flood_risk_train_error")
+
 @app.route("/api/hydro/station/<station_id>")
 def api_hydro_station(station_id):
     import re as _re_hydro

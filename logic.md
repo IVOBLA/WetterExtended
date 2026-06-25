@@ -208,3 +208,11 @@ mit C = Abflussbeiwert (`HYDRO_FORECAST_RUNOFF_COEFF`, Default 0.4), i = Nieders
 (`latest_hydro.json`, `q_m3s`). Bei mehreren Forecast-Treffern je Station zaehlt der jeweils
 hoechste Δq (Worst Case). Dies ist eine grobe Schaetzung und ausdruecklich KEIN Ersatz fuer
 amtliche Hochwasserwarnungen. Es werden keine zusaetzlichen Fremdrequests ausgeloest.
+
+## Hydro-Flood-Risk
+
+Hydro-Flood-Risk erweitert die bestehende Hydro-Impact-Heuristik um einen separaten ML-/Fallback-Pfad. Hauptausgabe ist `flood_expected` pro Station, nicht `q_forecast_m3s` und nicht eine Zeit-Horizont-Liste. Maßgeblicher Grenzwert ist ausschließlich `mark_q_m3s` aus dem Hydro-Impact-Admin (`Q ≥`). Fehlende Grenzwerte werden transparent als `missing_station_q_threshold` gemeldet.
+
+Live-Ausgaben werden in `train_data/hydro/impact/latest_hydro_flood_risk.json` geschrieben. Readiness, Accuracy, Dataset-Scan und Retrain sind über `/api/hydro/flood-risk/status`, `/api/hydro/flood-risk/accuracy`, `/api/admin/hydro/flood-risk/dataset-scan` und `/api/admin/hydro/flood-risk/retrain` erreichbar. Bei zu wenig Daten nutzt das System `model_source="heuristic_scoring"` und crasht nicht.
+
+Gesicherte Niederschlagswerte im Einzugsgebiet haben Vorrang vor Zell-/Radar-/Proxywerten. Proxies überschreiben gesicherte Werte nie. Hydro-Daten beeinflussen den Zellforecast nicht.

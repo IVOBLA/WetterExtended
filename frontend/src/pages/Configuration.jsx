@@ -330,6 +330,7 @@ export default function Configuration() {
         <h2 className="text-sm font-semibold text-gray-700 mb-2">🌊 Hydro-Impact Admin</h2>
         <div className="mb-3 rounded border bg-gray-50 p-2 text-xs text-gray-700">
           <div><strong>Status:</strong> {hydroStatus?.status || 'wird geladen'}</div>
+          <div><strong>Hydro-Flood-Risk:</strong> Das bestehende Feld <strong>Q ≥</strong> ist der maßgebliche stationsspezifische Grenzwert; es gibt keinen zweiten ML-Grenzwert.</div>
           <div><strong>Static:</strong> {hydroStatus?.static_status || '—'} · <strong>Live:</strong> {hydroStatus?.live_ok ? 'ok' : (hydroStatus?.live_ready ? 'nicht ok' : 'fehlt')}</div>
           <div>{hydroStations.length} Hydro-Stationen geladen · {hydroImpactEligibleCount} impact-eligible · {hydroImpactNotEligibleCount} nicht impact-eligible</div>
           <div>{hydroEnabledCount} aktiviert · {hydroDisabledCount} deaktiviert</div>
@@ -357,7 +358,7 @@ export default function Configuration() {
           {hydroStations.length === 0 ? <div className="p-2 text-xs text-gray-500">Keine Hydro-Stationen geladen.</div> : displayedHydroStations.map(st => (
             <div key={st.station_id} className="flex items-center justify-between gap-2 px-2 py-1 border-b text-xs">
               <span className="flex-1"><strong>{st.name || st.station_id}</strong> · {st.river || '—'}<br/><span className="text-gray-500">auto={String(st.impact_eligible_auto ?? st.impact_eligible)} · enabled={String(st.impact_enabled ?? st.enabled)} · effective={String(st.impact_effective)} · {st.topology_source || 'none'} · {st.upstream_source_quality || '—'} · {st.exclusion_reason || (Array.isArray(st.reason) ? st.reason[0] : st.reason) || '—'}</span></span>
-              <label className="flex items-center gap-1" title="Markierungs-Durchfluss dieser Station (m³/s); leer = globaler Wert">
+              <label className="flex items-center gap-1" title="Q ≥ ist der stationsspezifische Hydro-Flood-Risk-Grenzwert (m³/s); leer = bestehender globaler Fallback, falls konfiguriert">
                 <span className="text-gray-500">Q≥</span>
                 <input type="number" min="0" step="0.1" disabled={!!hydroBusy} defaultValue={st.mark_q_m3s ?? ''} className="w-16 border rounded px-1"
                   onBlur={e => { const v = e.target.value.trim(); const num = v === '' ? null : Number(v); patchHydroStation(st, { mark_q_m3s: Number.isFinite(num) ? num : null }) }} />
