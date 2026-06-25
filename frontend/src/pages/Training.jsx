@@ -16,6 +16,9 @@ export default function Training() {
   const [readiness, setReadiness]         = useState(null)
   const [trainingStatus, setTrainingStatus] = useState(null)
   const [startError, setStartError] = useState('')
+  const [mlStatus, setMlStatus] = useState(null)
+  const [mlBackups, setMlBackups] = useState([])
+  const [mlBusy, setMlBusy] = useState(false)
 
   useEffect(() => {
     // B99: Countdown — Live-Refresh alle 60 s (sinkt sichtbar bei Sturmereignissen)
@@ -23,10 +26,16 @@ export default function Training() {
       api.get('/api/training_readiness').then(setReadiness).catch(() => {})
     const fetchTrainingStatus = () =>
       api.get('/api/training/status').then(setTrainingStatus).catch(() => setTrainingStatus({ backend_unreachable: true, running: false }))
+    const fetchMl = () => {
+      api.get('/api/admin/ml/status').then(setMlStatus).catch(() => {})
+      api.get('/api/admin/ml/backups').then(d => setMlBackups(d.backups || [])).catch(() => {})
+    }
     fetchReadiness()
     fetchTrainingStatus()
+    fetchMl()
     const _rdTimer = setInterval(fetchReadiness, 60_000)
     const _statusTimer = setInterval(fetchTrainingStatus, 5_000)
+    const _mlTimer = setInterval(fetchMl, 60_000)
 
     api.get('/api/training')
       .then(d => {
@@ -42,6 +51,7 @@ export default function Training() {
     return () => {
       clearInterval(_rdTimer)  // B99: Timer beim Unmount stoppen
       clearInterval(_statusTimer)
+      clearInterval(_mlTimer)
     }
   }, [])
 
@@ -60,6 +70,47 @@ export default function Training() {
         setTrainingStatus(await api.get('/api/training/status'))
       } catch (_) {}
     }
+  }
+
+  const refreshMl = async () => {
+    const st = await api.get('/api/admin/ml/status')
+    setMlStatus(st)
+    const b = await api.get('/api/admin/ml/backups')
+    setMlBackups(b.backups || [])
+  }
+
+  const runMlReset = async (mode) => {
+    const ok = window.confirm('Alle Trainingsdaten werden gesichert.\n\nDanach werden Modelle entfernt.\n\nBei "Nur neue Daten" werden zusätzlich alle bisherigen Trainingsdaten archiviert.\n\nNeue Modelle entstehen ausschließlich aus künftig neu gesammelten Daten.\n\nFortfahren?')
+    if (!ok) return
+    setMlBusy(true)
+    try {
+      const data = await api.post('/api/admin/ml/reset', { mode })
+      setMsg(`Backup erfolgreich erstellt: ${data.backup?.id || '—'}`)
+      await refreshMl()
+    } catch (e) {
+      setMsg('ML-Reset fehlgeschlagen: ' + e.message)
+    } finally {
+      setMlBusy(false)
+    }
+  }
+
+  const createMlBackup = async () => {
+    setMlBusy(true)
+    try {
+      const data = await api.post('/api/admin/ml/backup', {})
+      setMsg(`Backup erfolgreich erstellt: ${data.backup?.id || '—'}`)
+      await refreshMl()
+    } catch (e) {
+      setMsg('Backup fehlgeschlagen: ' + e.message)
+    } finally {
+      setMlBusy(false)
+    }
+  }
+
+  const deleteMlBackup = async (id) => {
+    if (!window.confirm(`Backup ${id} löschen?`)) return
+    await api.delete(`/api/admin/ml/backups/${encodeURIComponent(id)}`)
+    await refreshMl()
   }
 
   const save = async () => {
@@ -126,6 +177,46 @@ export default function Training() {
             Fehler: {startError || trainingStatus.last_error}
           </div>
         )}
+      </div>
+
+
+      <div className="card mb-4">
+        <h2 className="text-lg font-semibold mb-2">ML Training</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm mb-3">
+          <div><b>Aktive Modellversion:</b> {mlStatus?.active_model_version || 'Keine ML Modelle vorhanden'}</div>
+          <div><b>Anzahl Modelle:</b> {mlStatus?.model_count ?? '—'}</div>
+          <div><b>Dataset:</b> {mlStatus?.dataset_present ? 'vorhanden' : 'nicht vorhanden'} ({mlStatus?.samples ?? 0} Samples)</div>
+          <div><b>Letztes Training:</b> {mlStatus?.latest_training || '—'}</div>
+          <div><b>Letzter Reset:</b> {mlStatus?.last_reset?.created || '—'}</div>
+          <div><b>Letztes Backup:</b> {mlStatus?.last_backup?.created || '—'}</div>
+        </div>
+        {!mlStatus?.models_present && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded p-2 text-sm mb-3">
+            Keine ML Modelle vorhanden. Neue Daten sammeln. Anschließend neu trainieren. Prediction nutzt automatisch den kinematischen Fallback.
+          </div>
+        )}
+        {mlStatus?.last_backup?.id && (
+          <div className="bg-green-50 border border-green-200 text-green-900 rounded p-2 text-sm mb-3">
+            Backup erfolgreich erstellt · <a className="underline" href={`/api/admin/ml/backups/${encodeURIComponent(mlStatus.last_backup.id)}/download`}>Backup herunterladen</a>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2 mb-4">
+          <button className="btn" disabled={mlBusy} onClick={createMlBackup}>Backup erstellen</button>
+          <button className="btn" disabled={mlBusy} onClick={() => runMlReset('models_only')}>ML zurücksetzen</button>
+          <button className="btn-danger" disabled={mlBusy} onClick={() => runMlReset('full_new_data_only')}>ML zurücksetzen & nur neue Daten sammeln</button>
+        </div>
+        <h3 className="font-semibold mb-2">ML Backups</h3>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead><tr className="border-b"><th className="text-left p-1">Datum</th><th className="text-left p-1">Größe</th><th className="text-left p-1">Reset-Typ</th><th className="text-left p-1">Download</th><th className="text-left p-1">Löschen</th></tr></thead>
+            <tbody>
+              {mlBackups.map(b => (
+                <tr key={b.id} className="border-b"><td className="p-1">{b.created}</td><td className="p-1">{b.size_mb} MB</td><td className="p-1">{b.reset_type}</td><td className="p-1"><a className="underline" href={`/api/admin/ml/backups/${encodeURIComponent(b.id)}/download`}>Download</a></td><td className="p-1"><button className="btn" onClick={() => deleteMlBackup(b.id)}>Löschen</button></td></tr>
+              ))}
+              {mlBackups.length === 0 && <tr><td className="p-1 text-gray-500" colSpan="5">Keine Backups vorhanden.</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* B99: Trainingsbereitschaft — Live-Countdown */}

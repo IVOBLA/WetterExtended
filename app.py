@@ -1719,6 +1719,60 @@ def api_intensity_bands_save():
     return jsonify({"ok": True})
 
 
+
+
+@app.route("/api/admin/ml/status")
+@require_role("admin")
+def api_admin_ml_status():
+    from ml_reset import ml_status
+    return jsonify(ml_status())
+
+
+@app.route("/api/admin/ml/backup", methods=["POST"])
+@require_role("admin")
+def api_admin_ml_backup():
+    from ml_reset import create_backup
+    return jsonify({"ok": True, "backup": create_backup("manual")})
+
+
+@app.route("/api/admin/ml/backups")
+@require_role("admin")
+def api_admin_ml_backups():
+    from ml_reset import list_backups
+    return jsonify({"backups": list_backups()})
+
+
+@app.route("/api/admin/ml/backups/<path:backup_id>/download")
+@require_role("admin")
+def api_admin_ml_backup_download(backup_id):
+    from ml_reset import get_backup_path, validate_backup
+    path = get_backup_path(backup_id)
+    if not path.exists() or not validate_backup(path).get("valid"):
+        return jsonify({"error": "Backup nicht gefunden oder ungueltig"}), 404
+    return send_file(path, as_attachment=True, download_name=path.name, mimetype="application/zip")
+
+
+@app.route("/api/admin/ml/backups/<path:backup_id>", methods=["DELETE"])
+@require_role("admin")
+def api_admin_ml_backup_delete(backup_id):
+    from ml_reset import delete_backup
+    delete_backup(backup_id)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/ml/reset", methods=["POST"])
+@require_role("admin")
+def api_admin_ml_reset():
+    from ml_reset import reset_ml
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify(reset_ml(str(data.get("mode", ""))))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        debug_log(f"[ML_RESET] Reset fehlgeschlagen: {exc}")
+        return jsonify({"error": str(exc)}), 500
+
 @app.route("/api/training")
 def api_training():
     return jsonify({
