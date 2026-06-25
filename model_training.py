@@ -529,12 +529,7 @@ def _check_model_compatibility(model_dir: str) -> dict:
     except Exception:
         runtime_horizons = list(ML_FORECAST_HORIZONS_MIN)
 
-    if not trained_schema_hash:
-        return {
-            "compatible": False,
-            "reason": f"Feature-Schema-Hash fehlt im Modell, aktuell={current_schema.get('feature_schema_hash')}",
-        }
-    if trained_schema_hash != current_schema.get("feature_schema_hash"):
+    if trained_schema_hash and trained_schema_hash != current_schema.get("feature_schema_hash"):
         return {
             "compatible": False,
             "reason": f"Feature-Schema-Hash: trainiert={trained_schema_hash}, aktuell={current_schema.get('feature_schema_hash')}",

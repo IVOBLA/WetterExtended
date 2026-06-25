@@ -749,15 +749,7 @@ def main_loop():
             _empty_weather_path = os.path.join(SAVE_PATHS["weather"], f"{timestamp}.json")
             try:
                 with open(_empty_obj_path, "w", encoding="utf-8") as _eof:
-                    json.dump(
-                        attach_schema_metadata(
-                            [],
-                            source_object_file=_empty_obj_path,
-                            source_weather_file=_empty_weather_path,
-                        ),
-                        _eof,
-                        ensure_ascii=False,
-                    )
+                    json.dump([], _eof, ensure_ascii=False)
                 debug_log(f"[NO-CELLS] Leeres Object-File gespeichert: {timestamp}")
             except Exception as _eoexc:
                 debug_log(f"[NO-CELLS] Object-File Schreibfehler: {_eoexc}")
