@@ -746,9 +746,18 @@ def main_loop():
         if radar_ok and image is not None and not objects:
             # 1. Leeres Object-File (P22)
             _empty_obj_path = os.path.join(SAVE_PATHS["objects"], f"{timestamp}.json")
+            _empty_weather_path = os.path.join(SAVE_PATHS["weather"], f"{timestamp}.json")
             try:
                 with open(_empty_obj_path, "w", encoding="utf-8") as _eof:
-                    json.dump(attach_schema_metadata([]), _eof, ensure_ascii=False)
+                    json.dump(
+                        attach_schema_metadata(
+                            [],
+                            source_object_file=_empty_obj_path,
+                            source_weather_file=_empty_weather_path,
+                        ),
+                        _eof,
+                        ensure_ascii=False,
+                    )
                 debug_log(f"[NO-CELLS] Leeres Object-File gespeichert: {timestamp}")
             except Exception as _eoexc:
                 debug_log(f"[NO-CELLS] Object-File Schreibfehler: {_eoexc}")
@@ -837,11 +846,22 @@ def main_loop():
             # Fix #3: JSON-Save nach vollständiger Anreicherung — siehe weiter unten
 
             # Wetter speichern (falls vorhanden)
+            object_file = os.path.join(SAVE_PATHS["objects"], f"{timestamp}.json")
             if weather_data:
                 weather_file = os.path.join(SAVE_PATHS["weather"], f"{timestamp}.json")
                 with open(weather_file, "w", encoding="utf-8") as _wf:
-                    json.dump(attach_schema_metadata(weather_data, source_weather_file=weather_file), _wf, ensure_ascii=False)
+                    json.dump(
+                        attach_schema_metadata(
+                            weather_data,
+                            source_object_file=object_file,
+                            source_weather_file=weather_file,
+                        ),
+                        _wf,
+                        ensure_ascii=False,
+                    )
                 debug_log(f"Wetterdaten gespeichert als {weather_file}")
+            else:
+                weather_file = os.path.join(SAVE_PATHS["weather"], f"{timestamp}.json")
             from config import ML_FORECAST_HORIZONS_MIN as _DEFAULT_HORIZONS
             from config import FORECAST_ARROW_COLORS as _DEFAULT_COLORS
             from config import FORECAST_ARROW_STYLE as _DEFAULT_STYLE
@@ -908,10 +928,13 @@ def main_loop():
             # ── Fix #3: Vollständig angereichertes JSON jetzt erst speichern ─────────
             # Enthält: forecast_lat_X, wind_shear_speed, hail_prob,
             #          hail_warning, stationary_marker, lightning_count_10km
-            object_file = os.path.join(SAVE_PATHS["objects"], f"{timestamp}.json")
             with open(object_file, "w", encoding="utf-8") as _of:
                 json.dump(
-                    attach_schema_metadata([{k: v for k, v in o.items() if k != "kf"} for o in objects], source_object_file=object_file),
+                    attach_schema_metadata(
+                        [{k: v for k, v in o.items() if k != "kf"} for o in objects],
+                        source_object_file=object_file,
+                        source_weather_file=weather_file,
+                    ),
                     _of, ensure_ascii=False,
                 )
             debug_log(f"Object-File gespeichert: {len(objects)} Objekte (vollständig angereichert)")

@@ -40,3 +40,33 @@ def test_scan_training_sources_counts(tmp_path):
     assert scan["rejected_samples"] == 1
 
 feature_schema._orig_cfg = feature_schema._cfg
+
+
+def test_attach_schema_metadata_enriches_dict_and_list_items():
+    payload = {"kind": "weather"}
+    enriched = feature_schema.attach_schema_metadata(payload, source_weather_file="w.json")
+    assert enriched is payload
+    assert enriched["feature_schema_hash"] == feature_schema.get_current_feature_schema()["feature_schema_hash"]
+    assert enriched["source_weather_file"] == "w.json"
+
+    rows = [{"id": "a"}, {"id": "b"}, "kept"]
+    enriched_rows = feature_schema.attach_schema_metadata(rows, source_object_file="o.json")
+    assert enriched_rows is rows
+    assert enriched_rows[0]["feature_schema_hash"] == feature_schema.get_current_feature_schema()["feature_schema_hash"]
+    assert enriched_rows[1]["source_object_file"] == "o.json"
+    assert enriched_rows[2] == "kept"
+
+
+def test_extract_source_schema_reads_hash_from_object_list():
+    current = feature_schema.schema_metadata(source_object_file="objects.json")
+    schema = feature_schema.extract_source_schema([{**current, "id": "cell-1"}], [])
+    assert schema["feature_schema_hash"] == current["feature_schema_hash"]
+    assert schema["feature_schema_version"] == current["feature_schema_version"]
+
+
+def test_compare_sample_schema_accepts_attached_metadata_sample():
+    current = feature_schema.get_current_feature_schema()
+    payload = feature_schema.attach_schema_metadata({"id": "cell-1"})
+    ok, reason = feature_schema.compare_sample_schema(feature_schema.extract_source_schema(payload), current)
+    assert ok is True
+    assert reason is None

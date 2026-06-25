@@ -1793,9 +1793,13 @@ def api_admin_ml_schema():
     current_schema = get_current_feature_schema()
     active_schema = {}
     active_model_schema_hash = None
+    model_dir = os.path.join(SAVE_PATHS.get("models", "train_data/models"), "current")
+    meta_path = os.path.join(model_dir, "training_meta.json")
+    meta_exists = os.path.exists(meta_path)
+    model_missing_schema_hash = False
+    incompatibility_reason = "training_meta_missing" if not meta_exists else None
     try:
-        meta_path = os.path.join(SAVE_PATHS.get("models", "train_data/models"), "current", "training_meta.json")
-        if os.path.exists(meta_path):
+        if meta_exists:
             with open(meta_path, encoding="utf-8") as f:
                 meta = json.load(f)
             active_schema = meta.get("feature_schema") or {
@@ -1805,13 +1809,23 @@ def api_admin_ml_schema():
                 "num_features": meta.get("feature_count"),
             }
             active_model_schema_hash = active_schema.get("feature_schema_hash")
+            model_missing_schema_hash = not bool(active_model_schema_hash)
+            if model_missing_schema_hash:
+                incompatibility_reason = "model_missing_feature_schema_hash"
+            elif active_model_schema_hash != current_schema.get("feature_schema_hash"):
+                incompatibility_reason = "feature_schema_hash_mismatch"
     except Exception as exc:
+        incompatibility_reason = "training_meta_read_error"
         debug_log(f"[ML_SCHEMA] active model schema konnte nicht gelesen werden: {exc}")
     scan = scan_training_sources()
     return jsonify({
         "current_schema": current_schema,
         "active_model_schema": active_schema,
         "compatible": bool(active_model_schema_hash and active_model_schema_hash == current_schema.get("feature_schema_hash")),
+        "active_model_path": model_dir,
+        "training_meta_exists": meta_exists,
+        "model_missing_schema_hash": model_missing_schema_hash,
+        "incompatibility_reason": incompatibility_reason,
         "dataset_scan": scan,
     })
 
