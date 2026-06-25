@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
 import os
 import shutil
 import stat
@@ -17,6 +18,8 @@ TRAIN_DATA_DIR = (PROJECT_ROOT / "train_data").resolve()
 BACKUP_DIR = TRAIN_DATA_DIR / "backups"
 ARCHIVE_DIR = TRAIN_DATA_DIR / "archived_training_sources"
 STATUS_FILE = TRAIN_DATA_DIR / "ml_reset_status.json"
+BACKUP_STATUS_FILE = TRAIN_DATA_DIR / "ml_backup_status.json"
+ML_JOB_LOCK_FILE = TRAIN_DATA_DIR / "ml_job.lock"
 MANIFEST_NAME = "manifest.json"
 
 RESET_MODES = {"models_only", "full_new_data_only"}
@@ -88,6 +91,82 @@ def _write_json(path: Path, data: dict) -> None:
     os.replace(tmp, path)
 
 
+def _read_json(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except Exception:
+        return {}
+
+
+def _pid_running(pid: int | None) -> bool:
+    if not pid:
+        return False
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except Exception:
+        return False
+
+
+def _lock_owner() -> dict:
+    data = _read_json(ML_JOB_LOCK_FILE)
+    if data and not _pid_running(data.get("pid")):
+        try:
+            ML_JOB_LOCK_FILE.unlink()
+        except FileNotFoundError:
+            pass
+        return {}
+    return data
+
+
+def _acquire_ml_job_lock(kind: str, job_id: str | None = None) -> dict:
+    TRAIN_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    owner = {
+        "kind": kind,
+        "job_id": job_id,
+        "pid": os.getpid(),
+        "started_at": _utc_now().isoformat(),
+    }
+    try:
+        fd = os.open(str(ML_JOB_LOCK_FILE), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(owner, fh, indent=2, ensure_ascii=False)
+        return owner
+    except FileExistsError:
+        current = _lock_owner()
+        if current:
+            raise RuntimeError(f"ML-Job läuft bereits: {current.get('kind', 'unknown')}")
+        return _acquire_ml_job_lock(kind, job_id)
+
+
+def _release_ml_job_lock(owner: dict | None = None) -> None:
+    current = _read_json(ML_JOB_LOCK_FILE)
+    if owner and current and current.get("job_id") != owner.get("job_id"):
+        return
+    try:
+        ML_JOB_LOCK_FILE.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _update_ml_job_lock(**updates) -> dict:
+    owner = _read_json(ML_JOB_LOCK_FILE)
+    owner.update(updates)
+    _write_json(ML_JOB_LOCK_FILE, owner)
+    return owner
+
+
+def _backup_status_payload(**updates) -> dict:
+    payload = _read_json(BACKUP_STATUS_FILE)
+    payload.update(updates)
+    _write_json(BACKUP_STATUS_FILE, payload)
+    return payload
+
+
 def _iter_train_data_entries(zip_path: Path) -> Iterable[Path]:
     for path in TRAIN_DATA_DIR.rglob("*"):
         if path.resolve(strict=False) == zip_path.resolve(strict=False):
@@ -133,6 +212,131 @@ def create_backup(reset_type: str = "manual") -> dict:
     if not info["valid"]:
         raise RuntimeError("Backup-Validierung fehlgeschlagen: " + "; ".join(info["errors"]))
     return backup_info(zip_path) | {"valid": True, "manifest": manifest}
+
+
+def _run_backup_job(job_id: str, reset_type: str = "manual") -> None:
+    owner = _read_json(ML_JOB_LOCK_FILE) or {"kind": "backup", "job_id": job_id}
+    try:
+        try:
+            from debug_utils import debug_log
+            debug_log(f"[ML_BACKUP] Hintergrundjob gestartet: {job_id}")
+        except Exception:
+            pass
+        _backup_status_payload(
+            status="running",
+            running=True,
+            finished=False,
+            failed=False,
+            pid=os.getpid(),
+            job_id=job_id,
+            backup_id=None,
+            filename=None,
+            started_at=_utc_now().isoformat(),
+            finished_at=None,
+            error=None,
+            progress="Backup wird erstellt...",
+        )
+        backup = create_backup(reset_type)
+        try:
+            from debug_utils import debug_log
+            debug_log(f"[ML_BACKUP] Hintergrundjob abgeschlossen: {job_id} -> {backup.get('id')}")
+        except Exception:
+            pass
+        _backup_status_payload(
+            status="finished",
+            running=False,
+            finished=True,
+            failed=False,
+            pid=os.getpid(),
+            job_id=job_id,
+            backup_id=backup.get("id"),
+            filename=backup.get("id"),
+            finished_at=_utc_now().isoformat(),
+            error=None,
+            progress="Backup abgeschlossen.",
+            backup=backup,
+        )
+    except Exception as exc:
+        try:
+            from debug_utils import debug_log
+            debug_log(f"[ML_BACKUP] Hintergrundjob fehlgeschlagen: {job_id}: {exc}")
+        except Exception:
+            pass
+        _backup_status_payload(
+            status="failed",
+            running=False,
+            finished=False,
+            failed=True,
+            pid=os.getpid(),
+            job_id=job_id,
+            finished_at=_utc_now().isoformat(),
+            error=str(exc),
+            progress="Backup fehlgeschlagen.",
+        )
+    finally:
+        _release_ml_job_lock(owner)
+
+
+def start_backup_background(reset_type: str = "manual") -> dict:
+    current = _lock_owner()
+    if current:
+        raise RuntimeError(f"ML-Job läuft bereits: {current.get('kind', 'unknown')}")
+    job_id = f"backup_{_utc_now().strftime('%Y%m%d_%H%M%S_%f')}"
+    owner = _acquire_ml_job_lock("backup", job_id)
+    _backup_status_payload(
+        status="starting",
+        running=True,
+        finished=False,
+        failed=False,
+        pid=None,
+        job_id=job_id,
+        backup_id=None,
+        filename=None,
+        started_at=_utc_now().isoformat(),
+        finished_at=None,
+        error=None,
+        progress="Backup wird gestartet...",
+    )
+    try:
+        ctx = multiprocessing.get_context("fork") if hasattr(os, "fork") else multiprocessing
+        process = ctx.Process(target=_run_backup_job, args=(job_id, reset_type), daemon=False)
+        process.start()
+        _update_ml_job_lock(pid=process.pid)
+        _backup_status_payload(status="running", pid=process.pid, progress="Backup wird erstellt...")
+    except Exception:
+        _release_ml_job_lock(owner)
+        raise
+    return {"started": True, "job_id": job_id, "status": "running"}
+
+
+def backup_job_status() -> dict:
+    status = _read_json(BACKUP_STATUS_FILE)
+    owner = _lock_owner()
+    if status.get("status") in {"running", "starting"} and not owner and not _pid_running(status.get("pid")):
+        status = _backup_status_payload(
+            status="failed",
+            running=False,
+            finished=False,
+            failed=True,
+            finished_at=_utc_now().isoformat(),
+            error=status.get("error") or "Backup-Prozess ist nicht mehr aktiv.",
+            progress="Backup fehlgeschlagen.",
+        )
+    return {
+        "running": bool(status.get("running")),
+        "finished": bool(status.get("finished")),
+        "failed": bool(status.get("failed")),
+        "progress": status.get("progress") or ("Backup wird erstellt..." if status.get("running") else ""),
+        "status": status.get("status") or "idle",
+        "pid": status.get("pid"),
+        "job_id": status.get("job_id"),
+        "started_at": status.get("started_at"),
+        "finished_at": status.get("finished_at"),
+        "error": status.get("error"),
+        "backup": status.get("backup"),
+        "backup_id": status.get("backup_id"),
+        "filename": status.get("filename"),
+    }
 
 
 def validate_backup(path: Path) -> dict:
@@ -262,29 +466,33 @@ def ml_status() -> dict:
 def reset_ml(mode: str) -> dict:
     if mode not in RESET_MODES:
         raise ValueError(f"Ungueltiger Reset-Modus: {mode}")
-    backup = create_backup(mode)
-    removed_models = _remove_models()
-    removed_dataset = _remove_dataset()
-    archived = _archive_training_sources() if mode == "full_new_data_only" else []
+    owner = _acquire_ml_job_lock("reset", f"reset_{_utc_now().strftime('%Y%m%d_%H%M%S_%f')}")
     try:
-        from feature_schema import get_current_feature_schema
-        _schema = get_current_feature_schema()
-    except Exception:
-        _schema = {}
-    status = {
-        "status": "reset_done",
-        "mode": mode,
-        "backup": backup["path"],
-        "backup_id": backup["id"],
-        "backup_size_mb": backup["size_mb"],
-        "created": _utc_now().isoformat(),
-        "next_action": "collect_new_data" if mode == "full_new_data_only" else "rebuild_dataset_or_retrain",
-        "removed_models_entries": removed_models,
-        "removed_dataset_entries": removed_dataset,
-        "archived_training_sources": archived,
-        "feature_schema_hash": _schema.get("feature_schema_hash"),
-        "feature_schema_version": _schema.get("schema_version"),
-        "schema_status": "reset_to_current_runtime_schema",
-    }
-    _write_json(STATUS_FILE, status)
-    return {"ok": True, "backup": backup, "reset": status, "status": ml_status()}
+        backup = create_backup(mode)
+        removed_models = _remove_models()
+        removed_dataset = _remove_dataset()
+        archived = _archive_training_sources() if mode == "full_new_data_only" else []
+        try:
+            from feature_schema import get_current_feature_schema
+            _schema = get_current_feature_schema()
+        except Exception:
+            _schema = {}
+        status = {
+            "status": "reset_done",
+            "mode": mode,
+            "backup": backup["path"],
+            "backup_id": backup["id"],
+            "backup_size_mb": backup["size_mb"],
+            "created": _utc_now().isoformat(),
+            "next_action": "collect_new_data" if mode == "full_new_data_only" else "rebuild_dataset_or_retrain",
+            "removed_models_entries": removed_models,
+            "removed_dataset_entries": removed_dataset,
+            "archived_training_sources": archived,
+            "feature_schema_hash": _schema.get("feature_schema_hash"),
+            "feature_schema_version": _schema.get("schema_version"),
+            "schema_status": "reset_to_current_runtime_schema",
+        }
+        _write_json(STATUS_FILE, status)
+        return {"ok": True, "backup": backup, "reset": status, "status": ml_status()}
+    finally:
+        _release_ml_job_lock(owner)
