@@ -3101,3 +3101,10 @@ erweitert. JSX mit esbuild validiert. Offen: P65.
 - Behebt: 5.659 High-Speed-Matches (>120 km/h) und 1.874 Merge-Ghost-Matches in `forecast_error_details.jsonl` (max 515 km/h, p99=143 km/h).
 - Neue Konstanten `VERIFICATION_MATCH_MAX_ACTUAL_SPEED_KMH` und `VERIFICATION_CORE_MIN_RATIO` in `config.py` (runtime-überschreibbar).
 - Tests: `tests/test_b247_match_speed_gate.py`.
+
+## B248 — Log-Rotation: forecast_error_details.jsonl + external_responses (2026-06-25)
+- `_prune_eval_jsonl_by_age` erkennt jetzt `verified_at_utc` und `forecast_created_at_utc` als Zeitstempel-Felder (zusätzlich zu `ts`/`ts_utc`).
+- `forecast_error_details.jsonl` (511 MB, 407k Zeilen) wird nun täglich auf `EVAL_LOG_RETENTION_HOURS=48` rotiert.
+- `train_data/external_responses/` zu `DATA_CLEANUP_PATHS` hinzugefügt mit 2-Tage-Retention-Override (2.079 Dateien/Tag, ~4 MB/Tag auf Pi 5); Cleanup läuft rekursiv durch Service-Unterverzeichnisse.
+- `cleanup_log.jsonl` zeigte `eval_lines_pruned=0` trotz aktivierter Rotation — Ursache war fehlendes `verified_at_utc`-Handling.
+- Tests: `tests/test_b248_forecast_detail_rotation.py`.
