@@ -17,6 +17,7 @@ const HYDRO_PLACE_ICON = L.divIcon({
 import api, { abortApiRequests } from '../api.js'
 import { formatCbIrLabel, getCbThresholdState } from '../utils/cbThreshold.js'
 import { hasValidHydroImpactLine, hydroFeatureCollection } from '../utils/hydro.js'
+import { normalizeHydroFloodPopup } from '../utils/hydroFloodPopup.js'
 import { loadRiskGridAfterHealth, nextRiskGridDelayMs } from '../utils/riskGridPolling.js'
 import {
   MAP_CENTER_KAERNTEN,
@@ -1101,6 +1102,7 @@ export default function MapView() {
           if (coords.length < 2) return null
           const impact = p.last_hydro_impact || {}
           const flood = hydroFloodRisk[String(p.station_id)] || {}
+          const popup = normalizeHydroFloodPopup(p, flood)
           const color = flood.flood_expected ? HYDRO_WARN_COLOR : hydroColor(p.status)
           return (
             <React.Fragment key={'hydro_' + p.station_id}>
@@ -1114,17 +1116,17 @@ export default function MapView() {
                 <Popup>
                   <div><strong>{p.name || p.station_id}</strong></div>
                   <div>Gewässer: {p.river || '—'}</div>
-                  <div>Q aktuell: {flood.current_q_m3s ?? p.q_m3s ?? '—'} m³/s</div>
-                  <div>Q ≥ Grenzwert: {flood.station_q_threshold_m3s ?? p.q_threshold ?? p.mark_q_m3s ?? '—'} m³/s ({flood.station_q_threshold_source || '—'})</div>
-                  <div>Abstand zu Q ≥: {flood.current_q_distance_to_threshold_m3s ?? '—'} m³/s</div>
-                  <div>Niederschlag EZG: {flood.effective_catchment_precip_sum_mm ?? '—'} mm</div>
-                  <div>Niederschlagsquelle: {flood.effective_precip_source_type || '—'} · Qualität {flood.effective_precip_source_quality || '—'}</div>
-                  <div><strong>Hochwassergefahr: {flood.flood_expected ? 'ja' : 'nein'}</strong></div>
+                  <div>Q aktuell: {popup.currentQLabel} m³/s</div>
+                  <div>Q ≥ Grenzwert: {popup.thresholdLabel}{popup.thresholdLabel !== '—' ? ' m³/s' : ''} ({popup.thresholdSourceLabel})</div>
+                  <div>Abstand zu Q ≥: {popup.distanceLabel} m³/s</div>
+                  <div>Niederschlag EZG: {popup.precipValue}</div>
+                  <div>Niederschlagsdaten EZG: {popup.precipStatusLabel}{popup.precipQualityLabel !== 'nicht bewertbar' ? ` · Qualität ${popup.precipQualityLabel}` : ''}</div>
+                  <div><strong>Hochwassergefahr: {popup.floodLabel}</strong></div>
                   {flood.flood_probability != null && <div>ML-Wahrscheinlichkeit: {Math.round(flood.flood_probability * 100)}%</div>}
                   <div>Risiko-Score: {flood.hydro_flood_risk_score ?? '—'} · Confidence: {flood.confidence ?? '—'}</div>
-                  <div>Datenalter Hydro: {flood.data_age_min ?? p.data_age_min ?? '—'} min</div>
-                  <div>Gründe: {(flood.reasons || []).join(', ') || '—'}</div>
-                  {(flood.warning_reasons || []).length > 0 && <div>Hinweise: {(flood.warning_reasons || []).join(', ')}</div>}
+                  <div>Datenalter Hydro: {popup.dataAgeLabel} min</div>
+                  <div>Gründe: {popup.reasonsLabel}</div>
+                  {popup.warningItems.length > 0 && <div>Hinweise: {popup.warningItems.join(', ')}</div>}
                   <div>letzter Hydro-Impact: {impact.cell_id ? `${impact.cell_id} (${impact.status})` : '—'}</div>
                   <div>Status: {p.status || '—'}</div>
                 </Popup>
