@@ -247,3 +247,40 @@ def test_ml_reset_status_reports_deleted_and_preserved_counts(monkeypatch, tmp_p
     status = json.loads((td / "ml_reset_status.json").read_text())
     assert status["deleted_counts"]["files"] == 1
     assert any(s["path"] == "train_data/statistics" for s in status["preserved_sections"])
+
+
+def test_ml_reset_preview_contains_summary_and_sections(monkeypatch, tmp_path):
+    root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "arome" / "old.json", "123")
+    _file(td / "statistics" / "long.json", "12")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    assert plan["backup"]["target_dir"] == "backups"
+    assert any(s["path"] == "train_data/arome" for s in plan["sections"])
+    assert plan["summary"]["delete_files"] >= 1
+    assert plan["summary"]["preserve_files"] >= 1
+
+
+def test_ml_reset_start_saves_execution_plan(monkeypatch, tmp_path):
+    root, td = _patch_paths(monkeypatch, tmp_path)
+    class DummyProcess:
+        pid = 424243
+        def __init__(self, target, args, daemon=False):
+            self.target = target
+        def start(self):
+            pass
+    class DummyCtx:
+        Process = DummyProcess
+    monkeypatch.setattr(ml_reset.multiprocessing, "get_context", lambda name: DummyCtx())
+    monkeypatch.setattr(ml_reset, "_training_running", lambda: False)
+    ml_reset.start_reset_background("full_new_data_only")
+    status = json.loads((td / "ml_reset_status.json").read_text())
+    assert status["execution_plan"]["mode"] == "full_new_data_only"
+
+
+def test_ml_reset_verify_fails_when_leftovers_remain(monkeypatch, tmp_path):
+    root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "arome" / "old.json")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    verification = ml_reset.verify_reset_result(plan)
+    assert verification["verification_status"] == "leftovers"
+    assert verification["leftovers_total"]["files"] == 1

@@ -1796,7 +1796,7 @@ def api_admin_ml_reset():
     from ml_reset import start_reset_background
     data = request.get_json(silent=True) or {}
     try:
-        return jsonify(start_reset_background(str(data.get("mode", "")))), 202
+        return jsonify(start_reset_background(str(data.get("mode", "")), force=bool(data.get("force")))), 202
     except ValueError as exc:
         return jsonify({"started": False, "error": str(exc)}), 400
     except RuntimeError as exc:
