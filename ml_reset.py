@@ -15,7 +15,7 @@ from config import SAVE_PATHS
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 TRAIN_DATA_DIR = (PROJECT_ROOT / "train_data").resolve()
-BACKUP_DIR = TRAIN_DATA_DIR / "backups"
+BACKUP_DIR = PROJECT_ROOT / "backups"
 ARCHIVE_DIR = TRAIN_DATA_DIR / "archived_training_sources"
 STATUS_FILE = TRAIN_DATA_DIR / "ml_reset_status.json"
 BACKUP_STATUS_FILE = TRAIN_DATA_DIR / "ml_backup_status.json"
@@ -70,8 +70,8 @@ def _safe_rmtree(path: Path) -> None:
     resolved.rmdir()
 
 
-def _safe_unlink(path: Path) -> None:
-    resolved = _ensure_inside(path)
+def _safe_unlink(path: Path, root: Path | None = None) -> None:
+    resolved = _ensure_inside(path, root)
     if resolved.exists() or resolved.is_symlink():
         if resolved.is_dir() and not resolved.is_symlink():
             _safe_rmtree(resolved)
@@ -169,13 +169,66 @@ def _backup_status_payload(**updates) -> dict:
     return payload
 
 
-def _iter_train_data_entries(zip_path: Path) -> Iterable[Path]:
-    for path in TRAIN_DATA_DIR.rglob("*"):
-        if path.resolve(strict=False) == zip_path.resolve(strict=False):
+def _legacy_backup_dir() -> Path:
+    return TRAIN_DATA_DIR / "backups"
+
+
+def _migrate_legacy_backups() -> list[str]:
+    warnings = []
+    legacy = _legacy_backup_dir()
+    if not legacy.exists() or legacy == BACKUP_DIR:
+        return warnings
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    for old_zip in legacy.glob("*_train_data.zip"):
+        target = BACKUP_DIR / old_zip.name
+        if target.exists():
             continue
-        if path.name.endswith(".tmp") and path.parent == BACKUP_DIR:
-            continue
-        yield path
+        try:
+            shutil.move(str(old_zip), str(target))
+        except Exception as exc:
+            warnings.append(f"Legacy-Backup konnte nicht migriert werden: {old_zip.name}: {exc}")
+    return warnings
+
+
+def _is_excluded_from_backup(path: Path, zip_path: Path) -> bool:
+    rel = path.relative_to(TRAIN_DATA_DIR)
+    parts = rel.parts
+    if parts and parts[0] == "backups":
+        return True
+    if path == zip_path or path == zip_path.with_suffix(".zip.tmp"):
+        return True
+    if path.name.endswith(".tmp"):
+        return True
+    if path.name.endswith("_train_data.zip"):
+        return True
+    return False
+
+
+def _iter_train_data_entries(zip_path: Path, warnings: list[str]) -> Iterable[Path]:
+    def walk(directory: Path) -> Iterable[Path]:
+        try:
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    path = Path(entry.path)
+                    if _is_excluded_from_backup(path, zip_path):
+                        continue
+                    yield path
+                    try:
+                        is_link = entry.is_symlink()
+                    except OSError as exc:
+                        warnings.append(f"Symlink-/Dateiprüfung fehlgeschlagen: {path}: {exc}")
+                        continue
+                    if is_link:
+                        continue
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            yield from walk(path)
+                    except OSError as exc:
+                        warnings.append(f"Verzeichnis übersprungen: {path}: {exc}")
+        except OSError as exc:
+            warnings.append(f"Verzeichnis konnte nicht gelesen werden: {directory}: {exc}")
+
+    yield from walk(TRAIN_DATA_DIR)
 
 
 def _write_zip_symlink(zf: zipfile.ZipFile, path: Path, arcname: str) -> None:
@@ -186,29 +239,51 @@ def _write_zip_symlink(zf: zipfile.ZipFile, path: Path, arcname: str) -> None:
     zf.writestr(info, os.readlink(path))
 
 
+def _check_symlink_warning(path: Path, warnings: list[str]) -> None:
+    try:
+        path.stat()
+    except OSError as exc:
+        warnings.append(f"Problematischer Symlink übersprungen/gekennzeichnet: {path}: {exc}")
+
+
 def create_backup(reset_type: str = "manual") -> dict:
     TRAIN_DATA_DIR.mkdir(parents=True, exist_ok=True)
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    migration_warnings = _migrate_legacy_backups()
     ts = _utc_now().strftime("%Y%m%d_%H%M%S")
     zip_path = BACKUP_DIR / f"{ts}_train_data.zip"
+    warnings = list(migration_warnings)
+    skipped_entries = []
+    symlink_warnings = []
     manifest = {
         "created": _utc_now().isoformat(),
         "reset_type": reset_type,
         "project_root": str(PROJECT_ROOT),
         "source": "train_data",
         "expected_main_dirs": EXPECTED_MAIN_DIRS,
+        "warnings": warnings,
+        "skipped_entries": skipped_entries,
+        "symlink_warnings": symlink_warnings,
     }
     tmp_path = zip_path.with_suffix(".zip.tmp")
     with zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(MANIFEST_NAME, json.dumps(manifest, indent=2, ensure_ascii=False))
-        for path in _iter_train_data_entries(zip_path):
+        for path in _iter_train_data_entries(zip_path, warnings):
             arc = Path("train_data") / path.relative_to(TRAIN_DATA_DIR)
-            if path.is_symlink():
-                _write_zip_symlink(zf, path, arc.as_posix())
-            elif path.is_dir():
-                zf.writestr(arc.as_posix().rstrip("/") + "/", b"")
-            elif path.is_file():
-                zf.write(path, arc.as_posix())
+            try:
+                if path.is_symlink():
+                    before = len(symlink_warnings)
+                    _check_symlink_warning(path, symlink_warnings)
+                    if len(symlink_warnings) > before:
+                        skipped_entries.append(arc.as_posix())
+                    _write_zip_symlink(zf, path, arc.as_posix())
+                elif path.is_dir():
+                    zf.writestr(arc.as_posix().rstrip("/") + "/", b"")
+                elif path.is_file():
+                    zf.write(path, arc.as_posix())
+            except OSError as exc:
+                skipped_entries.append(arc.as_posix())
+                warnings.append(f"Eintrag übersprungen: {arc.as_posix()}: {exc}")
+        zf.writestr(MANIFEST_NAME, json.dumps(manifest, indent=2, ensure_ascii=False))
     os.replace(tmp_path, zip_path)
     info = validate_backup(zip_path)
     if not info["valid"]:
@@ -382,6 +457,7 @@ def backup_info(path: Path) -> dict:
 
 def list_backups() -> list[dict]:
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    _migrate_legacy_backups()
     return [backup_info(p) for p in sorted(BACKUP_DIR.glob("*_train_data.zip"), reverse=True)]
 
 
@@ -392,7 +468,7 @@ def get_backup_path(backup_id: str) -> Path:
 
 
 def delete_backup(backup_id: str) -> None:
-    _safe_unlink(get_backup_path(backup_id))
+    _safe_unlink(get_backup_path(backup_id), BACKUP_DIR)
 
 
 def _remove_models() -> int:
