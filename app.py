@@ -1771,18 +1771,39 @@ def api_admin_ml_backup_delete(backup_id):
     return jsonify({"ok": True})
 
 
-@app.route("/api/admin/ml/reset", methods=["POST"])
+@app.route("/api/admin/ml/reset/preview")
 @require_role("admin")
-def api_admin_ml_reset():
-    from ml_reset import reset_ml
-    data = request.get_json(silent=True) or {}
+def api_admin_ml_reset_preview():
+    from ml_reset import build_reset_plan
+    mode = request.args.get("mode", "full_new_data_only")
     try:
-        return jsonify(reset_ml(str(data.get("mode", ""))))
+        return jsonify(build_reset_plan(str(mode)))
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
+
+
+@app.route("/api/admin/ml/reset/status")
+@require_role("admin")
+def api_admin_ml_reset_status():
+    from ml_reset import reset_job_status
+    return jsonify(reset_job_status())
+
+
+@app.route("/api/admin/ml/reset", methods=["POST"])
+@app.route("/api/admin/ml/reset/start", methods=["POST"])
+@require_role("admin")
+def api_admin_ml_reset():
+    from ml_reset import start_reset_background
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify(start_reset_background(str(data.get("mode", "")))), 202
+    except ValueError as exc:
+        return jsonify({"started": False, "error": str(exc)}), 400
+    except RuntimeError as exc:
+        return jsonify({"started": False, "status": "busy", "error": str(exc)}), 409
     except Exception as exc:
-        debug_log(f"[ML_RESET] Reset fehlgeschlagen: {exc}")
-        return jsonify({"error": str(exc)}), 500
+        debug_log(f"[ML_RESET] Reset-Start fehlgeschlagen: {exc}")
+        return jsonify({"started": False, "error": str(exc)}), 500
 
 
 
