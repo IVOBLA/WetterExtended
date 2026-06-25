@@ -1117,13 +1117,14 @@ export default function MapView() {
                   <div><strong>{p.name || p.station_id}</strong></div>
                   <div>Gewässer: {p.river || '—'}</div>
                   <div>Q aktuell: {popup.currentQLabel} m³/s</div>
+                  <div>Q-Messzeit: {popup.currentQTimestampLabel}</div>
+                  {popup.currentQTimestampSourceLabel === 'Fetch-Zeitpunkt, Messzeit fehlt' && <div>Q-Zeitpunkt: {popup.currentQTimestampSourceLabel}</div>}
                   <div>Q ≥ Grenzwert: {popup.thresholdLabel}{popup.thresholdLabel !== '—' ? ' m³/s' : ''} ({popup.thresholdSourceLabel})</div>
                   <div>Abstand zu Q ≥: {popup.distanceLabel} m³/s</div>
                   <div>Niederschlag EZG: {popup.precipValue}</div>
                   <div>Niederschlagsdaten EZG: {popup.precipStatusLabel}{popup.precipQualityLabel !== 'nicht bewertbar' ? ` · Qualität ${popup.precipQualityLabel}` : ''}</div>
                   <div><strong>Hochwassergefahr: {popup.floodLabel}</strong></div>
                   {flood.flood_probability != null && <div>ML-Wahrscheinlichkeit: {Math.round(flood.flood_probability * 100)}%</div>}
-                  <div>Risiko-Score: {flood.hydro_flood_risk_score ?? '—'} · Confidence: {flood.confidence ?? '—'}</div>
                   <div>Datenalter Hydro: {popup.dataAgeLabel} min</div>
                   <div>Gründe: {popup.reasonsLabel}</div>
                   {popup.warningItems.length > 0 && <div>Hinweise: {popup.warningItems.join(', ')}</div>}
