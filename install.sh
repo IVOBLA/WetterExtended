@@ -2186,7 +2186,7 @@ else
 fi
 
 # ==============================================================================
-# PHASE 8.9 — ML-Modell/Feature-Schema-Kompatibilität (B123)
+# PHASE 8.9 — ML-Modell/Feature-Kompatibilität (B123)
 # ==============================================================================
 # Prüft ob die Feature-Anzahl der vorhandenen Modelle (training_meta.json →
 # feature_count) zur aktuellen config.ML_NUM_FEATURES passt. Nutzt die
@@ -2194,7 +2194,7 @@ fi
 #   full    → inkompatible Modelle löschen (werden neu trainiert)
 #   upgrade → quarantänisieren (current → current_incompatible_<ts>), kein Löschen
 CURRENT_PHASE="Phase 8.9 — ML-Kompatibilität"
-log_step "Phase 8.9 — ML-Modell/Feature-Schema-Kompatibilität (B123)"
+log_step "Phase 8.9 — ML-Modell/Feature-Kompatibilität (B123)"
 
 if [[ -x "$VENV/bin/python3" ]]; then
     # Im Projektverzeichnis ausführen, damit config.py/model_training importierbar sind.
