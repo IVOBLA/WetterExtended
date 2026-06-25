@@ -284,3 +284,142 @@ def test_ml_reset_verify_fails_when_leftovers_remain(monkeypatch, tmp_path):
     verification = ml_reset.verify_reset_result(plan)
     assert verification["verification_status"] == "leftovers"
     assert verification["leftovers_total"]["files"] == 1
+
+
+def _section_by_path(plan, path):
+    for key in ["delete_sections", "preserve_sections", "managed_sections", "manual_review_sections", "protected_sections"]:
+        for section in plan.get(key, []):
+            if section.get("path") == path:
+                return section
+    raise AssertionError(f"section not found: {path}")
+
+
+def test_ml_reset_classifies_cell_lineage_for_delete(monkeypatch, tmp_path):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "cell_lineage" / "old.json")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    assert _section_by_path(plan, "train_data/cell_lineage")["action"] == "delete_after_backup"
+
+
+def test_ml_reset_classifies_hydro_live_for_delete(monkeypatch, tmp_path):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "hydro" / "live" / "old.json")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    assert _section_by_path(plan, "train_data/hydro/live")["action"] == "delete_after_backup"
+
+
+def test_ml_reset_keeps_hydro_static(monkeypatch, tmp_path):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "hydro" / "static" / "stations.json")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    assert _section_by_path(plan, "train_data/hydro/static")["action"] == "preserve_static_reference"
+
+
+@pytest.mark.parametrize("name", ["lightning", "wind", "system", "size_labels"])
+def test_ml_reset_classifies_known_dynamic_for_delete(monkeypatch, tmp_path, name):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / name / "old.json")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    assert _section_by_path(plan, f"train_data/{name}")["action"] == "delete_after_backup"
+
+
+def test_ml_reset_classifies_lightning_for_delete(monkeypatch, tmp_path):
+    test_ml_reset_classifies_known_dynamic_for_delete(monkeypatch, tmp_path, "lightning")
+
+
+def test_ml_reset_classifies_wind_for_delete(monkeypatch, tmp_path):
+    test_ml_reset_classifies_known_dynamic_for_delete(monkeypatch, tmp_path, "wind")
+
+
+def test_ml_reset_classifies_system_for_delete(monkeypatch, tmp_path):
+    test_ml_reset_classifies_known_dynamic_for_delete(monkeypatch, tmp_path, "system")
+
+
+def test_ml_reset_classifies_size_labels_for_delete(monkeypatch, tmp_path):
+    test_ml_reset_classifies_known_dynamic_for_delete(monkeypatch, tmp_path, "size_labels")
+
+
+def test_ml_reset_keeps_install_backups(monkeypatch, tmp_path):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "install_backups" / "installer.zip")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    assert _section_by_path(plan, "train_data/install_backups")["action"] == "preserve_backup"
+    ml_reset.reset_ml("full_new_data_only")
+    assert (td / "install_backups" / "installer.zip").exists()
+
+
+def test_ml_reset_warns_install_backups_inside_train_data(monkeypatch, tmp_path):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "install_backups" / "installer.zip")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    assert any("train_data/install_backups" in w for w in plan["warnings"])
+
+
+def test_ml_reset_keeps_runtime_overrides_bak_and_lock(monkeypatch, tmp_path):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "runtime_overrides.json.bak", "{}")
+    _file(td / "runtime_overrides.json.lock", "lock")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    assert _section_by_path(plan, "train_data/runtime_overrides.json.bak")["action"] == "preserve_config"
+    assert _section_by_path(plan, "train_data/runtime_overrides.json.lock")["action"] == "preserve_config"
+    ml_reset.reset_ml("full_new_data_only")
+    assert (td / "runtime_overrides.json.bak").exists()
+    assert (td / "runtime_overrides.json.lock").exists()
+
+
+def test_ml_reset_status_files_do_not_block(monkeypatch, tmp_path):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "ml_backup_status.json", "{}")
+    _file(td / "ml_reset_status.json", "{}")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    assert not plan["manual_review_sections"]
+    assert _section_by_path(plan, "train_data/ml_backup_status.json")["action"] == "delete_runtime_status"
+
+
+def test_ml_reset_manages_ml_reset_status_file(monkeypatch, tmp_path):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "ml_reset_status.json", "{}")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    assert _section_by_path(plan, "train_data/ml_reset_status.json")["action"] == "managed_by_reset_job"
+    ml_reset.reset_ml("full_new_data_only")
+    status = json.loads((td / "ml_reset_status.json").read_text())
+    assert status["verification"]["verification_status"] == "passed"
+
+
+def test_ml_reset_no_manual_review_for_known_paths(monkeypatch, tmp_path):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    for path in ["cell_lineage/x", "hydro/live/x", "install_backups/x", "lightning/x", "size_labels/x", "system/x", "wind/x"]:
+        _file(td / path)
+    for name in ["ml_backup_status.json", "ml_reset_status.json", "runtime_overrides.json.bak", "runtime_overrides.json.lock"]:
+        _file(td / name, "{}")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    assert plan["manual_review_sections"] == []
+
+
+def test_ml_reset_still_blocks_truly_unknown_path(monkeypatch, tmp_path):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "mystery" / "x")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    assert any(s["path"] == "train_data/mystery" for s in plan["manual_review_sections"])
+    with pytest.raises(ValueError):
+        ml_reset.start_reset_background("full_new_data_only")
+
+
+def test_ml_reset_verifies_known_dynamic_paths_deleted(monkeypatch, tmp_path):
+    _root, td = _patch_paths(monkeypatch, tmp_path)
+    for path in ["cell_lineage/x", "hydro/live/x", "lightning/x", "size_labels/x", "system/x", "wind/x"]:
+        _file(td / path)
+    result = ml_reset.reset_ml("full_new_data_only")
+    assert result["reset"]["verification"]["verification_status"] == "passed"
+    assert all(not (td / p).exists() for p in ["cell_lineage", "hydro/live", "lightning", "size_labels", "system", "wind"])
+
+
+def test_ml_reset_verifies_known_preserved_paths_still_exist(monkeypatch, tmp_path):
+    root, td = _patch_paths(monkeypatch, tmp_path)
+    for path in ["install_backups/x", "runtime_overrides.json.bak", "runtime_overrides.json.lock", "hydro/static/x", "statistics/x", "dem/x", "cell_filters/x"]:
+        _file(td / path, "{}")
+    _file(root / "backups" / "keep.zip")
+    result = ml_reset.reset_ml("full_new_data_only")
+    verified = {s["path"]: s["ok"] for s in result["reset"]["verification"]["preserved_sections_verified"]}
+    for path in ["train_data/install_backups", "train_data/runtime_overrides.json.bak", "train_data/runtime_overrides.json.lock", "train_data/hydro/static", "train_data/statistics", "train_data/dem", "train_data/cell_filters", "backups"]:
+        assert verified[path] is True
