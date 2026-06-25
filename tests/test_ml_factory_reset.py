@@ -1,6 +1,9 @@
 import json
 import stat
+import time
 import zipfile
+
+import pytest
 
 
 def _patch_paths(monkeypatch, tmp_path):
@@ -11,6 +14,8 @@ def _patch_paths(monkeypatch, tmp_path):
     monkeypatch.setattr(ml_reset, "BACKUP_DIR", base / "backups")
     monkeypatch.setattr(ml_reset, "ARCHIVE_DIR", base / "archived_training_sources")
     monkeypatch.setattr(ml_reset, "STATUS_FILE", base / "ml_reset_status.json")
+    monkeypatch.setattr(ml_reset, "BACKUP_STATUS_FILE", base / "ml_backup_status.json")
+    monkeypatch.setattr(ml_reset, "ML_JOB_LOCK_FILE", base / "ml_job.lock")
     monkeypatch.setattr(ml_reset, "SAVE_PATHS", {
         "models": str(base / "models"),
         "dataset": str(base / "dataset"),
@@ -96,3 +101,32 @@ def test_backup_preserves_current_model_symlink(monkeypatch, tmp_path):
         assert stat.S_ISLNK(mode)
         assert zf.read("train_data/models/current").decode("utf-8") == "v_1"
         assert "train_data/models/current/" not in zf.namelist()
+
+
+def test_manual_backup_starts_background_and_reports_status(monkeypatch, tmp_path):
+    ml_reset, base = _patch_paths(monkeypatch, tmp_path)
+    _seed(base)
+
+    result = ml_reset.start_backup_background("manual")
+
+    assert result["started"] is True
+    assert result["status"] == "running"
+    status = {}
+    for _ in range(50):
+        status = ml_reset.backup_job_status()
+        if status.get("finished") or status.get("failed"):
+            break
+        time.sleep(0.1)
+    assert status["finished"] is True
+    assert status["running"] is False
+    assert status["backup"]["id"].endswith("_train_data.zip")
+
+
+def test_reset_blocked_while_backup_lock_exists(monkeypatch, tmp_path):
+    ml_reset, _base = _patch_paths(monkeypatch, tmp_path)
+    owner = ml_reset._acquire_ml_job_lock("backup", "test_backup")
+    try:
+        with pytest.raises(RuntimeError, match="ML-Job läuft bereits"):
+            ml_reset.reset_ml("models_only")
+    finally:
+        ml_reset._release_ml_job_lock(owner)

@@ -21,6 +21,10 @@ export default function Training() {
   const [mlBusy, setMlBusy] = useState(false)
   const [mlSchema, setMlSchema] = useState(null)
   const [schemaPolicy, setSchemaPolicy] = useState('compatible_only')
+  const [backupJobId, setBackupJobId] = useState(null)
+  const [backupStatus, setBackupStatus] = useState(null)
+  const backupRunning = Boolean(backupStatus?.running)
+  const mlActionsDisabled = mlBusy || backupRunning
 
   useEffect(() => {
     // B99: Countdown — Live-Refresh alle 60 s (sinkt sichtbar bei Sturmereignissen)
@@ -32,6 +36,7 @@ export default function Training() {
       api.get('/api/admin/ml/status').then(setMlStatus).catch(() => {})
       api.get('/api/admin/ml/backups').then(d => setMlBackups(d.backups || [])).catch(() => {})
       api.get('/api/admin/ml/schema').then(setMlSchema).catch(() => {})
+      api.get('/api/admin/ml/backup/status').then(setBackupStatus).catch(() => {})
     }
     fetchReadiness()
     fetchTrainingStatus()
@@ -98,14 +103,40 @@ export default function Training() {
     }
   }
 
+  useEffect(() => {
+    if (!backupRunning && !backupJobId) return undefined
+    const pollBackupStatus = async () => {
+      try {
+        const status = await api.get('/api/admin/ml/backup/status')
+        setBackupStatus(status)
+        if (status.finished) {
+          setBackupJobId(null)
+          setMsg(`Backup erfolgreich erstellt: ${status.backup?.id || status.backup_id || '—'}`)
+          await refreshMl()
+        } else if (status.failed) {
+          setBackupJobId(null)
+          setMsg('Backup fehlgeschlagen: ' + (status.error || 'Unbekannter Fehler'))
+        }
+      } catch (e) {
+        setBackupJobId(null)
+        setBackupStatus(prev => ({ ...(prev || {}), running: false, failed: true, error: e.message }))
+        setMsg('Backup-Status konnte nicht gelesen werden: ' + e.message)
+      }
+    }
+    const timer = setInterval(pollBackupStatus, 1000)
+    pollBackupStatus()
+    return () => clearInterval(timer)
+  }, [backupRunning, backupJobId])
+
   const createMlBackup = async () => {
     setMlBusy(true)
     try {
       const data = await api.post('/api/admin/ml/backup', {})
-      setMsg(`Backup erfolgreich erstellt: ${data.backup?.id || '—'}`)
-      await refreshMl()
+      setBackupJobId(data.job_id)
+      setBackupStatus({ running: true, finished: false, failed: false, job_id: data.job_id, status: data.status, progress: 'Backup wird erstellt...' })
+      setMsg('Backup läuft...')
     } catch (e) {
-      setMsg('Backup fehlgeschlagen: ' + e.message)
+      setMsg('Backup konnte nicht gestartet werden: ' + e.message)
     } finally {
       setMlBusy(false)
     }
@@ -247,13 +278,16 @@ export default function Training() {
         )}
         {mlStatus?.last_backup?.id && (
           <div className="bg-green-50 border border-green-200 text-green-900 rounded p-2 text-sm mb-3">
-            Backup erfolgreich erstellt · <button type="button" className="underline" disabled={mlBusy} onClick={() => downloadMlBackup(mlStatus.last_backup.id)}>Backup herunterladen</button>
+            Backup erfolgreich erstellt · <button type="button" className="underline" disabled={mlActionsDisabled} onClick={() => downloadMlBackup(mlStatus.last_backup.id)}>Backup herunterladen</button>
           </div>
         )}
         <div className="flex flex-wrap gap-2 mb-4">
-          <button className="btn" disabled={mlBusy} onClick={createMlBackup}>Backup erstellen</button>
-          <button className="btn" disabled={mlBusy} onClick={() => runMlReset('models_only')}>ML zurücksetzen</button>
-          <button className="btn-danger" disabled={mlBusy} onClick={() => runMlReset('full_new_data_only')}>ML zurücksetzen & nur neue Daten sammeln</button>
+          <button className="btn inline-flex items-center gap-2" disabled={mlActionsDisabled} onClick={createMlBackup}>
+            {backupRunning && <span className="inline-block h-4 w-4 rounded-full border-2 border-current border-t-transparent animate-spin" aria-hidden="true" />}
+            {backupRunning ? 'Backup läuft...' : 'Backup erstellen'}
+          </button>
+          <button className="btn" disabled={mlActionsDisabled} onClick={() => runMlReset('models_only')}>ML zurücksetzen</button>
+          <button className="btn-danger" disabled={mlActionsDisabled} onClick={() => runMlReset('full_new_data_only')}>ML zurücksetzen & nur neue Daten sammeln</button>
         </div>
         <div className="border rounded p-3 mb-4 bg-slate-50 text-sm">
           <h3 className="font-semibold mb-2">Feature-Schema-Kompatibilität</h3>
@@ -273,9 +307,10 @@ export default function Training() {
           <label className="inline-flex items-center gap-2 mr-3"><input type="radio" checked={schemaPolicy === 'compatible_only'} onChange={() => setSchemaPolicy('compatible_only')} /> Nur kompatible Daten trainieren</label>
           <label className="inline-flex items-center gap-2"><input type="radio" checked={schemaPolicy === 'allow_legacy'} onChange={() => setSchemaPolicy('allow_legacy')} /> Legacy-Daten erlauben</label>
           {schemaPolicy === 'allow_legacy' && <div className="bg-amber-100 border border-amber-300 text-amber-900 rounded p-2 mt-2">Legacy-Daten können mit altem Feature-Set erzeugt worden sein und die Modellqualität verschlechtern.</div>}
+          {backupRunning && <div className="text-blue-800 text-sm mt-2">Backup läuft... {backupStatus?.progress || ''}</div>}
           <div className="flex flex-wrap gap-2 mt-3">
-            <button className="btn" disabled={mlBusy} onClick={scanDataset}>Dataset neu prüfen</button>
-            <button className="btn-primary" disabled={mlBusy} onClick={retrainWithSchemaPolicy}>Nur kompatible Daten trainieren</button>
+            <button className="btn" disabled={mlActionsDisabled} onClick={scanDataset}>Dataset neu prüfen</button>
+            <button className="btn-primary" disabled={mlActionsDisabled} onClick={retrainWithSchemaPolicy}>Nur kompatible Daten trainieren</button>
           </div>
         </div>
         <h3 className="font-semibold mb-2">ML Backups</h3>
@@ -284,7 +319,7 @@ export default function Training() {
             <thead><tr className="border-b"><th className="text-left p-1">Datum</th><th className="text-left p-1">Größe</th><th className="text-left p-1">Reset-Typ</th><th className="text-left p-1">Download</th><th className="text-left p-1">Löschen</th></tr></thead>
             <tbody>
               {mlBackups.map(b => (
-                <tr key={b.id} className="border-b"><td className="p-1">{b.created}</td><td className="p-1">{b.size_mb} MB</td><td className="p-1">{b.reset_type}</td><td className="p-1"><button type="button" className="underline" disabled={mlBusy} onClick={() => downloadMlBackup(b.id)}>Download</button></td><td className="p-1"><button className="btn" onClick={() => deleteMlBackup(b.id)}>Löschen</button></td></tr>
+                <tr key={b.id} className="border-b"><td className="p-1">{b.created}</td><td className="p-1">{b.size_mb} MB</td><td className="p-1">{b.reset_type}</td><td className="p-1"><button type="button" className="underline" disabled={mlActionsDisabled} onClick={() => downloadMlBackup(b.id)}>Download</button></td><td className="p-1"><button className="btn" onClick={() => deleteMlBackup(b.id)}>Löschen</button></td></tr>
               ))}
               {mlBackups.length === 0 && <tr><td className="p-1 text-gray-500" colSpan="5">Keine Backups vorhanden.</td></tr>}
             </tbody>

@@ -96,6 +96,7 @@ _ADMIN_WRITE_PREFIXES = (
     "/api/hydro/verify",
     "/api/hydro/stations/",
     "/api/admin/hydro/",
+    "/api/admin/ml/",
 )
 # P1-1: GET/HEAD auf diesen Präfixen erfordern mind. viewer-Level (eingeloggt).
 # Bewusst NICHT enthalten (öffentliche Karte): /api/objects, /api/forecast,
@@ -1731,8 +1732,18 @@ def api_admin_ml_status():
 @app.route("/api/admin/ml/backup", methods=["POST"])
 @require_role("admin")
 def api_admin_ml_backup():
-    from ml_reset import create_backup
-    return jsonify({"ok": True, "backup": create_backup("manual")})
+    from ml_reset import start_backup_background
+    try:
+        return jsonify(start_backup_background("manual")), 202
+    except RuntimeError as exc:
+        return jsonify({"started": False, "status": "busy", "error": str(exc)}), 409
+
+
+@app.route("/api/admin/ml/backup/status")
+@require_role("admin")
+def api_admin_ml_backup_status():
+    from ml_reset import backup_job_status
+    return jsonify(backup_job_status())
 
 
 @app.route("/api/admin/ml/backups")
