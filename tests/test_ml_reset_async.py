@@ -46,16 +46,15 @@ def test_ml_reset_preview_counts_recursive(monkeypatch, tmp_path):
     assert any("train_data/dataset/a/b/one.json" in e for e in ds["examples"])
 
 
-def test_ml_reset_full_new_data_archives_objects_weather(monkeypatch, tmp_path):
+def test_ml_reset_full_new_data_deletes_objects_weather_models_dataset(monkeypatch, tmp_path):
     root, td = _patch_paths(monkeypatch, tmp_path)
     _file(td / "objects" / "old.json")
     _file(td / "weather" / "nested" / "old.json")
     result = ml_reset.reset_ml("full_new_data_only")
     assert (td / "objects").is_dir() and not any((td / "objects").iterdir())
     assert (td / "weather").is_dir() and not any((td / "weather").iterdir())
-    assert list((td / "archived_training_sources").glob("*/objects/old.json"))
-    assert list((td / "archived_training_sources").glob("*/weather/nested/old.json"))
-    assert result["reset"]["archived_counts"]["files"] == 2
+    assert not (td / "archived_training_sources" / "old.json").exists()
+    assert result["reset"]["deleted_counts"]["files"] == 2
 
 
 def test_ml_reset_does_not_delete_hydro_statistics_runtime_overrides(monkeypatch, tmp_path):
@@ -130,3 +129,121 @@ def test_ml_reset_result_contains_counts_bytes_and_paths(monkeypatch, tmp_path):
     assert counts["files"] == 2
     assert counts["bytes"] == 8
     assert all("path" in s and "bytes" in s for s in counts["sections"])
+
+
+def test_ml_reset_full_new_data_deletes_arome_cape_cloud(monkeypatch, tmp_path):
+    root, td = _patch_paths(monkeypatch, tmp_path)
+    for name in ["arome", "cape", "cloud"]:
+        _file(td / name / "old.bin")
+    ml_reset.reset_ml("full_new_data_only")
+    assert all(not (td / name).exists() for name in ["arome", "cape", "cloud"])
+
+
+def test_ml_reset_full_new_data_deletes_evaluation(monkeypatch, tmp_path):
+    root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "evaluation" / "pending.json")
+    ml_reset.reset_ml("full_new_data_only")
+    assert not (td / "evaluation").exists()
+
+
+def test_ml_reset_full_new_data_deletes_external_responses(monkeypatch, tmp_path):
+    root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "external_responses" / "arso_radar" / "old.json")
+    ml_reset.reset_ml("full_new_data_only")
+    assert not (td / "external_responses").exists()
+
+
+def test_ml_reset_full_new_data_deletes_archived_training_sources(monkeypatch, tmp_path):
+    root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "archived_training_sources" / "old" / "objects" / "x.json")
+    ml_reset.reset_ml("full_new_data_only")
+    assert not (td / "archived_training_sources").exists()
+
+
+def test_ml_reset_full_new_data_keeps_root_backups(monkeypatch, tmp_path):
+    root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(root / "backups" / "keep.zip")
+    ml_reset.reset_ml("full_new_data_only")
+    assert (root / "backups" / "keep.zip").exists()
+
+
+def test_ml_reset_full_new_data_keeps_statistics(monkeypatch, tmp_path):
+    root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "statistics" / "long.json")
+    ml_reset.reset_ml("full_new_data_only")
+    assert (td / "statistics" / "long.json").exists()
+
+
+def test_ml_reset_full_new_data_keeps_config_files(monkeypatch, tmp_path):
+    root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(root / ".env", "A=1")
+    _file(root / "runtime_overrides.json", "{}")
+    _file(td / "runtime_overrides.json", "{}")
+    ml_reset.reset_ml("full_new_data_only")
+    assert (root / ".env").exists() and (root / "runtime_overrides.json").exists() and (td / "runtime_overrides.json").exists()
+
+
+def test_ml_reset_full_new_data_keeps_dem_cell_filters(monkeypatch, tmp_path):
+    root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "dem" / "grid.tif")
+    _file(td / "cell_filters" / "cells.json")
+    ml_reset.reset_ml("full_new_data_only")
+    assert (td / "dem" / "grid.tif").exists() and (td / "cell_filters" / "cells.json").exists()
+
+
+def test_ml_reset_full_new_data_keeps_hydro_static(monkeypatch, tmp_path):
+    root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "hydro" / "static" / "stations.json")
+    ml_reset.reset_ml("full_new_data_only")
+    assert (td / "hydro" / "static" / "stations.json").exists()
+
+
+def test_ml_reset_full_new_data_deletes_hydro_dynamic_if_present(monkeypatch, tmp_path):
+    root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "hydro" / "measurements" / "old.json")
+    ml_reset.reset_ml("full_new_data_only")
+    assert not (td / "hydro" / "measurements").exists()
+
+
+def test_ml_reset_preview_lists_every_train_data_child(monkeypatch, tmp_path):
+    root, td = _patch_paths(monkeypatch, tmp_path)
+    for name in ["arome", "unknown_staticish", "statistics"]:
+        _file(td / name / "x")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    listed = {s["path"] for key in ["delete_sections", "preserve_sections", "manual_review_sections", "delete_children_sections"] for s in plan[key]}
+    assert {"train_data/arome", "train_data/unknown_staticish", "train_data/statistics"} <= listed
+
+
+def test_ml_reset_preview_has_counts_for_every_section(monkeypatch, tmp_path):
+    root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "arome" / "x", "123")
+    plan = ml_reset.build_reset_plan("full_new_data_only")
+    for key in ["delete_sections", "preserve_sections", "manual_review_sections", "protected_sections"]:
+        for sec in plan[key]:
+            assert {"files", "dirs", "bytes", "size_mb", "examples", "reason", "will_recreate", "protected"} <= set(sec)
+
+
+def test_ml_reset_refuses_if_protected_path_in_delete_plan(monkeypatch, tmp_path):
+    root, td = _patch_paths(monkeypatch, tmp_path)
+    plan = {"delete_sections": [{"path": "train_data/statistics", "action": "delete_after_backup"}], "delete_children_sections": []}
+    with pytest.raises(RuntimeError):
+        ml_reset._assert_delete_plan_safe(plan)
+
+
+def test_ml_reset_requires_valid_backup_before_delete(monkeypatch, tmp_path):
+    root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "models" / "m.bin")
+    monkeypatch.setattr(ml_reset, "validate_backup", lambda path: {"valid": False, "errors": ["broken"]})
+    with pytest.raises(RuntimeError):
+        ml_reset.reset_ml("full_new_data_only")
+    assert (td / "models" / "m.bin").exists()
+
+
+def test_ml_reset_status_reports_deleted_and_preserved_counts(monkeypatch, tmp_path):
+    root, td = _patch_paths(monkeypatch, tmp_path)
+    _file(td / "models" / "m.bin", "123")
+    _file(td / "statistics" / "s.json")
+    ml_reset.reset_ml("full_new_data_only")
+    status = json.loads((td / "ml_reset_status.json").read_text())
+    assert status["deleted_counts"]["files"] == 1
+    assert any(s["path"] == "train_data/statistics" for s in status["preserved_sections"])

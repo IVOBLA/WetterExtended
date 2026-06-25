@@ -23,21 +23,25 @@ ML_JOB_LOCK_FILE = TRAIN_DATA_DIR / "ml_job.lock"
 MANIFEST_NAME = "manifest.json"
 
 RESET_MODES = {"models_only", "full_new_data_only"}
-EXPECTED_MAIN_DIRS = ["models", "dataset", "objects", "weather", "hydro", "statistics"]
+EXPECTED_MAIN_DIRS = ["models", "dataset", "objects", "weather", "hydro", "statistics", "arome", "cape", "cloud", "evaluation", "external_responses", "archived_training_sources"]
 MODEL_ARTIFACT_PATTERNS = ["*.keras", "*.h5", "*.joblib", "*.txt", "training_meta.json", "*_metrics.json"]
 DATASET_ARTIFACT_PATTERNS = ["*.npz", "*.parquet", "*.csv", "*.pkl", "*.joblib", "*.json"]
 TRAINING_SOURCE_KEYS = ("objects", "weather")
-NEVER_DELETE_REL = {
+PROTECTED_REL = {
+    "backups",
     ".env",
     "runtime_overrides.json",
     "train_data/runtime_overrides.json",
-    "train_data/hydro",
     "train_data/statistics",
     "train_data/cell_filters",
     "train_data/dem",
-    "backups",
+    "train_data/hydro/static",
 }
-RESET_STEPS = ["preflight", "backup", "remove_models", "remove_dataset", "archive_training_sources", "write_status", "finished"]
+STATIC_HYDRO_CHILDREN = {"static", "generated", "indices", "index", "stations", "catchments", "network", "terrain", "geo", "geography"}
+DYNAMIC_HYDRO_CHILDREN = {"history", "measurements", "timeseries", "impact", "impacts", "verification", "evaluations", "forecast", "forecasts", "nowcast", "nowcasts", "cache", "responses", "observations"}
+FULL_DELETE_CHILDREN = {"models", "dataset", "objects", "weather", "arome", "cape", "cloud", "evaluation", "external_responses", "archived_training_sources"}
+DYNAMIC_NAME_HINTS = ("cache", "raw", "tmp", "temp", "forecast", "nowcast", "radar", "ir", "analysis", "pending", "eval", "verification", "response")
+RESET_STEPS = ["preflight", "backup", "validate_backup", "delete_dynamic_data", "verify_delete", "write_status", "finished"]
 
 
 def _utc_now() -> datetime:
@@ -227,38 +231,99 @@ def _section_counts(path: Path, root: Path | None = None, max_examples: int = 8)
     return {"files": files, "dirs": dirs, "bytes": bytes_total, "size_mb": round(bytes_total / 1024 / 1024, 2), "examples": examples}
 
 
-def _section(area: str, path: Path, action: str, root: Path | None = None) -> dict:
-    safe_root = root or (PROJECT_ROOT if area in {"project", "backups"} else TRAIN_DATA_DIR)
+def _action_for_preserved(path: str) -> tuple[str, str]:
+    if path == "backups":
+        return "preserve_backup", "Root-Backups dürfen niemals automatisch gelöscht werden."
+    if path in {".env", "runtime_overrides.json", "train_data/runtime_overrides.json"}:
+        return "preserve_config", "Konfigurationen dürfen niemals automatisch gelöscht werden."
+    if path == "train_data/statistics":
+        return "preserve_statistics", "Langzeitstatistiken bleiben erhalten."
+    return "preserve_static_reference", "Statische Referenzdaten bleiben erhalten und werden nicht neu angefordert."
+
+
+def _section(area: str, path: Path, action: str, root: Path | None = None, reason: str = "", will_recreate: bool = False, protected: bool = False) -> dict:
+    safe_root = root or (PROJECT_ROOT if area in {"project", "backups", "config"} else TRAIN_DATA_DIR)
     path = _ensure_inside(path, safe_root)
     counts = _section_counts(path, safe_root)
-    return {"area": area, "path": _rel(path), "action": action, **counts}
+    return {"area": area, "path": _rel_lexical(path), "action": action, "reason": reason, "will_recreate": will_recreate, "protected": protected, **counts}
+
+
+def _train_child_section(child: Path, mode: str) -> dict:
+    name = child.name
+    rel = f"train_data/{name}"
+    if rel in PROTECTED_REL:
+        action, reason = _action_for_preserved(rel)
+        return _section(name, child, action, TRAIN_DATA_DIR, reason, protected=True)
+    if (mode == "models_only" and name in {"models", "dataset"}) or (mode == "full_new_data_only" and name in FULL_DELETE_CHILDREN):
+        return _section(name, child, "delete_after_backup", TRAIN_DATA_DIR, "Dynamische ML-/Rohdaten-/Cache-/Evaluationshistorie wird nach validiertem Backup gelöscht.", will_recreate=name in {"models", "dataset", "objects", "weather"})
+    if name == "hydro":
+        return _section("hydro", child, "delete_children_after_backup", TRAIN_DATA_DIR, "Hydro wird nur unterordnerweise klassifiziert: statische Referenzen bleiben, dynamische Historien werden gelöscht.")
+    if name in {"statistics", "cell_filters", "dem"}:
+        action, reason = _action_for_preserved(rel)
+        return _section(name, child, action, TRAIN_DATA_DIR, reason, protected=True)
+    if name == "runtime_overrides.json":
+        action, reason = _action_for_preserved(rel)
+        return _section(name, child, action, TRAIN_DATA_DIR, reason, protected=True)
+    if mode == "full_new_data_only" and any(h in name.lower() for h in DYNAMIC_NAME_HINTS):
+        return _section(name, child, "delete_after_backup", TRAIN_DATA_DIR, "Name deutet auf dynamische Cache-/Analyse-/Forecast-Daten hin; Löschung erst nach validiertem Backup.")
+    return _section(name, child, "manual_review_required", TRAIN_DATA_DIR, "Unbekannter train_data-Bereich: keine automatische Löschung ohne klare Klassifikation.")
+
+
+def _hydro_child_section(child: Path, mode: str) -> dict:
+    name = child.name.lower()
+    rel = f"train_data/hydro/{child.name}"
+    if rel == "train_data/hydro/static" or name in STATIC_HYDRO_CHILDREN:
+        return _section(f"hydro/{child.name}", child, "preserve_static_reference", TRAIN_DATA_DIR, "Statische Hydro-/Geografie-/Terrain-Referenzdaten bleiben erhalten.", protected=rel == "train_data/hydro/static")
+    if mode == "full_new_data_only" and (name in DYNAMIC_HYDRO_CHILDREN or any(h in name for h in DYNAMIC_NAME_HINTS)):
+        return _section(f"hydro/{child.name}", child, "delete_after_backup", TRAIN_DATA_DIR, "Dynamische Hydro-Messreihe/-Impact-/-Verification-Historie wird gelöscht.")
+    return _section(f"hydro/{child.name}", child, "manual_review_required", TRAIN_DATA_DIR, "Hydro-Unterordner ist fachlich nicht eindeutig klassifizierbar.")
 
 
 def build_reset_plan(mode: str) -> dict:
     if mode not in RESET_MODES:
         raise ValueError(f"Ungueltiger Reset-Modus: {mode}")
-    models = _project_path(SAVE_PATHS.get("models", "train_data/models"))
-    dataset = _project_path(SAVE_PATHS.get("dataset", "train_data/dataset"))
-    objects = _project_path(SAVE_PATHS.get("objects", "train_data/objects"))
-    weather = _project_path(SAVE_PATHS.get("weather", "train_data/weather"))
-    delete_sections = [_section("models", models, "delete_recreate"), _section("dataset", dataset, "delete_children")]
-    archive_sections = []
-    if mode == "full_new_data_only":
-        archive_sections = [_section("objects", objects, "archive_recreate"), _section("weather", weather, "archive_recreate")]
-    preserved_specs = [
-        ("hydro", TRAIN_DATA_DIR / "hydro", TRAIN_DATA_DIR),
-        ("statistics", TRAIN_DATA_DIR / "statistics", TRAIN_DATA_DIR),
-        ("cell_filters", TRAIN_DATA_DIR / "cell_filters", TRAIN_DATA_DIR),
-        ("dem", TRAIN_DATA_DIR / "dem", TRAIN_DATA_DIR),
-        ("env", PROJECT_ROOT / ".env", PROJECT_ROOT),
-        ("runtime_config", PROJECT_ROOT / "runtime_overrides.json", PROJECT_ROOT),
-        ("train_runtime_config", TRAIN_DATA_DIR / "runtime_overrides.json", TRAIN_DATA_DIR),
-        ("backups", BACKUP_DIR, PROJECT_ROOT),
-        ("archived_training_sources", ARCHIVE_DIR, TRAIN_DATA_DIR),
-    ]
-    preserved_sections = [_section(area, path, "preserve", root) for area, path, root in preserved_specs]
-    return {"mode": mode, "will_backup": True, "delete_sections": delete_sections, "archive_sections": archive_sections, "preserved_sections": preserved_sections}
-
+    TRAIN_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    root_preserved = []
+    for path in [BACKUP_DIR, PROJECT_ROOT / ".env", PROJECT_ROOT / "runtime_overrides.json"]:
+        rel = _rel_lexical(path)
+        action, reason = _action_for_preserved(rel)
+        root_preserved.append(_section(path.name or rel, path, action, PROJECT_ROOT, reason, protected=True))
+    preserve_sections = []
+    delete_sections = []
+    delete_children_sections = []
+    manual_review_sections = []
+    protected_sections = list(root_preserved)
+    for child in sorted(TRAIN_DATA_DIR.iterdir(), key=lambda p: p.name) if TRAIN_DATA_DIR.exists() else []:
+        sec = _train_child_section(child, mode)
+        if sec["action"] == "delete_after_backup":
+            delete_sections.append(sec)
+        elif sec["action"] == "delete_children_after_backup":
+            delete_children_sections.append(sec)
+            if child.name == "hydro" and child.is_dir() and not child.is_symlink():
+                for hchild in sorted(child.iterdir(), key=lambda p: p.name):
+                    hsec = _hydro_child_section(hchild, mode)
+                    if hsec["action"] == "delete_after_backup":
+                        delete_sections.append(hsec)
+                    elif hsec["action"] == "manual_review_required":
+                        manual_review_sections.append(hsec)
+                    else:
+                        preserve_sections.append(hsec)
+                        if hsec.get("protected"):
+                            protected_sections.append(hsec)
+        elif sec["action"] == "manual_review_required":
+            manual_review_sections.append(sec)
+        else:
+            preserve_sections.append(sec)
+            if sec.get("protected"):
+                protected_sections.append(sec)
+    # Show missing but protected important paths in preview.
+    for rel in ["train_data/runtime_overrides.json", "train_data/statistics", "train_data/cell_filters", "train_data/dem", "train_data/hydro/static"]:
+        path = PROJECT_ROOT / rel
+        if not any(s["path"] == rel for s in preserve_sections + protected_sections):
+            action, reason = _action_for_preserved(rel)
+            sec = _section(Path(rel).name, path, action, PROJECT_ROOT if not rel.startswith("train_data/") else TRAIN_DATA_DIR, reason, protected=True)
+            preserve_sections.append(sec); protected_sections.append(sec)
+    return {"mode": mode, "will_backup": True, "backup_target": "backups/YYYYMMDD_HHMMSS_train_data.zip", "preserve_sections": preserve_sections, "preserved_sections": preserve_sections, "delete_sections": delete_sections, "delete_children_sections": delete_children_sections, "manual_review_sections": manual_review_sections, "protected_sections": protected_sections, "archive_sections": []}
 
 def _sum_sections(sections: list[dict]) -> dict:
     files = sum(int(s.get("files") or 0) for s in sections)
@@ -627,6 +692,40 @@ def _archive_training_sources() -> list[dict]:
     return archived
 
 
+
+def _assert_delete_plan_safe(plan: dict) -> None:
+    forbidden = set(PROTECTED_REL) | {".", "train_data"}
+    for sec in plan.get("delete_sections", []) + plan.get("delete_children_sections", []):
+        rel = sec.get("path", "")
+        action = sec.get("action")
+        if action not in {"delete_after_backup", "delete_children_after_backup"}:
+            continue
+        if rel in forbidden or any(rel == p or rel.startswith(p + "/") and p in {"backups"} for p in forbidden):
+            raise RuntimeError(f"Geschützter Pfad im Löschplan: {rel}")
+        path = PROJECT_ROOT / rel
+        _ensure_inside(path, TRAIN_DATA_DIR)
+        if path.resolve(strict=False) in {PROJECT_ROOT.resolve(strict=False), TRAIN_DATA_DIR.resolve(strict=False)}:
+            raise RuntimeError(f"Unsicherer Löschpfad: {rel}")
+
+
+def _delete_section(sec: dict) -> dict:
+    path = PROJECT_ROOT / sec["path"]
+    before = _section(sec.get("area", path.name), path, sec.get("action", "delete_after_backup"), PROJECT_ROOT if not sec["path"].startswith("train_data/") else TRAIN_DATA_DIR, sec.get("reason", ""), sec.get("will_recreate", False), sec.get("protected", False))
+    if path.exists() or path.is_symlink():
+        _safe_unlink(path, TRAIN_DATA_DIR)
+    if sec.get("will_recreate"):
+        path.mkdir(parents=True, exist_ok=True)
+    after = _section_counts(path, TRAIN_DATA_DIR) if (path.exists() or path.is_symlink()) else {"files": 0, "dirs": 0, "bytes": 0, "size_mb": 0.0, "examples": []}
+    return before | {"after": after, "verified_empty": after["files"] == 0 and after["dirs"] == 0}
+
+
+def _execute_delete_plan(plan: dict) -> list[dict]:
+    _assert_delete_plan_safe(plan)
+    deleted = []
+    for sec in plan.get("delete_sections", []):
+        deleted.append(_delete_section(sec))
+    return deleted
+
 def ml_status() -> dict:
     models_dir = _project_path(SAVE_PATHS.get("models", "train_data/models"))
     current = models_dir / "current"
@@ -678,24 +777,23 @@ def _run_reset_job(job_id: str, mode: str) -> None:
     try:
         plan = build_reset_plan(mode)
         _mark_reset_step("preflight", job_id, pid=os.getpid(), mode=mode, plan=plan)
+        _assert_delete_plan_safe(plan)
         _mark_reset_step("backup", job_id)
         backup = create_backup(mode)
-        _mark_reset_step("remove_models", job_id, backup=backup)
-        removed_models = _remove_models()
-        _mark_reset_step("remove_dataset", job_id)
-        removed_dataset = _remove_dataset()
+        _mark_reset_step("validate_backup", job_id, backup=backup)
+        validation = validate_backup(BACKUP_DIR / backup["id"])
+        if not validation.get("valid"):
+            raise RuntimeError("Backup-Validierung fehlgeschlagen: " + "; ".join(validation.get("errors") or []))
+        _mark_reset_step("delete_dynamic_data", job_id, backup=backup)
+        deleted_sections = _execute_delete_plan(plan)
+        _mark_reset_step("verify_delete", job_id)
         archived = []
-        if mode == "full_new_data_only":
-            _mark_reset_step("archive_training_sources", job_id)
-            archived = _archive_training_sources()
-        else:
-            _mark_reset_step("archive_training_sources", job_id)
         try:
             from feature_schema import get_current_feature_schema
             _schema = get_current_feature_schema()
         except Exception:
             _schema = {}
-        deleted_counts = _sum_sections([removed_models, removed_dataset])
+        deleted_counts = _sum_sections(deleted_sections)
         archived_counts = _sum_sections(archived)
         result = {
             "status": "reset_done", "mode": mode, "backup": backup.get("path"), "backup_id": backup.get("id"),
@@ -754,10 +852,14 @@ def reset_ml(mode: str) -> dict:
         raise ValueError(f"Ungueltiger Reset-Modus: {mode}")
     owner = _acquire_ml_job_lock("reset", f"reset_{_utc_now().strftime('%Y%m%d_%H%M%S_%f')}")
     try:
+        plan = build_reset_plan(mode)
+        _assert_delete_plan_safe(plan)
         backup = create_backup(mode)
-        removed_models = _remove_models()
-        removed_dataset = _remove_dataset()
-        archived = _archive_training_sources() if mode == "full_new_data_only" else []
+        validation = validate_backup(BACKUP_DIR / backup["id"])
+        if not validation.get("valid"):
+            raise RuntimeError("Backup-Validierung fehlgeschlagen: " + "; ".join(validation.get("errors") or []))
+        deleted_sections = _execute_delete_plan(plan)
+        archived = []
         try:
             from feature_schema import get_current_feature_schema
             _schema = get_current_feature_schema()
@@ -771,11 +873,12 @@ def reset_ml(mode: str) -> dict:
             "backup_size_mb": backup["size_mb"],
             "created": _utc_now().isoformat(),
             "next_action": "collect_new_data" if mode == "full_new_data_only" else "rebuild_dataset_or_retrain",
-            "removed_models_entries": removed_models.get("files", 0) + removed_models.get("dirs", 0),
-            "removed_dataset_entries": removed_dataset.get("files", 0) + removed_dataset.get("dirs", 0),
-            "deleted_counts": _sum_sections([removed_models, removed_dataset]),
+            "removed_models_entries": 0,
+            "removed_dataset_entries": 0,
+            "deleted_counts": _sum_sections(deleted_sections),
             "archived_counts": _sum_sections(archived),
             "archived_training_sources": archived,
+            "preserved_sections": plan.get("preserve_sections", []),
             "feature_schema_hash": _schema.get("feature_schema_hash"),
             "feature_schema_version": _schema.get("schema_version"),
             "schema_status": "reset_to_current_runtime_schema",

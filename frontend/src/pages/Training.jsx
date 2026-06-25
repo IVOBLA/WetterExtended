@@ -103,23 +103,30 @@ export default function Training() {
     try { setMlSchema(await api.get('/api/admin/ml/schema')) } catch (_) {}
   }
 
-  const formatSection = (section) => `${section.path}: ${section.files} Dateien, ${section.dirs} Ordner, ${section.size_mb} MB`
+  const formatSection = (section) => `${section.path}: ${section.files} Dateien, ${section.dirs} Ordner, ${section.size_mb} MB — ${section.reason || section.action}`
 
   const runMlReset = async (mode) => {
     setMlBusy(true)
     try {
       const plan = await api.get(`/api/admin/ml/reset/preview?mode=${encodeURIComponent(mode)}`)
+      const deleteSections = plan.delete_sections || []
+      const preserveSections = plan.preserve_sections || plan.preserved_sections || []
+      const manualSections = plan.manual_review_sections || []
       const lines = [
-        'Backup wird vor dem Reset erstellt.',
+        'Backup wird erstellt:',
+        `- ${plan.backup_target || 'backups/YYYYMMDD_HHMMSS_train_data.zip'}`,
         '',
-        'Gelöscht:',
-        ...(plan.delete_sections || []).map(formatSection),
+        'Wird nach erfolgreichem Backup gelöscht:',
+        ...(deleteSections.length ? deleteSections.map(formatSection) : ['—']),
         '',
-        'Archiviert (aus aktiver Trainingsquelle entfernt, nicht endgültig gelöscht):',
-        ...((plan.archive_sections || []).length ? (plan.archive_sections || []).map(formatSection) : ['—']),
+        'Bleibt erhalten:',
+        ...(preserveSections.length ? preserveSections.map(formatSection) : ['—']),
         '',
-        'Erhalten:',
-        ...(plan.preserved_sections || []).map(formatSection),
+        'Manuelle Prüfung erforderlich:',
+        ...(manualSections.length ? manualSections.map(formatSection) : ['—']),
+        '',
+        'Explizit erhalten: backups/, Konfigurationen, train_data/statistics/, DEM, Cell-Filter und statische Hydro-Daten.',
+        'Explizit gelöscht: alte dynamische Daten wie arome, cape, cloud, evaluation, external_responses und archived_training_sources.',
         '',
         'Nach dem Reset ist kein ML-Modell aktiv; der kinematische Fallback übernimmt und neue Trainingsdaten werden ab jetzt gesammelt.',
         '',
@@ -172,7 +179,7 @@ export default function Training() {
         setResetStatus(status)
         if (status.finished) {
           setResetJobId(null)
-          setMsg(`ML-Reset abgeschlossen. Backup: ${status.backup?.id || status.result?.backup_id || '—'}. Gelöscht: ${status.deleted_counts?.files || 0} Dateien/${status.deleted_counts?.dirs || 0} Ordner/${status.deleted_counts?.size_mb || 0} MB. Archiviert: ${status.archived_counts?.files || 0} Dateien/${status.archived_counts?.dirs || 0} Ordner/${status.archived_counts?.size_mb || 0} MB. ML-Modell fehlt, kinematischer Fallback aktiv, neue Trainingsdaten werden ab jetzt gesammelt.`)
+          setMsg(`Reset abgeschlossen. Backup: ${status.backup?.id || status.result?.backup_id || '—'}. Gelöscht aus dynamischer ML-/Datenhistorie: ${status.deleted_counts?.files || 0} Dateien / ${status.deleted_counts?.dirs || 0} Ordner / ${status.deleted_counts?.size_mb || 0} MB. Erhalten: Konfigurationen, Statistik, Backups, DEM, Cell-Filter, statische Hydro-Daten. ML-Modell fehlt, kinematischer Fallback aktiv. Neue Trainingsdaten werden ab jetzt gesammelt.`)
           await refreshMl()
         } else if (status.failed) {
           setResetJobId(null)
@@ -370,7 +377,7 @@ export default function Training() {
           {schemaPolicy === 'allow_legacy' && <div className="bg-amber-100 border border-amber-300 text-amber-900 rounded p-2 mt-2">Legacy-Daten können mit altem Feature-Set erzeugt worden sein und die Modellqualität verschlechtern.</div>}
           {backupRunning && <div className="text-blue-800 text-sm mt-2">Backup läuft... {backupStatus?.progress || ''}</div>}
           {resetRunning && <div className="text-blue-800 text-sm mt-2 flex items-center gap-2"><span className="inline-block h-4 w-4 rounded-full border-2 border-current border-t-transparent animate-spin" aria-hidden="true" /> ML-Reset läuft: {resetStatus?.current_step || resetStatus?.progress || '—'} ({resetStatus?.percent || 0}%)</div>}
-          {resetStatus?.finished && <div className="bg-green-50 border border-green-200 text-green-900 rounded p-2 mt-2">Reset abgeschlossen · Backup: {resetStatus.backup?.id || resetStatus.result?.backup_id || '—'} · Gelöscht: {resetStatus.deleted_counts?.files || 0} Dateien/{resetStatus.deleted_counts?.dirs || 0} Ordner/{resetStatus.deleted_counts?.size_mb || 0} MB · Archiviert: {resetStatus.archived_counts?.files || 0} Dateien/{resetStatus.archived_counts?.dirs || 0} Ordner/{resetStatus.archived_counts?.size_mb || 0} MB · ML-Modell fehlt, kinematischer Fallback aktiv.</div>}
+          {resetStatus?.finished && <div className="bg-green-50 border border-green-200 text-green-900 rounded p-2 mt-2">Reset abgeschlossen · Backup: {resetStatus.backup?.id || resetStatus.result?.backup_id || '—'} · Gelöscht aus dynamischer ML-/Datenhistorie: {resetStatus.deleted_counts?.files || 0} Dateien/{resetStatus.deleted_counts?.dirs || 0} Ordner/{resetStatus.deleted_counts?.size_mb || 0} MB · Erhalten: Konfigurationen, Statistik, Backups, DEM, Cell-Filter, statische Hydro-Daten · ML-Modell fehlt, kinematischer Fallback aktiv. Neue Trainingsdaten werden ab jetzt gesammelt.</div>}
           {resetStatus?.failed && <div className="bg-red-50 border border-red-300 text-red-800 rounded p-2 mt-2">Reset fehlgeschlagen: {resetStatus.error || 'Unbekannter Fehler'}</div>}
           <div className="flex flex-wrap gap-2 mt-3">
             <button className="btn" disabled={mlActionsDisabled} onClick={scanDataset}>Dataset neu prüfen</button>
