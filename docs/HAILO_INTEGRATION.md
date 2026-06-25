@@ -3116,3 +3116,12 @@ erweitert. JSX mit esbuild validiert. Offen: P65.
 - Zusätzlich: `kinematic_speed_kmh`, `core_ratio`, `area` für Fehler-Attribution.
 - Behebt: `forecast_quality_diagnosis_latest.json` meldete `dem_orography.missing_ratio=1.0` und `weather_features.missing_ratio=1.0` — Features waren im Objekt vorhanden, aber nicht in das JSONL geschrieben.
 - Tests: `tests/test_b249_detail_record_features.py`.
+
+## B250 — Train/Serve-Mismatch: Feature-Namen-Persistenz + Konsistenz-Check (2026-06-25)
+- `training_meta.json` speichert jetzt `feature_names` (vollständige Feature-Liste in Trainings-Reihenfolge: ML_CELL_FEATURES + ML_STATION_FEATURES + time).
+- `prediction.py` prüft beim Modell-Load ob die aktuelle Feature-Liste identisch mit `training_meta.feature_names` ist.
+- Bei Mismatch: kritische Log-Warnung mit erstem Abweichungspunkt + Force-Kinematik für alle Objekte des Laufs.
+- Kein Mismatch-Check für alte Modelle ohne `feature_names` in `training_meta` (rückwärtskompatibel).
+- Behebt die Diagnose-Grundlage für: ~160 km Runtime-MAE trotz val_loss≈0.40 (Train/Serve-Skew).
+- Ein nach B250 trainiertes Modell mit unveränderter Feature-Liste aktiviert die ML-Vorhersage wenn auch der ML-Runtime-Gate (B243) durchlässt.
+- Tests: `tests/test_b250_feature_consistency.py`.
