@@ -235,6 +235,8 @@ Verwendung: $0 [OPTIONEN]
   --no-hailo            Hailo-8-Setup überspringen
   --no-node             Node.js/Frontend-Build überspringen
   --no-training         LOCAL_TRAINING=False setzen (Phase B: Training auf Linux-Rechner)
+  --reset-ml            Nach Backup Modelle und generierte Datasets entfernen
+  --reset-ml-full       Nach Backup Modelle, Datasets und alte ML-Trainingsquellen archivieren
   --no-debug-export-git
                        Automatischen GitHub-Debug-Export im separaten Branch nicht einrichten
   --local               Installiert aus dem lokalen Verzeichnis (ZIP-Modus).
@@ -253,6 +255,7 @@ USAGE
 
 # --- Argument-Parsing ---------------------------------------------------------
 CURRENT_PHASE="Phase 1 — Argument-Parsing"
+RESET_ML_MODE=""
 # B222: Original-Aufrufargumente sichern (für Selbst-Neustart nach Source-Update).
 _ORIG_ARGV=("$@")
 while [[ $# -gt 0 ]]; do
@@ -278,6 +281,8 @@ while [[ $# -gt 0 ]]; do
         --no-hailo)       INSTALL_HAILO=false; NO_HAILO=1; shift ;;
         --no-node)        INSTALL_NODE=false; NO_NODE=1; shift ;;
         --no-training)    LOCAL_TRAINING_FLAG=false; shift ;;
+        --reset-ml)       RESET_ML_MODE="models_only"; shift ;;
+        --reset-ml-full)  RESET_ML_MODE="full_new_data_only"; shift ;;
         --no-debug-export-git) ENABLE_DEBUG_EXPORT_GIT=false; shift ;;
         --local)
             LOCAL_INSTALL=true
@@ -1178,7 +1183,18 @@ fi
 
 INITIAL_MODEL_SOURCE="$TARGET/weather_lstm_model.keras"
 INITIAL_MODEL_TARGET="$TARGET/train_data/models/current/weather_lstm.keras"
-if [[ -f "$INITIAL_MODEL_SOURCE" ]]; then
+if [[ -n "${RESET_ML_MODE:-}" && -f "$TARGET/ml_reset.py" ]]; then
+    log_info "ML-Reset per install.sh angefordert: $RESET_ML_MODE"
+    ( cd "$TARGET" && "$VENV/bin/python3" - <<PY
+from ml_reset import reset_ml
+print(reset_ml("$RESET_ML_MODE")["reset"]["status"])
+PY
+    ) || { log_error "ML-Reset fehlgeschlagen"; exit 1; }
+fi
+
+if [[ -f "$TARGET/train_data/ml_reset_status.json" ]]; then
+    log_info "ML-Reset-Status vorhanden — Initialmodell-Bootstrap wird nicht reaktiviert."
+elif [[ -f "$INITIAL_MODEL_SOURCE" ]]; then
     # Bootstrap: ein initiales Versionsverzeichnis und current-Symlink anlegen
     BOOTSTRAP_VERSION="v_bootstrap"
     BOOTSTRAP_DIR="$TARGET/train_data/models/$BOOTSTRAP_VERSION"
