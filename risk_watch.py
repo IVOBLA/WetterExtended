@@ -120,6 +120,9 @@ def risk_watch_active(
 
     # (a) CB-IR-Vorläuferzelle? ir_only_precursor stammt ausschließlich aus
     #     konvektiver IR-Detektion (CB) — keine sonstigen hohen Wolken.
+    # B252: Observation-Timestamp des IR-Tracks prüfen. Eingefrorene Tracks
+    # (gleicher tiff mehrere Zyklen) dürfen den Kurzintervall nicht erzwingen.
+    _ir_obs_max_age = float(runtime_config.get("IR_MAX_DATA_AGE_MIN", IR_MAX_DATA_AGE_MIN))
     for ir in (ir_tracks or []):
         try:
             stage = ir.get("ir_stage") or ir.get("status")
@@ -128,6 +131,33 @@ def risk_watch_active(
                 score = float(runtime_config.get("IR_WATCH_MIN_SCORE", IR_WATCH_MIN_SCORE))
             score = float(score or 0.0)
             if float(ir.get("ir_only_precursor", 0.0)) == 1.0 and (stage in {None, "ir_precursor", "ir_watch_candidate", "ir_pre_cb", "ir_cb_precursor"}) and score >= float(runtime_config.get("IR_WATCH_MIN_SCORE", IR_WATCH_MIN_SCORE)):
+                # B252: Observation-Alter des Tracks prüfen
+                _obs_ts_str = (
+                    ir.get("observation_timestamp")
+                    or ir.get("last_seen_observation_timestamp")
+                    or ir.get("source_timestamp")
+                )
+                if _obs_ts_str:
+                    try:
+                        from datetime import datetime as _dt_rw, timezone as _tz_rw
+                        _obs_dt = None
+                        for _fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d_%H-%M-%S", "%Y-%m-%dT%H:%M:%S"):
+                            try:
+                                _obs_dt = _dt_rw.strptime(str(_obs_ts_str).replace("+00:00", "Z"), _fmt).replace(tzinfo=_tz_rw.utc)
+                                break
+                            except ValueError:
+                                pass
+                        if _obs_dt:
+                            _obs_age_min = (_dt_rw.now(_tz_rw.utc) - _obs_dt).total_seconds() / 60.0
+                            if _obs_age_min > _ir_obs_max_age:
+                                debug_log(
+                                    f"[RISK-WATCH] IR-Track {ir.get('ir_id','?')} "
+                                    f"Observation veraltet ({_obs_age_min:.0f} min > "
+                                    f"{_ir_obs_max_age:.0f} min) → kein Kurzintervall"
+                                )
+                                continue
+                    except Exception:
+                        pass
                 debug_log(f"[RISK-WATCH] frische IR-Frühphase/Vorläufer ({stage}) aktiv → kurzer Intervall")
                 return True
         except (TypeError, ValueError, AttributeError):

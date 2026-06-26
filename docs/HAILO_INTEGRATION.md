@@ -3133,3 +3133,8 @@ erweitert. JSX mit esbuild validiert. Offen: P65.
 - F4: `ended=True` wird konsistent gesetzt: in `_normalize_state()`, in `finalize_expired_ir_precursors()` und im positiven-Label-Pfad.
 - `confirm_ir_radar_match_in_lineage()` setzt `radar_confirmed=True` nur bei nicht-leerem `radar_track_id`.
 - Test: `tests/test_b251_lineage_integrity.py`.
+
+## B252 — IR-Track Ausalterung an Observation-Timestamp + Kurzintervall-Freshness (2026-06-26)
+- F5: `ir_cell_tracking.py` zählt in `stale_obs_cycles`, wie oft aufeinanderfolgend `tiff_file` + `observation_timestamp` identisch geblieben sind. Nach `IR_MAX_STALE_OBS_CYCLES` (Default 2) eingefrorenen Zyklen wird `missing` inkrementiert und `motion_quality="stale_obs"` gesetzt. Verhindert dauerhaftes `missing=0` bei eingefrorenen TIFF-Tracks.
+- F6: `risk_watch.risk_watch_active()` prüft zusätzlich zur Datei-mtime den `observation_timestamp` jedes IR-Tracks. Tracks mit Observation älter als `IR_MAX_DATA_AGE_MIN` werden für den Kurzintervall-Trigger ignoriert.
+- Test: `tests/test_b252_ir_track_stale_obs.py`.
