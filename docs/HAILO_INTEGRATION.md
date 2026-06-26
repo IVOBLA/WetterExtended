@@ -3144,3 +3144,8 @@ erweitert. JSX mit esbuild validiert. Offen: P65.
 - `config.py`: `IR_CB_MIN_HEIGHT_CONFIDENCE = 0.5` (runtime-überschreibbar).
 - F8: `first_height_alert_timestamp` wird in `ir_cell_detection.py` nicht mehr gesetzt (immer `None`); in `ir_cell_tracking.py` wird er exakt einmalig beim ersten Überschreiten der Höhenschwelle gesetzt und danach nie überschrieben.
 - Test: `tests/test_b253_cb_confidence_gate.py`.
+
+## B254 — Steuerwind-Fallback für IR-Vorläufer ohne Bewegungsableitung (2026-06-26)
+- F9: `_forecast_fields()` in `ir_cell_tracking.py` nutzt bei `vx == vy == 0` den 700-hPa-Steuerwind aus dem Track (`wind_speed_700hPa`, `wind_dir_cos`, `wind_dir_sin`), um eine Bewegungsprognose abzuleiten (70 % der Windgeschwindigkeit als Zellgeschwindigkeit). `forecast_mode = "steering_wind"`, `forecast_confidence = 0.35`. Alle Zeithorizonte zeigen damit sinnvolle Positionen statt der Ist-Position.
+- Neu-Track-Anlage übernimmt Wind-Felder aus der Detektion.
+- Test: `tests/test_b254_steering_wind_fallback.py`.
