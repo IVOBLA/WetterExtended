@@ -26,6 +26,10 @@ from math import radians, cos, sin, sqrt, atan2
 
 from config import SAVE_PATHS, IR_TRACK_MAX_MISSING, IR_WATCH_MIN_SCORE, IR_PRE_CB_MIN_SCORE, IR_CB_MIN_SCORE, IR_WATCH_MAX_PUBLIC_AGE_MIN, IR_PUBLIC_WATCH_VISIBLE, CLOUD_HEIGHT_ALERT_THRESHOLD_M
 
+# B252: Maximale Anzahl aufeinanderfolgender Zyklen mit unveränderten
+# tiff_file + observation_timestamp, bevor missing inkrementiert wird.
+_IR_MAX_STALE_OBS_CYCLES_DEFAULT = 2
+
 try:
     import runtime_config
 except Exception:
@@ -364,6 +368,40 @@ def update_ir_tracking(new_cells: list, timestamp: str) -> list:
                 "last_timestamp":   obs_ts,
                 "tiff_file":        cell["tiff_file"],
             })
+            # B252: Stale-Observation-Prüfung: wenn tiff_file + observation_timestamp
+            # identisch mit dem vorherigen Zyklus sind, erhöhe stale_obs_cycles.
+            # Nach IR_MAX_STALE_OBS_CYCLES aufeinanderfolgenden eingefrorenen
+            # Zyklen wird missing inkrementiert, damit der Track ausaltert.
+            _prev_obs_ts = track.get("_prev_obs_ts_b252")
+            _curr_obs_ts = obs_ts
+            _prev_tiff_b252 = track.get("_prev_tiff_b252")
+            _curr_tiff_b252 = cell.get("tiff_file", "")
+            _same_obs = (_prev_obs_ts is not None
+                         and _prev_obs_ts == _curr_obs_ts
+                         and _prev_tiff_b252 == _curr_tiff_b252)
+            if _same_obs:
+                _stale = track.get("stale_obs_cycles", 0) + 1
+                track["stale_obs_cycles"] = _stale
+                try:
+                    _max_stale = int(
+                        runtime_config.get("IR_MAX_STALE_OBS_CYCLES", _IR_MAX_STALE_OBS_CYCLES_DEFAULT)
+                        if runtime_config else _IR_MAX_STALE_OBS_CYCLES_DEFAULT
+                    )
+                except Exception:
+                    _max_stale = _IR_MAX_STALE_OBS_CYCLES_DEFAULT
+                if _stale >= _max_stale:
+                    track["missing"] = track.get("missing", 0) + 1
+                    track["motion_quality"] = "stale_obs"
+                    debug_log(
+                        f"[IR-TRACK] Track {track_id} Observation eingefroren "
+                        f"(tiff={_curr_tiff_b252}, obs={_curr_obs_ts}, "
+                        f"stale_cycles={_stale}) → missing={track['missing']}"
+                    )
+            else:
+                track["stale_obs_cycles"] = 0
+            # Merker für nächsten Zyklus
+            track["_prev_obs_ts_b252"] = _curr_obs_ts
+            track["_prev_tiff_b252"] = _curr_tiff_b252
         else:
             # Kein Match → missing erhöhen
             track["missing"] = track.get("missing", 0) + 1
