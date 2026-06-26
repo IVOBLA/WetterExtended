@@ -80,13 +80,46 @@ def _age_min(ts: str | None) -> float:
 
 
 def _forecast_fields(track: dict) -> dict:
-    vx = float(track.get("vx_deg_min", 0.0) or 0.0); vy = float(track.get("vy_deg_min", 0.0) or 0.0)
-    mode = "ir_track" if abs(vx) + abs(vy) > 0 else "none"
-    conf = 0.55 if mode == "ir_track" else 0.2
+    """Berechnet Prognose-Felder für einen IR-Track.
+
+    Priorität:
+    1. ir_track  – vx/vy aus Kalman-Bewegungsableitung (≥2 Frames)
+    2. steering_wind – 700-hPa-Steuerwind aus track (1 Frame)
+    3. none – kein Fallback verfügbar
+    """
+    vx = float(track.get("vx_deg_min", 0.0) or 0.0)
+    vy = float(track.get("vy_deg_min", 0.0) or 0.0)
+
+    if abs(vx) + abs(vy) > 0:
+        mode = "ir_track"
+        conf = 0.55
+    else:
+        # B254: Steuerwind-Fallback wenn 700-hPa-Wind im Track vorhanden
+        _spd = float(track.get("wind_speed_700hPa", 0.0) or 0.0)
+        _cos = float(track.get("wind_dir_cos", 0.0) or 0.0)
+        _sin = float(track.get("wind_dir_sin", 0.0) or 0.0)
+        if _spd > 0.1 and (abs(_cos) + abs(_sin)) > 0.01:
+            # Empirikregel: ~70 % der 700-hPa-Windgeschwindigkeit
+            # Wind-Richtung: meteorologisch (woher kommt der Wind)
+            # Zell-Bewegung: in Windrichtung
+            # _cos/sin sind Komponenten des Einheitsvektors der Zugrichtung
+            # (aus fetch_700hpa_wind_per_object_slim.py, bereits als cos/sin)
+            _cell_speed_kmh = _spd * 0.70          # km/h
+            _cell_speed_deg_min = _cell_speed_kmh / (111.0 * 60.0)  # Grad/min
+            vx = _cell_speed_deg_min * _sin        # ost-west (cos/sin-Konvention)
+            vy = _cell_speed_deg_min * _cos        # nord-süd
+            mode = "steering_wind"
+            conf = 0.35
+        else:
+            mode = "none"
+            conf = 0.2
+
+    lat = float(track.get("lat", 0.0) or 0.0)
+    lon = float(track.get("lon", 0.0) or 0.0)
     out = {"forecast_mode": mode, "forecast_confidence": conf}
-    for m in (10,20,30,40,60):
-        out[f"forecast_lat_{m}"] = round(float(track.get("lat", 0.0) or 0.0) + vy * m, 5)
-        out[f"forecast_lon_{m}"] = round(float(track.get("lon", 0.0) or 0.0) + vx * m, 5)
+    for m in (10, 20, 30, 40, 60):
+        out[f"forecast_lat_{m}"] = round(lat + vy * m, 5)
+        out[f"forecast_lon_{m}"] = round(lon + vx * m, 5)
     return out
 
 def _haversine_km(lat1, lon1, lat2, lon2) -> float:
@@ -467,6 +500,10 @@ def update_ir_tracking(new_cells: list, timestamp: str) -> list:
             "first_seen_timestamp":  obs_ts,
             "source_timestamp":      obs_ts,
             "motion_quality":        "new",
+            # B254: Steuerwind-Felder aus Detektion übernehmen (falls vorhanden)
+            "wind_speed_700hPa":      float(cell.get("wind_speed_700hPa", 0.0) or 0.0),
+            "wind_dir_cos":           float(cell.get("wind_dir_cos", 0.0) or 0.0),
+            "wind_dir_sin":           float(cell.get("wind_dir_sin", 0.0) or 0.0),
         }
         _normalize_ir_track(tracks[track_id], default_timestamp=timestamp)
 
