@@ -3125,3 +3125,11 @@ erweitert. JSX mit esbuild validiert. Offen: P65.
 - Behebt die Diagnose-Grundlage für: ~160 km Runtime-MAE trotz val_loss≈0.40 (Train/Serve-Skew).
 - Ein nach B250 trainiertes Modell mit unveränderter Feature-Liste aktiviert die ML-Vorhersage wenn auch der ML-Runtime-Gate (B243) durchlässt.
 - Tests: `tests/test_b250_feature_consistency.py`.
+
+## B251 — Lineage-State-Integrität: Timestamp-Order, radar_confirmed, recycled cell_id, ended-Flag (2026-06-26)
+- F1: `_normalize_state()` repariert `last_seen < first_seen` (auf `first_seen` zurücksetzen).
+- F2: `_normalize_state()` repariert `radar_confirmed=true` ohne `radar_track_id` (auf `ir_precursor` zurücksetzen).
+- F3: `ensure_ir_track_cell_id()` prüft vor Wiederverwendung einer bestehenden `cell_id`, ob die Zelle bereits ended (`ended_at`/`ended_without_radar`/`label_written`); abgelaufene IDs werden verworfen und eine frische `WX-<datum>-NNNN` vergeben.
+- F4: `ended=True` wird konsistent gesetzt: in `_normalize_state()`, in `finalize_expired_ir_precursors()` und im positiven-Label-Pfad.
+- `confirm_ir_radar_match_in_lineage()` setzt `radar_confirmed=True` nur bei nicht-leerem `radar_track_id`.
+- Test: `tests/test_b251_lineage_integrity.py`.
