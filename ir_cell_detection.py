@@ -197,21 +197,47 @@ def _lookup_atm(lat: float, lon: float, snapshot: dict,
     return cape_val, li_val
 
 
-def classify_height_stage(cloud_height_m: float) -> str:
+def classify_height_stage(
+    cloud_height_m: float,
+    *,
+    cloud_height_confidence: float = 1.0,
+    cloud_height_source: str = "measured",
+) -> str:
+    """Stuft die Wolkenhöhe ein. B253: CB-Stufen (pre_cb/cb/severe_cb) erfordern
+    eine Mindest-Konfidenz (IR_CB_MIN_HEIGHT_CONFIDENCE). Bei Fallback-Höhen
+    wird maximal 'watch' zurückgegeben, um Falschalarme zu verhindern."""
     h = float(cloud_height_m or 0.0)
-    if h >= float(_cfg("IR_SEVERE_CB_CLOUD_HEIGHT_MIN_M", IR_SEVERE_CB_CLOUD_HEIGHT_MIN_M)):
-        return "severe_cb"
-    if h >= float(_cfg("IR_CB_CLOUD_HEIGHT_MIN_M", IR_CB_CLOUD_HEIGHT_MIN_M)):
-        return "cb"
-    if h >= float(_cfg("IR_PRE_CB_CLOUD_HEIGHT_MIN_M", IR_PRE_CB_CLOUD_HEIGHT_MIN_M)):
-        return "pre_cb"
+    try:
+        from config import IR_CB_MIN_HEIGHT_CONFIDENCE as _cb_min_conf_default
+    except Exception:
+        _cb_min_conf_default = 0.5
+    _min_conf = float(_cfg("IR_CB_MIN_HEIGHT_CONFIDENCE", _cb_min_conf_default))
+    _conf = float(cloud_height_confidence or 0.0)
+    _is_fallback = str(cloud_height_source or "").strip().lower() in {
+        "default_fallback", "fallback", ""
+    }
+    # Wenn Konfidenz unter Schwelle oder explizit Fallback: max. 'watch'
+    _cb_allowed = (_conf >= _min_conf) and (not _is_fallback)
+
+    if _cb_allowed:
+        if h >= float(_cfg("IR_SEVERE_CB_CLOUD_HEIGHT_MIN_M", IR_SEVERE_CB_CLOUD_HEIGHT_MIN_M)):
+            return "severe_cb"
+        if h >= float(_cfg("IR_CB_CLOUD_HEIGHT_MIN_M", IR_CB_CLOUD_HEIGHT_MIN_M)):
+            return "cb"
+        if h >= float(_cfg("IR_PRE_CB_CLOUD_HEIGHT_MIN_M", IR_PRE_CB_CLOUD_HEIGHT_MIN_M)):
+            return "pre_cb"
+    # Unabhängig von Konfidenz: 'watch' und 'low' bleiben erlaubt
     if h >= float(_cfg("IR_WATCH_CLOUD_HEIGHT_MIN_M", IR_WATCH_CLOUD_HEIGHT_MIN_M)):
         return "watch"
     return "low"
 
 
 def calculate_ir_convective_score(cell: dict, track: dict | None = None, met: dict | None = None) -> float:
-    height_stage = cell.get("height_stage") or classify_height_stage(cell.get("cloud_height_m", 0.0))
+    height_stage = cell.get("height_stage") or classify_height_stage(
+        cell.get("cloud_height_m", 0.0),
+        cloud_height_confidence=float(cell.get("cloud_height_confidence", 1.0) or 1.0),
+        cloud_height_source=str(cell.get("cloud_height_source", "measured") or "measured"),
+    )
     score = {"low": 0.0, "watch": 0.28, "pre_cb": 0.42, "cb": 0.58, "severe_cb": 0.68}.get(height_stage, 0.0)
     bt_min = float(cell.get("bt_min_k", 999.0) or 999.0)
     if bt_min <= float(_cfg("IR_CB_BT_THRESHOLD_K", IR_CB_BT_THRESHOLD_K)):
@@ -241,7 +267,11 @@ def calculate_ir_convective_score(cell: dict, track: dict | None = None, met: di
 
 def classify_ir_stage(cell: dict) -> str:
     score = float(cell.get("ir_score", 0.0) or 0.0)
-    hstage = cell.get("height_stage") or classify_height_stage(cell.get("cloud_height_m", 0.0))
+    hstage = cell.get("height_stage") or classify_height_stage(
+        cell.get("cloud_height_m", 0.0),
+        cloud_height_confidence=float(cell.get("cloud_height_confidence", 1.0) or 1.0),
+        cloud_height_source=str(cell.get("cloud_height_source", "measured") or "measured"),
+    )
     area = int(cell.get("area_px", 0) or 0)
     conv = bool(float(cell.get("overshooting_top", 0.0) or 0.0) >= 1.0 or float(cell.get("bt_trend_k_per_min", 0.0) or 0.0) <= -0.15 or float(cell.get("cloud_height_trend_m_per_min", 0.0) or 0.0) >= 60.0 or float(cell.get("area_growth_px_per_min", 0.0) or 0.0) >= 2.0 or float(cell.get("cape", 0.0) or 0.0) >= 200.0 or float(cell.get("arome_li", 0.0) or 0.0) <= -0.5)
     if hstage in {"cb", "severe_cb"} and area >= int(_cfg("IR_CB_MIN_CELL_AREA_PX", IR_CB_MIN_CELL_AREA_PX)) and score >= float(_cfg("IR_CB_MIN_SCORE", IR_CB_MIN_SCORE)) and conv:
@@ -362,7 +392,11 @@ def detect_ir_cells(timestamp: str | None = None, weather_data: dict | None = No
                 # Geschätzte Wolkenhöhe am kältesten Pixel
                 surf_k, alt_m, h_source, h_conf = _height_context(weather_data, lat_c, lon_c)
                 cloud_h = _bt_to_height_m(bt_min, surf_k, alt_m)
-                height_stage = classify_height_stage(cloud_h)
+                height_stage = classify_height_stage(
+                    cloud_h,
+                    cloud_height_confidence=h_conf,
+                    cloud_height_source=h_source,
+                )
 
                 # CAPE / LI aus Snapshot
                 cape_val, li_val = _lookup_atm(lat_c, lon_c, snapshot)
@@ -394,7 +428,10 @@ def detect_ir_cells(timestamp: str | None = None, weather_data: dict | None = No
                     "cloud_height_trend_m_per_min": 0.0,
                     "max_cloud_height_m": cloud_h,
                     "height_stage": height_stage,
-                    "first_height_alert_timestamp": timestamp if height_stage != "low" else None,
+                    # B253: first_height_alert_timestamp wird hier NICHT gesetzt —
+                    # es ist ein Track-Level-Feld das nur beim ersten Überschreiten
+                    # der Höhenschwelle fixiert wird (in ir_cell_tracking.py).
+                    "first_height_alert_timestamp": None,
                     "cape":             round(cape_val, 1) if cape_val is not None else 0.0,
                     "arome_li":         round(li_val,  2) if li_val  is not None else 0.0,
                     "timestamp":        observation_timestamp,

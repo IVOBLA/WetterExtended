@@ -3138,3 +3138,9 @@ erweitert. JSX mit esbuild validiert. Offen: P65.
 - F5: `ir_cell_tracking.py` zählt in `stale_obs_cycles`, wie oft aufeinanderfolgend `tiff_file` + `observation_timestamp` identisch geblieben sind. Nach `IR_MAX_STALE_OBS_CYCLES` (Default 2) eingefrorenen Zyklen wird `missing` inkrementiert und `motion_quality="stale_obs"` gesetzt. Verhindert dauerhaftes `missing=0` bei eingefrorenen TIFF-Tracks.
 - F6: `risk_watch.risk_watch_active()` prüft zusätzlich zur Datei-mtime den `observation_timestamp` jedes IR-Tracks. Tracks mit Observation älter als `IR_MAX_DATA_AGE_MIN` werden für den Kurzintervall-Trigger ignoriert.
 - Test: `tests/test_b252_ir_track_stale_obs.py`.
+
+## B253 — CB-Klassifikation Konfidenz-Gate + first_height_alert_timestamp fixieren (2026-06-26)
+- F7: `classify_height_stage()` in `ir_cell_detection.py` erhält neue Parameter `cloud_height_confidence` und `cloud_height_source`. CB-Stufen (`pre_cb`/`cb`/`severe_cb`) werden nur vergeben, wenn `confidence >= IR_CB_MIN_HEIGHT_CONFIDENCE` (Default 0.5, regressionsneutral bei 0.0) und `source != "default_fallback"`. Verhindert CB-Einstufung allein aus Fallback-Höhen.
+- `config.py`: `IR_CB_MIN_HEIGHT_CONFIDENCE = 0.5` (runtime-überschreibbar).
+- F8: `first_height_alert_timestamp` wird in `ir_cell_detection.py` nicht mehr gesetzt (immer `None`); in `ir_cell_tracking.py` wird er exakt einmalig beim ersten Überschreiten der Höhenschwelle gesetzt und danach nie überschrieben.
+- Test: `tests/test_b253_cb_confidence_gate.py`.

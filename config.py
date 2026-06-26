@@ -960,6 +960,13 @@ EUMETVIEW_NODATA_PIXEL: int = 5
 # öffentliche Karte via /api/objects?include_ir=1 ausgeliefert.
 CLOUD_HEIGHT_ALERT_THRESHOLD_M: float = 7000.0
 
+# B253: Mindest-Konfidenz der Wolkenhöhe, damit eine Zelle als pre_cb/cb/severe_cb
+# eingestuft werden darf. Bei cloud_height_source="default_fallback" liefert
+# _height_context() 0.35; echte Messung liefert 0.65. Default 0.5 = nur
+# bei echter Messung (0.65 > 0.5) wird pre_cb freigegeben.
+# Runtime-überschreibbar; regressionsneutral wenn auf 0.0 gesetzt.
+IR_CB_MIN_HEIGHT_CONFIDENCE: float = 0.5
+
 # ── Phase E: IR-Sat Pre-Convection Detection ──────────────────────────────────
 # Alle Schwellwerte runtime-überschreibbar via runtime_overrides.json.
 # --------------------------------------

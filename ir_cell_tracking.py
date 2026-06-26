@@ -176,7 +176,11 @@ def _normalize_ir_track(track: dict, *, default_timestamp: str | None = None) ->
     track.setdefault("cloud_height_confidence", 0.0)
     track.setdefault("cloud_height_source", "default_fallback")
     track.setdefault("max_cloud_height_m", track.get("cloud_height_m", 0.0))
-    track.setdefault("first_height_alert_timestamp", ts if track.get("height_stage") != "low" else None)
+    # B253: first_height_alert_timestamp nur beim ersten Alarm setzen und danach fixieren.
+    if "first_height_alert_timestamp" not in track:
+        track["first_height_alert_timestamp"] = (
+            ts if track.get("height_stage") not in (None, "", "low") else None
+        )
     track.update(_forecast_fields(track))
     fresh = _age_min(track.get("source_timestamp")) <= float(_cfg("IR_WATCH_MAX_PUBLIC_AGE_MIN", IR_WATCH_MAX_PUBLIC_AGE_MIN))
     visible = bool(_cfg("IR_PUBLIC_WATCH_VISIBLE", IR_PUBLIC_WATCH_VISIBLE)) and fresh and track.get("status") != "inactive" and float(track.get("ir_score", 0.0) or 0.0) >= float(_cfg("IR_WATCH_MIN_SCORE", IR_WATCH_MIN_SCORE)) and not track.get("radar_confirmed")
@@ -343,7 +347,12 @@ def update_ir_tracking(new_cells: list, timestamp: str) -> list:
                 "cloud_height_source": cell.get("cloud_height_source", track.get("cloud_height_source", "default_fallback")),
                 "max_cloud_height_m": max(float(track.get("max_cloud_height_m", 0.0) or 0.0), float(cell.get("cloud_height_m", 0.0) or 0.0)),
                 "height_stage": cell.get("height_stage", track.get("height_stage", "low")),
-                "first_height_alert_timestamp": track.get("first_height_alert_timestamp") or cell.get("first_height_alert_timestamp"),
+                # B253: Striktes einmaliges Setzen — nie überschreiben wenn bereits gesetzt.
+                "first_height_alert_timestamp": track.get("first_height_alert_timestamp") or (
+                    obs_ts if (cell.get("height_stage") not in (None, "", "low")
+                               and track.get("first_height_alert_timestamp") is None)
+                    else None
+                ),
                 "ir_score": cell.get("ir_score", track.get("ir_score", 0.0)),
                 "ir_stage": cell.get("ir_stage", track.get("ir_stage", "ir_watch_candidate")),
                 "cape":             cell["cape"],
@@ -431,7 +440,10 @@ def update_ir_tracking(new_cells: list, timestamp: str) -> list:
             "cloud_height_trend_m_per_min": 0.0,
             "max_cloud_height_m":     cell.get("cloud_height_m", 0.0),
             "height_stage":           cell.get("height_stage", "low"),
-            "first_height_alert_timestamp": cell.get("first_height_alert_timestamp"),
+            # B253: Nur setzen wenn height_stage eine CB-Stufe ist; sonst None.
+            "first_height_alert_timestamp": (
+                obs_ts if cell.get("height_stage") not in (None, "", "low") else None
+            ),
             "ir_score":               cell.get("ir_score", 0.0),
             "ir_stage":               cell.get("ir_stage", "ir_watch_candidate"),
             "cape":                   cell["cape"],
