@@ -489,6 +489,15 @@ def maybe_write_positive_ir_lead_time_label(cell_id: str, *, ir_track: dict | No
 def finalize_expired_ir_precursors(*, timestamp: str | None = None, active_ir_tracks: list[dict] | None = None, state: dict | None = None) -> list[dict]:
     if not bool(_cfg("IR_LEAD_TIME_LABELS_ENABLED", IR_LEAD_TIME_LABELS_ENABLED)) or not bool(_cfg("IR_LEAD_TIME_LABELS_INCLUDE_NEGATIVES", IR_LEAD_TIME_LABELS_INCLUDE_NEGATIVES)):
         return []
+    # Bewahre explizite Radarbestätigungen des übergebenen In-Memory-States,
+    # bevor _normalize_state() Legacy-Zellen ohne radar_track_id bereinigt. So
+    # erzeugt die Finalisierung keine negativen Labels für bereits bestätigte
+    # Zellen, selbst wenn der aufrufende Test/Code nur radar_confirmed setzt.
+    raw_radar_confirmed_cell_ids = {
+        str(cell_id)
+        for cell_id, cell in ((state or {}).get("cells", {}) if isinstance(state, dict) else {}).items()
+        if isinstance(cell, dict) and (cell.get("radar_confirmed") is True or cell.get("status") == "radar_confirmed")
+    }
     state = load_lineage_state() if state is None else _normalize_state(state)
     now_s = _timestamp_str(timestamp); now = _parse_dt(now_s)
     active_by_cell = {str(t.get("cell_id")): t for t in (active_ir_tracks or []) if isinstance(t, dict) and t.get("cell_id")}
@@ -496,6 +505,8 @@ def finalize_expired_ir_precursors(*, timestamp: str | None = None, active_ir_tr
     max_open = float(_cfg("IR_LEAD_TIME_LABELS_MAX_OPEN_MIN", IR_LEAD_TIME_LABELS_MAX_OPEN_MIN))
     min_final = float(_cfg("IR_LEAD_TIME_LABELS_MIN_FINAL_AGE_MIN", IR_LEAD_TIME_LABELS_MIN_FINAL_AGE_MIN))
     for cell_id, cell in list(state.get("cells", {}).items()):
+        if str(cell_id) in raw_radar_confirmed_cell_ids:
+            continue
         if not isinstance(cell, dict) or cell.get("radar_confirmed") is True or cell.get("status") == "radar_confirmed" or int(cell.get("became_radar_cell") or 0) == 1:
             continue
         probe_pos = {"cell_id": cell_id, "label_type": _LABEL_TYPE, "became_radar_cell": 1}
