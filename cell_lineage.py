@@ -144,7 +144,33 @@ def _normalize_state(state: dict | None) -> dict:
             out[key] = {}
     out["version"] = 1
     for cid, cell in list(out.get("cells", {}).items()):
-        out["cells"][cid] = _ensure_cell_defaults(str(cid), cell)
+        cell = _ensure_cell_defaults(str(cid), cell)
+        # F4: ended ableiten — ended_at gesetzt impliziert ended=True
+        if cell.get("ended_at") is not None or int(cell.get("ended_without_radar", 0) or 0) == 1:
+            cell["ended"] = True
+        # F2: radar_confirmed nur gültig wenn radar_track_id vorhanden
+        if cell.get("radar_confirmed") is True and not cell.get("radar_track_id"):
+            cell["radar_confirmed"] = False
+            cell["status"] = "ir_precursor"
+        # F1: last_seen darf nicht vor first_seen liegen
+        _first = cell.get("first_seen_timestamp")
+        _last = cell.get("last_seen_timestamp")
+        if _first and _last:
+            try:
+                def _parse_ts_norm(s):
+                    for fmt in ("%Y-%m-%d_%H-%M-%S", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S"):
+                        try:
+                            return datetime.strptime(str(s).replace("+00:00", "Z"), fmt)
+                        except ValueError:
+                            pass
+                    return None
+                _dt_first = _parse_ts_norm(_first)
+                _dt_last = _parse_ts_norm(_last)
+                if _dt_first and _dt_last and _dt_last < _dt_first:
+                    cell["last_seen_timestamp"] = _first
+            except Exception:
+                pass
+        out["cells"][cid] = cell
     return out
 
 
@@ -228,8 +254,23 @@ def ensure_ir_track_cell_id(track: dict, *, timestamp: str | None = None, state:
     existing_cell_id = track.get("cell_id") or (state.get("ir_to_cell", {}).get(ir_track_id) if ir_track_id else None)
     created = False
     if existing_cell_id:
-        cell_id = str(existing_cell_id)
-        track["cell_id"] = cell_id
+        # F3: Abgelaufene ID nicht recyceln — neue ID vergeben wenn ended_at/label_written gesetzt
+        _existing_cell = state.get("cells", {}).get(str(existing_cell_id), {})
+        _is_ended = (
+            _existing_cell.get("ended_at") is not None
+            or int(_existing_cell.get("ended_without_radar", 0) or 0) == 1
+            or _existing_cell.get("label_written") is True
+        )
+        if _is_ended:
+            # Veraltetes Mapping entfernen, frische ID vergeben
+            if ir_track_id:
+                state.setdefault("ir_to_cell", {}).pop(str(ir_track_id), None)
+            cell_id = make_cell_id(ts, state)
+            track["cell_id"] = cell_id
+            created = True
+        else:
+            cell_id = str(existing_cell_id)
+            track["cell_id"] = cell_id
     else:
         cell_id = make_cell_id(ts, state)
         track["cell_id"] = cell_id
@@ -441,7 +482,7 @@ def maybe_write_positive_ir_lead_time_label(cell_id: str, *, ir_track: dict | No
     if _label_key(neg_probe) in existing:
         label["supersedes_negative"] = True
     append_ir_lead_time_label(label)
-    cell.update({"became_radar_cell": 1, "ended_without_radar": 0, "radar_first_confirmed": label.get("radar_first_confirmed"), "lead_time_min": label.get("lead_time_min"), "label_written": True})
+    cell.update({"became_radar_cell": 1, "ended_without_radar": 0, "radar_first_confirmed": label.get("radar_first_confirmed"), "lead_time_min": label.get("lead_time_min"), "label_written": True, "ended": True})
     return label
 
 
@@ -471,7 +512,7 @@ def finalize_expired_ir_precursors(*, timestamp: str | None = None, active_ir_tr
             continue
         label = build_negative_ir_lead_time_label(cell, active_by_cell.get(cell_id), ended_at=now_s)
         append_ir_lead_time_label(label)
-        cell.update({"became_radar_cell": 0, "ended_without_radar": 1, "ended_at": now_s, "negative_reason": label.get("negative_reason"), "label_written": True})
+        cell.update({"became_radar_cell": 0, "ended_without_radar": 1, "ended_at": now_s, "negative_reason": label.get("negative_reason"), "label_written": True, "ended": True})
         written.append(label); keys.add(_label_key(label))
     return written
 
@@ -719,7 +760,10 @@ def apply_ir_radar_lineage_match(radar_obj: dict, ir_track: dict, match: dict, s
     state.setdefault("radar_to_cell", {})[radar_track_id] = cell_id
     state.setdefault("ir_to_cell", {})[ir_track_id] = cell_id
     cell = state.setdefault("cells", {}).setdefault(cell_id, {"cell_id": cell_id})
-    cell.update({"status": "radar_confirmed", "radar_confirmed": True, "radar_track_id": radar_track_id, "ir_track_id": ir_track_id, "last_seen_timestamp": _timestamp_str(timestamp), "radar_confirmed_at": _timestamp_str(timestamp)})
+    if radar_track_id:
+        cell.update({"status": "radar_confirmed", "radar_confirmed": True, "radar_track_id": radar_track_id, "ir_track_id": ir_track_id, "last_seen_timestamp": _timestamp_str(timestamp), "radar_confirmed_at": _timestamp_str(timestamp)})
+    else:
+        cell.update({"ir_track_id": ir_track_id, "last_seen_timestamp": _timestamp_str(timestamp)})
     for key in _IR_FEATURE_KEYS:
         if key in ir_track and ir_track.get(key) is not None:
             cell[key] = ir_track.get(key)
