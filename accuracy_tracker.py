@@ -213,6 +213,28 @@ def _append_detail_once(path: str, rec: dict, seen: Set[tuple]) -> bool:
     _jsonl_append(path, rec)
     return True
 
+
+def _load_detail_keys(path: str) -> Set[tuple]:
+    """B258: Bereits in forecast_error_details.jsonl persistierte Keys laden, damit eine
+    Verifikation über Scheduler-Läufe hinweg genau EINMAL angehängt wird (verhindert die
+    ~20-fache Duplizierung desselben Forecasts pro Tag)."""
+    seen: Set[tuple] = set()
+    if not os.path.exists(path):
+        return seen
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    seen.add(_detail_key(json.loads(line)))
+                except Exception:
+                    continue
+    except Exception:
+        return set()
+    return seen
+
 def _match_type(raw: str) -> str:
     return {"nn": "nearest", "miss": "none"}.get(raw, raw or "none")
 
@@ -454,7 +476,8 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
     direction_errors = []
     speed_errors = []
     details = []
-    detail_keys_seen: Set[tuple] = set()
+    # B258: Vorhandene Keys laden → Forecast-Verifikation wird über Läufe hinweg nur einmal angehängt.
+    detail_keys_seen: Set[tuple] = _load_detail_keys(DETAILS_FILE)
 
     def _bucket(store, key):
         k = str(key or "unknown")

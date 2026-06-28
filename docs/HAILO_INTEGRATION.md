@@ -3163,3 +3163,9 @@ erweitert. JSX mit esbuild validiert. Offen: P65.
 - Beseitigt falsche „alles fehlt"-Befunde; echte Defizite (z. B. konstant-0 Gelände-Features) werden nicht mehr verdeckt.
 - Test: `tests/test_b257_diagnosis_feature_schema.py`.
 - Erledigt.
+
+## B258 — forecast_error_details.jsonl: Dedup über Scheduler-Läufe hinweg (2026-06-27)
+- `evaluate_for_horizon()` setzte `detail_keys_seen` pro Lauf auf `set()` zurück → jede Verifikation wurde im 24-h-Fenster bei jedem Lauf erneut angehängt (~20× pro Tag); Statistiken/Outlier wurden verfälscht.
+- Neue Funktion `_load_detail_keys()`; `detail_keys_seen` wird beim Start aus der bestehenden Datei vorgeladen → jede Forecast-Verifikation wird genau einmal geschrieben.
+- Test: `tests/test_b258_detail_dedup.py`.
+- Erledigt.
