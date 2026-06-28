@@ -111,6 +111,19 @@ STRATIFORM_SEARCH_RADIUS_PX = 60
 UPSCALE_FACTOR = 3.0  # optionaler Resize-Faktor
 
 # --------------------------------------
+# P66: Multi-Core-Split
+# --------------------------------------
+# Erkennt und trennt Radar-Blobs mit mehreren räumlich getrennten
+# Konvektionskernen (rot/violett = ≥54 dBZ). Wartbar via Admin-Panel.
+MULTI_CORE_SPLIT_ENABLED: bool = True
+# Minimale Fläche eines Kerns in Pixel (bei UPSCALE=3: 80 px ≈ 0.9 km²).
+MULTI_CORE_MIN_CORE_AREA_PX: int = 80
+# Mindestabstand zwischen Kern-Zentroiden in Pixel (bei UPSCALE=3: 15 px ≈ 2.4 km).
+MULTI_CORE_MIN_DIST_PX: int = 15
+# Mindestfläche einer Sub-Zelle nach dem Split in Pixel (= min_object_area-Default).
+MULTI_CORE_MIN_CHILD_AREA_PX: int = 800
+
+# --------------------------------------
 # Tracking-Parameter
 # --------------------------------------
 
