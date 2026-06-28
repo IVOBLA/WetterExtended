@@ -403,6 +403,120 @@ def merge_close_contours(contours, image_shape, min_touch=3):
 
     return merged
 
+
+# ---------------------------------------------------------------------------
+# P66: Multi-Core-Split — Hilfs- und Hauptfunktionen
+# ---------------------------------------------------------------------------
+
+def _detect_core_components(hsv, contour, core_hsv_ranges, min_area_px):
+    """Findet räumlich getrennte Konvektionskerne (rot/violett) innerhalb
+    einer Kontur und gibt sie als Liste von (cx, cy, area_px) zurück.
+    Nur Kerne mit area_px >= min_area_px werden zurückgegeben.
+    """
+    h, w = hsv.shape[:2]
+    cell_mask = np.zeros((h, w), dtype=np.uint8)
+    cv2.drawContours(cell_mask, [contour], -1, 255, -1)
+
+    core_mask = np.zeros((h, w), dtype=np.uint8)
+    for lower, upper in core_hsv_ranges:
+        cm = cv2.inRange(hsv, np.array(lower, dtype=np.uint8),
+                              np.array(upper, dtype=np.uint8))
+        core_mask |= cv2.bitwise_and(cm, cell_mask)
+
+    n_labels, _, stats, centroids = cv2.connectedComponentsWithStats(
+        core_mask, connectivity=8
+    )
+    result = []
+    for i in range(1, n_labels):
+        area = int(stats[i, cv2.CC_STAT_AREA])
+        if area >= min_area_px:
+            result.append((float(centroids[i][0]), float(centroids[i][1]), area))
+    return result
+
+
+def _voronoi_split(hsv_shape, contour, core_centers, min_child_area_px):
+    """Teilt eine Zell-Kontur via Voronoi-Partitionierung auf."""
+    h, w = hsv_shape[:2]
+    cell_mask = np.zeros((h, w), dtype=np.uint8)
+    cv2.drawContours(cell_mask, [contour], -1, 255, -1)
+
+    ys, xs = np.where(cell_mask > 0)
+    if len(xs) == 0:
+        return [contour]
+
+    pixel_xy = np.column_stack([xs, ys]).astype(np.float32)
+    centers = np.array([[cx, cy] for cx, cy, _ in core_centers], dtype=np.float32)
+
+    diffs = pixel_xy[:, np.newaxis, :] - centers[np.newaxis, :, :]
+    sq_dists = (diffs ** 2).sum(axis=2)
+    assignments = np.argmin(sq_dists, axis=1)
+
+    result_contours = []
+    for idx in range(len(core_centers)):
+        region_mask = np.zeros((h, w), dtype=np.uint8)
+        sel = pixel_xy[assignments == idx].astype(np.int32)
+        if len(sel) == 0:
+            continue
+        region_mask[sel[:, 1], sel[:, 0]] = 255
+
+        region_cnts, _ = cv2.findContours(
+            region_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        if not region_cnts:
+            continue
+        largest = max(region_cnts, key=cv2.contourArea)
+        if cv2.contourArea(largest) >= min_child_area_px:
+            result_contours.append(largest.astype(np.int32))
+
+    if len(result_contours) < 2:
+        return [contour]
+    return result_contours
+
+
+# ── P66: Multi-Core-Split ───────────────────────────────────────────────────
+def split_multi_core_contours(contours, hsv):
+    """Analysiert Konturen auf mehrere getrennte Konvektionskerne und splittet sie."""
+    if not _rc.get("MULTI_CORE_SPLIT_ENABLED", True):
+        return contours
+
+    min_core_area = int(_rc.get("MULTI_CORE_MIN_CORE_AREA_PX", 80))
+    min_dist_px = float(_rc.get("MULTI_CORE_MIN_DIST_PX", 15.0))
+    min_child_area = int(_rc.get("MULTI_CORE_MIN_CHILD_AREA_PX", 800))
+    core_hsv_ranges = _rc.get("CORE_HSV_RANGES", _DEFAULT_CORE_HSV_RANGES)
+
+    result = []
+    for contour in contours:
+        cores = _detect_core_components(hsv, contour, core_hsv_ranges, min_core_area)
+        if len(cores) < 2:
+            result.append(contour)
+            continue
+
+        eligible = False
+        for i in range(len(cores)):
+            for j in range(i + 1, len(cores)):
+                dx = cores[i][0] - cores[j][0]
+                dy = cores[i][1] - cores[j][1]
+                if _math_ot.sqrt(dx * dx + dy * dy) >= min_dist_px:
+                    eligible = True
+                    break
+            if eligible:
+                break
+
+        if not eligible:
+            result.append(contour)
+            continue
+
+        sub_contours = _voronoi_split(hsv.shape, contour, cores, min_child_area)
+        result.extend(sub_contours)
+        if len(sub_contours) > 1:
+            debug_log(
+                f"[P66] Multi-Core-Split: {len(cores)} Kerne → "
+                f"{len(sub_contours)} Sub-Zellen"
+            )
+
+    return result
+
+
 # ---------------------------------------------------------------------------
 # HitL — Filter-Config-Wrapper
 # ---------------------------------------------------------------------------
@@ -1699,6 +1813,9 @@ def detect_and_track_objects(image_path=None, weather_data=None):
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     merged = merge_close_contours(contours, hsv.shape[:2], min_touch=MIN_CONTOUR_TOUCH)
+
+    # P66: Multi-Core-Split — Konturen mit mehreren Konvektionskernen aufteilen
+    merged = split_multi_core_contours(merged, hsv)
 
     # 📌 Objektverfolgung
     rain_support_mask = build_rain_support_mask(hsv)

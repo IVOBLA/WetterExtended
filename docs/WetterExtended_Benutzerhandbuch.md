@@ -2728,3 +2728,44 @@ Durchfluss, die Warngrenze, die Quelle der Überschreitung und die Entfernungen.
 ## Hydro-Flood-Risk in der Karte
 
 Die Hydro-Popups zeigen zusätzlich zur Station den aktuellen Durchfluss `q_m3s`, den Grenzwert `Q ≥`, Abstand zum Grenzwert, Niederschlag im Einzugsgebiet, Niederschlagsquelle, Datenqualität, Hochwassergefahr ja/nein, Risiko-Score, Confidence und Gründe. Es werden keine Wasserstandsprognosen und keine Hydro-Zeithorizonte angezeigt.
+
+---
+
+## 31 Multi-Cell-Erkennung (P66)
+
+### 31.1 Hintergrund
+
+Starke Gewitterentwicklungen bestehen oft aus mehreren unabhängigen
+konvektiven Zellen, die über eine gemeinsame stratiforme Niederschlagshülle
+verbunden sind (Multi-Cell-Cluster). Ohne separate Zellerkennung würde das
+System einen solchen Cluster als eine einzige Zelle trachten – mit einem
+einzigen, unbrauchbaren Schwerpunktvektor.
+
+### 31.2 Funktionsweise
+
+Das System analysiert nach der HSV-Segmentierung jeden erkannten Blob auf
+getrennte hochintensive Kerne (Rot ≥ 54 dBZ / Violett ≥ 57 dBZ):
+
+1. **Kernerkennung:** Separate Connected Components innerhalb des Blobs
+2. **Distanzprüfung:** Mindestens ein Kern-Paar muss ≥ 2.4 km entfernt sein
+3. **Voronoi-Split:** Jeder Blob-Pixel wird dem nächsten Kern zugeordnet
+4. **Unabhängiges Tracking:** Jede Sub-Zelle erhält eigene ID, Kalman-Filter,
+   Geschwindigkeit und Prognose
+
+### 31.3 Konfiguration
+
+Im Admin-Panel unter „Laufzeit-Overrides" (`runtime_overrides.json`):
+
+| Parameter | Standardwert | Beschreibung |
+|---|---|---|
+| `MULTI_CORE_SPLIT_ENABLED` | `true` | Split-Algorithmus ein/aus |
+| `MULTI_CORE_MIN_CORE_AREA_PX` | `80` | Minimale Kernfläche für Anerkennung (~0.9 km²) |
+| `MULTI_CORE_MIN_DIST_PX` | `15` | Mindestabstand zwischen Kernen in Pixel (~2.4 km) |
+| `MULTI_CORE_MIN_CHILD_AREA_PX` | `800` | Mindestgröße einer Sub-Zelle in Pixel |
+
+### 31.4 Hinweis
+
+Die Sub-Zellen-IDs erhalten vom Tracker neue IDs zugewiesen. In der Karte
+sind sie als separate Marker sichtbar, jede mit eigenem Popup (Geschwindigkeit,
+Richtung, Prognose). Ortsbenachrichtigungen werden für jede Sub-Zelle
+unabhängig berechnet.
