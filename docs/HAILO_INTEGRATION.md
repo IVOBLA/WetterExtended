@@ -3156,3 +3156,10 @@ erweitert. JSX mit esbuild validiert. Offen: P65.
 - Binär-Antworten (KMZ/TIFF) bleiben Metadaten-only und unverändert.
 - Test: `tests/test_b256_api_log_body_cap.py`.
 - Erledigt.
+
+## B257 — Diagnose-Report: Feature-Namen an aktives Schema koppeln (2026-06-27)
+- `build_diagnosis()` prüfte Legacy-Schlüssel (`wind_speed`, `temperature`, `grosswetterlage`, `valley_alignment_score`, `valley_channeling_score`) und meldete befüllte Features fälschlich als 100 % missing.
+- `terrain`/`weather` jetzt exakt an die von `accuracy_tracker._detail_record` (B249) geschriebenen Spalten gekoppelt (`wind_speed_700hPa`, `wind_speed_500hPa`, `cape`, `arome_li`, `arome_t2m`, `nowcast_rr_mm15`, `lightning_count_10km`, `valley_alignment`, …).
+- Beseitigt falsche „alles fehlt"-Befunde; echte Defizite (z. B. konstant-0 Gelände-Features) werden nicht mehr verdeckt.
+- Test: `tests/test_b257_diagnosis_feature_schema.py`.
+- Erledigt.
