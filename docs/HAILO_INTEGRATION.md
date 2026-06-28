@@ -3149,3 +3149,10 @@ erweitert. JSX mit esbuild validiert. Offen: P65.
 - F9: `_forecast_fields()` in `ir_cell_tracking.py` nutzt bei `vx == vy == 0` den 700-hPa-Steuerwind aus dem Track (`wind_speed_700hPa`, `wind_dir_cos`, `wind_dir_sin`), um eine Bewegungsprognose abzuleiten (70 % der Windgeschwindigkeit als Zellgeschwindigkeit). `forecast_mode = "steering_wind"`, `forecast_confidence = 0.35`. Alle Zeithorizonte zeigen damit sinnvolle Positionen statt der Ist-Position.
 - Neu-Track-Anlage übernimmt Wind-Felder aus der Detektion.
 - Test: `tests/test_b254_steering_wind_fallback.py`.
+
+## B256 — api_call_counts.jsonl: Response-Bodies kappen (Log-Bloat) (2026-06-27)
+- `debug_utils.log_api_call()` bettete JSON-/Text-Antworten ungekürzt ein → `api_call_counts.jsonl` wuchs durch `geosphere_cape` (~2,4 MB GeoJSON × ~80/Tag) auf ~275 MB/Tag.
+- Neue Modulkonstante `API_LOG_MAX_BODY_BYTES = 16384`; textuelle Bodies werden bei Überschreitung gekürzt (`body_text = …[gekürzt]`, `truncated = true`).
+- Binär-Antworten (KMZ/TIFF) bleiben Metadaten-only und unverändert.
+- Test: `tests/test_b256_api_log_body_cap.py`.
+- Erledigt.
