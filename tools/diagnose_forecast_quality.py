@@ -121,8 +121,11 @@ def build_diagnosis(base_dir: Path, hours: int, evaluation_dir: Path | None = No
             km_per_px = km / px if px > 0 else None
             if (px == 0 and km > 1) or (km_per_px is not None and (km_per_px < 0.05 or km_per_px > 5)):
                 px_geo.append({"cell_id": r.get("cell_id") or r.get("object_id"), "error_km": km, "pixel_error_px": round(px, 3), "km_per_px": round(km_per_px, 4) if km_per_px else None})
-    terrain = ["dem_elevation_m", "dem_slope_toward_cell", "dem_barrier_ahead", "terrain_blocking_score", "orographic_lift_score", "valley_alignment_score", "valley_channeling_score"]
-    weather = ["wind_speed", "wind_dir", "wind_direction", "temperature", "pressure", "humidity", "grosswetterlage"]
+    # B257: Feldnamen exakt an die von accuracy_tracker._detail_record (B249) geschriebenen
+    # Spalten koppeln. Legacy-Namen (wind_speed/temperature/grosswetterlage/valley_*_score)
+    # erzeugten sonst falsche "100 % missing"-Befunde und verdeckten echte Defizite.
+    terrain = ["dem_elevation_m", "dem_slope_toward_cell", "dem_barrier_ahead", "valley_alignment", "terrain_blocking_score", "orographic_lift_score"]
+    weather = ["wind_speed_700hPa", "wind_speed_500hPa", "wind_dir_cos", "wind_dir_sin", "cape", "arome_li", "arome_t2m", "nowcast_rr_mm15", "lightning_count_10km"]
     lineage_dir = _resolve_save_path(base_dir, "cell_lineage", "train_data/cell_lineage")
     label_rows = _read_jsonl(lineage_dir / "ir_lead_time_labels.jsonl", hours)
     ir_rows = [r for r in details if r.get("ir_first_seen_utc") or r.get("radar_first_seen_utc") or r.get("ir_lead_time_min") is not None]
