@@ -15,6 +15,10 @@ except Exception:
 
 from config import DEBUG_MODE  # Ein-/Ausschalten über config.py
 
+# B256: Obergrenze für eingebettete Response-Bodies in api_call_counts.jsonl.
+# Verhindert, dass Großantworten (z. B. CAPE-GeoJSON ~2,4 MB) das Log aufblähen.
+API_LOG_MAX_BODY_BYTES = 16384  # 16 KB; größere Bodies werden gekürzt gespeichert
+
 def save_debug_image(path, image, message=None):
     if DEBUG_MODE:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -163,7 +167,7 @@ def log_api_call(service: str, url: str = "", status_code: int = 200,
     """
     import datetime as _dt, json as _jc, os as _oc
     from config import SAVE_PATHS
-    # Keine Kürzung für textuelle Responses — voller Inhalt wird gespeichert.
+    # B256: Textuelle Responses werden bei Überschreiten von API_LOG_MAX_BODY_BYTES gekürzt.
     # Binäre Responses (KMZ, TIFF, …) werden als Metadaten-Dict gespeichert.
     _BINARY_CONTENT_TYPES = (
         "image/", "application/octet-stream", "application/zip",
@@ -260,6 +264,24 @@ def log_api_call(service: str, url: str = "", status_code: int = 200,
             resp_body["sha256"] = sha256
         if saved_to is not None:
             resp_body["saved_to"] = saved_to
+    # B256: Große textuelle Bodies kappen (api_call_counts.jsonl-Bloat verhindern).
+    _body_truncated = False
+    if not resp_body.get("binary"):
+        _bj = resp_body.get("body_json")
+        if _bj is not None:
+            try:
+                _ser = _jc.dumps(_bj, ensure_ascii=False)
+            except Exception:
+                _ser = str(_bj)
+            if len(_ser.encode("utf-8")) > API_LOG_MAX_BODY_BYTES:
+                resp_body["body_json"] = None
+                resp_body["body_text"] = _ser[:API_LOG_MAX_BODY_BYTES] + "…[gekürzt]"
+                _body_truncated = True
+        else:
+            _bt = resp_body.get("body_text")
+            if isinstance(_bt, str) and len(_bt.encode("utf-8")) > API_LOG_MAX_BODY_BYTES:
+                resp_body["body_text"] = _bt[:API_LOG_MAX_BODY_BYTES] + "…[gekürzt]"
+                _body_truncated = True
     entry = {
         "ts":          _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
         "service":     service,
@@ -281,7 +303,7 @@ def log_api_call(service: str, url: str = "", status_code: int = 200,
             "content_length": resp_body.get("content_length"),
             "sha256":       resp_body.get("sha256"),
             "saved_to":     resp_body.get("saved_to"),
-            "truncated":    False,
+            "truncated":    _body_truncated,
             "error":        error,
         },
     }
