@@ -3188,3 +3188,16 @@ Lerngrundlage.
 überspringt nur bereits in diesem Zyklus bestätigte Objekte, nicht alle
 mit einer cell_id.  
 **Tests:** `tests/test_b263_ir_radar_matching.py`
+
+## B259 — Radarframes: Archivierung ohne `radar_`-Präfix (2026-06-29)
+
+**Datei:** `object_tracking.py`<br>
+**Problem:** `process_frame()` archivierte Frames als `radar_TIMESTAMP.png` in
+`data/radar/` und `train_data/radar/`. `accuracy_tracker._parse_ts()` erwartet
+`%Y-%m-%d_%H-%M-%S` ohne Präfix; präfixbehaftete Frames wurden mit `None`
+geparst und fielen aus der Verifikation heraus (Beweis: 223 Präfix-Frames neben
+159 Nicht-Präfix-Frames im debug3-Export).<br>
+**Fix:** `f"radar_{timestamp}.png"` → `f"{timestamp}.png"` an beiden
+Archivierungsstellen (Zeilen 1781, 1787). Zeile 1768 (`filename.replace("radar_", "")`)
+bleibt für Rückwärtskompatibilität erhalten.<br>
+**Tests:** `tests/test_b259_radar_filename.py`

@@ -1778,13 +1778,13 @@ def detect_and_track_objects(image_path=None, weather_data=None):
                 timestamp = ts_dt.strftime("%Y-%m-%d_%H-%M-%S")
 
     # ✂️ Bild zuschneiden & hochskalieren
-    scaled_path = os.path.join("data/radar", f"radar_{timestamp}.png")
+    scaled_path = os.path.join("data/radar", f"{timestamp}.png")
     processed_img = crop_and_upscale_to_bbox(image_path, BBOX, UPSCALE_FACTOR, scaled_path)
 
     # 💾 Originalbild (unverändert) archivieren
     original_img = cv2.imread(image_path)
     if original_img is not None:
-        original_path = os.path.join(SAVE_PATHS["radar"].rstrip("/"), f"radar_{timestamp}.png")
+        original_path = os.path.join(SAVE_PATHS["radar"].rstrip("/"), f"{timestamp}.png")
         cv2.imwrite(original_path, original_img)
         debug_log(f"[INFO] Originalbild archiviert: {original_path}")
     else:
