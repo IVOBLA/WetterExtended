@@ -3207,7 +3207,7 @@ bleibt für Rückwärtskompatibilität erhalten.<br>
 **Datei:** `accuracy_tracker.py`  
 **Problem:** `_effective_target_tolerance_s()` nutzte den statischen
 `FRAME_INTERVAL_MIN=5.0` (→ 150 s). Bei ARSO-15-min-Kadenz (nachts/vormittags)
-fanden Kurz-Horizont-Forecasts keinen Zielframe (ratio=0.3974 im Export).  
+fanden Kurz-Horizont-Forecasts keinen Zielframe (ratio=0.3974 im Export).
 **Fix:** `_effective_target_tolerance_s()` misst den Median der tatsächlichen
 Inter-Frame-Abstände aus dem übergebenen `by_ts`-Dict; `_find_target_frame()`
 übergibt dieses Dict. Bei 15-min-Kadenz steigt die effektive Toleranz auf
@@ -3236,3 +3236,14 @@ Retry hätte gereicht.
 nach dem zweiten Fehlschlag wird abgebrochen. Kein Absturz, kein Alarm-Verlust
 bei kurzer Überlast.  
 **Tests:** `tests/test_b262_risk_watch_retry.py`
+
+## B264 — `test_b262_risk_watch_retry.py`: State-Leak durch rohes `setattr` behoben (2026-06-29)
+
+**Datei:** `tests/test_b262_risk_watch_retry.py` (vollständige Ersetzung)
+**Problem:** Codex-generierter Helper verwendete `setattr(mod, attr, value)` ohne
+Cleanup. `runtime_config.get` blieb nach B262-Tests als default-only-Lambda in der
+Modul-Referenz stehen. `test_p2_2_config_health::test_valid_json_clears_error` las
+dadurch `15` statt `20` (Codex-Review-Badge P2).
+**Fix:** Alle 5 Tests nutzen ausschließlich `monkeypatch.setattr()`. pytest stellt
+alle Attribute nach jedem Test automatisch wieder her. Kein rohes `setattr()` mehr.
+**Verifiziert:** `test_b262 → test_p2_2` in Reihenfolge → 9/9 grün, kein State-Leak.
