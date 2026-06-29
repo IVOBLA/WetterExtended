@@ -3224,3 +3224,15 @@ nicht griff. Im debug1-Export: 9 von 217 Einträgen betroffen.
 **Fix:** Guard am Anfang von `log_api_failure()`: `service == "t"` oder
 `"example.invalid"` in URL → sofortiges `return` ohne Datei-Schreibzugriff.
 **Tests:** `tests/test_b261_health_log_isolation.py`
+
+## B262 — RISK-WATCH: Retry mit Backoff bei lokalem HTTP-Timeout (2026-06-29)
+
+**Datei:** `main.py`  
+**Problem:** `_risk_alert_check()` brach bei einem einzigen `ReadTimeout`
+auf `127.0.0.1:5000/api/risk_grid` sofort ab. Im Export-Log:
+`Read timed out. (read timeout=5)` um 05:27:55 — Service war aktiv,
+Retry hätte gereicht.  
+**Fix:** Retry-Loop mit 2 Versuchen (Pause 1 s nach erstem Fehler); erst
+nach dem zweiten Fehlschlag wird abgebrochen. Kein Absturz, kein Alarm-Verlust
+bei kurzer Überlast.  
+**Tests:** `tests/test_b262_risk_watch_retry.py`

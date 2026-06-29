@@ -192,14 +192,24 @@ def _risk_alert_check(timestamp: str) -> None:
     _locs_with_email = [l for l in _locs if l.get("email", "").strip()]
     if not _locs_with_email:
         return
-    try:
-        import requests as _req
-        _resp = _req.get("http://127.0.0.1:5000/api/risk_grid", timeout=5)
-        if _resp.status_code != 200:
-            return
-        _grid = _resp.json().get("cells", [])
-    except Exception as _exc:
-        debug_log(f"[RISK-ALERT] Risk-Grid nicht erreichbar: {_exc}")
+    # B262: Retry mit Backoff — 2 Versuche mit 1 s Pause bei temporärem Timeout
+    import time as _time
+    import requests as _req
+    _grid = None
+    _RISK_GRID_URL = "http://127.0.0.1:5000/api/risk_grid"
+    for _attempt in range(2):
+        try:
+            _resp = _req.get(_RISK_GRID_URL, timeout=5)
+            if _resp.status_code == 200:
+                _grid = _resp.json().get("cells", [])
+            break
+        except Exception as _exc:
+            if _attempt == 0:
+                debug_log(f"[RISK-ALERT] Risk-Grid Versuch 1 fehlgeschlagen: {_exc} — retry in 1 s")
+                _time.sleep(1)
+            else:
+                debug_log(f"[RISK-ALERT] Risk-Grid nicht erreichbar (2 Versuche): {_exc}")
+    if _grid is None:
         return
     _changed = False
     for loc in _locs_with_email:
