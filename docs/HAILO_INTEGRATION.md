@@ -3213,3 +3213,14 @@ Inter-Frame-Abstände aus dem übergebenen `by_ts`-Dict; `_find_target_frame()`
 übergibt dieses Dict. Bei 15-min-Kadenz steigt die effektive Toleranz auf
 ≥450 s.  
 **Tests:** `tests/test_b260_adaptive_tolerance.py`
+
+## B261 — `api_health.jsonl`: Test-Telemetrie-Einträge herausfiltern (2026-06-29)
+
+**Datei:** `debug_utils.py`
+**Problem:** `log_api_failure()` schrieb Sentinel-Einträge (`service="t"`,
+`url="example.invalid"` aus `test_b149_retry_get_breaker.py`) in die
+Produktionsdatei, wenn die conftest-Fixture `_isolate_api_health_log`
+nicht griff. Im debug1-Export: 9 von 217 Einträgen betroffen.
+**Fix:** Guard am Anfang von `log_api_failure()`: `service == "t"` oder
+`"example.invalid"` in URL → sofortiges `return` ohne Datei-Schreibzugriff.
+**Tests:** `tests/test_b261_health_log_isolation.py`

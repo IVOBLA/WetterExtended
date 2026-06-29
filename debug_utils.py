@@ -77,6 +77,11 @@ def log_api_failure(service: str, url: str, reason: str,
     fallback_used: True wenn auf Default-Werte / letzten Cache zurückgefallen
     http_status: HTTP-Statuscode falls verfügbar (z. B. 404, 500, 503)
     """
+    # B261: Test-Telemetrie-Schutz — synthetische Testaufrufe (Sentinel-Service
+    # "t" und Sentinel-URL "example.invalid") dürfen nie in Produktionslogs landen,
+    # auch wenn die conftest-Fixture _isolate_api_health_log nicht greift.
+    if service == "t" or "example.invalid" in (url or ""):
+        return
     rec = {
         "ts_utc": _dt.utcnow().isoformat(timespec="seconds") + "Z",
         "service": service,
