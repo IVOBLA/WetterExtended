@@ -214,13 +214,15 @@ def _append_detail_once(path: str, rec: dict, seen: Set[tuple]) -> bool:
     return True
 
 
-def _load_detail_keys(path: str) -> Set[tuple]:
-    """B258: Bereits in forecast_error_details.jsonl persistierte Keys laden, damit eine
-    Verifikation über Scheduler-Läufe hinweg genau EINMAL angehängt wird (verhindert die
-    ~20-fache Duplizierung desselben Forecasts pro Tag)."""
+def _load_detail_keys(path: str, since_hours: int = 24) -> Set[tuple]:
+    """B258: Liest bestehende Einträge aus forecast_error_details.jsonl und
+    gibt deren Schlüssel-Set zurück. Nur Einträge innerhalb von since_hours
+    werden berücksichtigt (Fenster identisch zu evaluate_for_horizon).
+    Verhindert Duplikate bei nachfolgenden _append_detail_once-Aufrufen."""
     seen: Set[tuple] = set()
     if not os.path.exists(path):
         return seen
+    cutoff = datetime.utcnow() - timedelta(hours=since_hours)
     try:
         with open(path, "r", encoding="utf-8") as fh:
             for line in fh:
@@ -228,11 +230,17 @@ def _load_detail_keys(path: str) -> Set[tuple]:
                 if not line:
                     continue
                 try:
-                    seen.add(_detail_key(json.loads(line)))
+                    rec = json.loads(line)
+                    ts_str = str(rec.get("verified_at_utc", "")).replace("Z", "")
+                    if ts_str:
+                        ts = datetime.fromisoformat(ts_str)
+                        if ts < cutoff:
+                            continue
+                    seen.add(_detail_key(rec))
                 except Exception:
                     continue
-    except Exception:
-        return set()
+    except Exception as exc:
+        debug_log(f"[ACCURACY] _load_detail_keys Fehler: {exc}")
     return seen
 
 def _match_type(raw: str) -> str:
@@ -494,8 +502,8 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
     direction_errors = []
     speed_errors = []
     details = []
-    # B258: Vorhandene Keys laden → Forecast-Verifikation wird über Läufe hinweg nur einmal angehängt.
-    detail_keys_seen: Set[tuple] = _load_detail_keys(DETAILS_FILE)
+    # B258: Bestehende Schlüssel laden — verhindert Duplikate bei Scheduler-Wiederholung.
+    detail_keys_seen: Set[tuple] = _load_detail_keys(DETAILS_FILE, since_hours)
 
     def _bucket(store, key):
         k = str(key or "unknown")

@@ -3263,3 +3263,8 @@ alle Attribute nach jedem Test automatisch wieder her. Kein rohes `setattr()` me
   jeden Horizont-Dict gemergt.
 - **Dateien:** `tools/diagnose_forecast_quality.py`,
   `tests/test_b257_diagnose_history_format.py`
+
+## B258 Follow-up — `forecast_error_details.jsonl`: since_hours-Fenster für Dedup-Keys (2026-06-29)
+- **Problem:** `_load_detail_keys()` lud persistierte Detail-Keys ohne Zeitfenster. Damit war der Scheduler zwar laufübergreifend idempotent, aber das Key-Set entsprach nicht dem `since_hours`-Fenster von `evaluate_for_horizon()`.
+- **Fix:** `_load_detail_keys(path, since_hours)` berücksichtigt jetzt `verified_at_utc` und lädt nur Keys innerhalb der letzten `since_hours` Stunden. `evaluate_for_horizon()` übergibt sein aktuelles Fenster an die Hilfsfunktion.
+- **Tests:** `tests/test_b258_detail_no_duplicates.py` prüft den zweiten Scheduler-Lauf, das Laden aktueller Keys, das Ausschließen alter Keys und den leeren Rückgabewert bei fehlender Datei.
