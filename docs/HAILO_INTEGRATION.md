@@ -3201,3 +3201,15 @@ geparst und fielen aus der Verifikation heraus (Beweis: 223 Präfix-Frames neben
 Archivierungsstellen (Zeilen 1781, 1787). Zeile 1768 (`filename.replace("radar_", "")`)
 bleibt für Rückwärtskompatibilität erhalten.<br>
 **Tests:** `tests/test_b259_radar_filename.py`
+
+## B260 — Verifikations-Zeittoleranz adaptiv an gemessene Radar-Kadenz (2026-06-29)
+
+**Datei:** `accuracy_tracker.py`  
+**Problem:** `_effective_target_tolerance_s()` nutzte den statischen
+`FRAME_INTERVAL_MIN=5.0` (→ 150 s). Bei ARSO-15-min-Kadenz (nachts/vormittags)
+fanden Kurz-Horizont-Forecasts keinen Zielframe (ratio=0.3974 im Export).  
+**Fix:** `_effective_target_tolerance_s()` misst den Median der tatsächlichen
+Inter-Frame-Abstände aus dem übergebenen `by_ts`-Dict; `_find_target_frame()`
+übergibt dieses Dict. Bei 15-min-Kadenz steigt die effektive Toleranz auf
+≥450 s.  
+**Tests:** `tests/test_b260_adaptive_tolerance.py`

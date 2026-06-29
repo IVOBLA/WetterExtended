@@ -303,16 +303,34 @@ def _detail_record(obj: dict, ts: datetime, target_ts: datetime, horizon_min: in
         "area":                  _safe_float(obj.get("area")),
     }
 
-def _effective_target_tolerance_s(time_tol_s: int) -> int:
-    """Deckt ARSO-Frames mit nominalem Halbtakt ab, ohne die Config-Toleranz zu senken."""
+def _effective_target_tolerance_s(time_tol_s: int,
+                                   by_ts: Optional[Dict[datetime, str]] = None) -> int:
+    """Deckt ARSO-Frames mit der gemessenen Halbtakt-Kadenz ab.
+
+    B260: Wenn by_ts übergeben wird, wird der Median der tatsächlich
+    beobachteten Inter-Frame-Abstände gemessen. Die effektive Toleranz
+    ist dann max(time_tol_s, gemessene_halb_kadenz_s, nominaler_halbtakt_s),
+    sodass Kurz-Horizont-Forecasts auch bei 15-min-Radarkadenz verifizierbar
+    bleiben (missing_target_frames ratio sinkt).
+    """
     frame_half_s = int(round(float(FRAME_INTERVAL_MIN) * 60.0 / 2.0))
+    if by_ts and len(by_ts) >= 2:
+        sorted_ts = sorted(by_ts.keys())
+        gaps_s = [
+            (sorted_ts[i + 1] - sorted_ts[i]).total_seconds()
+            for i in range(len(sorted_ts) - 1)
+        ]
+        if gaps_s:
+            import statistics as _statistics
+            measured_half_s = int(round(_statistics.median(gaps_s) / 2.0))
+            frame_half_s = max(frame_half_s, measured_half_s)
     return max(int(time_tol_s), frame_half_s)
 
 
 def _find_target_frame(by_ts: Dict[datetime, str],
                        target_ts: datetime,
                        time_tol_s: int) -> Optional[str]:
-    effective_tol_s = _effective_target_tolerance_s(time_tol_s)
+    effective_tol_s = _effective_target_tolerance_s(time_tol_s, by_ts)
     best_path = None
     best_delta = effective_tol_s + 1
     for ts, path in by_ts.items():
