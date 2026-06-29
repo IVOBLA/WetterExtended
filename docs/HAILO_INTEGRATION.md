@@ -3268,3 +3268,19 @@ alle Attribute nach jedem Test automatisch wieder her. Kein rohes `setattr()` me
 - **Problem:** `_load_detail_keys()` lud persistierte Detail-Keys ohne Zeitfenster. Damit war der Scheduler zwar laufübergreifend idempotent, aber das Key-Set entsprach nicht dem `since_hours`-Fenster von `evaluate_for_horizon()`.
 - **Fix:** `_load_detail_keys(path, since_hours)` berücksichtigt jetzt `verified_at_utc` und lädt nur Keys innerhalb der letzten `since_hours` Stunden. `evaluate_for_horizon()` übergibt sein aktuelles Fenster an die Hilfsfunktion.
 - **Tests:** `tests/test_b258_detail_no_duplicates.py` prüft den zweiten Scheduler-Lauf, das Laden aktueller Keys, das Ausschließen alter Keys und den leeren Rückgabewert bei fehlender Datei.
+
+## B259a — `object_tracking.py`: ARSO-KML-Timestamp Sanity-Check (Fallback Systemzeit) (2026-06-29)
+- **Problem:** ARSO-Server lieferte frischen Radarinhalt (SHA256 geändert →
+  `download_kmz()=True`, Zellen erkannt, Starkregen-Warnung), aber
+  `<TimeStamp><when>` im KML blieb auf `2026-06-29T07:05:00Z` (09:05 CEST)
+  eingefroren. `detect_and_track_objects()` speicherte jede neue PNG mit
+  demselben Timestamp (Überschreiben). `api_radar_frames` filterte diesen
+  einzigen Frame als zu alt heraus → leere Liste → kein Radar-Overlay.
+- **Fix:** Nach `get_acquisition_timestamp()` neuer Skew-Check: ist der Timestamp
+  mehr als `RADAR_TIMESTAMP_MAX_SKEW_MIN` (Default 30 min, runtime-überschreibbar)
+  älter als Systemzeit, wird `datetime.now()` als Dateiname-Basis verwendet.
+  `get_acquisition_timestamp()` selbst bleibt unverändert (liefert weiter den
+  besten verfügbaren ARSO-Timestamp). Skew-Check nur im Live-Modus (`"latest"`
+  im Dateinamen). 0 = deaktiviert.
+- **Dateien:** `config.py`, `object_tracking.py`,
+  `tests/test_b259_radar_timestamp_skew.py`
