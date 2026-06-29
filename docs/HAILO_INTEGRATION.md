@@ -3175,3 +3175,16 @@ erweitert. JSX mit esbuild validiert. Offen: P65.
 | Nummer | Titel | Beschreibung | Dateien | Status |
 |---|---|---|---|---|
 | P66 | **Multi-Core-Split** | Erkennt Radar-Blobs mit mehreren räumlich getrennten Konvektionskernen (≥2 rot/violett-Zonen mit ≥2.4 km Abstand) und teilt sie via Voronoi-Partitionierung in unabhängige Sub-Zellen auf. Jede Sub-Zelle erhält einen eigenen Kalman-Track, Geschwindigkeitsvektor und Core-Ratio. Konfigurierbar über `MULTI_CORE_SPLIT_ENABLED`, `MULTI_CORE_MIN_CORE_AREA_PX`, `MULTI_CORE_MIN_DIST_PX`, `MULTI_CORE_MIN_CHILD_AREA_PX` in `runtime_overrides.json`. Neue Hilfsfunktionen: `_detect_core_components`, `_voronoi_split`. | `object_tracking.py`, `config.py`, `tests/test_p66_multi_core_split.py` | ✅ erledigt |
+
+## B263 — IR→Radar-Matching: Logik-Inversion in `select_ir_radar_matches` (2026-06-29)
+
+**Datei:** `cell_lineage.py`  
+**Problem:** Guard `if _real_cell_id(robj.get("cell_id")): continue` filterte
+**alle** Radar-Objekte heraus, da `object_tracking.py` jeder Zelle eine
+`WX-`-ID vergibt. Folge: 987 IR-Zellen über 24 h, 0 jemals radar-bestätigt
+(`ir_precursors.matched_count = 0` im Export). Alle IR-Features ohne
+Lerngrundlage.  
+**Fix:** Guard-Bedingung geändert auf `lineage_status == "radar_confirmed"` —
+überspringt nur bereits in diesem Zyklus bestätigte Objekte, nicht alle
+mit einer cell_id.  
+**Tests:** `tests/test_b263_ir_radar_matching.py`

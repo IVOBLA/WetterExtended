@@ -733,7 +733,10 @@ def _real_cell_id(value: Any) -> bool:
 def select_ir_radar_matches(radar_objects: list[dict], ir_tracks: list[dict], *, timestamp: str | None = None, weather_context: dict | None = None) -> tuple[list[dict], dict]:
     candidates = []
     for ri, robj in enumerate(radar_objects or []):
-        if _real_cell_id(robj.get("cell_id")):
+        # B263: Nur bereits in diesem Zyklus lineage-bestätigte Objekte überspringen.
+        # Früher wurde auf _real_cell_id(cell_id) geprüft — das schließt ALLE Radar-
+        # Objekte aus, weil object_tracking.py jeder Zelle eine WX-ID vergibt.
+        if robj.get("lineage_status") == "radar_confirmed":
             continue
         for ii, itrack in enumerate(ir_tracks or []):
             m = compute_ir_radar_match_score(robj, itrack, timestamp=timestamp, weather_context=weather_context)
