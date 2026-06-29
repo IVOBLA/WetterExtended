@@ -3250,3 +3250,16 @@ dadurch `15` statt `20` (Codex-Review-Badge P2).
 **Fix:** Alle 5 Tests nutzen ausschließlich `monkeypatch.setattr()`. pytest stellt
 alle Attribute nach jedem Test automatisch wieder her. Kein rohes `setattr()` mehr.
 **Verifiziert:** `test_b262 → test_p2_2` in Reihenfolge → 9/9 grün, kein State-Leak.
+
+## B257 — `tools/diagnose_forecast_quality.py`: Legacy-Feldnamen `accuracy_history.jsonl` (2026-06-29)
+- **Problem:** `_read_accuracy_history_horizons()` greift auf Top-Level-Felder
+  `rec.get("horizon")`, `rec.get("mae_km")` zu. `evaluate_all()` schreibt seit
+  einem früheren Refactor das verschachtelte Format
+  `{"horizons": [{"horizon": 10, "mae_km": ...}]}`.
+  Alle 95 History-Einträge lieferten `horizon=None` → `model_usage: "not_available"`.
+- **Fix:** `_read_accuracy_history_horizons()` prüft zuerst `rec.get("horizons")`
+  (neues Format) und iteriert die Liste; Fallback auf altes Flat-Format
+  `rec.get("horizon")`. Parent-Kontext-Felder (z.B. `timestamp_utc`) werden in
+  jeden Horizont-Dict gemergt.
+- **Dateien:** `tools/diagnose_forecast_quality.py`,
+  `tests/test_b257_diagnose_history_format.py`

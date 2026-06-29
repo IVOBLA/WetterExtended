@@ -73,6 +73,74 @@ def _read_jsonl(path: Path, hours: int) -> list[dict]:
     return rows
 
 
+
+def _read_accuracy_history_horizons(path: Path, hours: int) -> list[dict]:
+    """Liest accuracy_history.jsonl und gibt flache Liste von Horizont-Records zurück.
+
+    B257: Unterstützt sowohl neues verschachteltes Format
+    {"horizons": [{"horizon": 10, "mae_km": ...}]}
+    als auch altes Flat-Format {"horizon": 10, "mae_km": ...}.
+    """
+    rows = []
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    if not path.exists():
+        return rows
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            if not isinstance(rec, dict):
+                continue
+            ts = _parse_ts(rec.get("timestamp_utc"))
+            if ts is not None and ts < cutoff:
+                continue
+            # B257: neues verschachteltes Format bevorzugen
+            nested = rec.get("horizons")
+            if isinstance(nested, list):
+                for h_entry in nested:
+                    if isinstance(h_entry, dict) and h_entry.get("horizon") is not None:
+                        # Kontext-Felder aus dem Parent-Eintrag übernehmen
+                        merged = dict(rec)
+                        merged.update(h_entry)
+                        rows.append(merged)
+            else:
+                # Altes Flat-Format: Top-Level-horizon vorhanden
+                if rec.get("horizon") is not None:
+                    rows.append(rec)
+    return rows
+
+
+def _model_usage_from_accuracy_history(rows: list[dict]) -> dict:
+    if not rows:
+        return {"status": "not_available"}
+
+    by_horizon = {}
+    usable = 0
+    total_samples = 0
+    for row in rows:
+        horizon = row.get("horizon")
+        if horizon is None:
+            continue
+        samples = int(_f(row.get("samples")) or 0)
+        mae = _f(row.get("mae_km"))
+        hit_rate = _f(row.get("hit_rate"))
+        item = {"samples": samples, "mae_km": mae, "hit_rate": hit_rate}
+        by_horizon[str(horizon)] = item
+        total_samples += samples
+        if samples > 0 or mae is not None or hit_rate is not None:
+            usable += 1
+
+    if not by_horizon or usable == 0:
+        return {"status": "not_available"}
+    return {
+        "status": "available",
+        "horizon_count": len(by_horizon),
+        "total_samples": total_samples,
+        "by_horizon": by_horizon,
+    }
+
 def _ratio(rows, pred):
     return round(sum(1 for r in rows if pred(r)) / len(rows), 4) if rows else None
 
@@ -110,6 +178,7 @@ def _id_matching(rows: list[dict], outliers: list[dict]) -> dict:
 def build_diagnosis(base_dir: Path, hours: int, evaluation_dir: Path | None = None) -> dict:
     ev = evaluation_dir or _resolve_save_path(base_dir, "evaluation", "train_data/evaluation")
     details = _read_jsonl(ev / "forecast_error_details.jsonl", hours)
+    accuracy_rows = _read_accuracy_history_horizons(ev / "accuracy_history.jsonl", hours)
     verified = [r for r in details if _f(r.get("forecast_error_km")) is not None]
     outliers = sorted(verified, key=lambda r: _f(r.get("forecast_error_km")) or 0, reverse=True)[:10]
     px_geo = []
@@ -176,7 +245,7 @@ def build_diagnosis(base_dir: Path, hours: int, evaluation_dir: Path | None = No
         "dem_orography": _feature_stats(details, terrain),
         "weather_features": _feature_stats(details, weather),
         "ir_precursors": {"median_lead_time_min": round(statistics.median(leads), 2) if leads else None, "matched_count": len(leads), "no_lead_count": no_lead},
-        "model_usage": {"status": "not_available"},
+        "model_usage": _model_usage_from_accuracy_history(accuracy_rows),
         "important_findings": findings,
         "recommendations": recs or ["Keine akuten Diagnoseempfehlungen aus lokalen 24h-Daten ableitbar."],
     }
