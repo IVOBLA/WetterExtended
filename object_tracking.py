@@ -1756,8 +1756,31 @@ def detect_and_track_objects(image_path=None, weather_data=None):
     if "latest" in filename:
         _acq = get_acquisition_timestamp()
         if _acq:
-            timestamp = _acq
             ts_dt = datetime.strptime(_acq, "%Y-%m-%d_%H-%M-%S")
+            # B259: Sanity-Check — wenn ARSO-Timestamp eingefroren ist
+            # (download_kmz() lieferte True = frischer Inhalt, aber KML-<when>
+            # zeigt stundenlang denselben Wert), auf Systemzeit zurückfallen.
+            # Verhindert dass alle Radar-PNGs denselben Dateinamen bekommen
+            # und api_radar_frames sie als "zu alt" herausfiltert.
+            try:
+                from config import RADAR_TIMESTAMP_MAX_SKEW_MIN as _SKEW_CFG
+            except Exception:
+                _SKEW_CFG = 30.0
+            try:
+                import runtime_config as _rc_b259
+                _skew_max = float(_rc_b259.get("RADAR_TIMESTAMP_MAX_SKEW_MIN", _SKEW_CFG))
+            except Exception:
+                _skew_max = float(_SKEW_CFG)
+            _now_local = datetime.now()
+            _skew_min = (_now_local - ts_dt).total_seconds() / 60.0
+            if _skew_max > 0 and _skew_min > _skew_max:
+                debug_log(
+                    f"[WARN] B259: ARSO-Timestamp {_acq} ist {_skew_min:.0f} min "
+                    f"veraltet (Grenze: {_skew_max:.0f} min) → Systemzeit als Fallback"
+                )
+                ts_dt = _now_local
+                _acq = ts_dt.strftime("%Y-%m-%d_%H-%M-%S")
+            timestamp = _acq
             debug_log(f"[INFO] Live-Modus: Aufnahme-Timestamp aus KMZ (KML-TimeStamp/PNG/Last-Modified): {timestamp}")
         else:
             ts_dt = datetime.now()

@@ -1001,6 +1001,11 @@ EUMETVIEW_RSS_LAYER_IR108 = None
 EUMETVIEW_LICENSE_STATUS: str = "unconfirmed"   # unconfirmed | free_confirmed | disabled
 # Max. Alter (min) eines wiederverwendeten WMS-Timestamps im RSS-Modus (kürzer als FES).
 EUMETVIEW_RSS_FALLBACK_MAX_AGE_MIN: float = 12.0
+# B259: Maximaler zulässiger Skew zwischen ARSO-KML-Timestamp und Systemzeit (min).
+# Übersteigt die Differenz diesen Wert, wird die Systemzeit als Dateiname-Basis
+# verwendet (verhindert Überschreiben einer einzigen Datei bei eingefrorenem Timestamp).
+# 0 = Skew-Check deaktiviert.
+RADAR_TIMESTAMP_MAX_SKEW_MIN: float = 30.0
 
 
 # Mehrstufige IR-Frühphasen-/CB-Vorläufer-Erkennung (runtime-überschreibbar)
