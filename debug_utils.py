@@ -15,10 +15,6 @@ except Exception:
 
 from config import DEBUG_MODE  # Ein-/Ausschalten über config.py
 
-# B256: Obergrenze für eingebettete Response-Bodies in api_call_counts.jsonl.
-# Verhindert, dass Großantworten (z. B. CAPE-GeoJSON ~2,4 MB) das Log aufblähen.
-API_LOG_MAX_BODY_BYTES = 16384  # 16 KB; größere Bodies werden gekürzt gespeichert
-
 def save_debug_image(path, image, message=None):
     if DEBUG_MODE:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -172,7 +168,7 @@ def log_api_call(service: str, url: str = "", status_code: int = 200,
     """
     import datetime as _dt, json as _jc, os as _oc
     from config import SAVE_PATHS
-    # B256: Textuelle Responses werden bei Überschreiten von API_LOG_MAX_BODY_BYTES gekürzt.
+    # B256: Textuelle Responses werden bei Überschreiten von LOG_API_RESPONSE_MAX_CHARS gekürzt.
     # Binäre Responses (KMZ, TIFF, …) werden als Metadaten-Dict gespeichert.
     _BINARY_CONTENT_TYPES = (
         "image/", "application/octet-stream", "application/zip",
@@ -185,6 +181,32 @@ def log_api_call(service: str, url: str = "", status_code: int = 200,
             return None, False
         s = str(v)
         return (s[:n] + "…", True) if len(s) > n else (s, False)
+    def _truncate_body(resp_body: dict) -> dict:
+        """B256: Kürzt body_json/body_text auf LOG_API_RESPONSE_MAX_CHARS Zeichen.
+        Gibt Dict mit body_json, body_text und truncated zurück."""
+        try:
+            from config import LOG_API_RESPONSE_MAX_CHARS as _MAX_C
+        except Exception:
+            _MAX_C = 4000
+        try:
+            import runtime_config as _rc_trunc
+            _MAX_C = int(_rc_trunc.get("LOG_API_RESPONSE_MAX_CHARS", _MAX_C))
+        except Exception:
+            pass
+        body_json = resp_body.get("body_json")
+        body_text = resp_body.get("body_text")
+        truncated = False
+        if _MAX_C > 0 and not resp_body.get("binary"):
+            if body_json is not None:
+                serialized = _jc.dumps(body_json, ensure_ascii=False)
+                if len(serialized) > _MAX_C:
+                    body_json = serialized[:_MAX_C]
+                    truncated = True
+            if body_text is not None and len(body_text) > _MAX_C:
+                body_text = body_text[:_MAX_C]
+                truncated = True
+        return {"body_json": body_json, "body_text": body_text, "truncated": truncated}
+
     def _mask_dict(d):
         if isinstance(d, dict):
             out = {}
@@ -269,24 +291,6 @@ def log_api_call(service: str, url: str = "", status_code: int = 200,
             resp_body["sha256"] = sha256
         if saved_to is not None:
             resp_body["saved_to"] = saved_to
-    # B256: Große textuelle Bodies kappen (api_call_counts.jsonl-Bloat verhindern).
-    _body_truncated = False
-    if not resp_body.get("binary"):
-        _bj = resp_body.get("body_json")
-        if _bj is not None:
-            try:
-                _ser = _jc.dumps(_bj, ensure_ascii=False)
-            except Exception:
-                _ser = str(_bj)
-            if len(_ser.encode("utf-8")) > API_LOG_MAX_BODY_BYTES:
-                resp_body["body_json"] = None
-                resp_body["body_text"] = _ser[:API_LOG_MAX_BODY_BYTES] + "…[gekürzt]"
-                _body_truncated = True
-        else:
-            _bt = resp_body.get("body_text")
-            if isinstance(_bt, str) and len(_bt.encode("utf-8")) > API_LOG_MAX_BODY_BYTES:
-                resp_body["body_text"] = _bt[:API_LOG_MAX_BODY_BYTES] + "…[gekürzt]"
-                _body_truncated = True
     entry = {
         "ts":          _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
         "service":     service,
@@ -302,13 +306,11 @@ def log_api_call(service: str, url: str = "", status_code: int = 200,
         "response": {
             "status":       status_code,
             "content_type": content_type,
-            "body_json":    resp_body.get("body_json"),
-            "body_text":    resp_body.get("body_text"),
+            **_truncate_body(resp_body),
             "binary":       resp_body.get("binary", False),
             "content_length": resp_body.get("content_length"),
             "sha256":       resp_body.get("sha256"),
             "saved_to":     resp_body.get("saved_to"),
-            "truncated":    _body_truncated,
             "error":        error,
         },
     }
