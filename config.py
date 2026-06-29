@@ -1059,6 +1059,10 @@ SCHEDULER_MISFIRE_GRACE_S: int = 3600
 # täglichen Cleanup verworfen. Default 48 h (> 24h-Export-Fenster) → der 24h-Export
 # behält IMMER alle Daten; gestoppt wird nur unbegrenztes Wachstum. 0 = keine Rotation.
 EVAL_LOG_RETENTION_HOURS: int = 48
+# B256: Maximale Zeichenzahl für body_json/body_text in api_call_counts.jsonl.
+# Überschreitung → Eintrag gekürzt + "truncated": true.
+# 0 = keine Begrenzung (nicht empfohlen: unkontrolliertes Wachstum).
+LOG_API_RESPONSE_MAX_CHARS: int = 4000
 # Cleanup nur ausfuehren wenn freier Speicher unter diesen Wert faellt.
 # Solange genug Platz vorhanden ist, bleiben Daten erhalten (wertvoll fuer
 # Hailo-Calibration und Retraining). 0 = immer loeschen (altes Verhalten).

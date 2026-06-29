@@ -3150,12 +3150,15 @@ erweitert. JSX mit esbuild validiert. Offen: P65.
 - Neu-Track-Anlage übernimmt Wind-Felder aus der Detektion.
 - Test: `tests/test_b254_steering_wind_fallback.py`.
 
-## B256 — api_call_counts.jsonl: Response-Bodies kappen (Log-Bloat) (2026-06-27)
-- `debug_utils.log_api_call()` bettete JSON-/Text-Antworten ungekürzt ein → `api_call_counts.jsonl` wuchs durch `geosphere_cape` (~2,4 MB GeoJSON × ~80/Tag) auf ~275 MB/Tag.
-- Neue Modulkonstante `API_LOG_MAX_BODY_BYTES = 16384`; textuelle Bodies werden bei Überschreitung gekürzt (`body_text = …[gekürzt]`, `truncated = true`).
-- Binär-Antworten (KMZ/TIFF) bleiben Metadaten-only und unverändert.
-- Test: `tests/test_b256_api_log_body_cap.py`.
-- Erledigt.
+## B256 — `api_call_counts.jsonl` Body-Truncation (2026-06-29)
+- **Problem:** `log_api_call()` speichert vollständige Response-Bodies ohne Größenbegrenzung.
+  GeoSphere-CAPE liefert 4.278 GeoJSON-Features pro Aufruf → 2,3 MB/Eintrag;
+  `api_call_counts.jsonl` wuchs auf **254 MB/Tag** (153 MB allein CAPE).
+- **Fix:** Neuer Config-Parameter `LOG_API_RESPONSE_MAX_CHARS = 4000` (runtime-überschreibbar).
+  `_truncate_body()` in `log_api_call()` kürzt `body_json` (JSON-serialisiert) und
+  `body_text` auf diesen Wert; `truncated: true` im Log-Eintrag. Binäre Antworten
+  (KMZ, TIFF) bleiben unberührt. 0 = keine Begrenzung.
+- **Dateien:** `config.py`, `debug_utils.py`, `tests/test_b256_api_log_truncation.py`
 
 ## B257 — Diagnose-Report: Feature-Namen an aktives Schema koppeln (2026-06-27)
 - `build_diagnosis()` prüfte Legacy-Schlüssel (`wind_speed`, `temperature`, `grosswetterlage`, `valley_alignment_score`, `valley_channeling_score`) und meldete befüllte Features fälschlich als 100 % missing.
