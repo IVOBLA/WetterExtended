@@ -77,6 +77,15 @@ def _objects_signature(cells: list[dict] | None) -> dict:
     return {"count": len(items), "items": items}
 
 
+def _trend_cache_signature() -> dict:
+    return {
+        "history_mtime": _path_mtime(HYDRO_HISTORY_PATH),
+        "lookback_min": runtime_config.get("HYDRO_TREND_LOOKBACK_MIN", getattr(config, "HYDRO_TREND_LOOKBACK_MIN", 65.0)),
+        "min_delta_m3s": runtime_config.get("HYDRO_TREND_MIN_DELTA_M3S", getattr(config, "HYDRO_TREND_MIN_DELTA_M3S", 0.02)),
+        "min_delta_rel_pct": runtime_config.get("HYDRO_TREND_MIN_DELTA_REL_PCT", getattr(config, "HYDRO_TREND_MIN_DELTA_REL_PCT", 0.03)),
+    }
+
+
 def flood_risk_input_hash(live: dict | None = None, cells: list[dict] | None = None) -> str:
     overrides = runtime_config.get("HYDRO_STATION_OVERRIDES", {}) or {}
     live_sig = {
@@ -92,6 +101,7 @@ def flood_risk_input_hash(live: dict | None = None, cells: list[dict] | None = N
         "station_thresholds": overrides,
         "global_threshold": runtime_config.get("HYDRO_MAP_MARK_Q_M3S", getattr(config, "HYDRO_MAP_MARK_Q_M3S", None)),
         "objects": _objects_signature(cells),
+        "q_trend": _trend_cache_signature(),
     }
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()

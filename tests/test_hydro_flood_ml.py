@@ -123,6 +123,26 @@ def test_stale_flood_risk_cache_is_invalidated_after_hydro_fetch(tmp_path, monke
     assert hydro_flood_ml.is_flood_risk_cache_valid(json.loads(risk.read_text()), live=live, cells=[]) is False
 
 
+
+
+def test_flood_risk_cache_hash_includes_trend_config_and_history_mtime(tmp_path, monkeypatch):
+    hist = tmp_path / "hydro_history.jsonl"
+    hist.write_text(json.dumps({"station_id": "S1", "q_m3s": 1.0}) + "\n", encoding="utf-8")
+    monkeypatch.setattr(hydro_flood_ml, "HYDRO_HISTORY_PATH", hist)
+    values = {"HYDRO_TREND_MIN_DELTA_M3S": 0.02}
+    monkeypatch.setattr(hydro_flood_ml.runtime_config, "get", lambda k, d=None: values.get(k, d))
+    live = {"stations": [{"station_id": "S1", "q_m3s": 1.0}]}
+
+    original_hash = hydro_flood_ml.flood_risk_input_hash(live=live, cells=[])
+    values["HYDRO_TREND_MIN_DELTA_M3S"] = 0.5
+    assert hydro_flood_ml.flood_risk_input_hash(live=live, cells=[]) != original_hash
+
+    updated_config_hash = hydro_flood_ml.flood_risk_input_hash(live=live, cells=[])
+    import os, time
+    os.utime(hist, (time.time() + 10, time.time() + 10))
+    assert hydro_flood_ml.flood_risk_input_hash(live=live, cells=[]) != updated_config_hash
+
+
 def test_threshold_value_and_source_are_consistent(monkeypatch):
     monkeypatch.setattr(hydro_flood_ml.runtime_config, "get", lambda k, d=None: None if k == "HYDRO_MAP_MARK_Q_M3S" else d)
     row = hydro_flood_ml.build_feature_row({"station_id": "2002485", "mark_q_m3s": 8}, live={"stations": [{"station_id": "2002485", "q_m3s": 0.96}]})
