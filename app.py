@@ -620,7 +620,7 @@ def api_radar_timing():
     obj_dir   = SAVE_PATHS.get("objects", "train_data/objects")
     radar_dir = "data/radar"
 
-    radar_files = sorted(_gl.glob(os.path.join(radar_dir, "radar_*.png")))
+    radar_files = sorted(_gl.glob(os.path.join(radar_dir, "[0-9]*.png")))
     obj_files   = sorted(_gl.glob(os.path.join(obj_dir, "*.json")))
 
     last_radar_utc = None
@@ -716,12 +716,12 @@ def api_radar_image():
     # Bestimme Pfad zum auszuliefernden Radarbild
     ts_param = request.args.get("ts")
     if ts_param:
-        candidate = os.path.join("data", "radar", f"radar_{ts_param}.png")
+        candidate = os.path.join("data", "radar", f"{ts_param}.png")
         latest = candidate if os.path.exists(candidate) else None
     else:
         # Neustes gecroptes Radar-File
         import glob as _rgl
-        _rfiles = sorted(_rgl.glob(os.path.join("data", "radar", "radar_*.png")))
+        _rfiles = sorted(_rgl.glob(os.path.join("data", "radar", "[0-9]*.png")))
         latest = _rfiles[-1] if _rfiles else None
     if not latest:
         # Fallback auf Originalbild (kein gecroptes vorhanden)
@@ -797,7 +797,7 @@ def api_radar_frames():
 
     # Alle Frames parsen
     all_frames = []
-    for f in sorted(_gl.glob(os.path.join("data", "radar", "radar_*.png"))):
+    for f in sorted(_gl.glob(os.path.join("data", "radar", "[0-9]*.png"))):
         try:
             base  = os.path.basename(f)
             ts    = base.replace("radar_", "").replace(".png", "")
@@ -1494,7 +1494,7 @@ def api_lightning():
             })
         ref_time = _file_dt
     except Exception:
-        radar_files = sorted(glob.glob(os.path.join("data", "radar", "radar_*.png")))
+        radar_files = sorted(glob.glob(os.path.join("data", "radar", "[0-9]*.png")))
         try:
             radar_ts = os.path.basename(radar_files[-1]).replace("radar_", "").replace(".png", "")
             ref_time = _project_timestamp_to_utc(radar_ts)
@@ -3312,7 +3312,7 @@ def api_ai_analysis_chat():
         radar_ts_info = ""
         if include_radar:
             import glob as _gl
-            radar_files = sorted(_gl.glob(os.path.join("data", "radar", "radar_*.png")))
+            radar_files = sorted(_gl.glob(os.path.join("data", "radar", "[0-9]*.png")))
             if radar_files:
                 try:
                     with open(radar_files[-1], "rb") as _rf:
@@ -4323,7 +4323,7 @@ def api_analyze_cell_polygon():
 
         # Aktuellstes verarbeitetes Radarbild (bereits gecroppt + upgeskaliert)
         _radar_dir = SAVE_PATHS.get("radar", "data/radar")
-        radar_files = sorted(_glob.glob(os.path.join(_radar_dir, "radar_*.png")))
+        radar_files = sorted(_glob.glob(os.path.join(_radar_dir, "[0-9]*.png")))
         if not radar_files:
             # Fallback: Originalbild (unkonsistente Pixelkoordinaten möglich)
             radar_files = [os.path.join("data", "latest.png")]

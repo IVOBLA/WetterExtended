@@ -25,10 +25,10 @@ def create_movement_gif(output_path="movement.gif", timestamps=None):
     object_dir = SAVE_PATHS["objects"].rstrip("/")
 
     if timestamps:
-        radar_files = [os.path.join(radar_dir, f"radar_{ts}.png") for ts in timestamps]
+        radar_files = [os.path.join(radar_dir, f"{ts}.png") for ts in timestamps]
         object_files = [os.path.join(object_dir, f"{ts}.json") for ts in timestamps]
     else:
-        radar_files = sorted(glob.glob(f"{radar_dir}/radar_*.png"))[-10:]
+        radar_files = sorted(glob.glob(f"{radar_dir}/[0-9]*.png"))[-10:]
         object_files = [
             os.path.join(object_dir, os.path.basename(f).replace("radar_", "").replace(".png", ".json"))
             for f in radar_files
