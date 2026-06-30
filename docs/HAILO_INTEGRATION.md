@@ -3413,3 +3413,20 @@ Exponierte Felder:
 `/api/hydro/stations` übernimmt `flood_expected` direkt aus dem bestehenden Cache `train_data/hydro/impact/latest_hydro_flood_risk.json`. Der Wert wird pro `station_id` in die Stations-Properties gemerged; fehlt der Cache oder enthält er keine passende Station, liefert die API `flood_expected: null`. Die Stations-API berechnet die Flood-Risk-Bewertung dabei nicht neu und löst keine zusätzlichen Fremdrequests aus.
 
 In `MapView.jsx` und `MapFullscreen.jsx` ersetzt ein Inline-SVG-Warnsymbol den normalen Hydro-Pegel-Kreis, sobald `flood_expected === true` ist. Das Symbol wird als Leaflet-`divIcon` im Code definiert und besteht aus rotem Warnkreis, weißem Rufzeichen und zwei roten Wellen. Die Popup-Inhalte, Catchment-Klicks und Hydro-Impact-Linien bleiben unverändert erhalten; bei Hochwassergefahr wird kein zusätzlicher Kreis am selben Punkt gerendert.
+
+## B271 — Flood-Risk/Trend-Cache lief nie ohne geöffnetes MapView (2026-06-30)
+
+**Datei:** `hydro_fetch.py`
+**Problem:** `evaluate_live_flood_risk()` wurde ausschließlich lazy über
+die Route `/api/hydro/flood-risk` ausgelöst, die nur `MapView.jsx` pollt.
+`MapFullscreen.jsx` und jeder Scheduler-Lauf lasen den Cache nur, lösten
+aber nie eine Neuberechnung aus. Live verifiziert: `latest_hydro_flood_risk.json`
+existierte nach mehreren Betriebsstunden überhaupt nicht.
+**Fix:** `evaluate_live_flood_risk(live=result)` direkt im Erfolgspfad von
+`fetch_hydro_live()` ausgelöst (gleiche Stelle wie `append_hydro_history()`),
+robust mit `try/except`. `cells` wird hier bewusst nicht mitgegeben
+(Niederschlag/Einzugsgebiet bleibt dann "nicht bewertbar", Q-Trend/
+Hochwassergefahr unabhängig davon korrekt).
+**Tests:** `tests/test_b271_hydro_fetch_triggers_risk_eval.py` (2 neue
+Tests) + `tests/test_hydro_fetch.py`, `tests/test_hydro_flood_ml.py`
+weiterhin grün (22/22 lokal verifiziert).

@@ -276,6 +276,21 @@ def fetch_hydro_live(force: bool = False) -> dict:
             append_hydro_history(result)
         except Exception:
             pass
+        # B271: Flood-Risk/Trend-Cache bei jedem erfolgreichen Fetch direkt aktualisieren.
+        # B271: Vorher wurde dieser Cache ausschliesslich lazy beim Aufruf von
+        # /api/hydro/flood-risk neu berechnet — dieser Endpunkt wird aber nur von
+        # MapView.jsx gepollt, nicht von MapFullscreen.jsx. Wird MapView nie geoeffnet,
+        # blieb die Datei dauerhaft ungeschrieben und Trend/Hochwassergefahr blieben
+        # "nicht ermittelbar", egal wie lange das System schon lief (live verifiziert:
+        # Datei fehlte komplett nach mehreren Betriebsstunden). cells=None ist hier
+        # bewusst in Kauf genommen (kein Zugriff auf Tracking-Objekte ohne app.py-
+        # Abhaengigkeit); Niederschlag/Einzugsgebiet bleibt dann "nicht bewertbar",
+        # Q-Trend und Hochwassergefahr funktionieren trotzdem unabhaengig davon.
+        try:
+            from hydro_flood_ml import evaluate_live_flood_risk
+            evaluate_live_flood_risk(live=result)
+        except Exception:
+            pass
         _write_status(result["status"])
         _log_api_call_safe(response, raw, duration_ms)
         return result
