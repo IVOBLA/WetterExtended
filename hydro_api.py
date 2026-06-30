@@ -295,7 +295,7 @@ def station_features(include_disabled=False, map_view=False):
     active = {str(e.get("station_id")): e for e in normalized_impacts(True, include_disabled=include_disabled) if e.get("status") in {"pending","confirmed","ambiguous"}}
     risk_doc = _json(HYDRO_FLOOD_RISK, {})
     flood_risk_cache_valid = _is_flood_risk_cache_valid_for_live(risk_doc, live)
-    risk_by_sid = {str(r.get("station_id")): r for r in risk_doc.get("stations", []) if isinstance(r, dict)} if isinstance(risk_doc, dict) else {}
+    risk_by_sid = {str(r.get("station_id")): r for r in risk_doc.get("stations", []) if isinstance(r, dict)} if flood_risk_cache_valid and isinstance(risk_doc, dict) else {}
     feats = []
     for sid, st in idx.items():
         if "station_id" not in st:

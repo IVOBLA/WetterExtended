@@ -83,7 +83,7 @@ def test_evaluate_live_flood_risk_exposes_trend_fields(tmp_path, monkeypatch):
     assert row["q_trend_reference_window_min"] == 10
 
 
-def test_hydro_stations_merges_trend_fields_from_cache(tmp_path, monkeypatch):
+def test_hydro_stations_merges_trend_fields_from_valid_cache(tmp_path, monkeypatch):
     risk = tmp_path / "latest_hydro_flood_risk.json"
     risk.write_text(json.dumps({"stations": [{"station_id": "S1", "q_trend_status": "falling", "q_trend_delta_m3s": -0.2, "q_trend_reference_window_min": 60}]}), encoding="utf-8")
     monkeypatch.setattr(hydro_api, "HYDRO_FLOOD_RISK", risk)
@@ -91,11 +91,27 @@ def test_hydro_stations_merges_trend_fields_from_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(hydro_api, "_json", lambda path, default: {"stations": [{"station_id": "S1", "q_m3s": 1.0}]} if path == hydro_api.LIVE_LATEST else json.loads(risk.read_text()))
     monkeypatch.setattr(hydro_api, "normalized_impacts", lambda latest_only=False, include_disabled=False: [])
     monkeypatch.setattr(hydro_api.runtime_config, "get", lambda k, d=None: None)
+    monkeypatch.setattr(hydro_api, "_is_flood_risk_cache_valid_for_live", lambda risk_doc, live: True)
     fc = hydro_api.station_features()
     props = fc["features"][0]["properties"]
     assert props["q_trend_status"] == "falling"
     assert props["q_trend_delta_m3s"] == -0.2
     assert props["q_trend_reference_window_min"] == 60
+
+
+def test_hydro_stations_omits_trend_fields_from_stale_cache(tmp_path, monkeypatch):
+    risk = tmp_path / "latest_hydro_flood_risk.json"
+    risk.write_text(json.dumps({"stations": [{"station_id": "S1", "q_trend_status": "falling", "q_trend_delta_m3s": -0.2, "q_trend_reference_window_min": 60}]}), encoding="utf-8")
+    monkeypatch.setattr(hydro_api, "HYDRO_FLOOD_RISK", risk)
+    monkeypatch.setattr(hydro_api, "_static_index", lambda: {"S1": {"station_id": "S1", "lat": 46.0, "lon": 14.0, "impact_eligible": True, "impact_eligible_auto": True}})
+    monkeypatch.setattr(hydro_api, "_json", lambda path, default: {"stations": [{"station_id": "S1", "q_m3s": 1.0}]} if path == hydro_api.LIVE_LATEST else json.loads(risk.read_text()))
+    monkeypatch.setattr(hydro_api, "normalized_impacts", lambda latest_only=False, include_disabled=False: [])
+    monkeypatch.setattr(hydro_api.runtime_config, "get", lambda k, d=None: None)
+    monkeypatch.setattr(hydro_api, "_is_flood_risk_cache_valid_for_live", lambda risk_doc, live: False)
+    props = hydro_api.station_features()["features"][0]["properties"]
+    assert "q_trend_status" not in props
+    assert "q_trend_delta_m3s" not in props
+    assert "q_trend_reference_window_min" not in props
 
 
 def test_frontend_contains_trend_color_popup_and_no_old_hydro_color():
