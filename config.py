@@ -165,6 +165,13 @@ MAX_STATION_DISTANCE_KM = 20  # Wetterstations-Zuordnung
 WIND_RASTER_RESOLUTION_KM = 10  # Rasterweite für Höhenwind
 MIN_CONTOUR_OVERLAP = 10
 MIN_CONTOUR_TOUCH = 5
+# B274: Dilatations-Puffer (px, hochskaliertes Grid) fuer are_contours_touching_edges().
+# Ohne Puffer reicht schon eine Luecke von einem einzigen Pixel (~111 m bei
+# UPSCALE_FACTOR=3), damit zwei Konturen als "nicht beruehrend" gelten und nie
+# zusammengefuehrt werden, obwohl sie im Reflektivitaets-Colormap eine einzige
+# zusammenhaengende Zelle bilden (verifiziert: Debug-Export 2026-06-30 17:35,
+# Faelle I45JTRXI/9WMB6Q7Q und SKU9AD2B/IHAPWM5M, je 0,140 km = 1 Pixel Luecke).
+MERGE_TOUCH_DILATE_PX = 2
 # B172: Umkreis (km), in dem der mittlere Bewegungsvektor aktiver Zellen des
 # letzten Frames als Start-Geschwindigkeit neu entstandener Zellen dient.
 NEW_CELL_SEED_RADIUS_KM = 30.0

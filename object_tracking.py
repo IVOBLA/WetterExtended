@@ -16,6 +16,7 @@ from debug_utils import save_debug_image, debug_log
 from geo_utils import crop_and_upscale_to_bbox
 from config import MIN_CONTOUR_OVERLAP
 from config import MIN_CONTOUR_TOUCH
+from config import MERGE_TOUCH_DILATE_PX
 from config import (
     TENDENCY_AREA_PCT_STABLE,
     TENDENCY_CORE_DELTA_STABLE,
@@ -328,13 +329,22 @@ def are_contours_connected(cnt1, cnt2, shape, min_overlap=10):
     overlap = cv2.bitwise_and(mask1, mask2)
     return cv2.countNonZero(overlap) >= min_overlap
     
-def are_contours_touching_edges(cnt1, cnt2, shape, min_touch=3):
+def are_contours_touching_edges(cnt1, cnt2, shape, min_touch=3, dilate_px=0):
     mask1 = np.zeros(shape, dtype=np.uint8)
     mask2 = np.zeros(shape, dtype=np.uint8)
 
     # Nur Ränder zeichnen (keine Fläche)
     cv2.drawContours(mask1, [cnt1], -1, 255, thickness=1)
     cv2.drawContours(mask2, [cnt2], -1, 255, thickness=1)
+
+    # B274: Puffer gegen Ein-Pixel-Luecken aus der Konturextraktion (Anti-Aliasing
+    # am HSV-Schwellwertrand). Ohne Dilatation gilt schon eine einzige Pixelreihe
+    # Abstand als "nicht beruehrend", obwohl es sich um dieselbe zusammenhaengende
+    # Zelle handelt.
+    if dilate_px > 0:
+        kernel = np.ones((2 * dilate_px + 1, 2 * dilate_px + 1), np.uint8)
+        mask1 = cv2.dilate(mask1, kernel)
+        mask2 = cv2.dilate(mask2, kernel)
 
     # Überlappung der Ränder prüfen
     overlap = cv2.bitwise_and(mask1, mask2)
@@ -375,7 +385,7 @@ def calculate_shape_features(contour):
     eccentricity = max(0.0, min(1.0, eccentricity))
     return float(area), float(eccentricity)
 
-def merge_close_contours(contours, image_shape, min_touch=3):
+def merge_close_contours(contours, image_shape, min_touch=3, dilate_px=0):
     merged = []
     used = [False] * len(contours)
 
@@ -390,7 +400,7 @@ def merge_close_contours(contours, image_shape, min_touch=3):
             if used[j] or i == j:
                 continue
 
-            if are_contours_touching_edges(cnt1, cnt2, image_shape, min_touch=min_touch):
+            if are_contours_touching_edges(cnt1, cnt2, image_shape, min_touch=min_touch, dilate_px=dilate_px):
                 group.append(cnt2)
                 used[j] = True
 
@@ -566,7 +576,9 @@ def preprocess_image(image_path):
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    merged = merge_close_contours(contours, hsv.shape[:2], min_touch=MIN_CONTOUR_TOUCH)
+    merged = merge_close_contours(
+        contours, hsv.shape[:2], min_touch=MIN_CONTOUR_TOUCH, dilate_px=MERGE_TOUCH_DILATE_PX
+    )
     return hsv, merged, mask
     
 
@@ -1835,7 +1847,9 @@ def detect_and_track_objects(image_path=None, weather_data=None):
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, _kernel, iterations=2)
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    merged = merge_close_contours(contours, hsv.shape[:2], min_touch=MIN_CONTOUR_TOUCH)
+    merged = merge_close_contours(
+        contours, hsv.shape[:2], min_touch=MIN_CONTOUR_TOUCH, dilate_px=MERGE_TOUCH_DILATE_PX
+    )
 
     # P66: Multi-Core-Split — Konturen mit mehreren Konvektionskernen aufteilen
     merged = split_multi_core_contours(merged, hsv)
