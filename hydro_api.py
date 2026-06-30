@@ -1,7 +1,7 @@
 """API-Helfer fuer Hydro-Impact-Status, Stationen und Events."""
 from __future__ import annotations
 
-import json, os, logging
+import json, os, logging, glob
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -66,6 +66,30 @@ def _static_index():
     return {str(r.get("station_id")): r for r in rows if isinstance(r, dict) and r.get("station_id") not in (None, "")}
 
 
+
+
+def _latest_objects_for_flood_risk() -> list:
+    files = sorted(glob.glob(os.path.join(SAVE_PATHS.get("objects", "train_data/objects"), "*.json")))
+    if not files:
+        return []
+    try:
+        with open(files[-1], encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else data.get("objects", []) if isinstance(data, dict) else []
+    except Exception:
+        return []
+
+
+def _is_flood_risk_cache_valid_for_live(risk_doc: dict, live: dict) -> bool:
+    try:
+        import hydro_flood_ml
+        return hydro_flood_ml.is_flood_risk_cache_valid(
+            risk_doc,
+            live=live if isinstance(live, dict) else {},
+            cells=_latest_objects_for_flood_risk(),
+        )
+    except Exception:
+        return False
 
 def _station_rows() -> list[dict]:
     return list(_static_index().values())
@@ -270,6 +294,7 @@ def station_features(include_disabled=False, map_view=False):
     by_id = {str(s.get("station_id")): s for s in live.get("stations", []) if isinstance(s, dict)} if isinstance(live, dict) else {}
     active = {str(e.get("station_id")): e for e in normalized_impacts(True, include_disabled=include_disabled) if e.get("status") in {"pending","confirmed","ambiguous"}}
     risk_doc = _json(HYDRO_FLOOD_RISK, {})
+    flood_risk_cache_valid = _is_flood_risk_cache_valid_for_live(risk_doc, live)
     risk_by_sid = {str(r.get("station_id")): r for r in risk_doc.get("stations", []) if isinstance(r, dict)} if isinstance(risk_doc, dict) else {}
     feats = []
     for sid, st in idx.items():
@@ -303,7 +328,9 @@ def station_features(include_disabled=False, map_view=False):
         props["q_threshold_exceeded"] = bool(station_enabled and (_p61_meas or _p61_fore))
         props["impact_source"] = ("both" if (_p61_meas and _p61_fore) else ("measured" if _p61_meas else ("forecast" if _p61_fore else None)))
         _risk = risk_by_sid.get(sid) or {}
-        for _k in ("flood_expected", "q_trend_status", "q_trend_delta_m3s", "q_trend_reference_window_min"):
+        if flood_risk_cache_valid and "flood_expected" in _risk:
+            props["flood_expected"] = _risk.get("flood_expected")
+        for _k in ("q_trend_status", "q_trend_delta_m3s", "q_trend_reference_window_min"):
             if _k in _risk:
                 props[_k] = _risk.get(_k)
         if map_view:
