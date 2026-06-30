@@ -1571,14 +1571,14 @@ _hailo_available: Optional[bool] = None
 | B13 | `weather_api.py` | TAWES-Request ohne Cache → überschreitet 10-min-Intervall | ✅ **behoben (P04)** |
 | B14 | `debug_utils.py` | `api_call_summary()` ohne last_ts/last_url → kein Detail im Dashboard | ✅ **behoben (P01/P02/P03)** |
 | B15 | `daily_analyzer.py` | KI-Report enthält keine lokale Konfiguration → keine Konfig-Empfehlungen möglich | ✅ **behoben (P05)** |
-| B16 | `prediction.py`, `object_tracking.py` | Forecast-Einheiten mischen px/Frame mit Minuten (kein Frame-Intervall), zwei unterschiedliche PX_TO_KMH-Werte | 🚧 **in Behebung (A.1 Welle 1, Prompt P01)** |
-| B17 | `dataset_builder.py`, `prediction.py`, `intensity_regression.py` | `pixel_to_geo(obj["x"], obj["y"])` mit pre-upscale-Koordinaten → falsche Geo-Zuordnung für ML-Features | 🚧 **in Behebung (Prompt P02)** |
-| B18 | `accuracy_tracker.py` | Pixel-Fehler vergleicht skalierte Forecast-Koords mit pre-upscale Ist-Koords; keine differenzierten Verifikations-Buckets | 🚧 **in Behebung (Prompt P03)** |
-| B19 | `app.py` | Flask lauscht auf `0.0.0.0:5000` → nginx-Basic-Auth umgehbar | 🚧 **in Behebung (Prompt P04)** |
-| B20 | `radar_download.py` | `zf.extractall()` ohne Pfadprüfung → Zip-Slip-Risiko | 🚧 **in Behebung (Prompt P05)** |
-| B21 | `tests/test_locations_e2e.py` | `sys.exit()` auf Modulebene bricht pytest-Collection ab | 🚧 **in Behebung (Prompt P06)** |
-| B22 | `model_training.py` | Zufälliger Train/Val-Split bei Zeitreihen + Promotion bei <20 Samples / 2 % Toleranz | 🚧 **in Behebung (Prompt P07)** |
-| B23 | `kmz_export.py` | Keine aktuellen Zellen, keine Konturen, keine Location-Hits; Farb-Lookup bricht bei String-Keys | 🚧 **in Behebung (Prompt P08)** |
+| B16 | `prediction.py`, `object_tracking.py` | Forecast-Einheiten mischen px/Frame mit Minuten (kein Frame-Intervall), zwei unterschiedliche PX_TO_KMH-Werte | ✅ **behoben (P01)** — `PX_TO_KMH` einmalig in `config.py`, Single Source of Truth |
+| B17 | `dataset_builder.py`, `prediction.py`, `intensity_regression.py` | `pixel_to_geo(obj["x"], obj["y"])` mit pre-upscale-Koordinaten → falsche Geo-Zuordnung für ML-Features | ✅ **behoben (P02)** — `obj["lat"]`/`obj["lon"]` direkt verwendet statt Neuberechnung |
+| B18 | `accuracy_tracker.py` | Pixel-Fehler vergleicht skalierte Forecast-Koords mit pre-upscale Ist-Koords; keine differenzierten Verifikations-Buckets | ✅ **behoben (P03)** — Vergleich durchgängig über `_haversine_km()` auf Geo-Koordinaten |
+| B19 | `app.py` | Flask lauscht auf `0.0.0.0:5000` → nginx-Basic-Auth umgehbar | ✅ **behoben (P04)** — Default-Bind `127.0.0.1` (`ADMIN_BIND_HOST`) |
+| B20 | `radar_download.py` | `zf.extractall()` ohne Pfadprüfung → Zip-Slip-Risiko | ✅ **behoben (P05)** — `_safe_extract_kmz()` |
+| B21 | `tests/test_locations_e2e.py` | `sys.exit()` auf Modulebene bricht pytest-Collection ab | ✅ **behoben (P06)** — `sys.exit()` nur noch innerhalb `__main__`-Funktion |
+| B22 | `model_training.py` | Zufälliger Train/Val-Split bei Zeitreihen + Promotion bei <20 Samples / 2 % Toleranz | ✅ **behoben (P07)** — `sklearn.train_test_split` mit `stratify`; weitere Härtung via B242/P58 |
+| B23 | `kmz_export.py` | Keine aktuellen Zellen, keine Konturen, keine Location-Hits; Farb-Lookup bricht bei String-Keys | ✅ **behoben (P08)** — `current_objects`/`location_hits`/`contour` im Export |
 | B58 | `requirements.txt` | `psutil` fehlt als Runtime-Dependency — CPU-Monitor-Job schreibt kein `cpu_history.jsonl` auf sauberer Installation. Fix: `psutil>=5.9` in `requirements.txt` ergänzt. | ✅ erledigt |
 | B59 | `main.py` | `_hit_is_kinematic()`: Current-Hits (Horizont-Key 0 = Zelle JETZT im Radius) wurden durch 2-Frame-Bestätigung verzögert. Fix: Prüfung ob `0 in loc_hit["hits"]` — wenn ja, sofort False zurückgeben (kein Defer). Akutwarnungen erfolgen jetzt in jedem Fall sofort. | ✅ erledigt |
 | B60 | `main.py` | Rückgabewert von `send_allclear_email()` ignoriert — `_location_warned` wurde auch bei SMTP-Fehler/Cooldown bedingungslos geleert. Folge: nach gescheiterter Entwarnung keine neue Warnung für denselben Ort. Fix: `ok = send_allclear_email(...)` — `discard()` nur wenn `ok == True`. | ✅ erledigt |
