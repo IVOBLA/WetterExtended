@@ -3454,3 +3454,29 @@ nicht verändert.
 **Tests:** `tests/test_b272_hydro_cache_status_visible.py` (4 neue Tests)
 + bestehende Cache-Status-/Service-Registry-Tests weiterhin grün (11/11
 lokal verifiziert).
+
+## B273 — ML-Forecast-Horizonte zickzackten ohne Richtungsprüfung (2026-06-30)
+
+**Dateien:** `prediction.py`, `config.py`
+
+**Problem:** Seit P58 (Delta-Encoding) hat jeder Forecast-Horizont (10/20/30/40/60 min)
+ein unabhängig trainiertes ML-Modell. `validate_forecast_point()` prüfte pro Horizont
+nur bbox, NaN, Reaktivierungs-Warmup und maximale Geschwindigkeit (Ursprung→Zielpunkt) —
+nie die Richtung. Dadurch konnte ein Horizont-Punkt fast entgegengesetzt zur zuletzt
+beobachteten Zugrichtung der Zelle liegen, solange die implizite Geschwindigkeit unter
+`MAX_CELL_SPEED_KMH` blieb. Live verifiziert (Debug-Export 2026-06-30, 17:00-Frame):
+4 von 16 aktiven Zellen mit `forecast_mode=ml` zeigten Kursänderungen von 165–176°
+zwischen aufeinanderfolgenden Horizonten (z. B. Zelle 346I2ILB: 23,6° → 207,8° →
+301,8° → 265,6° → 302,9°), während alle `kinematic_fallback`-Zellen exakt 0,0°
+Kursänderung hatten (reine Geradenextrapolation).
+
+**Fix:** Neue Prüfung in `validate_forecast_point()`: für `mode="ml"` wird, sofern die
+Zelle eine belastbare Zugrichtung hat (`speed_kmh >= MIN_MOVEMENT_FOR_ARROW_KMH`), die
+Peilung Ursprung→ML-Punkt (neue Hilfsfunktion `_bearing_deg()`) gegen `direction_deg`
+geprüft. Überschreitet die Abweichung `ML_FORECAST_MAX_BEARING_DEVIATION_DEG`
+(Default 90°, runtime-überschreibbar), wird der Punkt mit
+`ml_forecast_direction_implausible` abgelehnt und der bestehende kinematische
+Fallback-Pfad greift für diesen Horizont. Kinematische Forecasts sind nicht betroffen.
+
+**Tests:** `tests/test_b273_ml_forecast_direction_check.py` (9 neue Tests, inkl.
+Regressionstest mit den realen 346I2ILB-Koordinaten aus dem Debug-Export).

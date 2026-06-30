@@ -56,6 +56,8 @@ from config import (
     ML_RUNTIME_MIN_SAMPLES_PER_MODE as _STATIC_ML_RUNTIME_MIN_SAMPLES_PER_MODE,
     ML_FORCE_KINEMATIC as _STATIC_ML_FORCE_KINEMATIC,
     MAX_CELL_SPEED_KMH as _STATIC_MAX_CELL_SPEED_KMH,
+    MIN_MOVEMENT_FOR_ARROW_KMH as _STATIC_MIN_MOVEMENT_FOR_ARROW_KMH,
+    ML_FORECAST_MAX_BEARING_DEVIATION_DEG as _STATIC_ML_FORECAST_MAX_BEARING_DEVIATION_DEG,
     BBOX_KAERNTEN_EXTENDED as _STATIC_BBOX_KAERNTEN_EXTENDED,
     OF_MAX_FRAME_INTERVAL_MIN as _STATIC_OF_MAX_FM,
     STEERING_BLEND_ENABLED as _STATIC_STEERING_BLEND_ENABLED,
@@ -144,6 +146,32 @@ def validate_forecast_point(obj: dict, horizon, lat, lon, mode="ml") -> tuple[bo
     max_speed = _runtime_float_value("FORECAST_MAX_SPEED_KMH", _runtime_float_value("MAX_CELL_SPEED_KMH", _STATIC_MAX_CELL_SPEED_KMH))
     if speed_kmh > max_speed + 1e-6:
         return False, "ml_forecast_speed_exceeds_limit", {"forecast_displacement_km": disp_km, "forecast_speed_kmh": speed_kmh}
+    # B273: Richtungs-Plausibilisierung fuer ML-Punkte. Jeder Horizont hat ein
+    # unabhaengig trainiertes Modell (P58); ohne diese Pruefung kann ein
+    # Horizont-Punkt fast entgegengesetzt zur zuletzt beobachteten Zugrichtung
+    # liegen, obwohl die implizite Geschwindigkeit unter max_speed bleibt.
+    if str(mode).lower() == "ml" and disp_km > 1e-6:
+        ref_dir = obj.get("direction_deg")
+        try:
+            ref_dir = float(ref_dir) if ref_dir is not None else None
+        except (TypeError, ValueError):
+            ref_dir = None
+        ref_speed = _safe_float(obj.get("speed_kmh", 0.0))
+        min_ref_speed = _runtime_float_value("MIN_MOVEMENT_FOR_ARROW_KMH", _STATIC_MIN_MOVEMENT_FOR_ARROW_KMH)
+        if ref_dir is not None and ref_speed >= min_ref_speed:
+            cand_bearing = _bearing_deg(olat, olon, flat, flon)
+            if cand_bearing is not None:
+                max_dev = _runtime_float_value(
+                    "ML_FORECAST_MAX_BEARING_DEVIATION_DEG",
+                    _STATIC_ML_FORECAST_MAX_BEARING_DEVIATION_DEG,
+                )
+                dev = _angle_diff_deg(cand_bearing, ref_dir)
+                if dev > max_dev + 1e-9:
+                    return False, "ml_forecast_direction_implausible", {
+                        "forecast_displacement_km": disp_km,
+                        "forecast_speed_kmh": speed_kmh,
+                        "bearing_deviation_deg": round(dev, 1),
+                    }
     return True, None, {"forecast_displacement_km": disp_km, "forecast_speed_kmh": speed_kmh}
 
 def _lgbm_feat_ok(model, frame) -> bool:
@@ -277,6 +305,21 @@ def _haversine_km(lat1, lon1, lat2, lon2) -> float:
         return 2 * r * asin(sqrt(max(0.0, min(1.0, a))))
     except Exception:
         return 0.0
+
+def _bearing_deg(lat1, lon1, lat2, lon2):
+    """B273: Grosskreis-Peilung von (lat1,lon1) nach (lat2,lon2) in Grad (0=N, 90=O).
+    None bei ungueltigen Eingaben oder identischem Start-/Zielpunkt."""
+    try:
+        lat1, lon1, lat2, lon2 = map(float, (lat1, lon1, lat2, lon2))
+    except (TypeError, ValueError):
+        return None
+    if lat1 == lat2 and lon1 == lon2:
+        return None
+    phi1, phi2 = radians(lat1), radians(lat2)
+    dlon = radians(lon2 - lon1)
+    y = sin(dlon) * cos(phi2)
+    x = cos(phi1) * sin(phi2) - sin(phi1) * cos(phi2) * cos(dlon)
+    return (atan2(y, x) * 180.0 / pi + 360.0) % 360.0
 
 def _safe_float(value):
     try:
