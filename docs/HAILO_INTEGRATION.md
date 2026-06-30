@@ -3407,3 +3407,9 @@ Exponierte Felder:
 - `q_trend_status`
 - `q_trend_delta_m3s`
 - `q_trend_reference_window_min`
+
+## P67b — Hochwassergefahr-Icon am Pegel-Punkt
+
+`/api/hydro/stations` übernimmt `flood_expected` direkt aus dem bestehenden Cache `train_data/hydro/impact/latest_hydro_flood_risk.json`. Der Wert wird pro `station_id` in die Stations-Properties gemerged; fehlt der Cache oder enthält er keine passende Station, liefert die API `flood_expected: null`. Die Stations-API berechnet die Flood-Risk-Bewertung dabei nicht neu und löst keine zusätzlichen Fremdrequests aus.
+
+In `MapView.jsx` und `MapFullscreen.jsx` ersetzt ein Inline-SVG-Warnsymbol den normalen Hydro-Pegel-Kreis, sobald `flood_expected === true` ist. Das Symbol wird als Leaflet-`divIcon` im Code definiert und besteht aus rotem Warnkreis, weißem Rufzeichen und zwei roten Wellen. Die Popup-Inhalte, Catchment-Klicks und Hydro-Impact-Linien bleiben unverändert erhalten; bei Hochwassergefahr wird kein zusätzlicher Kreis am selben Punkt gerendert.
