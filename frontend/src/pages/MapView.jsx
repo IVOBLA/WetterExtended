@@ -14,6 +14,20 @@ const HYDRO_PLACE_ICON = L.divIcon({
   html: '<div style="font-size:18px;line-height:18px;filter:drop-shadow(0 0 1px #000)">💧</div>',
   iconSize: [18, 18], iconAnchor: [9, 9],
 })
+const HYDRO_FLOOD_ICON = L.divIcon({
+  className: 'hydro-flood-icon',
+  html: `
+    <svg xmlns="http://www.w3.org/2000/svg" width="34" height="42" viewBox="0 0 34 42" role="img" aria-label="Hochwassergefahr">
+      <circle cx="17" cy="17" r="14" fill="#dc2626" stroke="#ffffff" stroke-width="3"/>
+      <line x1="17" y1="8" x2="17" y2="20" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="17" cy="26" r="2.2" fill="#ffffff"/>
+      <path d="M4 34 C8 30 12 38 16 34 S24 30 30 34" fill="none" stroke="#dc2626" stroke-width="3" stroke-linecap="round"/>
+      <path d="M4 39 C8 35 12 43 16 39 S24 35 30 39" fill="none" stroke="#dc2626" stroke-width="3" stroke-linecap="round"/>
+    </svg>`,
+  iconSize: [34, 42],
+  iconAnchor: [17, 34],
+  popupAnchor: [0, -30],
+})
 import api, { abortApiRequests } from '../api.js'
 import { formatCbIrLabel, getCbThresholdState } from '../utils/cbThreshold.js'
 import { hasValidHydroImpactLine, hydroFeatureCollection } from '../utils/hydro.js'
@@ -1103,16 +1117,14 @@ export default function MapView() {
           const flood = hydroFloodRisk[String(p.station_id)] || {}
           const popup = normalizeHydroFloodPopup(p, flood)
           const color = hydroTrendColor(popup.trendStatus)
-          return (
-            <React.Fragment key={'hydro_' + p.station_id}>
-              <CircleMarker center={[coords[1], coords[0]]} radius={p.marked ? 10 : (p.impact_active ? 8 : 5)}
-                pathOptions={{ color: p.marked ? '#111827' : color, fillColor: color, fillOpacity: p.marked ? 0.95 : (p.impact_active ? 0.9 : 0.65), weight: p.marked ? 4 : (p.impact_active ? 3 : 1) }}
-                eventHandlers={{ click: () => {
-                  api.get(`/api/hydro/station/${p.station_id}/catchment`)
-                    .then(d => setHydroCatchments(prev => ({ ...prev, [p.station_id]: hydroFeatureCollection(d) })))
-                    .catch(() => {})
-                } }}>
-                <Popup>
+          const hasFloodWarning = flood.flood_expected === true || p.flood_expected === true
+          const loadCatchment = () => {
+            api.get(`/api/hydro/station/${p.station_id}/catchment`)
+              .then(d => setHydroCatchments(prev => ({ ...prev, [p.station_id]: hydroFeatureCollection(d) })))
+              .catch(() => {})
+          }
+          const popupContent = (
+              <Popup>
                   <div><strong>{p.name || p.station_id}</strong></div>
                   <div>Gewässer: {p.river || '—'}</div>
                   <div>Q aktuell: {popup.currentQLabel} m³/s</div>
@@ -1131,7 +1143,20 @@ export default function MapView() {
                   <div>letzter Hydro-Impact: {impact.cell_id ? `${impact.cell_id} (${impact.status})` : '—'}</div>
                   <div>Status: {p.status || '—'}</div>
                 </Popup>
-              </CircleMarker>
+          )
+          return (
+            <React.Fragment key={'hydro_' + p.station_id}>
+              {hasFloodWarning ? (
+                <Marker position={[coords[1], coords[0]]} icon={HYDRO_FLOOD_ICON} eventHandlers={{ click: loadCatchment }}>
+                  {popupContent}
+                </Marker>
+              ) : (
+                <CircleMarker center={[coords[1], coords[0]]} radius={p.marked ? 10 : (p.impact_active ? 8 : 5)}
+                  pathOptions={{ color: p.marked ? '#111827' : color, fillColor: color, fillOpacity: p.marked ? 0.95 : (p.impact_active ? 0.9 : 0.65), weight: p.marked ? 4 : (p.impact_active ? 3 : 1) }}
+                  eventHandlers={{ click: loadCatchment }}>
+                  {popupContent}
+                </CircleMarker>
+              )}
               {hasValidHydroImpactLine(impact) && (
                 <Polyline positions={[[coords[1], coords[0]], [impact.cell_lat, impact.cell_lon]]} pathOptions={{ color, weight: 1, dashArray: '4,4' }} />
               )}

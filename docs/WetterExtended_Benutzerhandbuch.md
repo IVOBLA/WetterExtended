@@ -2782,3 +2782,9 @@ Mögliche Anzeigen:
 - **nicht ermittelbar (zu wenig Historie)**: In der lokalen Historie liegt kein passender Vergleichswert vor.
 
 Die Angabe in Klammern zeigt die berechnete Änderung und das verwendete Vergleichsfenster, zum Beispiel `+0.15 m³/s / 30 Min`. Die Punktfarbe visualisiert denselben Trend: orange für steigend, gelb für fallend, blau für gleichbleibend und grau für nicht ermittelbar. Der bisherige Hydro-Impact-Status bleibt im Popup weiterhin als Text sichtbar.
+
+## Hochwassergefahr am Pegel-Punkt
+
+Wenn die bestehende Hydro-Flood-Risk-Auswertung für einen Pegel eine Hochwassergefahr meldet, wird der normale Pegel-Kreis in der Karte durch ein rotes Warnsymbol ersetzt. Das Symbol zeigt einen roten Warnkreis mit Rufzeichen und Wellen und markiert damit denselben Pegel-Punkt ohne zusätzlichen Doppelmarker.
+
+Die Anzeige basiert ausschließlich auf der vorhandenen Hydro-Flood-Risk-Auswertung im Cache. Beim Anzeigen der Karte werden dafür keine zusätzlichen Datenquellen abgefragt und keine Flood-Risk-Werte neu berechnet.
