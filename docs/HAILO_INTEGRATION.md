@@ -3362,3 +3362,24 @@ core_ratio-Fallback-Verhalten unverändert.
 **Tests:** `tests/test_b213_split_merge_lineage.py` — 2 neue Testfälle
 (Identitätserhalt bei etabliertem Survivor; unverändertes Fallback bei
 frischer Survivor-id), alle 10 bestehenden Tests weiterhin grün.
+
+## B269 — Test-Isolation: sys.modules-Stubs aus test_b121 leakten in spätere Testdateien (2026-06-30)
+
+**Datei:** `tests/test_b121_tracking_snapshot.py`
+**Problem:** `_install_import_stubs()` installierte Fake-Module (u. a.
+`radar_download` ohne `download_kmz`) per roher `sys.modules[...]`-Zuweisung
+am Modul-Level, ohne `monkeypatch` und ohne Cleanup. Da diese Datei
+alphabetisch vor `test_b177_radar_skip_reason.py` kollektiert wird und als
+erste den `radar_download`-Import auslöst, blieb der unvollständige Stub für
+den Rest des pytest-Prozesses bestehen → `AttributeError:
+module 'radar_download' has no attribute 'download_kmz'` bei vollständigen
+Suite-Läufen (isoliert lief der betroffene Test immer grün). Minimal
+reproduziert mit `pytest tests/test_b121_tracking_snapshot.py
+tests/test_b177_radar_skip_reason.py`.
+**Fix:** `_install_import_stubs()` gibt die tatsächlich neu eingefügten
+Modulnamen zurück; eine modul-gescopte `autouse`-Fixture entfernt sie nach
+Abschluss aller Tests dieser Datei wieder aus `sys.modules`, sodass später
+kollektierte Dateien einen echten Import erhalten.
+**Tests:** `tests/test_b121_tracking_snapshot.py` (alle 8 bestehenden Tests
+weiterhin grün) + `tests/test_b177_radar_skip_reason.py` (3/3 grün in
+Kombination, vorher 1 Fehlschlag).
