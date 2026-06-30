@@ -24,33 +24,50 @@ class _FakeArray(list):
 
 
 def _install_import_stubs():
-    """Stellt für Snapshot-Unit-Tests optionale Tracking-Dependencies bereit."""
+    """Stellt für Snapshot-Unit-Tests optionale Tracking-Dependencies bereit.
+
+    B269: Gibt die Namen der tatsaechlich NEU eingefuegten sys.modules-Eintraege
+    zurueck (nur die, fuer die der jeweilige Guard zugeschlagen hat). Bereits
+    real importierte Module werden NICHT zurueckgegeben und bleiben unangetastet.
+    Die Aufrufstelle entfernt diese Eintraege nach Abschluss der Testdatei
+    wieder aus sys.modules (siehe _cleanup_import_stubs unten), damit spaeter
+    kollektierte Testdateien einen echten Import erhalten statt eines fuer
+    diese Datei gedachten Minimal-Stubs (B269-Fund: radar_download fehlte
+    download_kmz, was tests/test_b177_radar_skip_reason.py bei Suite-Laeufen
+    mit AttributeError abbrechen liess)."""
+    installed = []
     if "radar_download" not in sys.modules:
         radar_stub = types.ModuleType("radar_download")
         radar_stub.get_acquisition_timestamp = lambda *args, **kwargs: None
         sys.modules["radar_download"] = radar_stub
+        installed.append("radar_download")
     if "utils" not in sys.modules:
         utils_stub = types.ModuleType("utils")
         utils_stub.generate_id = lambda *args, **kwargs: "TESTID"
         utils_stub.log = lambda *args, **kwargs: None
         sys.modules["utils"] = utils_stub
+        installed.append("utils")
     if "utils_weather" not in sys.modules:
         weather_stub = types.ModuleType("utils_weather")
         weather_stub.find_n_nearest_stations = lambda *args, **kwargs: []
         weather_stub.weighted_average_weather = lambda *args, **kwargs: {}
         sys.modules["utils_weather"] = weather_stub
+        installed.append("utils_weather")
     if "debug_utils" not in sys.modules:
         debug_stub = types.ModuleType("debug_utils")
         debug_stub.debug_log = lambda *args, **kwargs: None
         debug_stub.save_debug_image = lambda *args, **kwargs: None
         sys.modules["debug_utils"] = debug_stub
+        installed.append("debug_utils")
     if "geo_utils" not in sys.modules:
         geo_stub = types.ModuleType("geo_utils")
         geo_stub.pixel_to_geo = lambda *args, **kwargs: (0.0, 0.0)
         geo_stub.crop_and_upscale_to_bbox = lambda *args, **kwargs: None
         sys.modules["geo_utils"] = geo_stub
+        installed.append("geo_utils")
     if "cv2" not in sys.modules:
         sys.modules["cv2"] = types.ModuleType("cv2")
+        installed.append("cv2")
     if "numpy" not in sys.modules:
         numpy_stub = types.ModuleType("numpy")
         numpy_stub.int32 = int
@@ -60,6 +77,7 @@ def _install_import_stubs():
 
         numpy_stub.array = _array
         sys.modules["numpy"] = numpy_stub
+        installed.append("numpy")
     if "filterpy" not in sys.modules:
         filterpy_stub = types.ModuleType("filterpy")
         kalman_stub = types.ModuleType("filterpy.kalman")
@@ -71,6 +89,8 @@ def _install_import_stubs():
         filterpy_stub.kalman = kalman_stub
         sys.modules["filterpy"] = filterpy_stub
         sys.modules["filterpy.kalman"] = kalman_stub
+        installed.append("filterpy")
+        installed.append("filterpy.kalman")
     if "shapely" not in sys.modules:
         shapely_stub = types.ModuleType("shapely")
         geometry_stub = types.ModuleType("shapely.geometry")
@@ -86,9 +106,24 @@ def _install_import_stubs():
         sys.modules["shapely"] = shapely_stub
         sys.modules["shapely.geometry"] = geometry_stub
         sys.modules["shapely.ops"] = ops_stub
+        installed.append("shapely")
+        installed.append("shapely.geometry")
+        installed.append("shapely.ops")
+    return installed
 
 
-_install_import_stubs()
+_STUBBED_MODULE_NAMES = _install_import_stubs()
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _cleanup_import_stubs():
+    """B269: Entfernt die in dieser Datei neu eingefuegten sys.modules-Stubs
+    nach Abschluss aller Tests dieser Datei, damit alphabetisch spaeter
+    kollektierte Testdateien (z. B. test_b177_radar_skip_reason.py) wieder
+    einen echten Import von radar_download & Co. erhalten."""
+    yield
+    for _name in _STUBBED_MODULE_NAMES:
+        sys.modules.pop(_name, None)
 
 
 @pytest.fixture(autouse=True)
