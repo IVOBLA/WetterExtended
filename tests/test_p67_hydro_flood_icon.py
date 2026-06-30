@@ -22,14 +22,26 @@ def _patch_station(monkeypatch, risk_path=None):
     monkeypatch.setattr(hydro_api.runtime_config, "get", lambda k, d=None: None)
 
 
-def test_station_features_merges_flood_expected_true_from_cache(tmp_path, monkeypatch):
+def test_station_features_merges_flood_expected_true_from_valid_cache(tmp_path, monkeypatch):
     risk = tmp_path / "latest_hydro_flood_risk.json"
     risk.write_text(json.dumps({"stations": [{"station_id": "S1", "flood_expected": True}]}), encoding="utf-8")
     _patch_station(monkeypatch, risk)
+    monkeypatch.setattr(hydro_api, "_is_flood_risk_cache_valid_for_live", lambda risk_doc, live: True)
 
     props = hydro_api.station_features()["features"][0]["properties"]
 
     assert props["flood_expected"] is True
+
+
+def test_station_features_omits_flood_expected_from_stale_cache(tmp_path, monkeypatch):
+    risk = tmp_path / "latest_hydro_flood_risk.json"
+    risk.write_text(json.dumps({"stations": [{"station_id": "S1", "flood_expected": True}]}), encoding="utf-8")
+    _patch_station(monkeypatch, risk)
+    monkeypatch.setattr(hydro_api, "_is_flood_risk_cache_valid_for_live", lambda risk_doc, live: False)
+
+    props = hydro_api.station_features()["features"][0]["properties"]
+
+    assert props["flood_expected"] is None
 
 
 def test_station_features_sets_flood_expected_none_without_cache(monkeypatch):
