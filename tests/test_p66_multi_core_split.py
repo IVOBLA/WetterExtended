@@ -35,6 +35,33 @@ def _rect_contour(np, x0, y0, x1, y1):
     return np.array([[[x0, y0]], [[x1, y0]], [[x1, y1]], [[x0, y1]]], dtype=np.int32)
 
 
+def _u_shape_with_two_cores(np, h, w, leg_w, core_r, canvas=None, x_offset=0, y_offset=0):
+    """B275-Testhilfe: U-foermige (oben offene) Maske mit zwei Kern-Farbflecken
+    an den Spitzen der Schenkel, verbunden durch einen Quersteg unten. Die
+    Verbindungslinie zwischen den beiden Kernen verlaeuft durch die offene
+    Luecke oben -- eine echte Topologie-Luecke, im Gegensatz zu einer reinen
+    Rechteck-Kontur, die per Konstruktion immer voll gefuellt ist."""
+    img = canvas if canvas is not None else np.zeros((h, w, 3), dtype=np.uint8)
+    support = (15, 150, 150)
+    x0, y0 = x_offset, y_offset
+    import cv2 as _cv2
+    _cv2.rectangle(img, (x0 + 10, y0), (x0 + 10 + leg_w, y0 + h - 10), support, -1)
+    _cv2.rectangle(img, (x0 + w - 10 - leg_w, y0), (x0 + w - 10, y0 + h - 10), support, -1)
+    _cv2.rectangle(img, (x0 + 10, y0 + h - 10 - leg_w), (x0 + w - 10, y0 + h - 10), support, -1)
+    c1 = (x0 + 10 + leg_w // 2, y0 + leg_w // 2)
+    c2 = (x0 + w - 10 - leg_w // 2, y0 + leg_w // 2)
+    _cv2.circle(img, c1, core_r, _red_hsv(), -1)
+    _cv2.circle(img, c2, core_r, _red_hsv(), -1)
+    return img
+
+
+def _contours_from_image(cv2, np, img):
+    mask = np.zeros(img.shape[:2], dtype=np.uint8)
+    mask[(img.sum(axis=2) > 0)] = 255
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    return contours
+
+
 _CORE_HSV_RANGES_TEST = [([0, 100, 120], [10, 255, 255]), ([165, 100, 120], [179, 255, 255])]
 
 
@@ -132,8 +159,16 @@ class TestSplitMultiCoreContours:
         cv2, np = _require_deps()
         import object_tracking
         monkeypatch.setattr(object_tracking, "_rc", self._make_rc())
-        hsv = _make_image_with_blobs(np, 300, 300, [(70, 150, 15), (220, 150, 15)])
-        assert len(object_tracking.split_multi_core_contours([_rect_contour(np, 40, 110, 260, 190)], hsv)) == 2
+        # B275: Eine reine Rechteck-Kontur (alt) ist immer komplett gefuellt
+        # und enthaelt damit per Konstruktion NIE eine echte Luecke -- der
+        # Gap-Check wuerde jeden Split blockieren, unabhaengig vom Kernabstand.
+        # Realistischer Ersatz: U-foermige Kontur (oben offen), bei der die
+        # Verbindungslinie zwischen den beiden Kernen tatsaechlich durch eine
+        # Luecke verlaeuft (siehe auch tests/test_b275_multi_core_gap_check.py).
+        img = _u_shape_with_two_cores(np, h=220, w=260, leg_w=30, core_r=15)
+        contours = _contours_from_image(cv2, np, img)
+        assert len(contours) == 1
+        assert len(object_tracking.split_multi_core_contours(contours, img)) == 2
 
     def test_two_close_cores_no_split(self, monkeypatch):
         cv2, np = _require_deps()
@@ -154,12 +189,16 @@ class TestSplitMultiCoreContours:
         import object_tracking
         monkeypatch.setattr(object_tracking, "_rc", self._make_rc())
         h, w = 500, 300
-        contour_a = _rect_contour(np, 70, 70, 130, 130)
-        contour_b = _rect_contour(np, 50, 220, 260, 280)
+        # B275: contour_b braucht (wie oben) eine echte Luecke zwischen den
+        # beiden Kernen, sonst blockiert der neue Gap-Check den erwarteten
+        # Split einer reinen Rechteck-Kontur.
         mask_a = _make_image_with_blobs(np, h, w, [(100, 100, 12)])
-        mask_b = _make_image_with_blobs(np, h, w, [(80, 250, 12), (220, 250, 12)])
-        hsv_combined = np.maximum(mask_a, mask_b)
-        assert len(object_tracking.split_multi_core_contours([contour_a, contour_b], hsv_combined)) == 3
+        img = np.array(mask_a)
+        _u_shape_with_two_cores(np, h=60, w=260, leg_w=30, core_r=12,
+                                 canvas=img, x_offset=20, y_offset=220)
+        contours = _contours_from_image(cv2, np, img)
+        assert len(contours) == 2
+        assert len(object_tracking.split_multi_core_contours(contours, img)) == 3
 
     def test_empty_contour_list(self, monkeypatch):
         cv2, np = _require_deps()
