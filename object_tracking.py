@@ -404,7 +404,19 @@ def merge_close_contours(contours, image_shape, min_touch=3, dilate_px=0):
                 group.append(cnt2)
                 used[j] = True
 
-        merged_poly = unary_union([Polygon(c[:, 0, :]) for c in group])
+        # B276 (Korrektur zu B274): are_contours_touching_edges() mit
+        # dilate_px>0 kann zwei Konturen mit einer winzigen echten
+        # Pixel-Luecke als "beruehrend" gruppieren -- unary_union() fuehrt
+        # geometrisch getrennte Polygone deswegen aber noch NICHT zusammen
+        # (liefert weiterhin ein MultiPolygon mit getrennten Teilen). Daher
+        # hier dieselbe Pufferdistanz auch auf die Vereinigung anwenden
+        # (Buffer-Union-Unbuffer, schliesst die Luecke wie eine morphologische
+        # Closing-Operation im Polygon-Raum) und danach wieder zurueckschrumpfen.
+        if dilate_px > 0 and len(group) > 1:
+            _buffered = [Polygon(c[:, 0, :]).buffer(dilate_px, join_style=2) for c in group]
+            merged_poly = unary_union(_buffered).buffer(-dilate_px, join_style=2)
+        else:
+            merged_poly = unary_union([Polygon(c[:, 0, :]) for c in group])
         if merged_poly.geom_type == 'MultiPolygon':
             for part in merged_poly.geoms:
                 merged.append(np.array(part.exterior.coords, dtype=np.int32).reshape(-1, 1, 2))
