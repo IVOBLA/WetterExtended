@@ -3302,3 +3302,19 @@ keine Doppeltreffer während der Migration). Quelle der Wahrheit:
 `object_tracking.py` + `cleanup_radar_names.sh`.
 **Tests:** `tests/test_b265_radar_reader_filename.py` (+ `test_b259_radar_filename.py`
 bleibt grün).
+
+## B266 — `cleanup_radar_names.sh` auf `data/radar/` (Live-Verzeichnis) erweitert (2026-06-30)
+
+**Datei:** `cleanup_radar_names.sh` (vollständige Ersetzung)
+**Problem:** Das Skript bereinigte seit B259 nur `train_data/radar/`
+(`SAVE_PATHS["radar"]`, das Trainingsarchiv). Das Live-Serving-Verzeichnis
+`data/radar/`, aus dem `app.py` (`/api/radar_image`, `/api/radar_frames`) und
+`movement_gif.py` lesen (siehe B265), hatte dieselbe `radar_*.png`-Altlast,
+wurde aber nicht erfasst — verwaiste Dateien blieben dauerhaft liegen.
+**Fix:** Skript auf eine Schleife über `RADAR_DIRS=(train_data/radar data/radar)`
+umgebaut; identisches Umbenenn-/Dedup-Verhalten pro Verzeichnis, explizites
+`[SKIP]`-Logging falls ein Verzeichnis fehlt. Funktional rein additiv — B265
+funktionierte bereits ohne dieses Skript korrekt (Glob `[0-9]*.png` ignoriert
+Altdateien), B266 ist reine Datenhygiene.
+**Tests:** `tests/test_b266_cleanup_radar_dirs.py` (End-to-End gegen temporäre
+Verzeichnisstruktur: Umbenennung, Dedup, fehlendes Verzeichnis, Idempotenz).
