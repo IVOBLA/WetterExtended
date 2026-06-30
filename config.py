@@ -122,6 +122,14 @@ MULTI_CORE_MIN_CORE_AREA_PX: int = 80
 MULTI_CORE_MIN_DIST_PX: int = 15
 # Mindestfläche einer Sub-Zelle nach dem Split in Pixel (= min_object_area-Default).
 MULTI_CORE_MIN_CHILD_AREA_PX: int = 800
+# B275: Mindestlänge (px) einer echten Lücke in der äußeren Zell-Maske entlang der
+# Verbindungslinie zwischen zwei Kern-Zentren, damit ein Split überhaupt erlaubt
+# ist. Bleibt die Verbindung komplett innerhalb der Maske (gap=0), handelt es sich
+# um eine einzige zusammenhängende Wetterstruktur (z. B. eine elongierte Böenlinie
+# mit mehreren Reflektivitäts-Maxima) und darf NICHT gesplittet werden — verifiziert
+# anhand des Debug-Exports 2026-06-30 17:35 (I45JTRXI/9WMB6Q7Q: 0/100 Samples
+# außerhalb der Maske über die volle 18,9-km-Verbindungslinie).
+MULTI_CORE_MIN_GAP_PX: float = 2.0
 
 # --------------------------------------
 # Tracking-Parameter
