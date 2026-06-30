@@ -3336,3 +3336,29 @@ verifiziert (siehe B265/B267-Verifikationsprotokoll).
 geändert — entspricht der seit B259 tatsächlich geschriebenen Konvention.
 Kein Produktionscode geändert.
 **Tests:** `tests/test_lightning_api.py` (beide Tests grün).
+
+
+## B268 — Merge-Lineage: etablierte cell_id wird nicht mehr von frisch entstandener Zelle überschrieben (2026-06-30)
+
+**Datei:** `cell_lineage.py`, Funktion `update_split_merge_lineage()`
+**Problem:** Beim Verschmelzen zweier Zellen wählte die `cell_id` des
+Survivors ausschließlich `select_primary_merge_parent()`
+(`CELL_LINEAGE_PRIMARY_MERGE_POLICY = "highest_core_ratio"`), unabhängig
+davon, ob der Tracking-Survivor (`obj["id"]`) selbst bereits einer der Parents
+mit eigener, etablierter `cell_id` war. Eine frisch entstandene, momentan
+kompaktere Zelle konnte dadurch die Identität einer etablierten, seit
+Stunden getrackten Zelle übernehmen; die abgeschmolzene Zelle lief parallel
+als `silent_tracking`-Geisterzelle unter derselben `cell_id` weiter (Live-Beleg
+2026-06-29: Zelle 8ZAOEUFJ verlor `WX-20260629-0209` an die 5 Minuten alte
+Zelle `WX-20260629-0216`, Doppelbelegung 3,5 Std., 12 betroffene cell_ids,
+146 Snapshot-Vorkommen im Tagesexport). Die öffentliche Karte war nicht
+betroffen (`is_public_cell()` filtert die Geisterzelle bereits korrekt), wohl
+aber Statistik/Verifikation, die nach `cell_id` joint.
+**Fix:** Hat der Survivor (`_obj_track_id(obj)`) bereits vor dem Merge eine
+eigene `cell_id` in `state["radar_to_cell"]`, die unter den Merge-Parents
+ist, hat diese Identitätskontinuität Vorrang vor der core_ratio-Policy. Ohne
+eigene Vorgeschichte (frisch generierte id) bleibt das bisherige
+core_ratio-Fallback-Verhalten unverändert.
+**Tests:** `tests/test_b213_split_merge_lineage.py` — 2 neue Testfälle
+(Identitätserhalt bei etabliertem Survivor; unverändertes Fallback bei
+frischer Survivor-id), alle 10 bestehenden Tests weiterhin grün.

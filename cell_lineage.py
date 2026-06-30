@@ -1025,8 +1025,19 @@ def update_split_merge_lineage(radar_objects: list[dict], previous_objects: dict
                     unresolved.append(str(pid))
             parent_cids = list(dict.fromkeys(parent_cids))
             if not obj.get("cell_id") and parent_cids:
-                primary_parent = select_primary_merge_parent(parent_objs)
-                obj["cell_id"] = (primary_parent or {}).get("cell_id") or parent_cids[0]
+                # B268: Falls der ueberlebende Tracking-Survivor (obj["id"]) bereits
+                # VOR diesem Merge eine eigene etablierte cell_id hatte (er IST einer
+                # der Parents, B117-Kontinuitaet ueber groesste alte Konturflaeche),
+                # hat diese Identitaetskontinuitaet Vorrang vor der core_ratio-Policy.
+                # Sonst "stiehlt" eine frisch entstandene, momentan kompaktere Zelle
+                # die Identitaet einer etablierten, laenger getrackten Zelle.
+                _own_rid = _obj_track_id(obj)
+                _own_cid = state.get("radar_to_cell", {}).get(str(_own_rid)) if _own_rid else None
+                if _own_cid and _own_cid in parent_cids:
+                    obj["cell_id"] = _own_cid
+                else:
+                    primary_parent = select_primary_merge_parent(parent_objs)
+                    obj["cell_id"] = (primary_parent or {}).get("cell_id") or parent_cids[0]
             if unresolved:
                 obj["unresolved_parent_ids"] = unresolved
             ev = record_cell_merge(parent_cids, obj, timestamp=timestamp, state=state) if parent_cids else None
