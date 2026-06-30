@@ -2184,6 +2184,7 @@ _API_PUBLIC_URLS: dict = {
     "blitzortung_last_strikes": "https://www.blitzortung.org/",
     "geosphere_nowcast":      "https://dataset.api.hub.geosphere.at/",
     "anthropic_api":          "https://console.anthropic.com/",
+    "hydro_kaernten":         "https://info.ktn.gv.at/asp/hydro/",
 }
 
 # B128: Kanonische Liste aller externen Dienste. Quelle: cache_status _DEFAULT_TTLS.
@@ -2196,6 +2197,7 @@ _KNOWN_EXTERNAL_SERVICES = [
     "geosphere_cape",
     "geosphere_nowcast",
     "geosphere_tawes_all",
+    "hydro_kaernten",
     "openmeteo_extended_15min",
     "openmeteo_extended_gfs_conv",
     "openmeteo_extended_lpi",
@@ -2567,6 +2569,44 @@ def api_cache_status():
             "next_fetch_ts": next_fetch_ts,
             "status": status,
         })
+
+    # B272: hydro_kaernten nutzt einen eigenen Cache-Mechanismus (hydro_fetch.py,
+    # LATEST_FILE statt train_data/api_cache/) und tauchte deshalb hier nie auf,
+    # obwohl die Schnittstelle ganz normal regelmäßig läuft. Gleiche FRESH/STALE/
+    # MISSING-Logik wie oben, nur mit hydro_fetch.LATEST_FILE als Quelle.
+    try:
+        import hydro_fetch
+        import runtime_config as _rc_hydro
+        hydro_ttl = int(_rc_hydro.get("HYDRO_API_TTL_SECONDS", hydro_fetch.DEFAULT_TTL_SECONDS))
+        if os.path.exists(hydro_fetch.LATEST_FILE):
+            import datetime as _dt_h
+            hydro_mtime = os.path.getmtime(hydro_fetch.LATEST_FILE)
+            hydro_age_s = round(now - hydro_mtime)
+            hydro_last_ts = _dt_h.datetime.utcfromtimestamp(hydro_mtime).isoformat(timespec="seconds") + "Z"
+            hydro_next_allowed_s = max(0, hydro_ttl - hydro_age_s)
+            hydro_status = "FRESH" if hydro_age_s <= hydro_ttl else "STALE"
+            hydro_next_fetch_ts = (
+                _dt_h.datetime.utcfromtimestamp(hydro_mtime + hydro_ttl).isoformat(timespec="seconds") + "Z"
+                if hydro_ttl else None
+            )
+        else:
+            hydro_age_s = None
+            hydro_last_ts = None
+            hydro_next_allowed_s = 0
+            hydro_status = "MISSING"
+            hydro_next_fetch_ts = None
+        results.append({
+            "namespace": "hydro_kaernten",
+            "last_fetch_ts": hydro_last_ts,
+            "age_s": hydro_age_s,
+            "ttl_s": hydro_ttl if hydro_ttl else None,
+            "next_allowed_in_s": hydro_next_allowed_s,
+            "next_fetch_ts": hydro_next_fetch_ts,
+            "status": hydro_status,
+        })
+        results.sort(key=lambda r: r["namespace"])
+    except Exception:
+        pass
 
     return jsonify({"services": results, "cache_dir": _CACHE_DIR})
 
