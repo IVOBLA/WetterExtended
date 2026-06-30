@@ -3537,3 +3537,30 @@ unverändert eine einzige Zelle).
 
 **Tests:** `tests/test_b275_multi_core_gap_check.py` (6 neue Tests, inkl.
 Regressionstest für den bestehenden Abstands-Check).
+
+## B276 — Korrektur zu B274: unary_union führte nahe Konturen trotz Dilatation nicht zusammen (2026-06-30)
+
+**Dateien:** `object_tracking.py`
+
+**Problem:** B274 führte den `dilate_px`-Parameter ein und reichte ihn an
+`are_contours_touching_edges()` durch — das beeinflusst aber nur die
+Gruppierungs-Entscheidung. Der eigentliche Vereinigungsschritt
+(`unary_union` in `merge_close_contours()`) wurde nicht angepasst: zwei
+geometrisch echt getrennte Polygone (z. B. mit einer winzigen 1-Pixel-Lücke)
+werden von `unary_union` weiterhin als `MultiPolygon` mit getrennten Teilen
+zurückgegeben, nicht als ein einzelnes fusioniertes Polygon. B274 hatte
+dadurch in der bisherigen Form keine praktische Wirkung — der eigene
+B274-Test `test_merge_close_contours_joins_one_pixel_gap_with_dilate_px`
+schlug gegen den deployten Code fehl.
+
+**Fix:** Wird eine Gruppe mit `dilate_px > 0` und mehr als einer Kontur
+gebildet, werden die Polygone vor der Vereinigung um `dilate_px` aufgeweitet
+(`.buffer(dilate_px)`), vereinigt und danach wieder um denselben Betrag
+zurückgeschrumpft (`.buffer(-dilate_px)`) — Buffer-Union-Unbuffer, schließt
+die Lücke wie eine morphologische Closing-Operation im Polygon-Raum. Für
+`dilate_px=0` (Default, alle unbekannten Aufrufer) bleibt der Code-Pfad
+unverändert.
+
+**Tests:** Keine neue Testdatei — der bestehende B274-Test
+`tests/test_b274_contour_touch_dilate.py::test_merge_close_contours_joins_one_pixel_gap_with_dilate_px`
+wechselt von FAILED auf PASSED und dient als Nachweis.
