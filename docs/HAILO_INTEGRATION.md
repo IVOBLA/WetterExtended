@@ -3507,3 +3507,33 @@ Aufrufstellen in `object_tracking.py` übergeben jetzt
 **Tests:** `tests/test_b274_contour_touch_dilate.py` (6 neue Tests, inkl.
 Regressionstest für echte, weit getrennte Zellen und Backward-Kompatibilität
 ohne `dilate_px`-Argument).
+
+## B275 — P66 (Multi-Core-Split) zerschnitt zusammenhängende Gewitterlinien ohne echte Lücke (2026-06-30)
+
+**Dateien:** `object_tracking.py`, `config.py`
+
+**Problem:** `split_multi_core_contours()` entschied über einen Split
+ausschließlich anhand des Abstands zweier erkannter Konvektionskerne
+(`MULTI_CORE_MIN_DIST_PX`), ohne jemals zu prüfen, ob zwischen ihnen
+tatsächlich eine Lücke in der äußeren Zell-Maske existiert. Verifiziert im
+Debug-Export 2026-06-30, 17:35-Frame (Original-Radarbild + KML-Georeferenzierung
+nachgebaut): Eine von `merge_close_contours()` bereits korrekt zu einer
+Kontur zusammengeführte Gewitterlinie (18.586 px) wurde wegen zweier
+170 px (≈18,9 km) entfernter Reflektivitäts-Maxima per Voronoi in
+`9WMB6Q7Q` und `I45JTRXI` zerschnitten — obwohl die Verbindungslinie
+zwischen beiden Kernen zu 0 von 100 Stichproben außerhalb der Zell-Maske
+lag (keine reale Lücke, durchgehend zusammenhängende Struktur).
+
+**Fix:** Neue Hilfsfunktion `_core_path_gap_px()` tastet die direkte
+Verbindungslinie zwischen zwei Kern-Zentren gegen die äußere Zell-Maske ab
+und liefert den längsten zusammenhängenden Pixel-Abschnitt außerhalb der
+Maske. Neue Schwelle `MULTI_CORE_MIN_GAP_PX` (Default 2.0 px, runtime-
+überschreibbar wie alle anderen P66-Schwellen). Ein Split ist nur noch
+erlaubt, wenn sowohl der bestehende Abstands-Check als auch der neue
+Lücken-Check erfüllt sind. Verifiziert an zwei synthetischen Kontrollfällen
+(durchgehende Böenlinie bleibt unverändert; U-Form mit echter Lücke bleibt
+korrekt gesplittet) sowie am realen 17:35-Fall (Kontur bleibt jetzt
+unverändert eine einzige Zelle).
+
+**Tests:** `tests/test_b275_multi_core_gap_check.py` (6 neue Tests, inkl.
+Regressionstest für den bestehenden Abstands-Check).

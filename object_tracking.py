@@ -444,6 +444,36 @@ def _detect_core_components(hsv, contour, core_hsv_ranges, min_area_px):
     return result
 
 
+def _core_path_gap_px(cell_mask, p1, p2, step_px=1.0):
+    """B275: Laengster zusammenhaengender Abschnitt (px) auf der Verbindungslinie
+    zwischen zwei Kern-Zentren, der AUSSERHALB der (bereits zusammengefuehrten)
+    Zell-Maske liegt. 0.0 bedeutet: die Verbindung verlaeuft komplett innerhalb
+    der Zell-Maske -- keine echte Luecke, sondern eine einzige zusammenhaengende
+    Wetterstruktur (z. B. eine elongierte Boeenlinie mit mehreren Reflektivitaets-
+    Maxima), die trotz mehrerer erkannter Kerne NICHT gesplittet werden darf.
+    """
+    x1, y1 = float(p1[0]), float(p1[1])
+    x2, y2 = float(p2[0]), float(p2[1])
+    length_px = _math_ot.hypot(x2 - x1, y2 - y1)
+    if length_px <= 0:
+        return 0.0
+    h, w = cell_mask.shape[:2]
+    n_samples = max(2, int(length_px / max(step_px, 0.1)) + 1)
+    max_run = 0
+    cur_run = 0
+    for i in range(n_samples):
+        t = i / (n_samples - 1)
+        x = int(round(x1 + t * (x2 - x1)))
+        y = int(round(y1 + t * (y2 - y1)))
+        inside = 0 <= x < w and 0 <= y < h and cell_mask[y, x] > 0
+        if inside:
+            cur_run = 0
+        else:
+            cur_run += 1
+            max_run = max(max_run, cur_run)
+    return max_run * length_px / (n_samples - 1)
+
+
 def _voronoi_split(hsv_shape, contour, core_centers, min_child_area_px):
     """Teilt eine Zell-Kontur via Voronoi-Partitionierung auf."""
     h, w = hsv_shape[:2]
@@ -492,6 +522,7 @@ def split_multi_core_contours(contours, hsv):
     min_core_area = int(_rc.get("MULTI_CORE_MIN_CORE_AREA_PX", 80))
     min_dist_px = float(_rc.get("MULTI_CORE_MIN_DIST_PX", 15.0))
     min_child_area = int(_rc.get("MULTI_CORE_MIN_CHILD_AREA_PX", 800))
+    min_gap_px = float(_rc.get("MULTI_CORE_MIN_GAP_PX", 2.0))
     core_hsv_ranges = _rc.get("CORE_HSV_RANGES", _DEFAULT_CORE_HSV_RANGES)
 
     result = []
@@ -501,12 +532,24 @@ def split_multi_core_contours(contours, hsv):
             result.append(contour)
             continue
 
+        # B275: Aeussere Zell-Maske (wie nach merge_close_contours) fuer die
+        # Verbindungs-Pruefung zwischen Kern-Paaren.
+        cell_mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+        cv2.drawContours(cell_mask, [contour], -1, 255, -1)
+
         eligible = False
         for i in range(len(cores)):
             for j in range(i + 1, len(cores)):
                 dx = cores[i][0] - cores[j][0]
                 dy = cores[i][1] - cores[j][1]
-                if _math_ot.sqrt(dx * dx + dy * dy) >= min_dist_px:
+                if _math_ot.sqrt(dx * dx + dy * dy) < min_dist_px:
+                    continue
+                # B275: Nur splitten, wenn die Verbindungslinie zwischen den
+                # beiden Kernen die Zell-Maske tatsaechlich verlaesst (echte
+                # Luecke). Bleibt sie komplett innerhalb, ist es eine einzige
+                # zusammenhaengende Struktur trotz mehrerer Kerne.
+                gap_px = _core_path_gap_px(cell_mask, cores[i][:2], cores[j][:2])
+                if gap_px >= min_gap_px:
                     eligible = True
                     break
             if eligible:
