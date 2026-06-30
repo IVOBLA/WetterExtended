@@ -43,6 +43,42 @@ def test_merge_selects_primary_by_core_ratio(monkeypatch, tmp_path):
     assert objs[0]["cell_id"] == "WX-B"
 
 
+
+def test_merge_keeps_survivors_own_established_cell_id(monkeypatch, tmp_path):
+    """B268: Der fortgeführte Tracking-Survivor (obj['id'] == einer der Parents,
+    B117-Kontinuität) behält seine EIGENE etablierte cell_id, auch wenn der
+    andere (frisch entstandene) Merge-Parent einen höheren core_ratio hat.
+    Reproduziert den Live-Bug vom 2026-06-29 (8ZAOEUFJ verlor WX-...-0209 an
+    die 5 Minuten alte Zelle LM6J8G22/WX-...-0216)."""
+    _patch_state(monkeypatch, tmp_path)
+    import cell_lineage
+    state = {"cells": {"WX-A": {"cell_id": "WX-A"}, "WX-B": {"cell_id": "WX-B"}}, "radar_to_cell": {"1": "WX-A", "2": "WX-B"}}
+    # obj["id"] == "1": der Survivor IST der etablierte Parent (analog 8ZAOEUFJ).
+    objs = [{"id": "1", "lineage": "merged", "parents": ["1", "2"]}]
+    prev = {"1": {"id": "1", "cell_id": "WX-A", "core_ratio": 0.2}, "2": {"id": "2", "cell_id": "WX-B", "core_ratio": 0.8}}
+    cell_lineage.save_lineage_state(state)
+    cell_lineage.update_split_merge_lineage(objs, prev, timestamp="2026-06-18_08-00-00")
+    assert objs[0]["cell_id"] == "WX-A", (
+        "Survivor mit eigenem etabliertem Track muss seine eigene cell_id "
+        "behalten, nicht die des core_ratio-staerkeren Merge-Partners."
+    )
+
+
+def test_merge_fresh_survivor_id_still_uses_core_ratio_policy(monkeypatch, tmp_path):
+    """B268-Regression: Hat der Survivor (neu generierte id, kein eigener
+    radar_to_cell-Eintrag) KEINE eigene Vorgeschichte, bleibt die bestehende
+    highest_core_ratio-Policy unverändert wirksam (deckt den Fall ab, in dem
+    object_tracking.py mangels freiem Parent generate_id() nutzte)."""
+    _patch_state(monkeypatch, tmp_path)
+    import cell_lineage
+    state = {"cells": {"WX-A": {"cell_id": "WX-A"}, "WX-B": {"cell_id": "WX-B"}}, "radar_to_cell": {"1": "WX-A", "2": "WX-B"}}
+    objs = [{"id": "brand-new-99", "lineage": "merged", "parents": ["1", "2"]}]
+    prev = {"1": {"id": "1", "cell_id": "WX-A", "core_ratio": 0.9}, "2": {"id": "2", "cell_id": "WX-B", "core_ratio": 0.1}}
+    cell_lineage.save_lineage_state(state)
+    cell_lineage.update_split_merge_lineage(objs, prev, timestamp="2026-06-18_08-00-00")
+    assert objs[0]["cell_id"] == "WX-A"
+
+
 def test_record_cell_split_primary_child_keeps_parent_cell_id(monkeypatch, tmp_path):
     _patch_state(monkeypatch, tmp_path)
     import cell_lineage
