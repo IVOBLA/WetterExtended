@@ -1233,7 +1233,6 @@ HYDRO_KMZ_INCLUDE_CATCHMENTS = False
 # P67a: Q-Trend-Berechnung aus lokaler Hydro-Historie. Runtime-overridable.
 HYDRO_TREND_MIN_DELTA_M3S = 0.02
 HYDRO_TREND_MIN_DELTA_REL_PCT = 0.03
-HYDRO_TREND_LOOKBACK_MIN = 65
 
 # Eigenständige Hydro-Flood-ML-Features; strikt getrennt von ML_CELL_FEATURES.
 HYDRO_FLOOD_ML_FEATURES = [

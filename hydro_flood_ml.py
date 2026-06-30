@@ -80,7 +80,6 @@ def _objects_signature(cells: list[dict] | None) -> dict:
 def _trend_cache_signature() -> dict:
     return {
         "history_mtime": _path_mtime(HYDRO_HISTORY_PATH),
-        "lookback_min": runtime_config.get("HYDRO_TREND_LOOKBACK_MIN", getattr(config, "HYDRO_TREND_LOOKBACK_MIN", 65.0)),
         "min_delta_m3s": runtime_config.get("HYDRO_TREND_MIN_DELTA_M3S", getattr(config, "HYDRO_TREND_MIN_DELTA_M3S", 0.02)),
         "min_delta_rel_pct": runtime_config.get("HYDRO_TREND_MIN_DELTA_REL_PCT", getattr(config, "HYDRO_TREND_MIN_DELTA_REL_PCT", 0.03)),
     }
@@ -179,15 +178,20 @@ def _tail_history_rows(path: Path | None = None, max_bytes: int = 400 * 1024) ->
     return rows
 
 
-def load_q_trend_history(now: datetime | None = None) -> dict[str, list[dict]]:
-    lookback = _runtime_float("HYDRO_TREND_LOOKBACK_MIN", 65.0)
-    cutoff = (now or datetime.now(timezone.utc)) - timedelta(minutes=lookback)
+def load_q_trend_history() -> dict[str, list[dict]]:
+    """Laedt Q-Historie aus dem Byte-begrenzten Datei-Tail ohne Wanduhr-Cutoff.
+
+    B270: Die Trendfenster werden spaeter in _q_trend_fields() relativ zum
+    Messzeitpunkt der aktuellen Live-Station ausgewertet. Ein Filter gegen
+    datetime.now() wuerde bei verzoegerter Auswertung oder Live-Daten mit Lag
+    genau die dafuer relevante Historie faelschlich ausschliessen.
+    """
     out: dict[str, list[dict]] = {}
     for row in _tail_history_rows():
         sid = str(row.get("station_id") or "")
         q = _f(row.get("q_m3s"))
         ts = _dt(row.get("measured_at") or row.get("fetched_at"))
-        if not sid or q is None or ts is None or ts < cutoff:
+        if not sid or q is None or ts is None:
             continue
         out.setdefault(sid, []).append({"ts": ts, "q_m3s": q})
     for rows in out.values():
@@ -336,16 +340,7 @@ def evaluate_live_flood_risk(stations: list[dict]|None=None, live: dict|None=Non
         import hydro_api
         stations = [f.get("properties") or {} for f in hydro_api.station_features(include_disabled=False).get("features", [])]
     generated = _now(); out=[]
-    trend_now = None
-    if live and isinstance(live, dict):
-        live_times = [_dt((s or {}).get("measured_at") or (s or {}).get("fetched_at") or live.get("fetched_at")) for s in live.get("stations", []) if isinstance(s, dict)]
-        live_times = [t for t in live_times if t is not None]
-        trend_now = max(live_times) if live_times else None
-    if trend_now is None:
-        station_times = [_dt((s or {}).get("measured_at") or (s or {}).get("fetched_at")) for s in stations or [] if isinstance(s, dict)]
-        station_times = [t for t in station_times if t is not None]
-        trend_now = max(station_times) if station_times else None
-    trend_history = load_q_trend_history(trend_now or _dt(generated) or datetime.now(timezone.utc))
+    trend_history = load_q_trend_history()
     for st in stations or []:
         row = build_feature_row(st, live=live, cells=cells or [], trend_history=trend_history)
         sc = heuristic_score(row)

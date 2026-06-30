@@ -3430,3 +3430,10 @@ Hochwassergefahr unabhängig davon korrekt).
 **Tests:** `tests/test_b271_hydro_fetch_triggers_risk_eval.py` (2 neue
 Tests) + `tests/test_hydro_fetch.py`, `tests/test_hydro_flood_ml.py`
 weiterhin grün (22/22 lokal verifiziert).
+
+## B270 — Q-Trend-Historie filterte gegen Wanduhrzeit statt Messzeitpunkt (2026-06-30)
+
+**Datei:** `hydro_flood_ml.py`, `config.py`
+**Problem:** `_recent_q_history_by_station()` bzw. die aktuelle Q-Trend-Historienladung verwarf Historie-Zeilen anhand eines Cutoffs `datetime.now(timezone.utc) - 65min`. Die Trendfenster werten aber relativ zum Messzeitpunkt der aktuellen Live-Station aus, nicht relativ zur echten Wanduhrzeit. Bei jeder Abweichung zwischen Messzeitpunkt und "jetzt" (Fetch-Lag, verzögerte Auswertung) wurde dadurch vorhandene, relevante Historie faelschlich ausgeschlossen.
+**Fix:** Cutoff vollständig entfernt, Begrenzung nur noch über das bestehende Byte-Tail-Budget (400 KB). `HYDRO_TREND_LOOKBACK_MIN` (nur für den Cutoff verwendet) aus `config.py` entfernt.
+**Tests:** `tests/test_p67_hydro_trend.py` (Regression gegen Wanduhr-Cutoff + End-to-End-Regressionstest).
