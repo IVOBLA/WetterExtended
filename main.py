@@ -591,7 +591,7 @@ def main_loop():
                     _obj.setdefault("overshooting_top",   0.0)
                     _obj.setdefault("ir_only_precursor",  0.0)
 
-            curr_scaled_path = os.path.join("data", "radar", f"radar_{timestamp}.png")
+            curr_scaled_path = os.path.join("data", "radar", f"{timestamp}.png")
             _optflow_prev_path = select_optflow_prev_radar_path(
                 _prev_radar_path,
                 _last_valid_radar_path,

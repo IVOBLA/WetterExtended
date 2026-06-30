@@ -3284,3 +3284,21 @@ alle Attribute nach jedem Test automatisch wieder her. Kein rohes `setattr()` me
   im Dateinamen). 0 = deaktiviert.
 - **Dateien:** `config.py`, `object_tracking.py`,
   `tests/test_b259_radar_timestamp_skew.py`
+
+## B265 — Radar-Reader auf präfixloses Dateinamen-Schema angleichen (2026-06-30)
+
+**Dateien:** `app.py`, `main.py`, `movement_gif.py`
+**Problem:** B259 stellte nur den Writer (`object_tracking.py`) auf präfixlose
+Frame-Namen `{timestamp}.png` um. Die Reader suchten weiter nach `radar_*.png`
+bzw. `f"radar_{ts}.png"` an 10 Stellen (app.py: 623/719/724/800/1497/3315/4326,
+main.py:594, movement_gif.py:28/31). Folge ab 2026-06-29 ~09:10 UTC: `/api/radar_image`
+und `/api/radar_frames` fanden keine neuen Frames → Radar-Overlay eingefroren auf
+09:05 bzw. Fallback `data/latest.png`; Optical Flow meldete `prev_radar_missing`.
+Beleg: im Debug-Export koexistieren `radar_*_09-05-00.png` (alt) und
+`*_09-10-00.png` (neu) im selben Verzeichnis.
+**Fix:** Explizite Pfade `f"radar_{...}.png"` → `f"{...}.png"`; Glob-Muster
+`"radar_*.png"` → `"[0-9]*.png"` (matcht ausschließlich präfixlose Timestamp-Frames,
+keine Doppeltreffer während der Migration). Quelle der Wahrheit:
+`object_tracking.py` + `cleanup_radar_names.sh`.
+**Tests:** `tests/test_b265_radar_reader_filename.py` (+ `test_b259_radar_filename.py`
+bleibt grün).
