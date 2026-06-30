@@ -392,6 +392,14 @@ MAX_CELL_SPEED_KMH: float = 150.0
 # Maximale Geschwindigkeitsänderung pro 5-min-Zyklus (km/h). Verhindert
 # Kalman-Sprünge bei Mess-Artefakten (Plausibilitätsprüfung F14).
 MAX_SPEED_CHANGE_PER_CYCLE_KMH: float = 60.0
+# B273: Max. Abweichung (Grad) zwischen der zuletzt beobachteten Zugrichtung
+# (direction_deg) und einem einzelnen ML-Forecast-Horizontpunkt. Da jeder
+# Horizont (10/20/30/40/60 min) ein unabhaengig trainiertes Modell hat (P58),
+# kann ohne diese Pruefung ein Horizont fast entgegengesetzt zur Zugrichtung
+# liegen, obwohl die implizite Geschwindigkeit unter MAX_CELL_SPEED_KMH bleibt
+# ("Zickzack"-Pfade). Nur relevant fuer mode="ml" in validate_forecast_point();
+# kinematische Forecasts sind reine Geradenextrapolation und nicht betroffen.
+ML_FORECAST_MAX_BEARING_DEVIATION_DEG: float = 90.0
 
 # Steuerstrom-Abgleich fuer kinematische Forecasts. Windrichtungen aus Wetterdaten
 # sind meteorologisch (FROM); prediction.py wandelt sie in Zellbewegung (TO).
