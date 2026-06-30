@@ -3480,3 +3480,30 @@ Fallback-Pfad greift für diesen Horizont. Kinematische Forecasts sind nicht bet
 
 **Tests:** `tests/test_b273_ml_forecast_direction_check.py` (9 neue Tests, inkl.
 Regressionstest mit den realen 346I2ILB-Koordinaten aus dem Debug-Export).
+
+## B274 — Zusammenhängende Zellen wurden durch 1-Pixel-Lücke nie zusammengeführt (2026-06-30)
+
+**Dateien:** `object_tracking.py`, `config.py`
+
+**Problem:** `are_contours_touching_edges()` prüfte Konturen ohne jegliche
+Toleranz auf direkte Pixel-Überlappung der 1px-Ränder. Verifiziert im
+Debug-Export 2026-06-30, 17:35-Frame: Die Zellen `I45JTRXI`↔`9WMB6Q7Q` und
+`SKU9AD2B`↔`IHAPWM5M` hatten je einen Konturabstand von exakt 0,140 km —
+bei `UPSCALE_FACTOR=3` und `PX_TO_KMH=4.0` entspricht das genau einem
+einzigen Pixel im hochskalierten Grid. Im Reflektivitäts-Colormap war an
+beiden Stellen keinerlei Lücke erkennbar; beide Fälle waren je eine einzige
+zusammenhängende Zelle, wurden aber als zwei separate Zellen mit getrennten
+IDs, Forecasts und Hagel-/Schwere-Bewertungen getrackt.
+
+**Fix:** Neuer Parameter `dilate_px` in `are_contours_touching_edges()` und
+`merge_close_contours()`: vor dem Überlappungs-Check werden beide
+Rand-Masken um `dilate_px` Pixel aufgeweitet (`cv2.dilate`). Beide
+Aufrufstellen in `object_tracking.py` übergeben jetzt
+`dilate_px=MERGE_TOUCH_DILATE_PX` (neue Konstante, Default 2, analog zu
+`MIN_CONTOUR_TOUCH` statisch, nicht runtime-überschreibbar). Ohne
+`dilate_px`-Argument bleibt das bisherige Verhalten unverändert
+(Default 0) — keine Auswirkung auf eventuelle weitere, unbekannte Aufrufer.
+
+**Tests:** `tests/test_b274_contour_touch_dilate.py` (6 neue Tests, inkl.
+Regressionstest für echte, weit getrennte Zellen und Backward-Kompatibilität
+ohne `dilate_px`-Argument).
