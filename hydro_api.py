@@ -20,6 +20,7 @@ LIVE_STATUS = LIVE_LATEST.parent / "hydro_status.json"
 IMPACT_DIR = Path("train_data/hydro/impact")
 LATEST_IMPACTS = IMPACT_DIR / "latest_hydro_impacts.json"
 VERIFICATIONS = IMPACT_DIR / "hydro_verifications.jsonl"
+HYDRO_FLOOD_RISK = IMPACT_DIR / "latest_hydro_flood_risk.json"
 
 
 def _json(path: Path, default: Any):
@@ -268,6 +269,8 @@ def station_features(include_disabled=False, map_view=False):
         except (TypeError, ValueError): map_mark_q = None
     by_id = {str(s.get("station_id")): s for s in live.get("stations", []) if isinstance(s, dict)} if isinstance(live, dict) else {}
     active = {str(e.get("station_id")): e for e in normalized_impacts(True, include_disabled=include_disabled) if e.get("status") in {"pending","confirmed","ambiguous"}}
+    risk_doc = _json(HYDRO_FLOOD_RISK, {})
+    risk_by_sid = {str(r.get("station_id")): r for r in risk_doc.get("stations", []) if isinstance(r, dict)} if isinstance(risk_doc, dict) else {}
     feats = []
     for sid, st in idx.items():
         if "station_id" not in st:
@@ -299,6 +302,10 @@ def station_features(include_disabled=False, map_view=False):
         props["q_threshold"] = _p61_thr
         props["q_threshold_exceeded"] = bool(station_enabled and (_p61_meas or _p61_fore))
         props["impact_source"] = ("both" if (_p61_meas and _p61_fore) else ("measured" if _p61_meas else ("forecast" if _p61_fore else None)))
+        _risk = risk_by_sid.get(sid) or {}
+        for _k in ("q_trend_status", "q_trend_delta_m3s", "q_trend_reference_window_min"):
+            if _k in _risk:
+                props[_k] = _risk.get(_k)
         if map_view:
             try: _qn = float(props.get("q_m3s"))
             except (TypeError, ValueError): _qn = None

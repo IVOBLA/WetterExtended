@@ -2769,3 +2769,16 @@ Die Sub-Zellen-IDs erhalten vom Tracker neue IDs zugewiesen. In der Karte
 sind sie als separate Marker sichtbar, jede mit eigenem Popup (Geschwindigkeit,
 Richtung, Prognose). Ortsbenachrichtigungen werden für jede Sub-Zelle
 unabhängig berechnet.
+
+## Durchfluss-Tendenz am Pegel-Punkt
+
+Hydro-Pegel in der Karte zeigen im Popup eine zusätzliche Zeile **Tendenz**. Sie beschreibt, ob der aktuelle Durchfluss gegenüber der lokalen Pegel-Historie steigt, fällt oder ungefähr gleich bleibt.
+
+Mögliche Anzeigen:
+
+- **steigend**: Der Durchfluss nimmt messbar zu.
+- **fallend**: Der Durchfluss nimmt messbar ab.
+- **gleichbleibend**: Die Änderung liegt unterhalb der konfigurierten Schwelle.
+- **nicht ermittelbar (zu wenig Historie)**: In der lokalen Historie liegt kein passender Vergleichswert vor.
+
+Die Angabe in Klammern zeigt die berechnete Änderung und das verwendete Vergleichsfenster, zum Beispiel `+0.15 m³/s / 30 Min`. Die Punktfarbe visualisiert denselben Trend: orange für steigend, gelb für fallend, blau für gleichbleibend und grau für nicht ermittelbar. Der bisherige Hydro-Impact-Status bleibt im Popup weiterhin als Text sichtbar.
