@@ -3318,3 +3318,21 @@ funktionierte bereits ohne dieses Skript korrekt (Glob `[0-9]*.png` ignoriert
 Altdateien), B266 ist reine Datenhygiene.
 **Tests:** `tests/test_b266_cleanup_radar_dirs.py` (End-to-End gegen temporäre
 Verzeichnisstruktur: Umbenennung, Dedup, fehlendes Verzeichnis, Idempotenz).
+
+
+## B267 — `test_lightning_api.py`: stale Radar-Fixture nach B265 korrigiert (2026-06-30)
+
+**Datei:** `tests/test_lightning_api.py` (eine Zeile)
+**Problem:** `api_lightning()`s Fallback-Zeitreferenz liest seit B265 das
+jüngste Radarbild über den präfixlosen Glob `[0-9]*.png`. Die Testfixture
+legte noch eine präfixbehaftete Datei (`radar_2026-06-09_14-00-00.png`) an —
+ein Rest aus der Zeit vor B259, der vor B265 nur deshalb funktionierte, weil
+auch der Produktionscode noch den alten (falschen) Glob nutzte. Nach B265
+(korrekt an den B259-Writer angeglichen) fand der Test seine eigene Fixture
+nicht mehr → Fallback auf echte Systemzeit → Assertion-Fehler
+(`count == 0` statt `1`). Per echtem Testlauf reproduziert und nach Fix
+verifiziert (siehe B265/B267-Verifikationsprotokoll).
+**Fix:** Fixture-Dateiname auf `2026-06-09_14-00-00.png` (ohne Präfix)
+geändert — entspricht der seit B259 tatsächlich geschriebenen Konvention.
+Kein Produktionscode geändert.
+**Tests:** `tests/test_lightning_api.py` (beide Tests grün).

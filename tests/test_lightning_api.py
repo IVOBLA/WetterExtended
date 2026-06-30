@@ -24,7 +24,7 @@ def test_lightning_uses_latest_file_and_vienna_radar_reference_for_utc_strikes(c
     c, lightning_dir, tmp_path = client
     radar_dir = tmp_path / "data" / "radar"
     radar_dir.mkdir(parents=True)
-    (radar_dir / "radar_2026-06-09_14-00-00.png").write_bytes(b"")
+    (radar_dir / "2026-06-09_14-00-00.png").write_bytes(b"")
 
     recent_utc = datetime(2026, 6, 9, 11, 45, tzinfo=timezone.utc)
     old_utc = datetime(2026, 6, 9, 11, 20, tzinfo=timezone.utc)
