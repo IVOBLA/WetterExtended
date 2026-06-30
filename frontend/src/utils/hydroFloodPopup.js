@@ -1,3 +1,10 @@
+export const HYDRO_TREND_LABELS = {
+  rising: 'steigend',
+  falling: 'fallend',
+  stable: 'gleichbleibend',
+  insufficient_history: 'nicht ermittelbar (zu wenig Historie)',
+}
+
 export const HYDRO_REASON_LABELS = {
   missing_station_q_threshold: 'Q≥-Grenzwert der Station fehlt',
   precipitation_proxy_used: 'Niederschlag wurde nur ersatzweise abgeleitet',
@@ -76,6 +83,12 @@ export function normalizeHydroFloodPopup(p = {}, flood = {}) {
   const reasonItems = (Array.isArray(flood.reasons) ? flood.reasons : []).map(translate).filter(Boolean)
   const warningItems = (Array.isArray(flood.warning_reasons) ? flood.warning_reasons : []).map(translate).filter(Boolean)
   const reasonsLabel = reasonItems.length ? reasonItems.join(', ') : (floodNotEvaluable ? 'nicht ermittelt' : 'keine Auslösegründe')
+  const trendStatus = flood.q_trend_status || p.q_trend_status || 'insufficient_history'
+  const trendDelta = validNumber(flood.q_trend_delta_m3s) ? flood.q_trend_delta_m3s : p.q_trend_delta_m3s
+  const trendWindow = validNumber(flood.q_trend_reference_window_min) ? flood.q_trend_reference_window_min : p.q_trend_reference_window_min
+  const trendDeltaLabel = validNumber(trendDelta) && validNumber(trendWindow)
+    ? `${Number(trendDelta) >= 0 ? '+' : ''}${fmt(trendDelta)} m³/s / ${Number(trendWindow).toFixed(0)} Min`
+    : '—'
   return {
     currentQLabel: validNumber(currentQ) ? fmt(currentQ) : '—',
     thresholdLabel: thresholdMissing ? '—' : fmt(threshold),
@@ -91,5 +104,8 @@ export function normalizeHydroFloodPopup(p = {}, flood = {}) {
     precipQualityLabel,
     reasonsLabel,
     warningItems,
+    trendStatus,
+    trendLabel: HYDRO_TREND_LABELS[trendStatus] || HYDRO_TREND_LABELS.insufficient_history,
+    trendDeltaLabel,
   }
 }

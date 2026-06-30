@@ -282,12 +282,11 @@ function ForecastGhostLayer({ objects, forecast, leadMin }) {
 }
 
 
-function hydroColor(status) {
-  if (status === 'confirmed') return '#16a34a'
-  if (status === 'ambiguous') return '#a855f7'
-  if (status === 'pending') return '#f97316'
-  if (status === 'rejected') return '#6b7280'
-  return '#0ea5e9'
+function hydroTrendColor(status) {
+  if (status === 'rising') return '#f97316'
+  if (status === 'falling') return '#facc15'
+  if (status === 'stable') return '#0ea5e9'
+  return '#6b7280'
 }
 
 function Legend({ horizons, colors }) {
@@ -1103,7 +1102,7 @@ export default function MapView() {
           const impact = p.last_hydro_impact || {}
           const flood = hydroFloodRisk[String(p.station_id)] || {}
           const popup = normalizeHydroFloodPopup(p, flood)
-          const color = flood.flood_expected ? HYDRO_WARN_COLOR : hydroColor(p.status)
+          const color = hydroTrendColor(popup.trendStatus)
           return (
             <React.Fragment key={'hydro_' + p.station_id}>
               <CircleMarker center={[coords[1], coords[0]]} radius={p.marked ? 10 : (p.impact_active ? 8 : 5)}
@@ -1117,6 +1116,7 @@ export default function MapView() {
                   <div><strong>{p.name || p.station_id}</strong></div>
                   <div>Gewässer: {p.river || '—'}</div>
                   <div>Q aktuell: {popup.currentQLabel} m³/s</div>
+                  <div>Tendenz: {popup.trendLabel} ({popup.trendDeltaLabel})</div>
                   <div>Q-Messzeit: {popup.currentQTimestampLabel}</div>
                   {popup.currentQTimestampSourceLabel === 'Fetch-Zeitpunkt, Messzeit fehlt' && <div>Q-Zeitpunkt: {popup.currentQTimestampSourceLabel}</div>}
                   <div>Q ≥ Grenzwert: {popup.thresholdLabel}{popup.thresholdLabel !== '—' ? ' m³/s' : ''} ({popup.thresholdSourceLabel})</div>

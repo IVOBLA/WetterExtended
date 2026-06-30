@@ -15,6 +15,7 @@ import {
 import api, { abortApiRequests } from '../api.js'
 import { formatCbIrLabel, getCbThresholdState } from '../utils/cbThreshold.js'
 import { hasValidHydroImpactLine, hydroFeatureCollection } from '../utils/hydro.js'
+import { normalizeHydroFloodPopup } from '../utils/hydroFloodPopup.js'
 import { loadRiskGridAfterHealth, nextRiskGridDelayMs } from '../utils/riskGridPolling.js'
 
 /**
@@ -204,12 +205,11 @@ function forecastModeLabel(p) {
 }
 
 
-function hydroColor(status) {
-  if (status === 'confirmed') return '#16a34a'
-  if (status === 'ambiguous') return '#a855f7'
-  if (status === 'pending') return '#f97316'
-  if (status === 'rejected') return '#6b7280'
-  return '#0ea5e9'
+function hydroTrendColor(status) {
+  if (status === 'rising') return '#f97316'
+  if (status === 'falling') return '#facc15'
+  if (status === 'stable') return '#0ea5e9'
+  return '#6b7280'
 }
 
 function StatusChip({ radarTiming, fmtTime, onExpand, loading }) {
@@ -656,7 +656,8 @@ export default function MapFullscreen() {
           const coords = f.geometry?.coordinates || []
           if (coords.length < 2) return null
           const impact = p.last_hydro_impact || {}
-          const color = hydroColor(p.status)
+          const popup = normalizeHydroFloodPopup(p, {})
+          const color = hydroTrendColor(popup.trendStatus)
           return (
             <React.Fragment key={'hydro_' + p.station_id}>
               <CircleMarker center={[coords[1], coords[0]]} radius={p.marked ? 10 : (p.impact_active ? 8 : 5)}
@@ -665,7 +666,8 @@ export default function MapFullscreen() {
                 <Popup>
                   <div><strong>{p.name || p.station_id}</strong></div>
                   <div>Gewässer: {p.river || '—'}</div>
-                  <div>Q: {p.q_m3s ?? '—'} m³/s</div>
+                  <div>Q: {popup.currentQLabel} m³/s</div>
+                  <div>Tendenz: {popup.trendLabel} ({popup.trendDeltaLabel})</div>
                   <div>W: {p.w_cm ?? '—'} cm</div>
                   <div>Messzeit: {p.measured_at || '—'}</div>
                   <div>letzter Hydro-Impact: {impact.cell_id ? `${impact.cell_id} (${impact.status})` : '—'}</div>

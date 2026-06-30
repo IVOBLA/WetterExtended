@@ -3383,3 +3383,27 @@ kollektierte Dateien einen echten Import erhalten.
 **Tests:** `tests/test_b121_tracking_snapshot.py` (alle 8 bestehenden Tests
 weiterhin grün) + `tests/test_b177_radar_skip_reason.py` (3/3 grün in
 Kombination, vorher 1 Fehlschlag).
+
+## P67a — Q-Trend-Anzeige
+
+Die Hydro-Flood-Bewertung berechnet zusätzlich zur Hochwasserheuristik eine lokale Q-Tendenz pro Pegelstation. Die Berechnung nutzt ausschließlich die bereits persistierte Datei `train_data/hydro/live/hydro_history.jsonl`; es werden keine zusätzlichen Fremdrequests und keine neuen Datenquellen verwendet.
+
+Technische Eckpunkte:
+
+- Pro Bewertungszyklus wird die Historie einmal per Tail-Read geladen. Dabei werden nur die letzten ca. 400 KB der JSONL-Datei gelesen.
+- Verwendet werden nur Messwerte innerhalb des konfigurierbaren Lookback-Fensters `HYDRO_TREND_LOOKBACK_MIN` (Standard: 65 Minuten).
+- Für 10, 30 und 60 Minuten wird der aktuelle Durchfluss mit dem nächstliegenden historischen Q-Wert verglichen. Die maximale Toleranz für den Vergleichswert beträgt 5 Minuten.
+- Die Trendklassifikation lautet `rising`, `falling`, `stable` oder `insufficient_history`.
+- Die Schwellen `HYDRO_TREND_MIN_DELTA_M3S` und `HYDRO_TREND_MIN_DELTA_REL_PCT` sind runtime-fähig. Änderungen darunter werden als `stable` gewertet.
+- `evaluate_live_flood_risk()` exponiert die Trendfelder im Cache `latest_hydro_flood_risk.json`; `hydro_api.py` merged diese Felder nach `/api/hydro/stations` und berechnet sie dort nicht erneut.
+
+Exponierte Felder:
+
+- `current_q_trend_10min`
+- `current_q_trend_30min`
+- `current_q_trend_60min`
+- `q_trend_per_hour`
+- `already_rising_flag`
+- `q_trend_status`
+- `q_trend_delta_m3s`
+- `q_trend_reference_window_min`
