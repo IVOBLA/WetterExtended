@@ -44,3 +44,41 @@ def test_ml_usage_ratio_ninety_percent_fallback():
 def test_coverage_none_when_no_data():
     out = accuracy_tracker.verification_coverage_by_horizon([], [30])
     assert out["30"] is None
+
+
+def test_shadow_scoring_not_counted_as_live_ml_usage():
+    """Ein Fenster mit ausschliesslich Schatten-ML (delivered=kinematic_fallback)
+    darf KEINEN hohen ml_usage_ratio zeigen."""
+    history = [{
+        "breakdown_by_forecast_mode": {
+            "30": {
+                "kinematic_fallback": {"samples": 20, "verified": 20},
+                "ml": {"samples": 20, "verified": 20},  # ausschliesslich Schatten-Bewertung
+            }
+        },
+        "delivered_mode_counts": {
+            "30": {"kinematic_fallback": 20},  # real ausgeliefert: NUR kinematic_fallback
+        },
+    }]
+    mode_counts = {}
+    for rec in history:
+        for _h, delivered in (rec.get("delivered_mode_counts") or {}).items():
+            for mode_name, n in delivered.items():
+                mode_counts[mode_name] = mode_counts.get(mode_name, 0) + n
+    total = sum(mode_counts.values()) or 1
+    ratio = round(mode_counts.get("ml", 0) / total, 4)
+    assert ratio == 0.0
+
+
+def test_real_ml_delivery_still_counted():
+    history = [{
+        "delivered_mode_counts": {"30": {"ml": 15, "kinematic_fallback": 5}},
+    }]
+    mode_counts = {}
+    for rec in history:
+        for _h, delivered in (rec.get("delivered_mode_counts") or {}).items():
+            for mode_name, n in delivered.items():
+                mode_counts[mode_name] = mode_counts.get(mode_name, 0) + n
+    total = sum(mode_counts.values())
+    ratio = round(mode_counts.get("ml", 0) / total, 4)
+    assert ratio == 0.75

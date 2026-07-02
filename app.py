@@ -2191,19 +2191,19 @@ def api_ml_quality():
     except Exception as exc:
         debug_log(f"[API][B277] ml_quality Promotion-Meta nicht lesbar: {exc}")
     _recent_hist = _lh(since_hours=max(since, 24))
+    # B284: ml_usage_ratio MUSS auf delivered_mode_counts basieren, NICHT auf
+    # breakdown_by_forecast_mode — letzteres enthaelt in by_mode["ml"] zusaetzlich
+    # Schatten-Bewertungen (_accumulate_ml_shadow, P53/P54) fuer Forecasts, die
+    # tatsaechlich als kinematic_fallback ausgeliefert wurden.
     _mode_counts: dict = {}
     _gate_reasons: dict = {}
     for rec in _recent_hist:
-        for _h, modes in (rec.get("breakdown_by_forecast_mode") or {}).items():
-            if not isinstance(modes, dict):
-                continue
-            for mode_name, stats in modes.items():
-                if not isinstance(stats, dict):
-                    continue
-                n = int(stats.get("samples", stats.get("verified", 0)) or 0)
-                _mode_counts[mode_name] = _mode_counts.get(mode_name, 0) + n
+        for _h, delivered in (rec.get("delivered_mode_counts") or {}).items():
+            if isinstance(delivered, dict):
+                for mode_name, n in delivered.items():
+                    _mode_counts[mode_name] = _mode_counts.get(mode_name, 0) + int(n or 0)
     _total_modes = sum(_mode_counts.values()) or 1
-    ml_usage_ratio = round(_mode_counts.get("ml", 0) / _total_modes, 4)
+    ml_usage_ratio = round(_mode_counts.get("ml", 0) / _total_modes, 4) if _mode_counts else None
     try:
         from prediction import _ml_runtime_gate_by_horizon
         _gate_reasons = {str(h): v.get("reason") for h, v in _ml_runtime_gate_by_horizon(horizons).items()}
