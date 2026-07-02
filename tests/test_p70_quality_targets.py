@@ -88,3 +88,19 @@ def test_mae_1_4km_on_horizon_15_violates_fixed_target():
     target = _quality_target_for_horizon("15")
     actual_mae = 1.4
     assert actual_mae > target  # muss als Verstoss erkannt werden
+
+def test_runtime_kinematic_mae_by_horizon_is_object_not_number():
+    """Contract-Test: /api/ml_quality liefert je Horizont ein Objekt
+    {kinematic_mae, kinematic_samples}, KEINEN nackten Zahlenwert. Aendert sich
+    das, muesste Configuration.jsx (B287) erneut angepasst werden."""
+    from accuracy_tracker import get_runtime_kinematic_mae_by_horizon
+    import inspect
+    src = inspect.getsource(get_runtime_kinematic_mae_by_horizon)
+    assert '"kinematic_mae"' in src
+    assert '"kinematic_samples"' in src
+
+
+def test_kinematic_mae_object_structure_example():
+    example = {"kinematic_mae": 0.8, "kinematic_samples": 40}
+    assert isinstance(example["kinematic_mae"], float)
+    assert isinstance(example["kinematic_samples"], int)

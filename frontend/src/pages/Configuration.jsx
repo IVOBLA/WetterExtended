@@ -372,7 +372,19 @@ export default function Configuration() {
                 <tr key={h} className="border-t">
                   <td className="py-1 px-2 font-mono">h{h}</td>
                   <td className="py-1 px-2">{row.actual_mae_km == null ? '—' : `${Number(row.actual_mae_km).toFixed(2)} km`}</td>
-                  <td className="py-1 px-2">{qualityTargets?.runtime_kinematic_mae_by_horizon?.[h] == null ? '—' : `${Number(qualityTargets.runtime_kinematic_mae_by_horizon[h]).toFixed(2)} km`}</td>
+                  <td className="py-1 px-2">
+                    {(() => {
+                      // B287: runtime_kinematic_mae_by_horizon[h] ist ein Objekt
+                      // {kinematic_mae, kinematic_samples} (siehe B277), kein
+                      // einfacher Zahlenwert. Number(objekt) ergibt NaN.
+                      const kin = qualityTargets?.runtime_kinematic_mae_by_horizon?.[h]
+                      if (kin == null || kin.kinematic_mae == null) return '—'
+                      const mae = Number(kin.kinematic_mae)
+                      if (Number.isNaN(mae)) return '—'
+                      const n = kin.kinematic_samples
+                      return `${mae.toFixed(2)} km${n != null ? ` (n=${n})` : ''}`
+                    })()}
+                  </td>
                   <td className="py-1 px-2">
                     <input
                       type="number"

@@ -3729,3 +3729,18 @@ jetzt auch aktuell konfigurierte, nicht-standardmäßige Horizonte an.
 **Status Phase „Horizontabhängige Qualitätsziele" (P70):** vollständig
 abgeschlossen inkl. dieser Nachbesserung. Kein offener Punkt mehr aus den
 PR #909/#911/#912/#914/#915/#916/#917-Reviews zu P70/B279/P69 bekannt.
+
+### B287 — Codex-Review-Fix zu P70: Kinematik-MAE-Objekt wurde als NaN formatiert ✅ erledigt
+
+**Datei:** `frontend/src/pages/Configuration.jsx`
+**Problem (Codex-Review PR #917):** `runtime_kinematic_mae_by_horizon[h]` ist
+seit B277 ein Objekt `{kinematic_mae, kinematic_samples}`. Die neue
+P70-Konfigurationstabelle wandelte das gesamte Objekt direkt mit `Number(...)`
+um, was `NaN km` anzeigte — der Admin konnte ML- gegen Kinematik-Qualität nicht
+vergleichen.
+**Fix:** Zugriff auf `.kinematic_mae` vor der Formatierung, zusätzliche Anzeige
+von `kinematic_samples` als Kontext. Contract-Test gegen Backend-Struktur
+ergänzt, um Regression zu verhindern.
+**Tests:** erweitert `tests/test_p70_quality_targets.py`
+**Status Phase „ML-Transparenz im Admin-Panel" (P69/P70):** vollständig
+abgeschlossen inkl. dieser Nachbesserung.
