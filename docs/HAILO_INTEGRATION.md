@@ -3773,3 +3773,17 @@ direkt mit einem String (`AssertionError: assert ('f_2.json', 0.0, None) ==
 Produktivcode veraendert.
 **Tests:** `tests/test_b260_adaptive_tolerance.py` (korrigiert)
 **Status:** Reine Testkorrektur, keine Phase betroffen.
+
+### B290 — Testfix: fehlendes HISTORY_FILE-Monkeypatch im P69-Transparenztest ✅ erledigt
+
+**Datei:** `tests/test_c1_dashboard_forecast_mode.py`
+**Problem:** `test_p69_existing_quality_endpoints_expose_transparency_fields`
+patchte nur `SAVE_PATHS`, nicht die beim Modul-Import bereits fest berechnete
+Konstante `accuracy_tracker.HISTORY_FILE`. `load_history()` las dadurch nicht
+die Testdaten, `ml_payload["forecast_mode_counts"]["ml"]` schlug mit
+`KeyError` fehl.
+**Fix:** Ergänzung von `monkeypatch.setattr(_accuracy_tracker, "HISTORY_FILE", ...)`,
+identisch zum bereits etablierten, korrekten Muster im unmittelbar
+vorausgehenden Test derselben Datei. Kein Produktivcode veraendert.
+**Tests:** `tests/test_c1_dashboard_forecast_mode.py` (korrigiert)
+**Status:** Reine Testkorrektur, keine Phase betroffen.

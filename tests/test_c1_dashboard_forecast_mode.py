@@ -133,6 +133,12 @@ def test_p69_existing_quality_endpoints_expose_transparency_fields(monkeypatch, 
     monkeypatch.setitem(wetter_app.SAVE_PATHS, "models", str(model_dir))
     monkeypatch.setitem(wetter_app.cfg.SAVE_PATHS, "evaluation", str(eval_dir))
     monkeypatch.setitem(wetter_app.cfg.SAVE_PATHS, "models", str(model_dir))
+    # B290: load_history() liest aus der beim Modul-Import einmalig berechneten
+    # Konstante accuracy_tracker.HISTORY_FILE, NICHT dynamisch aus SAVE_PATHS.
+    # setitem auf SAVE_PATHS allein wirkt sich darauf nicht aus (etabliertes
+    # Muster, siehe Test unmittelbar oberhalb in derselben Datei).
+    import accuracy_tracker as _accuracy_tracker
+    monkeypatch.setattr(_accuracy_tracker, "HISTORY_FILE", str(eval_dir / "accuracy_history.jsonl"))
     monkeypatch.setattr(wetter_app.runtime_config, "get", lambda key, default=None: [10] if key == "ML_FORECAST_HORIZONS_MIN" else default)
 
     monkeypatch.setattr(
