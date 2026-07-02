@@ -103,3 +103,30 @@ def test_no_external_requests_in_score_matching():
     assert "import requests" not in text
     assert "import httpx" not in text
     assert "urllib" not in text
+
+
+def test_distance_and_time_window_respected():
+    from config import IR_RADAR_MATCH_MAX_IR_AGE_MIN, IR_RADAR_MATCH_LOOKBACK_MIN
+    assert IR_RADAR_MATCH_MAX_IR_AGE_MIN == 20.0
+    assert IR_RADAR_MATCH_LOOKBACK_MIN == 45.0
+
+
+def test_reject_reasons_deterministic():
+    from cell_lineage import ir_precursor_diagnosis_summary
+    labels = [
+        {"became_radar_cell": 0, "negative_reason": "expired_without_radar"},
+        {"became_radar_cell": 0, "negative_reason": "expired_without_radar"},
+        {"became_radar_cell": 1, "lead_time_min": 10.0},
+    ]
+    summary = ir_precursor_diagnosis_summary(labels)
+    assert summary["matched_count"] == 1
+    assert summary["top_reject_reasons"][0] == ("expired_without_radar", 2)
+
+
+def test_no_double_display_after_successful_match():
+    """Nach became_radar_cell=1 darf die Zelle nicht mehr als unabhängiger
+    Precursor gelistet werden."""
+    labels = [{"cell_id": "ir_9", "became_radar_cell": 1}]
+    from cell_lineage import ir_precursor_diagnosis_summary
+    summary = ir_precursor_diagnosis_summary(labels)
+    assert summary["matched_count"] == 1

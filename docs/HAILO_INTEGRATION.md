@@ -3612,3 +3612,16 @@ Zusammenhang bereits erklärten. `match_type="none"` und NN-Fallback dominierten
 `lineage_split_child`) vor dem B247-Gate. `VERIFICATION_NN_MAX_MATCH_KM` ist jetzt
 horizontabhängig (`VERIFICATION_NN_MAX_MATCH_KM_BY_HORIZON`), harte Obergrenze bleibt.
 **Tests:** erweitert `tests/test_b247_match_speed_gate.py`, `tests/test_b213_split_merge_lineage.py`
+
+## B280 — IR→Radar-Precursor-Matching: Diagnose und Positiv-Pfad abgesichert (2026-07-02)
+
+**Dateien:** `ir_cell_tracking.py`, `ir_cell_detection.py`, `cell_lineage.py`
+**Ausgangslage:** Im 24h-Debug-Export waren alle IR-Lead-Time-Labels negativ.
+Aktueller Code nutzt bereits durchgängig das kanonische `ir_<n>`-ID-Schema;
+gemischte `IR-NNN`-IDs im Export stammen vermutlich aus Altdaten, nicht aus
+aktivem Code. Es fehlte Instrumentierung der Match-Kandidaten und ein
+nachweislich getesteter Positiv-Pfad.
+**Fix:** `normalize_ir_id()` als defensive Altdaten-Absicherung, granulares
+Match-Kandidaten-Logging (`[IR-MATCH][B280]`), `ir_precursor_diagnosis_summary()`
+für Admin-/Export-Diagnose, Schutz vor Doppelmarkierung nach erfolgreichem Match.
+**Tests:** erweitert `tests/test_1l4_ir_lead_time_labels.py`, `tests/test_1l2_ir_radar_score_matching.py`
