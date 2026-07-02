@@ -186,26 +186,33 @@ _FORBIDDEN_KEY_ALLOWLIST = frozenset({
 })
 
 
-# P70: Qualitätsziele <=30 Min sind laut zieldefinition.txt fest und dürfen
-# nicht per Runtime-Override gelockert werden. Schreibbar sind nur h40/h60.
-_FIXED_QUALITY_TARGET_OVERRIDE_KEYS = frozenset({
-    "QUALITY_TARGET_MAE_KM_10",
-    "QUALITY_TARGET_MAE_KM_20",
-    "QUALITY_TARGET_MAE_KM_30",
-})
-_CONFIGURABLE_QUALITY_TARGET_OVERRIDE_KEYS = frozenset({
-    "QUALITY_TARGET_MAE_KM_40",
-    "QUALITY_TARGET_MAE_KM_60",
-})
+# B286: Qualitätsziele <=30 Min sind laut zieldefinition.txt fest und dürfen
+# nicht per Runtime-Override gelockert werden — numerisch geprüft, damit auch
+# benutzerdefinierte Horizonte (z.B. h15/h25 via /api/horizons) korrekt erfasst
+# werden, nicht nur die Standardwerte 10/20/30.
+_QUALITY_TARGET_KEY_PREFIX = "QUALITY_TARGET_MAE_KM_"
+
+
+def _quality_target_horizon_from_key(ku: str) -> int | None:
+    if not ku.startswith(_QUALITY_TARGET_KEY_PREFIX):
+        return None
+    suffix = ku[len(_QUALITY_TARGET_KEY_PREFIX):]
+    try:
+        return int(suffix)
+    except ValueError:
+        return None
 
 
 def validate_override_key(key: str) -> None:
     ku = str(key).upper()
-    if ku in _FIXED_QUALITY_TARGET_OVERRIDE_KEYS:
-        raise ValueError(
-            f"{ku} ist durch zieldefinition.txt fest vorgegeben und nicht überschreibbar"
-        )
-    if ku.startswith("QUALITY_TARGET_MAE_KM_") and ku not in _CONFIGURABLE_QUALITY_TARGET_OVERRIDE_KEYS:
+    horizon = _quality_target_horizon_from_key(ku)
+    if horizon is not None:
+        if horizon <= 30:
+            raise ValueError(
+                f"{ku} ist durch zieldefinition.txt fest vorgegeben (<=30 Min, <1km) und nicht überschreibbar"
+            )
+        return
+    if ku.startswith(_QUALITY_TARGET_KEY_PREFIX):
         raise ValueError(f"{ku} ist kein administrierbares Qualitätsziel")
 
 

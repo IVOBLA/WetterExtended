@@ -42,3 +42,49 @@ def test_config_migration_preserves_existing_env_values(monkeypatch):
     import os
     monkeypatch.setenv("DRIFT_MAE_ABS_MAX_KM", "1.0")
     assert float(os.environ["DRIFT_MAE_ABS_MAX_KM"]) == 1.0
+
+
+def test_custom_horizon_15_gets_fixed_target_not_default():
+    """h15 ist kein Standardwert, liegt aber <=30 Min -> muss <1km sein, NICHT 2.0km."""
+    from drift_detector import _quality_target_for_horizon
+    assert _quality_target_for_horizon("15") == 1.0
+
+
+def test_custom_horizon_25_gets_fixed_target():
+    from drift_detector import _quality_target_for_horizon
+    assert _quality_target_for_horizon("25") == 1.0
+
+
+def test_horizon_35_is_configurable_not_fixed():
+    from drift_detector import _horizon_is_fixed_target
+    assert _horizon_is_fixed_target("35") is False
+
+
+def test_horizon_30_boundary_is_fixed():
+    from drift_detector import _horizon_is_fixed_target
+    assert _horizon_is_fixed_target("30") is True
+
+
+def test_runtime_override_rejects_custom_horizon_15(monkeypatch, tmp_path):
+    import runtime_config
+    import pytest
+    monkeypatch.setattr(runtime_config._cfg, "RUNTIME_OVERRIDES_PATH", str(tmp_path / "runtime_overrides.json"), raising=False)
+    runtime_config.reload_overrides()
+    with pytest.raises(ValueError):
+        runtime_config.set_override("QUALITY_TARGET_MAE_KM_15", 2.0)
+
+
+def test_runtime_override_accepts_horizon_45(monkeypatch, tmp_path):
+    import runtime_config
+    monkeypatch.setattr(runtime_config._cfg, "RUNTIME_OVERRIDES_PATH", str(tmp_path / "runtime_overrides.json"), raising=False)
+    runtime_config.reload_overrides()
+    runtime_config.set_override("QUALITY_TARGET_MAE_KM_45", 1.8)
+    assert runtime_config.get("QUALITY_TARGET_MAE_KM_45") == 1.8
+
+
+def test_mae_1_4km_on_horizon_15_violates_fixed_target():
+    """Regressionsfall aus dem Review: 1.4km auf h15 darf NICHT als erfuellt gelten."""
+    from drift_detector import _quality_target_for_horizon
+    target = _quality_target_for_horizon("15")
+    actual_mae = 1.4
+    assert actual_mae > target  # muss als Verstoss erkannt werden

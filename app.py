@@ -556,7 +556,7 @@ def api_forecast_quality_diagnosis():
 def api_quality_targets():
     """P70: Qualitätsziele je Horizont; h10/h20/h30 schreibgeschützt."""
     from config import QUALITY_TARGET_MAE_KM_CONFIGURABLE_DEFAULT, QUALITY_TARGET_MAE_KM_FIXED
-    from drift_detector import load_status
+    from drift_detector import _horizon_is_fixed_target, load_status
 
     if request.method == "POST":
         data = request.get_json(silent=True) or {}
@@ -577,16 +577,20 @@ def api_quality_targets():
 
     status = load_status()
     by_horizon = dict(status.get("quality_target_by_horizon") or {})
+    # B286: aktuell konfigurierte Horizonte (auch benutzerdefinierte wie h15/h25)
+    # MUESSEN in der Liste erscheinen, nicht nur die Default-/Fixed-Schluessel.
+    from config import ML_FORECAST_HORIZONS_MIN as _default_h_list
+    _configured_horizons = {str(int(h)) for h in runtime_config.get("ML_FORECAST_HORIZONS_MIN", _default_h_list)}
     horizons = sorted(
-        set(QUALITY_TARGET_MAE_KM_FIXED) | set(QUALITY_TARGET_MAE_KM_CONFIGURABLE_DEFAULT) | set(by_horizon),
+        set(QUALITY_TARGET_MAE_KM_FIXED) | set(QUALITY_TARGET_MAE_KM_CONFIGURABLE_DEFAULT) | set(by_horizon) | _configured_horizons,
         key=lambda x: int(x) if str(x).isdigit() else 9999,
     )
     targets = {}
     for h in horizons:
         entry = dict(by_horizon.get(str(h)) or {})
-        editable = str(h) not in QUALITY_TARGET_MAE_KM_FIXED
+        editable = not _horizon_is_fixed_target(str(h))
         default_target = (
-            QUALITY_TARGET_MAE_KM_FIXED.get(str(h))
+            QUALITY_TARGET_MAE_KM_FIXED.get(str(h), QUALITY_TARGET_MAE_KM_FIXED.get("30", 1.0))
             if not editable
             else runtime_config.get(
                 f"QUALITY_TARGET_MAE_KM_{h}",

@@ -3710,3 +3710,22 @@ Rot statt Gelb/Gruen.
 `{reason, allow_ml}`. Frontend unterscheidet `allow_ml === false` (abgelehnt)
 von `allow_ml === true` (erlaubt, aber ggf. wenig Traffic).
 **Tests:** erweitert `tests/test_p69_ml_transparency.py`, `tests/test_c1_dashboard_forecast_mode.py`
+
+### B286 — Codex-Review-Fix zu P70: Fixe <=30-Min-Ziele bei benutzerdefinierten Horizonten ✅ erledigt
+
+**Dateien:** `drift_detector.py`, `runtime_config.py`, `app.py`
+**Problem (Codex-Review PR #917):** `/api/horizons` erlaubt beliebige 5
+Ganzzahl-Horizonte (nicht nur 10/20/30/40/60). `_quality_target_for_horizon()`
+und `validate_override_key()` prüften jedoch nur die literalen Schlüssel
+"10"/"20"/"30" als fest. Ein benutzerdefinierter Horizont wie h15 fiel auf den
+2.0km-Default zurück statt die feste <1km-Vorgabe zu erben; die Admin-UI zeigte
+ihn faelschlich als editierbar, obwohl das Speichern serverseitig ohnehin
+abgelehnt wurde.
+**Fix:** Numerische Prüfung `int(horizon) <= 30` statt literaler
+Dict-Mitgliedschaft — an allen drei betroffenen Stellen (Zielberechnung,
+Override-Validierung, Admin-API `editable`-Flag). `/api/quality_targets` zeigt
+jetzt auch aktuell konfigurierte, nicht-standardmäßige Horizonte an.
+**Tests:** erweitert `tests/test_p70_quality_targets.py`
+**Status Phase „Horizontabhängige Qualitätsziele" (P70):** vollständig
+abgeschlossen inkl. dieser Nachbesserung. Kein offener Punkt mehr aus den
+PR #909/#911/#912/#914/#915/#916/#917-Reviews zu P70/B279/P69 bekannt.

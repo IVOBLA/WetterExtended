@@ -37,11 +37,23 @@ _HISTORY_FILE = os.path.join(_EVAL_DIR, "accuracy_history.jsonl")
 _STATUS_FILE = os.path.join(_EVAL_DIR, "drift_status.json")
 
 
+def _horizon_is_fixed_target(horizon_key: str) -> bool:
+    """B286: Massgeblich ist die Zieldefinition (<=30 Min -> <1km), NICHT die
+    Frage, ob der Horizont einer der Standardwerte 10/20/30 ist. Auch
+    benutzerdefinierte Horizonte wie h15/h25 unterliegen der festen Vorgabe."""
+    try:
+        return int(horizon_key) <= 30
+    except (TypeError, ValueError):
+        return False
+
+
 def _quality_target_for_horizon(horizon_key: str) -> float:
-    """P70: <=30-Min-Ziele sind fest; h40/h60 via Runtime-Override."""
+    """P70/B286: <=30-Min-Ziele sind IMMER fest (numerisch geprüft, nicht nur
+    für 10/20/30), unabhängig von konfigurierten Horizonten. >30-Min-Horizonte
+    sind administrierbar via Runtime-Override."""
     horizon_key = str(horizon_key)
-    if horizon_key in QUALITY_TARGET_MAE_KM_FIXED:
-        return QUALITY_TARGET_MAE_KM_FIXED[horizon_key]
+    if _horizon_is_fixed_target(horizon_key):
+        return QUALITY_TARGET_MAE_KM_FIXED.get(horizon_key, QUALITY_TARGET_MAE_KM_FIXED.get("30", 1.0))
     runtime_val = _runtime_cfg.get(f"QUALITY_TARGET_MAE_KM_{horizon_key}") if _runtime_cfg else None
     if runtime_val is not None:
         return float(runtime_val)
@@ -196,7 +208,7 @@ def check_drift() -> dict:
                 "target_km": target,
                 "actual_mae_km": actual,
                 "met": actual <= target,
-                "editable": h not in QUALITY_TARGET_MAE_KM_FIXED,
+                "editable": not _horizon_is_fixed_target(h),
             }
         violation_horizon = next(
             (h for h, actual in mae_by_horizon.items() if actual is not None and actual > _quality_target_for_horizon(h)),
