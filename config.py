@@ -883,6 +883,12 @@ VERIFICATION_MAX_SEARCH_RADIUS_KM = 25.0
 # Runtime-ueberschreibbar via runtime_overrides.json (VERIFICATION_NN_MAX_MATCH_KM).
 VERIFICATION_NN_MAX_MATCH_KM = 10.0
 
+# B279: horizontabhängige NN-Maxdistanz (enger bei kurzen, weiter bei langen
+# Horizonten). Harte Obergrenze bleibt VERIFICATION_NN_MAX_MATCH_KM.
+VERIFICATION_NN_MAX_MATCH_KM_BY_HORIZON = {
+    "10": 4.0, "20": 6.0, "30": 8.0, "40": 9.0, "60": 10.0,
+}
+
 # B247: Maximale implizite Ist-Geschwindigkeit für einen gültigen Verifikations-Match (km/h).
 # Actual-Speed = haversine(Origin, Actual) / horizon_min * 60. Überschreitet ein ID-/NN-Match
 # diesen Wert, wird er als id_lost/nn_rejected gewertet und der nächstbessere Kandidat gesucht.

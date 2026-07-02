@@ -141,3 +141,30 @@ def test_defaults_from_config(monkeypatch):
     from config import VERIFICATION_MATCH_MAX_ACTUAL_SPEED_KMH, VERIFICATION_CORE_MIN_RATIO
     assert at._max_actual_speed_kmh() == float(VERIFICATION_MATCH_MAX_ACTUAL_SPEED_KMH)
     assert at._core_min_ratio() == float(VERIFICATION_CORE_MIN_RATIO)
+
+
+def test_direct_id_match_speed_core_ok_unchanged():
+    """Bestehendes Verhalten: gültiger Match bleibt gültig."""
+    origin = _obj(lat=47.0, lon=14.0, origin_lat=47.0, origin_lon=14.0)
+    target_near = _target(id_="OBJ001", lat=47.01, lon=14.01)
+    matched, _, src = at._match_actual(origin, [target_near], 10)
+    assert matched == target_near
+    assert src == "id"
+
+
+def test_speed_core_fail_but_lineage_parent_accepted(monkeypatch):
+    monkeypatch.setattr(at, "_runtime_cfg", None)
+    obj = _obj(lat=47.0, lon=14.0, origin_lat=47.0, origin_lon=14.0)
+    obj["id"] = "C1"
+    obj["cell_id"] = "C2"
+    obj["parent_cell_id"] = "C1"
+    matched_obj = _target(id_="C1", lat=48.5, lon=14.0)
+    matched_obj["cell_id"] = "C1"
+    matched, _, src = at._match_actual(obj, [matched_obj], 10)
+    assert matched == matched_obj
+    assert src == "lineage_split_child"
+    assert at._match_type("lineage_parent") == "lineage_parent"
+
+
+def test_speed_core_fail_without_lineage_still_rejected_to_nn():
+    assert at._match_type("nn") not in ("lineage_parent", "lineage_merged_from", "lineage_split_child")

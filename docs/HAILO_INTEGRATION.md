@@ -3601,3 +3601,14 @@ Ablehnungsgrund (`missing_due_to_ingest_gap`/`missing_due_to_tolerance`/
 (`radar_ingest_gaps.json`). Coverage je Horizont im Diagnose-Ergebnis sichtbar,
 Warnstatus unter `MIN_VERIFICATION_COVERAGE_RATIO`.
 **Tests:** erweitert `tests/test_accuracy_target_frame_coverage.py`
+
+## B279 — Merge/Split-Lineage wurde bei Forecast-Verifikation ignoriert (2026-07-02)
+
+**Dateien:** `accuracy_tracker.py`, `config.py`
+**Problem:** Das B247-Speed/Core-Gate verwarf ID-Matches bei Merge/Split-Ereignissen
+pauschal auf NN-Fallback, obwohl `parent_cell_id`/`merged_from_cell_ids` den
+Zusammenhang bereits erklärten. `match_type="none"` und NN-Fallback dominierten.
+**Fix:** Lineage-aware Matching (`lineage_parent`/`lineage_merged_from`/
+`lineage_split_child`) vor dem B247-Gate. `VERIFICATION_NN_MAX_MATCH_KM` ist jetzt
+horizontabhängig (`VERIFICATION_NN_MAX_MATCH_KM_BY_HORIZON`), harte Obergrenze bleibt.
+**Tests:** erweitert `tests/test_b247_match_speed_gate.py`, `tests/test_b213_split_merge_lineage.py`
