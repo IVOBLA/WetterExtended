@@ -210,6 +210,8 @@ export default function Configuration() {
   const [hydroBusy, setHydroBusy] = useState('')
   const [hydroMsg, setHydroMsg] = useState('')
   const [hydroFilter, setHydroFilter] = useState('all')
+  const [qualityTargets, setQualityTargets] = useState(null)
+  const [qualityMsg, setQualityMsg] = useState('')
 
   async function reloadHydroAdminData({ nocache = false } = {}) {
     const suffix = nocache ? '&nocache=true' : ''
@@ -233,7 +235,29 @@ export default function Configuration() {
   useEffect(() => {
     api.get('/api/config').then(d => setText(JSON.stringify(d, null, 2))).catch(() => {})
     reloadHydroAdminData().catch(() => {})
+    reloadQualityTargets().catch(() => {})
   }, [])
+
+  async function reloadQualityTargets() {
+    const [targets, mlQuality] = await Promise.all([
+      api.get('/api/quality_targets').catch(() => null),
+      api.get('/api/ml_quality').catch(() => null),
+    ])
+    const payload = targets?.data || targets || { targets: {} }
+    const kin = (mlQuality?.data || mlQuality || {})?.runtime_kinematic_mae_by_horizon || {}
+    setQualityTargets({ ...payload, runtime_kinematic_mae_by_horizon: kin })
+  }
+
+  async function saveQualityTarget(horizon, targetKm) {
+    setQualityMsg('')
+    try {
+      await api.post('/api/quality_targets', { horizon, target_km: Number(targetKm) })
+      setQualityMsg('✅ Qualitätsziel gespeichert.')
+      await reloadQualityTargets()
+    } catch (e) {
+      setQualityMsg('❌ Fehler: ' + (e?.payload?.error || e?.message || 'unbekannt'))
+    }
+  }
 
   async function save() {
     try {
@@ -320,6 +344,57 @@ export default function Configuration() {
   return (
     <div className="max-w-5xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Konfiguration</h1>
+
+
+      <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+        <h2 className="text-sm font-semibold text-gray-700 mb-2">🎯 Qualitätsziele je Vorhersagehorizont (P70)</h2>
+        <p className="text-xs text-gray-600 mb-3">
+          h10/h20/h30 sind durch die Zieldefinition fest vorgegeben und nicht änderbar; h40/h60 können administriert werden.
+        </p>
+        {qualityMsg && (
+          <div className={`border p-2 rounded mb-3 text-sm ${qualityMsg.startsWith('✅') ? 'bg-green-50 border-green-300 text-green-800' : 'bg-red-50 border-red-300 text-red-800'}`}>
+            {qualityMsg}
+          </div>
+        )}
+        <div className="overflow-auto border rounded">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-gray-100 text-gray-600">
+              <tr>
+                <th className="py-1 px-2">Horizont</th>
+                <th className="py-1 px-2">Ist-MAE ML</th>
+                <th className="py-1 px-2">Ist-MAE Kinematik</th>
+                <th className="py-1 px-2">Zielwert</th>
+                <th className="py-1 px-2">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(qualityTargets?.targets || {}).map(([h, row]) => (
+                <tr key={h} className="border-t">
+                  <td className="py-1 px-2 font-mono">h{h}</td>
+                  <td className="py-1 px-2">{row.actual_mae_km == null ? '—' : `${Number(row.actual_mae_km).toFixed(2)} km`}</td>
+                  <td className="py-1 px-2">{qualityTargets?.runtime_kinematic_mae_by_horizon?.[h] == null ? '—' : `${Number(qualityTargets.runtime_kinematic_mae_by_horizon[h]).toFixed(2)} km`}</td>
+                  <td className="py-1 px-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      className="w-24 border rounded px-1 disabled:bg-gray-100"
+                      disabled={!row.editable}
+                      title={row.editable ? 'Administrierbarer Zielwert' : 'durch Zieldefinition fest vorgegeben'}
+                      defaultValue={row.target_km}
+                      onBlur={e => row.editable && saveQualityTarget(h, e.target.value)}
+                    />
+                    {!row.editable && <span className="ml-2 text-gray-500">durch Zieldefinition fest vorgegeben</span>}
+                  </td>
+                  <td className={`py-1 px-2 ${row.met === false ? 'text-red-700' : (row.met === true ? 'text-green-700' : 'text-gray-500')}`}>
+                    {row.met === false ? 'verfehlt' : (row.met === true ? 'erfüllt' : 'unbekannt')}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
 
       <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">

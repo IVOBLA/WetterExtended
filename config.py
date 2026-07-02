@@ -1300,3 +1300,14 @@ FORECAST_BIAS_MAX_SPEED_FACTOR = 1.3              # harte Obergrenze für Speed-
 
 # --- B278: Verifikations-Coverage-Warnschwelle ---
 MIN_VERIFICATION_COVERAGE_RATIO = 0.5
+
+
+# --- P70: Horizontabhängige Qualitätsziele. Die <=30-Min-Vorgabe (<1km) ist
+# durch die Zieldefinition FEST vorgegeben und NICHT admin-änderbar. Nur
+# zusätzliche Horizonte (h40/h60) sind administrierbar konfigurierbar. ---
+QUALITY_TARGET_MAE_KM_FIXED = {
+    "10": 1.0, "20": 1.0, "30": 1.0,
+}
+QUALITY_TARGET_MAE_KM_CONFIGURABLE_DEFAULT = {
+    "40": 1.5, "60": 2.0,
+}
