@@ -3564,3 +3564,18 @@ unverändert.
 **Tests:** Keine neue Testdatei — der bestehende B274-Test
 `tests/test_b274_contour_touch_dilate.py::test_merge_close_contours_joins_one_pixel_gap_with_dilate_px`
 wechselt von FAILED auf PASSED und dient als Nachweis.
+
+## B277 — ML-Promotion nutzte andere Kinematik-Baseline als Runtime-Gate (2026-07-02)
+
+**Dateien:** `accuracy_tracker.py`, `model_training.py`, `prediction.py`, `app.py`
+**Problem:** `model_training.py` bewertete Modell-Promotion gegen eine synthetische
+Baseline (Position + v*Horizont, B243), während `prediction.py`s Runtime-Gate gegen
+die reale Betriebskinematik (Optical-Flow/EWMA/Steering/orographisch) aus
+`accuracy_history.jsonl` verglich. Modelle konnten promoted werden, die im
+Runtime-Gate sofort wieder verworfen wurden.
+**Fix:** Neue gemeinsame Funktion `accuracy_tracker.get_runtime_kinematic_mae_by_horizon()`
+wird von Promotion UND Runtime-Gate genutzt. B243-Baseline bleibt nur Fallback bei
+fehlenden Realdaten. `/api/ml_quality` zeigt Baseline-Quelle und letzten
+Promotion-Entscheid.
+**Tests:** `tests/test_b277_unified_kinematic_baseline.py`, erweitert:
+`tests/test_b243_baseline_gate.py`, `tests/test_c1_dashboard_forecast_mode.py`

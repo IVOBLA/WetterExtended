@@ -40,6 +40,9 @@ export default function Accuracy() {
   const mlPoints = mlQuality.series?.[String(mlHorizon)] || []
   const mlSeries = mlPoints.map(p => ({ idx: p.idx, Champion: p.champion_mae_km, Challenger: p.challenger_mae_km }))
   const mlSamplesLatest = mlPoints.length ? mlPoints[mlPoints.length - 1].challenger_samples : 0
+  const runtimeKin = mlQuality.runtime_kinematic_mae_by_horizon || {}
+  const lastPromotion = mlQuality.last_promotion || {}
+  const promotionSources = lastPromotion.promotion_baseline_source || {}
 
   return (
     <div>
@@ -189,6 +192,35 @@ export default function Accuracy() {
             <Line type="monotone" dataKey="Challenger" stroke="#ea580c" dot={{ r: 2 }} connectNulls />
           </LineChart>
         </ResponsiveContainer>
+        <div className="mt-4 border-t pt-3">
+          <h4 className="font-medium mb-2">Runtime-Gate / Promotion-Baseline (B277)</h4>
+          <div className="text-sm mb-2">
+            <span className="font-semibold">Letzter Entscheid:</span> {lastPromotion.promotion_decision || '—'}
+            <span className="font-semibold ml-4">Grund:</span> {lastPromotion.promotion_reject_reason || '—'}
+          </div>
+          <table className="w-full text-sm">
+            <thead><tr className="border-b text-xs">
+              <th className="text-left p-1">Horizont</th>
+              <th className="text-left p-1">Runtime-Kinematik MAE</th>
+              <th className="text-left p-1">Samples</th>
+              <th className="text-left p-1">Promotion-Baseline-Quelle</th>
+            </tr></thead>
+            <tbody>
+              {(mlQuality.horizons || []).map(h => {
+                const hk = String(h)
+                const kin = runtimeKin[hk] || {}
+                return (
+                  <tr key={hk} className="border-b">
+                    <td className="p-1">+{h} min</td>
+                    <td className="p-1">{kin.kinematic_mae?.toFixed?.(2) ?? '—'}</td>
+                    <td className="p-1">{kin.kinematic_samples ?? '—'}</td>
+                    <td className="p-1">{promotionSources[hk] || '—'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="card">
