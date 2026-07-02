@@ -1285,3 +1285,9 @@ HYDRO_FLOOD_ML_FEATURES = [
     "effective_precip_source_type", "effective_precip_source_quality",
     "effective_precip_is_proxy", "effective_precip_missing",
 ]
+
+# --- P68: Signierte Bias-Korrektur des kinematischen Fallbacks ---
+FORECAST_BIAS_CORRECTION_ENABLED = False          # Default AUS, admin-umschaltbar
+FORECAST_BIAS_MIN_SAMPLES = 20                    # Mindest-Samples je Horizont für Korrektur
+FORECAST_BIAS_MAX_OFFSET_KM = 2.0                 # harte Obergrenze für Positions-Korrektur
+FORECAST_BIAS_MAX_SPEED_FACTOR = 1.3              # harte Obergrenze für Speed-Korrekturfaktor (max +30%)

@@ -96,6 +96,38 @@ export default function Accuracy() {
       </div>
 
       <div className="card mb-4">
+        <h3 className="text-lg font-medium mb-2">Bias je Horizont</h3>
+        <p className="text-xs text-gray-500 mb-2">
+          Signierter mittlerer Forecast-Versatz aus der Qualitätsdiagnose. Positive dLon-Werte bedeuten: tatsächliche Zelle liegt im Mittel östlicher als vorhergesagt; positive dLat-Werte nördlicher.
+        </p>
+        <table className="w-full text-sm">
+          <thead><tr className="border-b text-xs">
+            <th className="text-left p-1">Horizont</th>
+            <th className="text-left p-1">mean_dlon_deg</th>
+            <th className="text-left p-1">mean_dlat_deg</th>
+            <th className="text-left p-1">mean_speed_error_kmh</th>
+            <th className="text-left p-1">mean_direction_error_deg</th>
+            <th className="text-left p-1">sample_count</th>
+          </tr></thead>
+          <tbody>
+            {Object.entries(qualityDiagnosis.bias_by_horizon || {}).map(([h, b]) => (
+              <tr key={h} className="border-b">
+                <td className="p-1">+{h} min</td>
+                <td className="p-1">{b.mean_dlon_deg?.toFixed?.(6) ?? '—'}</td>
+                <td className="p-1">{b.mean_dlat_deg?.toFixed?.(6) ?? '—'}</td>
+                <td className="p-1">{b.mean_speed_error_kmh?.toFixed?.(3) ?? '—'}</td>
+                <td className="p-1">{b.mean_direction_error_deg?.toFixed?.(3) ?? '—'}</td>
+                <td className="p-1">{b.sample_count ?? '—'}</td>
+              </tr>
+            ))}
+            {!Object.keys(qualityDiagnosis.bias_by_horizon || {}).length && (
+              <tr><td className="p-1 text-gray-500" colSpan="6">Keine Bias-Daten vorhanden.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="card mb-4">
         <h3 className="text-lg font-medium mb-2">Aktuelle Auswertung (letzte {hours} h)</h3>
         <table className="w-full text-sm">
           <thead><tr className="border-b text-xs">
