@@ -253,7 +253,9 @@ def _forecast_meta(obj: dict, horizon_min: int, key: str, default=None):
 
 def _detail_record(obj: dict, ts: datetime, target_ts: datetime, horizon_min: int, matched: Optional[dict],
                    dist_km: Optional[float], match_src: str, no_target_frame: bool, stale: bool,
-                   effective_lead_min: float, ex_px: Optional[float] = None, ey_px: Optional[float] = None) -> dict:
+                   effective_lead_min: float, ex_px: Optional[float] = None, ey_px: Optional[float] = None,
+                   target_frame_delta_min: Optional[float] = None,
+                   missing_target_frame_reason: Optional[str] = None) -> dict:
     f_lat = _safe_float(obj.get(f"forecast_lat_{horizon_min}")); f_lon = _safe_float(obj.get(f"forecast_lon_{horizon_min}"))
     o_lat = _safe_float(obj.get("origin_lat", obj.get("lat"))); o_lon = _safe_float(obj.get("origin_lon", obj.get("lon")))
     a_lat = _safe_float(matched.get("lat") if matched else None); a_lon = _safe_float(matched.get("lon") if matched else None)
@@ -286,6 +288,8 @@ def _detail_record(obj: dict, ts: datetime, target_ts: datetime, horizon_min: in
         "matched_cell_id": str(matched.get("cell_id", matched.get("id", ""))) if matched else None,
         "match_distance_km": round(dist_km, 6) if dist_km is not None and math.isfinite(dist_km) else None,
         "radar_age_min": _safe_float(obj.get("radar_age_min"), 0.0), "no_target_frame": bool(no_target_frame),
+        "target_frame_delta_min": target_frame_delta_min,
+        "missing_target_frame_reason": missing_target_frame_reason,
         "id_lost": bool((not no_target_frame) and matched is not None and str(matched.get("id")) != str(obj.get("id"))),
         "missed": bool((not no_target_frame) and matched is None),
         # B249: DEM-Features aus Tracking-Objekt für Fehler-Attribution (Diagnose + ML).
@@ -322,6 +326,8 @@ def _effective_target_tolerance_s(time_tol_s: int,
     bleiben (missing_target_frames ratio sinkt).
     """
     frame_half_s = int(round(float(FRAME_INTERVAL_MIN) * 60.0 / 2.0))
+    if by_ts and len(by_ts) == 1:
+        frame_half_s = max(frame_half_s, int(round(float(FRAME_INTERVAL_MIN) * 60.0)))
     if by_ts and len(by_ts) >= 2:
         sorted_ts = sorted(by_ts.keys())
         gaps_s = [
@@ -335,9 +341,28 @@ def _effective_target_tolerance_s(time_tol_s: int,
     return max(int(time_tol_s), frame_half_s)
 
 
+def _classify_missing_target_frame(by_ts: Dict[datetime, str], target_ts: datetime, effective_tol_s: int, now_utc: datetime) -> str:
+    """B278: Klassifiziert, warum kein Ziel-Frame gefunden wurde."""
+    if not by_ts:
+        return "missing_due_to_ingest_gap"
+    if target_ts > now_utc:
+        return "missing_due_to_future_not_available"
+    nearest_delta = min((abs((ts - target_ts).total_seconds()) for ts in by_ts.keys()), default=None)
+    if nearest_delta is None:
+        return "missing_due_to_ingest_gap"
+    if nearest_delta > effective_tol_s:
+        # Unterscheidung: liegt die nächste vorhandene Aufnahme weiter als das
+        # 2-fache der Toleranz entfernt -> echte Ingest-Lücke, sonst Toleranzproblem.
+        return "missing_due_to_ingest_gap" if nearest_delta > 2 * effective_tol_s else "missing_due_to_tolerance"
+    return "missing_due_to_tolerance"
+
+
 def _find_target_frame(by_ts: Dict[datetime, str],
                        target_ts: datetime,
-                       time_tol_s: int) -> Optional[str]:
+                       time_tol_s: int) -> tuple[Optional[str], Optional[float], Optional[str]]:
+    """B260: nächstgelegener Frame innerhalb adaptiver Toleranz (UNVERÄNDERT).
+    B278: liefert zusätzlich target_frame_delta_min und ggf. Ablehnungsgrund.
+    """
     effective_tol_s = _effective_target_tolerance_s(time_tol_s, by_ts)
     best_path = None
     best_delta = effective_tol_s + 1
@@ -346,7 +371,10 @@ def _find_target_frame(by_ts: Dict[datetime, str],
         if delta <= effective_tol_s and delta < best_delta:
             best_delta = delta
             best_path = path
-    return best_path
+    if best_path is not None:
+        return best_path, round(best_delta / 60.0, 3), None
+    reason = _classify_missing_target_frame(by_ts, target_ts, effective_tol_s, datetime.utcnow())
+    return None, None, reason
 
 
 
@@ -571,7 +599,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         if not objs:
             continue
         target_ts = ts + timedelta(minutes=horizon_min)
-        target_path = _find_target_frame(by_ts, target_ts, VERIFICATION_TIME_TOLERANCE_S)
+        target_path, target_frame_delta_min, missing_target_frame_reason = _find_target_frame(by_ts, target_ts, VERIFICATION_TIME_TOLERANCE_S)
 
         # Anzahl Forecasts in diesem Quell-Frame (für no_target_frame-Buchhaltung)
         forecast_count_this_frame = sum(
@@ -589,7 +617,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
                     _bucket(by_mode, _mode_for(_o))["no_target_frame"] += 1
                     _bucket(by_source, _source_for(_o))["no_target_frame"] += 1
                     _bucket(by_match, "none")["no_target_frame"] += 1
-                    rec = _detail_record(_o, ts, target_ts, horizon_min, None, None, "none", True, False, horizon_min)
+                    rec = _detail_record(_o, ts, target_ts, horizon_min, None, None, "none", True, False, horizon_min, target_frame_delta_min=target_frame_delta_min, missing_target_frame_reason=missing_target_frame_reason)
                     details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
             continue
 
@@ -602,7 +630,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
                     _bucket(by_mode, _mode_for(_o))["no_target_frame"] += 1
                     _bucket(by_source, _source_for(_o))["no_target_frame"] += 1
                     _bucket(by_match, "none")["no_target_frame"] += 1
-                    rec = _detail_record(_o, ts, target_ts, horizon_min, None, None, "none", True, False, horizon_min)
+                    rec = _detail_record(_o, ts, target_ts, horizon_min, None, None, "none", True, False, horizon_min, target_frame_delta_min=target_frame_delta_min, missing_target_frame_reason=missing_target_frame_reason)
                     details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
             continue
 
@@ -630,14 +658,14 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
                 _bm["missed"] += 1; _bs["missed"] += 1; _bt["missed"] += 1
                 # B232: keine Distanz als forecast_error_km/match_distance_km schreiben,
                 # sonst zaehlt die Fehler-Diagnose die verworfene Zelle faelschlich als verifiziert.
-                rec = _detail_record(obj, ts, target_ts, horizon_min, None, None, "nn_rejected", False, False, horizon_min)
+                rec = _detail_record(obj, ts, target_ts, horizon_min, None, None, "nn_rejected", False, False, horizon_min, target_frame_delta_min=target_frame_delta_min)
                 details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
                 continue
 
             if matched is None:
                 missed += 1
                 _bm["missed"] += 1; _bs["missed"] += 1; _bt["missed"] += 1
-                rec = _detail_record(obj, ts, target_ts, horizon_min, None, None, _match_src, False, False, horizon_min)
+                rec = _detail_record(obj, ts, target_ts, horizon_min, None, None, _match_src, False, False, horizon_min, target_frame_delta_min=target_frame_delta_min)
                 details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
                 continue
 
@@ -661,7 +689,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
             _bm["verified"] += 1; _bs["verified"] += 1; _bt["verified"] += 1
             _bm["sum_km"] += dist_km; _bs["sum_km"] += dist_km; _bt["sum_km"] += dist_km
             _bm["sum_km2"] += dist_km * dist_km; _bs["sum_km2"] += dist_km * dist_km; _bt["sum_km2"] += dist_km * dist_km
-            rec = _detail_record(obj, ts, target_ts, horizon_min, matched, dist_km, _match_src, False, False, horizon_min, ex, ey)
+            rec = _detail_record(obj, ts, target_ts, horizon_min, matched, dist_km, _match_src, False, False, horizon_min, ex, ey, target_frame_delta_min=target_frame_delta_min)
             if rec.get("direction_error_deg") is not None: direction_errors.append(float(rec["direction_error_deg"]))
             if rec.get("speed_error_kmh") is not None: speed_errors.append(float(rec["speed_error_kmh"]))
             details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
