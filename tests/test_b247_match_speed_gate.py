@@ -162,9 +162,57 @@ def test_speed_core_fail_but_lineage_parent_accepted(monkeypatch):
     matched_obj["cell_id"] = "C1"
     matched, _, src = at._match_actual(obj, [matched_obj], 10)
     assert matched == matched_obj
-    assert src == "lineage_split_child"
+    assert src == "lineage_parent"
     assert at._match_type("lineage_parent") == "lineage_parent"
 
 
 def test_speed_core_fail_without_lineage_still_rejected_to_nn():
     assert at._match_type("nn") not in ("lineage_parent", "lineage_merged_from", "lineage_split_child")
+
+
+def test_split_child_with_different_cell_id_found_via_lineage():
+    """record_cell_split()-Kind hat neue cell_id + parent_cell_id != obj id/cell_id.
+    Muss trotzdem als lineage_split_child erkannt werden, nicht per NN."""
+    obj = {"id": "parent_A", "cell_id": "parent_A", "lat": 46.6, "lon": 14.3,
+           "forecast_lat_30": 46.61, "forecast_lon_30": 14.31}
+    child = {"id": "child_X", "cell_id": "child_X", "parent_cell_id": "parent_A",
+             "lat": 46.615, "lon": 14.315}
+    from accuracy_tracker import _match_actual
+    matched, dist, match_type = _match_actual(obj, [child], 30)
+    assert matched is not None
+    assert matched["id"] == "child_X"
+    assert match_type == "lineage_split_child"
+
+
+def test_secondary_merge_parent_with_different_cell_id_found_via_lineage():
+    """record_cell_merge() haelt nur primaere cell_id; sekundaerer Parent hat
+    andere id, aber steht in merged_from_cell_ids des Ergebnis-Objekts."""
+    obj = {"id": "parent_B", "cell_id": "parent_B", "lat": 46.6, "lon": 14.3,
+           "forecast_lat_30": 46.61, "forecast_lon_30": 14.31}
+    merged = {"id": "merged_result", "cell_id": "merged_result",
+              "merged_from_cell_ids": ["parent_A", "parent_B"],
+              "lat": 46.615, "lon": 14.315}
+    from accuracy_tracker import _match_actual
+    matched, dist, match_type = _match_actual(obj, [merged], 30)
+    assert matched is not None
+    assert matched["id"] == "merged_result"
+    assert match_type == "lineage_merged_from"
+
+
+def test_no_lineage_relation_still_falls_through_to_nn():
+    obj = {"id": "unrelated_A", "cell_id": "unrelated_A", "lat": 46.6, "lon": 14.3,
+           "forecast_lat_30": 46.61, "forecast_lon_30": 14.31}
+    other = {"id": "unrelated_B", "cell_id": "unrelated_B", "lat": 46.615, "lon": 14.315}
+    from accuracy_tracker import _match_actual
+    matched, dist, match_type = _match_actual(obj, [other], 30)
+    assert match_type in ("nn", "miss")
+
+
+def test_nearest_lineage_candidate_wins():
+    obj = {"id": "parent_A", "cell_id": "parent_A", "lat": 46.6, "lon": 14.3,
+           "forecast_lat_30": 46.61, "forecast_lon_30": 14.31}
+    far_child = {"id": "child_far", "cell_id": "child_far", "parent_cell_id": "parent_A", "lat": 46.9, "lon": 14.8}
+    near_child = {"id": "child_near", "cell_id": "child_near", "parent_cell_id": "parent_A", "lat": 46.612, "lon": 14.312}
+    matched, _, match_type = at._match_actual(obj, [far_child, near_child], 30)
+    assert matched == near_child
+    assert match_type == "lineage_split_child"

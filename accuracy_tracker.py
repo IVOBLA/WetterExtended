@@ -434,7 +434,7 @@ def _match_actual(obj: dict, target_objs: list, horizon_min: int
         obj_id = str(obj.get("cell_id", obj.get("id", "")))
         matched_id = str(matched.get("cell_id", matched.get("id", "")))
         if str(matched.get("parent_cell_id", "")) == obj_id:
-            return "lineage_parent"
+            return "lineage_split_child"
         merged_from = _lineage_values(obj.get("merged_from_cell_ids"))
         if matched_id in merged_from:
             return "lineage_merged_from"
@@ -442,7 +442,7 @@ def _match_actual(obj: dict, target_objs: list, horizon_min: int
         if obj_id in matched_merged_from:
             return "lineage_merged_from"
         if str(obj.get("parent_cell_id", "")) == matched_id:
-            return "lineage_split_child"
+            return "lineage_parent"
         return None
 
     # B247: ID-Match mit Speed-Gate + Core-Anforderung.
@@ -476,6 +476,37 @@ def _match_actual(obj: dict, target_objs: list, horizon_min: int
                 f"[MATCH][B247] cell_id-Match {cell_id} verworfen: Speed/Core-Validierung fehlgeschlagen "
                 f"(h={horizon_min}) — NN-Fallback"
             )
+
+    # B282: Lineage-Nachfolger koennen eine abweichende id/cell_id haben
+    # (record_cell_split() vergibt neue cell_id + parent_cell_id an Kinder;
+    # record_cell_merge() haelt nur die primaere cell_id, andere Eltern stehen
+    # in merged_from_cell_ids). Diese Kandidaten wuerden vom id/cell_id-exakten
+    # Match oben NIE gefunden. Deshalb hier eine eigene Lineage-Kandidatensuche
+    # VOR dem generischen NN-Fallback, unabhaengig von id/cell_id-Gleichheit.
+    lineage_candidate = None
+    lineage_candidate_reason = None
+    lineage_candidate_d = math.inf
+    for cand in target_objs:
+        if _is_synthetic_object(cand):
+            continue
+        lat = cand.get("lat")
+        lon = cand.get("lon")
+        if lat is None or lon is None:
+            continue
+        reason = _lineage_explains_match(obj, cand)
+        if reason is None:
+            continue
+        d = _haversine_km(fc_lat, fc_lon, float(lat), float(lon))
+        if d <= VERIFICATION_MAX_SEARCH_RADIUS_KM and d < lineage_candidate_d:
+            lineage_candidate_d = d
+            lineage_candidate = cand
+            lineage_candidate_reason = reason
+    if lineage_candidate is not None:
+        debug_log(
+            f"[MATCH][B282] {oid}/{cell_id}: Lineage-Nachfolger mit abweichender ID gefunden "
+            f"({lineage_candidate_reason}, dist={lineage_candidate_d:.1f} km) — vor NN-Fallback akzeptiert"
+        )
+        return lineage_candidate, lineage_candidate_d, lineage_candidate_reason
 
     best = None
     best_d = math.inf
