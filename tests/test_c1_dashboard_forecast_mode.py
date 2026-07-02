@@ -122,7 +122,7 @@ def test_p69_existing_quality_endpoints_expose_transparency_fields(monkeypatch, 
     eval_dir.mkdir()
     model_dir.mkdir()
     (eval_dir / "accuracy_history.jsonl").write_text(
-        '{"timestamp_utc":"2026-07-02T00:00:00Z","breakdown_by_forecast_mode":{"10":{"kinematic_fallback":{"mae_km":0.7,"samples":90,"verified":90},"ml":{"mae_km":0.6,"samples":10,"verified":8,"no_target_frame":2}}}}\n',
+        '{"timestamp_utc":"2026-07-02T00:00:00Z","breakdown_by_forecast_mode":{"10":{"kinematic_fallback":{"mae_km":0.7,"samples":90,"verified":90},"ml":{"mae_km":0.6,"samples":10,"verified":8,"no_target_frame":2}}},"delivered_mode_counts":{"10":{"kinematic_fallback":90,"ml":10}}}\n',
         encoding="utf-8",
     )
     (model_dir / "training_meta.json").write_text(
@@ -162,3 +162,48 @@ def test_p69_existing_quality_endpoints_expose_transparency_fields(monkeypatch, 
 
     assert diag_resp.status_code == 200
     assert "bias_by_horizon" in diag_resp.get_json()
+
+
+def test_evaluate_for_horizon_separates_shadow_ml_from_delivered_counts(monkeypatch, tmp_path):
+    import json
+    import sys
+    import types
+    from datetime import datetime, timedelta
+
+    sys.modules.pop("accuracy_tracker", None)
+    monkeypatch.setitem(sys.modules, "debug_utils", types.SimpleNamespace(debug_log=lambda *args, **kwargs: None))
+    import accuracy_tracker
+
+    ev = tmp_path / "evaluation"
+    ev.mkdir()
+    monkeypatch.setattr(accuracy_tracker, "EVAL_DIR", str(ev), raising=False)
+    monkeypatch.setattr(accuracy_tracker, "DETAILS_FILE", str(ev / "forecast_error_details.jsonl"), raising=False)
+    monkeypatch.setattr(accuracy_tracker, "HISTORY_FILE", str(ev / "accuracy_history.jsonl"), raising=False)
+
+    obj_dir = tmp_path / "objects"
+    obj_dir.mkdir()
+    t0 = datetime(2026, 6, 18, 12, 0, 0)
+
+    def write_objects(ts, objects):
+        (obj_dir / f"{ts:%Y-%m-%d_%H-%M-%S}.json").write_text(json.dumps(objects), encoding="utf-8")
+
+    write_objects(t0, [{
+        "id": "WX-B284-1", "cell_id": "WX-B284-1",
+        "x": 10.0, "y": 20.0, "lat": 46.70, "lon": 14.10,
+        "forecast_x_30": 10.0, "forecast_y_30": 20.0,
+        "forecast_lat_30": 46.70, "forecast_lon_30": 14.10,
+        "forecast_mode_30": "kinematic_fallback", "kinematic_source_30": "ewma_3f",
+        "forecast_ml_lat_30": 46.70, "forecast_ml_lon_30": 14.10,
+    }])
+    write_objects(t0 + timedelta(minutes=30), [{
+        "id": "WX-B284-1", "cell_id": "WX-B284-1",
+        "x": 10.0, "y": 20.0, "lat": 46.70, "lon": 14.10,
+    }])
+    monkeypatch.setitem(accuracy_tracker.SAVE_PATHS, "objects", str(obj_dir))
+
+    result = accuracy_tracker.evaluate_for_horizon(30, since_hours=24)
+
+    assert result["by_forecast_mode"]["kinematic_fallback"]["samples"] == 1
+    assert result["by_forecast_mode"]["ml"]["samples"] == 1
+    assert result["delivered_mode_counts"] == {"kinematic_fallback": 1}
+    assert result["delivered_mode_counts"].get("ml", 0) != result["by_forecast_mode"]["ml"]["samples"]

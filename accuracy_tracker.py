@@ -600,6 +600,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
     fts = [(f, t) for f, t in fts if t is not None]
 
     by_mode = {}
+    delivered_mode_counts: dict = {}
     by_source = {}
     by_match = {}
     direction_errors = []
@@ -652,6 +653,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         "since_hours": since_hours,
         "tolerance_km": VERIFICATION_TOLERANCE_KM,
         "by_forecast_mode": _finish(by_mode),
+        "delivered_mode_counts": delivered_mode_counts,
         "by_kinematic_source": _finish(by_source),
         "by_match_type": _finish(by_match),
         "direction_stats": {},
@@ -726,6 +728,11 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
             n_total += 1
             _bm = _bucket(by_mode, _mode_for(obj)); _bs = _bucket(by_source, _source_for(obj)); _bt = _bucket(by_match, _match_type(_match_src))
             _bm["samples"] += 1; _bs["samples"] += 1; _bt["samples"] += 1
+            # B284: separater, schatten-freier Zaehler der TATSAECHLICH ausgelieferten
+            # Modi. _mode_for(obj) ist der real ausgelieferte forecast_mode — im
+            # Gegensatz zu by_mode["ml"], das durch _accumulate_ml_shadow() zusaetzlich
+            # Schatten-Bewertungen fuer kinematic_fallback-Forecasts enthaelt.
+            delivered_mode_counts[_mode_for(obj)] = delivered_mode_counts.get(_mode_for(obj), 0) + 1
             ex = ey = None
 
             if _match_src == "nn_rejected":
@@ -810,6 +817,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         "since_hours": since_hours,
         "tolerance_km": VERIFICATION_TOLERANCE_KM,
         "by_forecast_mode": _finish(by_mode),
+        "delivered_mode_counts": delivered_mode_counts,
         "by_kinematic_source": _finish(by_source),
         "by_match_type": _finish(by_match),
         "direction_stats": _stat_errors(direction_errors, "direction_error_deg"),
@@ -841,6 +849,7 @@ def evaluate_all(horizons: List[int], since_hours: int = 24) -> dict:
     rows = [evaluate_for_horizon(h, since_hours) for h in horizons]
     summary = {"since_hours": since_hours, "tolerance_km": VERIFICATION_TOLERANCE_KM, "horizons": rows}
     summary["breakdown_by_forecast_mode"] = {str(r["horizon"]): r.get("by_forecast_mode", {}) for r in rows}
+    summary["delivered_mode_counts"] = {str(r["horizon"]): r.get("delivered_mode_counts", {}) for r in rows}
     summary["breakdown_by_kinematic_source"] = {str(r["horizon"]): r.get("by_kinematic_source", {}) for r in rows}
     summary["breakdown_by_match_type"] = {str(r["horizon"]): r.get("by_match_type", {}) for r in rows}
     summary["direction_stats_by_horizon"] = {str(r["horizon"]): r.get("direction_stats", {}) for r in rows}

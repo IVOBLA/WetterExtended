@@ -3684,3 +3684,16 @@ in `evaluate_for_horizon()`). Coverage wurde dadurch systematisch zu niedrig
 angezeigt (z.B. 8/12 statt 8/10).
 **Fix:** Nenner nutzt ausschliesslich das bereits kombinierte `samples`-Feld.
 **Tests:** korrigiert `tests/test_p69_ml_transparency.py`
+
+## B284 — Codex-Review-Fix zu P69: Schatten-Scoring als Live-ML-Nutzung gezaehlt (2026-07-02)
+
+**Dateien:** `accuracy_tracker.py`, `app.py`
+**Problem (Codex-Review PR #912):** `_accumulate_ml_shadow()` (P53/P54, bewusst
+so implementiert) buchte Schatten-ML-Bewertungen in denselben by_mode["ml"]-Bucket
+wie real ausgelieferte ML-Forecasts. `ml_usage_ratio` summierte diesen Bucket und
+zeigte dadurch auch bei reinem Schatten-Betrieb "ML aktiv" an.
+**Fix:** Neues, schatten-freies Feld `delivered_mode_counts` (nur real
+ausgelieferte forecast_mode-Werte) wird zusaetzlich persistiert.
+`ml_usage_ratio` in `/api/ml_quality` basiert ausschliesslich darauf.
+P53/P54-Schatten-Logik bleibt unveraendert.
+**Tests:** erweitert `tests/test_p69_ml_transparency.py`, `tests/test_c1_dashboard_forecast_mode.py`
