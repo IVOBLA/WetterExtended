@@ -1291,3 +1291,6 @@ FORECAST_BIAS_CORRECTION_ENABLED = False          # Default AUS, admin-umschaltb
 FORECAST_BIAS_MIN_SAMPLES = 20                    # Mindest-Samples je Horizont für Korrektur
 FORECAST_BIAS_MAX_OFFSET_KM = 2.0                 # harte Obergrenze für Positions-Korrektur
 FORECAST_BIAS_MAX_SPEED_FACTOR = 1.3              # harte Obergrenze für Speed-Korrekturfaktor (max +30%)
+
+# --- B278: Verifikations-Coverage-Warnschwelle ---
+MIN_VERIFICATION_COVERAGE_RATIO = 0.5

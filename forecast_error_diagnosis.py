@@ -14,10 +14,11 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from config import SAVE_PATHS, VERIFICATION_TIME_TOLERANCE_S
+    from config import MIN_VERIFICATION_COVERAGE_RATIO, SAVE_PATHS, VERIFICATION_TIME_TOLERANCE_S
 except Exception:  # pragma: no cover
     SAVE_PATHS = {"evaluation": "train_data/evaluation"}
     VERIFICATION_TIME_TOLERANCE_S = 90
+    MIN_VERIFICATION_COVERAGE_RATIO = 0.5
 
 EVAL_DIR = Path(SAVE_PATHS.get("evaluation", "train_data/evaluation"))
 DETAILS_FILE = EVAL_DIR / "forecast_error_details.jsonl"
@@ -408,19 +409,57 @@ def build_forecast_error_diagnosis(*, details_path: str | Path = DETAILS_FILE, a
 
     no_target = sum(1 for r in short if r.get("no_target_frame") is True)
     total_short = len(short)
+    by_horizon: dict[str, dict[str, Any]] = {}
+    for row in details:
+        horizon = row.get("horizon_min")
+        if horizon is None:
+            continue
+        key = str(int(horizon)) if _f(horizon) is not None else str(horizon)
+        bucket = by_horizon.setdefault(key, {"samples": 0, "no_target_frame": 0, "missing_target_frame_reasons": {}})
+        bucket["samples"] += 1
+        if row.get("no_target_frame") is True:
+            bucket["no_target_frame"] += 1
+            reason = str(row.get("missing_target_frame_reason") or "missing_due_to_unknown")
+            bucket["missing_target_frame_reasons"][reason] = bucket["missing_target_frame_reasons"].get(reason, 0) + 1
+
     history_rates = []
     for rec in history:
         for h in rec.get("horizons", []) or []:
-            if (_f(h.get("horizon")) or 9999) <= SHORT_HORIZON_MAX_MIN:
-                hs = int(h.get("samples", 0) or 0)
-                hn = int(h.get("no_target_frame", 0) or 0)
+            horizon = h.get("horizon")
+            hs = int(h.get("samples", 0) or 0)
+            hn = int(h.get("no_target_frame", 0) or 0)
+            if (_f(horizon) or 9999) <= SHORT_HORIZON_MAX_MIN:
                 total_short += hs
                 no_target += hn
                 if hs:
                     history_rates.append(hn / hs)
+            if horizon is not None and hs:
+                key = str(int(horizon)) if _f(horizon) is not None else str(horizon)
+                bucket = by_horizon.setdefault(key, {"samples": 0, "no_target_frame": 0, "missing_target_frame_reasons": {}})
+                bucket["samples"] += hs
+                bucket["no_target_frame"] += hn
+
+    min_ratio = float(MIN_VERIFICATION_COVERAGE_RATIO)
+    for bucket in by_horizon.values():
+        samples = int(bucket.get("samples", 0) or 0)
+        missing = int(bucket.get("no_target_frame", 0) or 0)
+        coverage_ratio = ((samples - missing) / samples) if samples else 0.0
+        bucket["no_target_frame_rate"] = round(missing / samples, 4) if samples else 0.0
+        bucket["coverage_ratio"] = round(coverage_ratio, 4) if samples else 0.0
+        bucket["coverage_status"] = "warn" if samples and coverage_ratio < min_ratio else "ok"
+
     no_target_rate = max([no_target / total_short if total_short else 0.0] + history_rates)
-    base["coverage_diagnosis"] = {"short_samples_total": total_short, "no_target_frame": no_target, "no_target_frame_rate": round(no_target_rate, 4)}
-    if total_short and no_target_rate >= 0.3:
+    short_coverage_ratio = 1.0 - no_target_rate if total_short else 0.0
+    base["coverage_diagnosis"] = {
+        "short_samples_total": total_short,
+        "no_target_frame": no_target,
+        "no_target_frame_rate": round(no_target_rate, 4),
+        "coverage_ratio": round(short_coverage_ratio, 4),
+        "coverage_status": "warn" if total_short and short_coverage_ratio < min_ratio else "ok",
+        "min_verification_coverage_ratio": min_ratio,
+        "by_horizon": by_horizon,
+    }
+    if total_short and (no_target_rate >= 0.3 or short_coverage_ratio < min_ratio):
         _add(cands, "coverage_limited", "warning", _confidence(total_short, True), base["coverage_diagnosis"])
 
     err_stats = _stats(verified_short)

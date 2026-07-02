@@ -3590,3 +3590,14 @@ angezeigt. Optionale, hart begrenzte Bias-Korrektur des kinematischen Fallbacks
 (`FORECAST_BIAS_CORRECTION_ENABLED`, default aus). Ändert NICHT die Qualitätsziele
 aus der Zieldefinition (<1 km / ≤30 Min bleibt unverändert).
 **Tests:** `tests/test_p68_bias_metrics.py`
+
+## B278 — Ziel-Frame-Diagnose granular aufgesplittet (ergänzt B260) (2026-07-02)
+
+**Dateien:** `accuracy_tracker.py`, `dataset_builder.py`, `forecast_error_diagnosis.py`, `config.py`
+**Hinweis:** Baut auf B260 (adaptive Toleranz, bereits committed) auf, ersetzt sie NICHT.
+**Fix:** `_find_target_frame()` liefert zusätzlich `target_frame_delta_min` und einen
+Ablehnungsgrund (`missing_due_to_ingest_gap`/`missing_due_to_tolerance`/
+`missing_due_to_future_not_available`). Radar-Ingest-Lücken werden separat quantifiziert
+(`radar_ingest_gaps.json`). Coverage je Horizont im Diagnose-Ergebnis sichtbar,
+Warnstatus unter `MIN_VERIFICATION_COVERAGE_RATIO`.
+**Tests:** erweitert `tests/test_accuracy_target_frame_coverage.py`

@@ -1,7 +1,8 @@
 import glob
 import json
 import os
-from datetime import datetime
+import tempfile
+from datetime import datetime, timedelta
 from math import cos, pi, sin
 
 import importlib
@@ -34,6 +35,7 @@ except Exception:
         return None
 
 from config import (
+    FRAME_INTERVAL_MIN,
     ML_CELL_FEATURES,
     ML_FORECAST_HORIZONS_MIN,
     ML_SEQUENCE_LENGTH,
@@ -44,6 +46,79 @@ from config import (
 from data_quality import validate_sample
 from feature_schema import compare_sample_schema, extract_source_schema, get_current_feature_schema, schema_metadata
 
+
+
+def compute_radar_ingest_gaps(expected_interval_min, hours=24):
+    """B278: Quantifiziert lokale Radar-Ingest-Lücken ohne Fremdrequests."""
+    try:
+        interval_min = max(1, int(expected_interval_min))
+    except Exception:
+        interval_min = 5
+    try:
+        hours = max(1, int(hours))
+    except Exception:
+        hours = 24
+
+    radar_dir = SAVE_PATHS.get("radar", "train_data/radar/")
+    png_paths = sorted(glob.glob(os.path.join(radar_dir, "*.png")))
+    now = datetime.utcnow()
+    cutoff = now - timedelta(hours=hours)
+    present_ts = []
+    for path in png_paths:
+        try:
+            ts = _parse_ts(path)
+        except Exception:
+            continue
+        if cutoff <= ts <= now:
+            present_ts.append(ts.replace(second=0, microsecond=0))
+
+    if present_ts:
+        start = min(cutoff.replace(second=0, microsecond=0), min(present_ts))
+        end = max(present_ts)
+    else:
+        start = cutoff.replace(second=0, microsecond=0)
+        end = now.replace(second=0, microsecond=0)
+
+    expected = []
+    cur = start
+    step = timedelta(minutes=interval_min)
+    while cur <= end:
+        expected.append(cur)
+        cur += step
+
+    present_set = set(present_ts)
+    missing = [ts for ts in expected if ts not in present_set]
+    longest_gap_min = 0.0
+    sorted_present = sorted(present_set)
+    for prev, nxt in zip(sorted_present, sorted_present[1:]):
+        longest_gap_min = max(longest_gap_min, (nxt - prev).total_seconds() / 60.0)
+    if not sorted_present and expected:
+        longest_gap_min = len(expected) * interval_min
+
+    result = {
+        "computed_at_utc": now.isoformat(timespec="seconds") + "Z",
+        "expected_interval_min": interval_min,
+        "hours": hours,
+        "expected_frames": len(expected),
+        "present_frames": len(present_set),
+        "missing_timestamps": [ts.isoformat(timespec="minutes") for ts in missing],
+        "longest_gap_min": round(longest_gap_min, 3),
+    }
+
+    out_path = os.path.join(SAVE_PATHS.get("evaluation", "train_data/evaluation/"), "radar_ingest_gaps.json")
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".radar_ingest_gaps.", suffix=".tmp", dir=os.path.dirname(out_path))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, out_path)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except Exception:
+                pass
+    return result
 
 def _schema_policy_allows_legacy():
     try:
@@ -175,6 +250,11 @@ def _fit_nan_aware_standard_scaler(values):
 
 
 def build_dataset(model_save_dir=None):
+    try:
+        compute_radar_ingest_gaps(FRAME_INTERVAL_MIN, hours=24)
+    except Exception as exc:
+        debug_log(f"[DATASET] Radar-Ingest-Lücken konnten nicht berechnet werden: {exc}")
+
     missing_deps = _dependencies_available()
     if missing_deps:
         debug_log(f"[DATASET] Abbruch: fehlende Abhängigkeiten: {', '.join(missing_deps)}")
