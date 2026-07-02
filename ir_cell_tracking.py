@@ -36,10 +36,13 @@ except Exception:
     runtime_config = None
 
 try:
-    from cell_lineage import ensure_ir_track_cell_id, ensure_ir_tracks_cell_ids
+    from cell_lineage import ensure_ir_track_cell_id, ensure_ir_tracks_cell_ids, normalize_ir_id
 except Exception:
     ensure_ir_track_cell_id = None
     ensure_ir_tracks_cell_ids = None
+
+    def normalize_ir_id(raw_id):
+        return None if raw_id is None else str(raw_id)
 
 def debug_log(*args, **kwargs):
     pass
@@ -163,6 +166,10 @@ def _normalize_ir_track(track: dict, *, default_timestamp: str | None = None) ->
         radar_confirmed = not _is_truthy_precursor(track.get("ir_only_precursor"))
 
     track["_type"] = "ir_precursor_cell"
+    if track.get("ir_id") is not None:
+        track["ir_id"] = normalize_ir_id(track.get("ir_id"))
+    if track.get("ir_track_id") is not None:
+        track["ir_track_id"] = normalize_ir_id(track.get("ir_track_id"))
     if track.get("ir_id") and not track.get("ir_track_id"):
         track["ir_track_id"] = track.get("ir_id")
     track.setdefault("source_type", "ir108")
@@ -547,7 +554,7 @@ def mark_radar_matched_tracks(matched_ir_ids: list, radar_match_map: dict | None
     if not matched_ir_ids:
         return
 
-    matched_set = {str(tid) for tid in matched_ir_ids if tid is not None}
+    matched_set = {str(normalize_ir_id(tid)) for tid in matched_ir_ids if tid is not None}
     if not matched_set:
         return
 
@@ -555,7 +562,7 @@ def mark_radar_matched_tracks(matched_ir_ids: list, radar_match_map: dict | None
     tracks = state.get("tracks", {})
     updated = 0
     for track in tracks.values():
-        if str(track.get("ir_id", "")) in matched_set:
+        if str(normalize_ir_id(track.get("ir_id", ""))) in matched_set:
             track["ir_only_precursor"] = 0.0
             track["radar_matched"] = True
             track["radar_confirmed"] = True

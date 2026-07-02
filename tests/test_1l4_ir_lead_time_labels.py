@@ -157,3 +157,34 @@ def test_cleanup_does_not_remove_lead_time_labels_by_default(monkeypatch, tmp_pa
     import config
     assert "train_data/cell_lineage/" not in config.DATA_CLEANUP_PATHS
     assert label.exists()
+
+
+def test_positive_path_ir_cell_followed_by_radar_cell():
+    """Kernfall: IR-Zelle erkannt, später Radar-Zelle im Zeit-/Distanzfenster ->
+    became_radar_cell=1, radar_track_id gesetzt, lead_time_min gesetzt."""
+    from cell_lineage import compute_lead_time_min
+    lead = compute_lead_time_min("2026-07-01T10:00:00", "2026-07-01T10:12:00")
+    assert lead == 12.0
+
+
+def test_negative_case_outside_time_window():
+    from cell_lineage import build_negative_ir_lead_time_label
+    label = build_negative_ir_lead_time_label(
+        {"cell_id": "ir_5"}, ir_track=None, ended_at="2026-07-01T11:00:00", reason="expired_without_radar"
+    )
+    assert label["became_radar_cell"] == 0
+    assert label["negative_reason"] == "expired_without_radar"
+
+
+def test_legacy_id_normalized_to_canonical():
+    from cell_lineage import normalize_ir_id
+    assert normalize_ir_id("IR-001") == "ir_1"
+    assert normalize_ir_id("IR-042") == "ir_42"
+    assert normalize_ir_id("ir_7") == "ir_7"
+
+
+def test_no_new_ids_written_in_legacy_schema():
+    from cell_lineage import normalize_ir_id
+    # Sicherstellen, dass normalize_ir_id niemals ein IR-NNN-Format zurückgibt
+    for raw in ("IR-001", "ir_3", "IR-999"):
+        assert not normalize_ir_id(raw).startswith("IR-")

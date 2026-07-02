@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import statistics
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -143,8 +144,21 @@ def _normalize_state(state: dict | None) -> dict:
         if not isinstance(out.get(key), dict):
             out[key] = {}
     out["version"] = 1
+
+    # B280: Beim Lesen alter JSON-States Legacy-IR-IDs für Vergleiche/Matching
+    # auf das kanonische Schema normalisieren. Schreibpfade für neue IDs bleiben
+    # unverändert bei ir_<n>.
+    normalized_ir_to_cell: dict[str, Any] = {}
+    for raw_iid, mapped_cell_id in list(out.get("ir_to_cell", {}).items()):
+        norm_iid = normalize_ir_id(raw_iid)
+        if norm_iid:
+            normalized_ir_to_cell[str(norm_iid)] = mapped_cell_id
+    out["ir_to_cell"] = normalized_ir_to_cell
+
     for cid, cell in list(out.get("cells", {}).items()):
         cell = _ensure_cell_defaults(str(cid), cell)
+        if cell.get("ir_track_id") is not None:
+            cell["ir_track_id"] = normalize_ir_id(cell.get("ir_track_id"))
         # F4: ended ableiten — ended_at gesetzt impliziert ended=True
         if cell.get("ended_at") is not None or int(cell.get("ended_without_radar", 0) or 0) == 1:
             cell["ended"] = True
@@ -246,7 +260,7 @@ def ensure_ir_track_cell_id(track: dict, *, timestamp: str | None = None, state:
         return track, _normalize_state(state) if state is not None else load_lineage_state()
     own_state = state is None
     state = load_lineage_state() if state is None else _normalize_state(state)
-    ir_track_id = str(track.get("ir_track_id") or track.get("ir_id") or track.get("id") or "").strip()
+    ir_track_id = str(normalize_ir_id(track.get("ir_track_id") or track.get("ir_id") or track.get("id")) or "").strip()
     if ir_track_id:
         track["ir_track_id"] = ir_track_id
     ts = _track_timestamp(track, timestamp)
@@ -328,7 +342,7 @@ def ensure_ir_tracks_cell_ids(tracks: list[dict], *, timestamp: str | None = Non
 
 def get_cell_id_for_ir_track(ir_track_id: str) -> str | None:
     state = load_lineage_state()
-    return state.get("ir_to_cell", {}).get(str(ir_track_id))
+    return state.get("ir_to_cell", {}).get(str(normalize_ir_id(ir_track_id)))
 
 
 
@@ -382,6 +396,8 @@ def load_existing_lead_time_label_keys() -> set[str]:
                 try:
                     obj = json.loads(line)
                     if isinstance(obj, dict) and obj.get("cell_id"):
+                        if obj.get("ir_track_id") is not None:
+                            obj["ir_track_id"] = normalize_ir_id(obj.get("ir_track_id"))
                         keys.add(_label_key(obj))
                 except Exception:
                     continue
@@ -404,6 +420,21 @@ def _cell_radar_confirmed_at(cell: dict, event: dict | None = None) -> str | Non
             if src.get(key):
                 return str(src.get(key))
     return None
+
+
+def normalize_ir_id(raw_id) -> str | None:
+    """B280: Legacy-Schema IR-NNN (falls in Altdaten vorhanden) auf kanonisches
+    ir_<number> mappen. Neue IDs werden NIE im Legacy-Schema geschrieben."""
+    if raw_id is None:
+        return None
+    s = str(raw_id)
+    if s.startswith("ir_"):
+        return s
+    if s.startswith("IR-"):
+        num_part = s[3:].lstrip("0") or "0"
+        if num_part.isdigit():
+            return f"ir_{int(num_part)}"
+    return s
 
 
 def compute_lead_time_min(ir_first_seen: str | None, radar_first_confirmed: str | None) -> float | None:
@@ -441,7 +472,7 @@ def build_positive_ir_lead_time_label(cell: dict, ir_track: dict | None, radar_o
     radar_at = _cell_radar_confirmed_at(cell, event)
     label = {
         "label_type": _LABEL_TYPE, "cell_id": (cell or {}).get("cell_id") or (ir_track or {}).get("cell_id") or (radar_obj or {}).get("cell_id"),
-        "ir_track_id": (ir_track or {}).get("ir_track_id") or (cell or {}).get("ir_track_id"),
+        "ir_track_id": normalize_ir_id((ir_track or {}).get("ir_track_id") or (cell or {}).get("ir_track_id")),
         "radar_track_id": (radar_obj or {}).get("id") or (radar_obj or {}).get("track_id") or (cell or {}).get("radar_track_id"),
         "became_radar_cell": 1, "ended_without_radar": 0,
         "ir_first_seen": ir_first, "radar_first_confirmed": radar_at,
@@ -459,7 +490,7 @@ def build_negative_ir_lead_time_label(cell: dict, ir_track: dict | None, *, ende
     ended_at = ended_at or _timestamp_str(None)
     label = {
         "label_type": _LABEL_TYPE, "cell_id": (cell or {}).get("cell_id") or (ir_track or {}).get("cell_id"),
-        "ir_track_id": (ir_track or {}).get("ir_track_id") or (cell or {}).get("ir_track_id"),
+        "ir_track_id": normalize_ir_id((ir_track or {}).get("ir_track_id") or (cell or {}).get("ir_track_id")),
         "radar_track_id": None, "became_radar_cell": 0, "ended_without_radar": 1,
         "ir_first_seen": _cell_first_seen(cell, ir_track), "radar_first_confirmed": None,
         "lead_time_min": None, "ended_at": ended_at, "negative_reason": reason,
@@ -543,6 +574,25 @@ def update_ir_lead_time_labels(radar_objects: list[dict] | None = None, ir_track
         out.append({"event_type": "ir_lead_time_label_written", "cell_id": label.get("cell_id"), "timestamp": _timestamp_str(timestamp), "became_radar_cell": 0})
     save_lineage_state(state)
     return out
+
+
+def ir_precursor_diagnosis_summary(labels: list[dict]) -> dict:
+    """B280: Aggregierte Diagnose für Admin-Panel/Export."""
+    total = len(labels)
+    matched = [l for l in labels if int(l.get("became_radar_cell") or 0) == 1]
+    lead_times = [l.get("lead_time_min") for l in matched if l.get("lead_time_min") is not None]
+    reject_reasons: dict[str, int] = {}
+    for l in labels:
+        if int(l.get("became_radar_cell") or 0) == 0:
+            r = l.get("negative_reason") or "unknown"
+            reject_reasons[r] = reject_reasons.get(r, 0) + 1
+    return {
+        "ir_precursors_total": total,
+        "matched_count": len(matched),
+        "positive_label_count": len(matched),
+        "median_lead_time_min": statistics.median(lead_times) if lead_times else None,
+        "top_reject_reasons": sorted(reject_reasons.items(), key=lambda kv: -kv[1])[:5],
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -679,23 +729,33 @@ def _metpot_score(radar_obj: dict, ir_track: dict, weather_context: dict | None)
     return min(1.0, score / n) if n else 0.0
 
 
+def _debug_ir_match_candidate(ir_id: str | None, radar_id: str | None, age_min: float | None, dist_km: float | None, reject_reason: str | None) -> None:
+    age = float(age_min) if age_min is not None else -1.0
+    dist = float(dist_km) if dist_km is not None else -1.0
+    _debug(
+        f"[IR-MATCH][B280] ir_id={ir_id or ''} radar_id={radar_id or ''} age_min={age:.1f} "
+        f"dist_km={dist:.3f} max_age={_cfg('IR_RADAR_MATCH_MAX_IR_AGE_MIN', IR_RADAR_MATCH_MAX_IR_AGE_MIN)} "
+        f"lookback={_cfg('IR_RADAR_MATCH_LOOKBACK_MIN', IR_RADAR_MATCH_LOOKBACK_MIN)} reject_reason={reject_reason or 'accepted'}"
+    )
+
+
 def compute_ir_radar_match_score(radar_obj: dict, ir_track: dict, *, timestamp: str | None = None, weather_context: dict | None = None) -> dict:
     rid = str(radar_obj.get("id") or radar_obj.get("track_id") or "")
-    iid = str(ir_track.get("ir_track_id") or ir_track.get("ir_id") or ir_track.get("id") or "")
-    base = {"matched": False, "score": 0.0, "decision": "rejected", "reason": "rejected", "ir_id": ir_track.get("ir_id"), "ir_track_id": iid, "radar_track_id": rid, "cell_id": ir_track.get("cell_id"), "centroid_distance_km": None, "predicted_centroid_distance_km": None, "ir_age_min": None, "direction_error_deg": None, "growth_score": 0.0, "metpot_score": 0.0, "score_components": {"distance": 0.0, "predicted_position": 0.0, "time": 0.0, "direction": 0.0, "growth": 0.0, "metpot": 0.0}}
+    iid = str(normalize_ir_id(ir_track.get("ir_track_id") or ir_track.get("ir_id") or ir_track.get("id")) or "")
+    base = {"matched": False, "score": 0.0, "decision": "rejected", "reason": "rejected", "ir_id": normalize_ir_id(ir_track.get("ir_id")), "ir_track_id": iid, "radar_track_id": rid, "cell_id": ir_track.get("cell_id"), "centroid_distance_km": None, "predicted_centroid_distance_km": None, "ir_age_min": None, "direction_error_deg": None, "growth_score": 0.0, "metpot_score": 0.0, "score_components": {"distance": 0.0, "predicted_position": 0.0, "time": 0.0, "direction": 0.0, "growth": 0.0, "metpot": 0.0}}
     rlat, rlon = _float_or_none(radar_obj.get("lat")), _float_or_none(radar_obj.get("lon"))
     ilat, ilon = _float_or_none(ir_track.get("lat")), _float_or_none(ir_track.get("lon"))
     if None in (rlat, rlon, ilat, ilon):
-        base["reason"] = "missing_coords"; return base
+        base["reason"] = "missing_coords"; _debug_ir_match_candidate(iid, rid, base.get("ir_age_min"), base.get("centroid_distance_km"), base["reason"]); return base
     if ir_track.get("radar_confirmed") is True and str(ir_track.get("radar_track_id") or rid) != rid:
-        base["reason"] = "already_radar_confirmed"; return base
+        base["reason"] = "already_radar_confirmed"; _debug_ir_match_candidate(iid, rid, base.get("ir_age_min"), base.get("centroid_distance_km"), base["reason"]); return base
     max_km = float(_cfg("IR_RADAR_MATCH_MAX_KM", IR_RADAR_MATCH_MAX_KM))
     dist = haversine_km(rlat, rlon, ilat, ilon); base["centroid_distance_km"] = round(dist, 3)
     if dist > max_km:
-        base["reason"] = "distance_too_far"; return base
+        base["reason"] = "distance_too_far"; _debug_ir_match_candidate(iid, rid, age_min=None, dist_km=dist, reject_reason=base["reason"]); return base
     age = _age_min(ir_track, timestamp); base["ir_age_min"] = round(age, 3)
     if age > float(_cfg("IR_RADAR_MATCH_LOOKBACK_MIN", IR_RADAR_MATCH_LOOKBACK_MIN)):
-        base["reason"] = "ir_too_old"; return base
+        base["reason"] = "ir_too_old"; _debug_ir_match_candidate(iid, rid, age, dist, base["reason"]); return base
     comps = base["score_components"]
     comps["distance"] = _proximity_points(dist, 0.30)
     if bool(_cfg("IR_RADAR_MATCH_USE_PREDICTED_POSITION", IR_RADAR_MATCH_USE_PREDICTED_POSITION)):
@@ -722,6 +782,7 @@ def compute_ir_radar_match_score(radar_obj: dict, ir_track: dict, *, timestamp: 
         base.update({"matched": True, "decision": "weak", "reason": "score_ge_weak_unique"})
     else:
         base["reason"] = "score_below_min"
+    _debug_ir_match_candidate(iid, rid, age, dist, None if base.get("matched") else base.get("reason"))
     for k, v in list(comps.items()): comps[k] = round(v, 4)
     return base
 
@@ -765,7 +826,7 @@ def apply_ir_radar_lineage_match(radar_obj: dict, ir_track: dict, match: dict, s
     if not ir_track.get("cell_id"):
         ir_track, state = ensure_ir_track_cell_id(ir_track, timestamp=timestamp, state=state)
     cell_id = ir_track.get("cell_id")
-    ir_track_id = str(ir_track.get("ir_track_id") or ir_track.get("ir_id") or ir_track.get("id") or "")
+    ir_track_id = str(normalize_ir_id(ir_track.get("ir_track_id") or ir_track.get("ir_id") or ir_track.get("id")) or "")
     radar_track_id = str(radar_obj.get("id") or radar_obj.get("track_id") or "")
     radar_obj.update({"cell_id": cell_id, "ir_match_id": ir_track.get("ir_id"), "ir_track_id": ir_track_id or ir_track.get("ir_id"), "ir_status": "radar_confirmed", "ir_radar_confirmed": True, "ir_is_potential_new_cell": False, "ir_display_as_precursor": False, "ir_only_precursor": 0.0, "lineage_status": "radar_confirmed", "lineage_event": "ir_to_radar_confirmation", "lineage_match_score": match.get("score"), "lineage_match_decision": match.get("decision"), "lineage_match_reason": match.get("reason"), "lineage_match_distance_km": match.get("centroid_distance_km"), "lineage_match_predicted_distance_km": match.get("predicted_centroid_distance_km")})
     for key in ("area_growth_km2_per_min", "cloud_height_trend_m_per_min", "bt_min_k", "bt_mean_k", "bt_trend_k_per_min", "cloud_age_min", "anvil_extension_km", "overshooting_top"):
@@ -803,7 +864,7 @@ def update_cell_lineage(radar_objects: list[dict], ir_tracks: list[dict], *, tim
             append_lineage_event(label_event)
             events.append(label_event)
     for ir in ir_tracks or []:
-        if ir.get("radar_confirmed") is not True:
+        if ir.get("radar_confirmed") is not True and int(ir.get("became_radar_cell") or 0) != 1:
             ir.setdefault("status", "ir_precursor")
             ir.setdefault("radar_confirmed", False)
             ir.setdefault("is_potential_new_cell", True)
