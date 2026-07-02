@@ -2611,6 +2611,11 @@ def api_cache_status():
             hydro_next_allowed_s = 0
             hydro_status = "MISSING"
             hydro_next_fetch_ts = None
+        try:
+            import api_circuit_breaker as _cb_hydro
+            hydro_circuit = _cb_hydro.get_status("hydro_kaernten")
+        except Exception:
+            hydro_circuit = {}
         results.append({
             "namespace": "hydro_kaernten",
             "last_fetch_ts": hydro_last_ts,
@@ -2619,6 +2624,10 @@ def api_cache_status():
             "next_allowed_in_s": hydro_next_allowed_s,
             "next_fetch_ts": hydro_next_fetch_ts,
             "status": hydro_status,
+            "failure_streak": hydro_circuit.get("failure_streak"),
+            "cooldown_level": hydro_circuit.get("cooldown_level"),
+            "suspended_until": hydro_circuit.get("suspended_until"),
+            "last_success_at": hydro_circuit.get("last_success_at"),
         })
         results.sort(key=lambda r: r["namespace"])
     except Exception:

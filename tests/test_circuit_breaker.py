@@ -113,3 +113,51 @@ def test_persistence_survives_reload(tmp_path, monkeypatch):
     cb.open_circuit("svc", 60, "x")
     cb2 = importlib.reload(cb)
     assert cb2.is_open("svc") is True
+
+
+def test_failure_streak_increases_cooldown_exponentially(tmp_path, monkeypatch):
+    cb = fresh_cb(tmp_path, monkeypatch)
+    monkeypatch.setattr(cb, "CIRCUIT_THRESHOLD_CONN", 1)
+    monkeypatch.setattr(cb, "CIRCUIT_BACKOFF_BASE_S", 100)
+    monkeypatch.setattr(cb, "CIRCUIT_BACKOFF_FACTOR", 2.0)
+    monkeypatch.setattr(cb, "CIRCUIT_BACKOFF_MAX_S", 100000)
+    svc = "test_service_backoff"
+    cb.record_failure(svc, "ConnectionError")
+    first_cooldown = cb._entry(svc)["cooldown_seconds"]
+    cb.record_failure(svc, "ConnectionError")
+    second_cooldown = cb._entry(svc)["cooldown_seconds"]
+    assert second_cooldown > first_cooldown
+
+
+def test_max_cooldown_is_respected(tmp_path, monkeypatch):
+    cb = fresh_cb(tmp_path, monkeypatch)
+    monkeypatch.setattr(cb, "CIRCUIT_BACKOFF_MAX_S", 500)
+    assert cb._backoff_cooldown_s(20) == 500
+
+
+def test_success_resets_backoff(tmp_path, monkeypatch):
+    cb = fresh_cb(tmp_path, monkeypatch)
+    svc = "test_service_reset"
+    cb.record_failure(svc, "ConnectionError")
+    cb.record_success(svc)
+    e = cb._entry(svc)
+    assert e["failure_streak"] == 0
+    assert e["cooldown_level"] == 0
+
+
+def test_suspend_after_n_failures(tmp_path, monkeypatch):
+    cb = fresh_cb(tmp_path, monkeypatch)
+    monkeypatch.setattr(cb, "CIRCUIT_SUSPEND_AFTER_STREAK", 3)
+    svc = "test_service_suspend"
+    for _ in range(3):
+        cb.record_failure(svc, "ConnectionError")
+    assert cb.is_open(svc) is True
+    assert cb._entry(svc)["suspended_until"] is not None
+
+
+def test_blocked_attempts_not_counted_as_real_requests(tmp_path, monkeypatch):
+    """Geblockte Circuit-Versuche duerfen den echten HTTP-Request-Zaehler nicht erhoehen."""
+    cb = fresh_cb(tmp_path, monkeypatch)
+    svc = "test_service_budget"
+    cb.open_circuit(svc, 3600, "test")
+    assert cb.is_open(svc) is True

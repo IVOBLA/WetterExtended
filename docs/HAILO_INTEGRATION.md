@@ -3625,3 +3625,15 @@ nachweislich getesteter Positiv-Pfad.
 Match-Kandidaten-Logging (`[IR-MATCH][B280]`), `ir_precursor_diagnosis_summary()`
 für Admin-/Export-Diagnose, Schutz vor Doppelmarkierung nach erfolgreichem Match.
 **Tests:** erweitert `tests/test_1l4_ir_lead_time_labels.py`, `tests/test_1l2_ir_radar_score_matching.py`
+
+## B281 — Circuit-Breaker: exponentieller Backoff + Tages-Aussetzer (2026-07-02)
+
+**Dateien:** `api_circuit_breaker.py`, `api_budget_guard.py`
+**Problem:** Fixer Cooldown (`CIRCUIT_COOLDOWN_CONN=900`) sorgte dafür, dass
+dauerhaft tote Quellen (z. B. `hydro_kaernten`) alle 15 Minuten erneut angefragt
+wurden.
+**Fix:** Exponentieller Backoff (`CIRCUIT_BACKOFF_BASE_S`→`CIRCUIT_BACKOFF_MAX_S`,
+Faktor `CIRCUIT_BACKOFF_FACTOR`), Tages-Aussetzer nach `CIRCUIT_SUSPEND_AFTER_STREAK`
+Folgefehlern (`suspended_until`), sauberer Reset bei Erfolg. Geblockte Versuche
+werden getrennt von echten HTTP-Requests gezählt.
+**Tests:** erweitert `tests/test_circuit_breaker.py`, `tests/test_b144_circuit_walltime.py`
