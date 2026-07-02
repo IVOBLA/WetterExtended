@@ -3744,3 +3744,19 @@ ergänzt, um Regression zu verhindern.
 **Tests:** erweitert `tests/test_p70_quality_targets.py`
 **Status Phase „ML-Transparenz im Admin-Panel" (P69/P70):** vollständig
 abgeschlossen inkl. dieser Nachbesserung.
+
+### B288 — Codex-Review-Fix zu B284: delivered_mode_counts fehlte in no_target_frame-Zweigen ✅ erledigt
+
+**Datei:** `accuracy_tracker.py`
+**Problem (Codex-Review PR #916):** `delivered_mode_counts` (B284) wurde nur in
+der Haupt-Matching-Schleife befuellt, nicht in den beiden no_target_frame-
+Zweigen (Ziel-Frame fehlt / Ziel-Frame leer). Bei Horizont-Enden der
+Aufzeichnung oder Radar-Ingest-Luecken verschwanden dadurch real ausgelieferte
+ML-Forecasts aus `ml_usage_ratio` (Absturz auf 0/None trotz aktivem ML-Betrieb).
+**Fix:** Dieselbe Zaehl-Zeile (`delivered_mode_counts[_mode_for(_o)] += 1`) in
+beiden no_target_frame-Zweigen ergaenzt — identisch zur bereits korrekten
+Zaehlung im Normalfall.
+**Tests:** erweitert `tests/test_p69_ml_transparency.py`, `tests/test_c1_dashboard_forecast_mode.py`
+**Status Phase „ML-Transparenz im Admin-Panel" (P69/B284):** vollstaendig
+abgeschlossen inkl. dieser Nachbesserung. Keine weiteren offenen
+Codex-Review-Punkte zu PR #916/#917 bekannt.

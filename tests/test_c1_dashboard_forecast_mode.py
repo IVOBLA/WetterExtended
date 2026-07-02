@@ -208,3 +208,39 @@ def test_evaluate_for_horizon_separates_shadow_ml_from_delivered_counts(monkeypa
     assert result["by_forecast_mode"]["ml"]["samples"] == 1
     assert result["delivered_mode_counts"] == {"kinematic_fallback": 1}
     assert result["delivered_mode_counts"].get("ml", 0) != result["by_forecast_mode"]["ml"]["samples"]
+
+
+def test_evaluate_for_horizon_counts_delivered_mode_without_target_frame(monkeypatch, tmp_path):
+    import json
+    import sys
+    import types
+    from datetime import datetime
+
+    sys.modules.pop("accuracy_tracker", None)
+    monkeypatch.setitem(sys.modules, "debug_utils", types.SimpleNamespace(debug_log=lambda *args, **kwargs: None))
+    import accuracy_tracker
+
+    ev = tmp_path / "evaluation"
+    ev.mkdir()
+    monkeypatch.setattr(accuracy_tracker, "EVAL_DIR", str(ev), raising=False)
+    monkeypatch.setattr(accuracy_tracker, "DETAILS_FILE", str(ev / "forecast_error_details.jsonl"), raising=False)
+    monkeypatch.setattr(accuracy_tracker, "HISTORY_FILE", str(ev / "accuracy_history.jsonl"), raising=False)
+
+    obj_dir = tmp_path / "objects"
+    obj_dir.mkdir()
+    t0 = datetime(2026, 6, 18, 12, 0, 0)
+    (obj_dir / f"{t0:%Y-%m-%d_%H-%M-%S}.json").write_text(json.dumps([{
+        "id": "WX-B288-1", "cell_id": "WX-B288-1",
+        "x": 10.0, "y": 20.0, "lat": 46.70, "lon": 14.10,
+        "forecast_x_30": 10.0, "forecast_y_30": 20.0,
+        "forecast_lat_30": 46.71, "forecast_lon_30": 14.11,
+        "forecast_mode_30": "ml", "kinematic_source_30": "ml_model",
+    }]), encoding="utf-8")
+    monkeypatch.setitem(accuracy_tracker.SAVE_PATHS, "objects", str(obj_dir))
+
+    result = accuracy_tracker.evaluate_for_horizon(30, since_hours=24)
+
+    assert result["samples"] == 1
+    assert result["no_target_frame"] == 1
+    assert result["by_forecast_mode"]["ml"]["no_target_frame"] == 1
+    assert result["delivered_mode_counts"] == {"ml": 1}

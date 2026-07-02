@@ -694,6 +694,11 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
                     _bucket(by_mode, _mode_for(_o))["no_target_frame"] += 1
                     _bucket(by_source, _source_for(_o))["no_target_frame"] += 1
                     _bucket(by_match, "none")["no_target_frame"] += 1
+                    # B288: delivered_mode_counts zaehlt JEDEN real ausgelieferten
+                    # Forecast, unabhaengig davon, ob spaeter ein Ziel-Frame zur
+                    # Verifikation gefunden wurde. Sonst verschwinden Forecasts bei
+                    # Horizont-Ende/Ingest-Luecken aus ml_usage_ratio (B284-Review).
+                    delivered_mode_counts[_mode_for(_o)] = delivered_mode_counts.get(_mode_for(_o), 0) + 1
                     rec = _detail_record(_o, ts, target_ts, horizon_min, None, None, "none", True, False, horizon_min, target_frame_delta_min=target_frame_delta_min, missing_target_frame_reason=missing_target_frame_reason)
                     details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
             continue
@@ -707,6 +712,8 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
                     _bucket(by_mode, _mode_for(_o))["no_target_frame"] += 1
                     _bucket(by_source, _source_for(_o))["no_target_frame"] += 1
                     _bucket(by_match, "none")["no_target_frame"] += 1
+                    # B288: siehe Kommentar im ersten no_target_frame-Zweig oben.
+                    delivered_mode_counts[_mode_for(_o)] = delivered_mode_counts.get(_mode_for(_o), 0) + 1
                     rec = _detail_record(_o, ts, target_ts, horizon_min, None, None, "none", True, False, horizon_min, target_frame_delta_min=target_frame_delta_min, missing_target_frame_reason=missing_target_frame_reason)
                     details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
             continue
