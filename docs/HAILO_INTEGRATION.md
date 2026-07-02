@@ -3673,3 +3673,14 @@ fielen auf NN/B247-Gate zurueck.
 **Fix:** Eigene Lineage-Kandidatensuche vor dem generischen NN-Fallback,
 unabhaengig von id/cell_id-Gleichheit.
 **Tests:** erweitert `tests/test_b247_match_speed_gate.py`, `tests/test_b213_split_merge_lineage.py`
+
+## B283 — Codex-Review-Fix zu P69: Doppelzaehlung von no_target_frame in Coverage (2026-07-02)
+
+**Datei:** `accuracy_tracker.py`
+**Problem (Codex-Review PR #912):** `verification_coverage_by_horizon()` addierte
+`no_target_frame` zusaetzlich zu `samples`, obwohl `samples` in
+`breakdown_by_forecast_mode` bereits no_target_frame enthaelt (siehe `_finish()`
+in `evaluate_for_horizon()`). Coverage wurde dadurch systematisch zu niedrig
+angezeigt (z.B. 8/12 statt 8/10).
+**Fix:** Nenner nutzt ausschliesslich das bereits kombinierte `samples`-Feld.
+**Tests:** korrigiert `tests/test_p69_ml_transparency.py`

@@ -9,14 +9,29 @@ def test_no_duplicate_status_endpoint_created():
     assert "/api/forecast/quality/status" not in content
 
 
-def test_verification_coverage_by_horizon_basic():
+def test_coverage_matches_persisted_coverage_rate_not_double_counted():
+    """8 verifiziert + 2 no_target_frame -> samples ist bereits 10 (kombiniert).
+    Erwartete Coverage: 8/10, NICHT 8/12."""
     history = [{
         "breakdown_by_forecast_mode": {
             "30": {"ml": {"samples": 10, "verified": 8, "no_target_frame": 2}}
         }
     }]
     out = accuracy_tracker.verification_coverage_by_horizon(history, [30])
-    assert out["30"] == round(8 / 12, 4)
+    assert out["30"] == round(8 / 10, 4)
+
+
+def test_coverage_aggregates_across_multiple_modes_correctly():
+    history = [{
+        "breakdown_by_forecast_mode": {
+            "30": {
+                "ml": {"samples": 10, "verified": 8, "no_target_frame": 2},
+                "kinematic_fallback": {"samples": 20, "verified": 15, "no_target_frame": 5},
+            }
+        }
+    }]
+    out = accuracy_tracker.verification_coverage_by_horizon(history, [30])
+    assert out["30"] == round((8 + 15) / (10 + 20), 4)
 
 
 def test_ml_usage_ratio_ninety_percent_fallback():
