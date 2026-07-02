@@ -165,7 +165,10 @@ def test_p69_existing_quality_endpoints_expose_transparency_fields(monkeypatch, 
     assert ml_payload["ml_usage_ratio"] == 0.1
     assert ml_payload["ml_gate_reasons"] == {"10": {"reason": "shadow_mode", "allow_ml": False}}
     assert set(ml_payload["ml_gate_reasons"]["10"].keys()) == {"reason", "allow_ml"}
-    assert ml_payload["verification_coverage_by_horizon"]["10"] == round(98 / 102, 4)
+    # B291: samples enthaelt seit B283 bereits no_target_frame (verified=8 +
+    # no_target_frame=2 = samples=10 fuer "ml"). Nenner ist daher
+    # 90 (kinematic_fallback.samples) + 10 (ml.samples) = 100, NICHT 102.
+    assert ml_payload["verification_coverage_by_horizon"]["10"] == round(98 / 100, 4)
 
     assert diag_resp.status_code == 200
     assert "bias_by_horizon" in diag_resp.get_json()
