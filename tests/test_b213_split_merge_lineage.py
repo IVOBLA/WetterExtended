@@ -171,3 +171,32 @@ def test_horizon_dependent_nn_max_distance():
     from config import VERIFICATION_NN_MAX_MATCH_KM_BY_HORIZON, VERIFICATION_NN_MAX_MATCH_KM
     assert VERIFICATION_NN_MAX_MATCH_KM_BY_HORIZON["10"] < VERIFICATION_NN_MAX_MATCH_KM_BY_HORIZON["60"]
     assert VERIFICATION_NN_MAX_MATCH_KM_BY_HORIZON["60"] <= VERIFICATION_NN_MAX_MATCH_KM
+
+
+def test_evaluate_for_horizon_matches_split_child_with_new_cell_id(monkeypatch, tmp_path):
+    import accuracy_tracker
+
+    obj_dir = tmp_path / "objects"
+    eval_dir = tmp_path / "evaluation"
+    obj_dir.mkdir()
+    eval_dir.mkdir()
+    source = [{
+        "id": "parent_A", "cell_id": "parent_A", "lat": 46.6, "lon": 14.3,
+        "x": 10, "y": 10, "forecast_x_30": 30, "forecast_y_30": 30,
+        "forecast_lat_30": 46.61, "forecast_lon_30": 14.31,
+    }]
+    target = [{
+        "id": "child_X", "cell_id": "child_X", "parent_cell_id": "parent_A",
+        "lat": 46.615, "lon": 14.315, "x": 10, "y": 10,
+    }]
+    (obj_dir / "2026-07-02_10-00-00.json").write_text(json.dumps(source), encoding="utf-8")
+    (obj_dir / "2026-07-02_10-30-00.json").write_text(json.dumps(target), encoding="utf-8")
+    monkeypatch.setitem(accuracy_tracker.SAVE_PATHS, "objects", str(obj_dir))
+    monkeypatch.setattr(accuracy_tracker, "DETAILS_FILE", str(eval_dir / "forecast_error_details.jsonl"))
+    monkeypatch.setattr(accuracy_tracker, "_runtime_cfg", None)
+
+    result = accuracy_tracker.evaluate_for_horizon(30, since_hours=24)
+
+    assert result["by_match_type"]["lineage_split_child"]["verified"] == 1
+    details = [json.loads(line) for line in (eval_dir / "forecast_error_details.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert details[-1]["match_type"] == "lineage_split_child"

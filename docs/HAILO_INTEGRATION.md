@@ -3661,3 +3661,15 @@ h40/h60, für die die Zieldefinition keine explizite Zahl vorgibt.
 **Feature:** `/api/quality_targets`, Drift-Status zeigt `quality_target_by_horizon`
 inkl. `quality_target_violation_horizon`.
 **Tests:** `tests/test_p70_quality_targets.py`
+
+## B282 — Codex-Review-Fix zu B279: Lineage-Nachfolger mit abweichender ID (2026-07-02)
+
+**Datei:** `accuracy_tracker.py`
+**Problem (Codex-Review PR #909):** Die B279-Lineage-Pruefung lief nur auf
+Kandidaten, die bereits per exakter id/cell_id gefunden wurden. Split-Kinder
+(neue cell_id + parent_cell_id) und sekundaere Merge-Parents (in
+merged_from_cell_ids, aber andere cell_id) wurden dadurch nie erreicht und
+fielen auf NN/B247-Gate zurueck.
+**Fix:** Eigene Lineage-Kandidatensuche vor dem generischen NN-Fallback,
+unabhaengig von id/cell_id-Gleichheit.
+**Tests:** erweitert `tests/test_b247_match_speed_gate.py`, `tests/test_b213_split_merge_lineage.py`
