@@ -2117,7 +2117,12 @@ def api_accuracy():
 def api_ml_quality():
     since = int(request.args.get("hours", "168"))
     horizons = runtime_config.get("ML_FORECAST_HORIZONS_MIN", [10, 20, 30, 40, 60])
-    from accuracy_tracker import load_history as _lh, ml_quality_series as _mqs, get_runtime_kinematic_mae_by_horizon as _grk
+    from accuracy_tracker import (
+        load_history as _lh,
+        ml_quality_series as _mqs,
+        get_runtime_kinematic_mae_by_horizon as _grk,
+        verification_coverage_by_horizon as _vcbh,
+    )
     last_promotion = {}
     try:
         meta_path = os.path.join(SAVE_PATHS.get("models", "train_data/models").rstrip("/"), "training_meta.json")
@@ -2132,11 +2137,34 @@ def api_ml_quality():
             }
     except Exception as exc:
         debug_log(f"[API][B277] ml_quality Promotion-Meta nicht lesbar: {exc}")
+    _recent_hist = _lh(since_hours=max(since, 24))
+    _mode_counts: dict = {}
+    _gate_reasons: dict = {}
+    for rec in _recent_hist:
+        for _h, modes in (rec.get("breakdown_by_forecast_mode") or {}).items():
+            if not isinstance(modes, dict):
+                continue
+            for mode_name, stats in modes.items():
+                if not isinstance(stats, dict):
+                    continue
+                n = int(stats.get("samples", stats.get("verified", 0)) or 0)
+                _mode_counts[mode_name] = _mode_counts.get(mode_name, 0) + n
+    _total_modes = sum(_mode_counts.values()) or 1
+    ml_usage_ratio = round(_mode_counts.get("ml", 0) / _total_modes, 4)
+    try:
+        from prediction import _ml_runtime_gate_by_horizon
+        _gate_reasons = {str(h): v.get("reason") for h, v in _ml_runtime_gate_by_horizon(horizons).items()}
+    except Exception as exc:
+        debug_log(f"[API][P69] Gate-Gruende nicht lesbar: {exc}")
     return jsonify({
         "horizons": [int(h) for h in horizons],
         "series": _mqs(_lh(since_hours=max(since, 24 * 7)), horizons),
         "runtime_kinematic_mae_by_horizon": _grk(),
         "last_promotion": last_promotion,
+        "forecast_mode_counts": _mode_counts,
+        "ml_usage_ratio": ml_usage_ratio,
+        "ml_gate_reasons": _gate_reasons,
+        "verification_coverage_by_horizon": _vcbh(_recent_hist, horizons),
     })
 
 

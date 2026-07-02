@@ -2796,3 +2796,12 @@ Im Admin-Panel unter Genauigkeit/Accuracy wird zusätzlich zur mittleren Abweich
 im Mittel zu langsam/schnell oder in eine bestimmte Richtung verschoben ist (Ost/West,
 Nord/Süd). Optional kann in der Konfiguration eine automatische, begrenzte Korrektur
 des kinematischen Fallbacks aktiviert werden, sobald genug Messdaten vorliegen.
+
+### ML-Transparenz im Admin-Panel (P69)
+
+Auf der Seite Genauigkeit/Accuracy zeigt eine Ampel auf einen Blick, ob die
+ML-Vorhersage aktiv genutzt wird, nur im Hintergrund mitläuft (Schatten-Modus)
+oder aktuell verworfen wird — inklusive des jeweiligen Grundes je
+Vorhersagehorizont. Zusätzlich sichtbar: Anteil verifizierbarer Vorhersagen
+(Coverage) und der Anteil, in dem tatsächlich Machine Learning statt der
+kinematischen Fallback-Berechnung verwendet wurde.

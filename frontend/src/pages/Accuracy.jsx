@@ -43,6 +43,15 @@ export default function Accuracy() {
   const runtimeKin = mlQuality.runtime_kinematic_mae_by_horizon || {}
   const lastPromotion = mlQuality.last_promotion || {}
   const promotionSources = lastPromotion.promotion_baseline_source || {}
+  const mlUsageRatio = mlQuality.ml_usage_ratio ?? 0
+  const mlGateReasons = mlQuality.ml_gate_reasons || {}
+  const verificationCoverage = mlQuality.verification_coverage_by_horizon || {}
+  const mlGateReasonList = Object.entries(mlGateReasons).filter(([, reason]) => reason)
+  const mlTrafficStatus = mlUsageRatio > 0.05
+    ? { label: 'ML aktiv', color: 'bg-green-100 border-green-300 text-green-900', icon: '🟢' }
+    : mlGateReasonList.length
+      ? { label: 'ML verworfen', color: 'bg-red-100 border-red-300 text-red-900', icon: '🔴' }
+      : { label: 'ML shadow only', color: 'bg-yellow-100 border-yellow-300 text-yellow-900', icon: '🟡' }
 
   return (
     <div>
@@ -226,6 +235,15 @@ export default function Accuracy() {
         </ResponsiveContainer>
         <div className="mt-4 border-t pt-3">
           <h4 className="font-medium mb-2">Runtime-Gate / Promotion-Baseline (B277)</h4>
+          <div className={`mb-3 rounded border p-3 text-sm ${mlTrafficStatus.color}`}>
+            <div className="font-semibold">{mlTrafficStatus.icon} {mlTrafficStatus.label}</div>
+            <div>ML-Nutzungsanteil im Zeitraum: <b>{(mlUsageRatio * 100).toFixed(1)}%</b></div>
+            {mlGateReasonList.length ? (
+              <div className="mt-1 text-xs">Gate-Gründe: {mlGateReasonList.map(([h, reason]) => `+${h} min: ${reason}`).join(' · ')}</div>
+            ) : (
+              <div className="mt-1 text-xs">Keine Runtime-Gate-Gründe gemeldet.</div>
+            )}
+          </div>
           <div className="text-sm mb-2">
             <span className="font-semibold">Letzter Entscheid:</span> {lastPromotion.promotion_decision || '—'}
             <span className="font-semibold ml-4">Grund:</span> {lastPromotion.promotion_reject_reason || '—'}
@@ -236,6 +254,7 @@ export default function Accuracy() {
               <th className="text-left p-1">Runtime-Kinematik MAE</th>
               <th className="text-left p-1">Samples</th>
               <th className="text-left p-1">Promotion-Baseline-Quelle</th>
+              <th className="text-left p-1">Coverage</th>
             </tr></thead>
             <tbody>
               {(mlQuality.horizons || []).map(h => {
@@ -247,6 +266,7 @@ export default function Accuracy() {
                     <td className="p-1">{kin.kinematic_mae?.toFixed?.(2) ?? '—'}</td>
                     <td className="p-1">{kin.kinematic_samples ?? '—'}</td>
                     <td className="p-1">{promotionSources[hk] || '—'}</td>
+                    <td className="p-1">{verificationCoverage[hk] != null ? `${(verificationCoverage[hk] * 100).toFixed(1)}%` : '—'}</td>
                   </tr>
                 )
               })}
