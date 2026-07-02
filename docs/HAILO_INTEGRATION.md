@@ -3787,3 +3787,18 @@ identisch zum bereits etablierten, korrekten Muster im unmittelbar
 vorausgehenden Test derselben Datei. Kein Produktivcode veraendert.
 **Tests:** `tests/test_c1_dashboard_forecast_mode.py` (korrigiert)
 **Status:** Reine Testkorrektur, keine Phase betroffen.
+
+### B291 — Testfix: veraltete Coverage-Erwartung aus der Zeit vor B283 ✅ erledigt
+
+**Datei:** `tests/test_c1_dashboard_forecast_mode.py`
+**Problem:** Testerwartung `round(98 / 102, 4)` ging von der VOR B283
+bestehenden Doppelzählung aus (no_target_frame zusaetzlich zu samples
+addiert). Seit B283 enthaelt `samples` no_target_frame bereits; korrekter
+Nenner ist 100, nicht 102.
+**Fix:** Testerwartung auf `round(98 / 100, 4)` korrigiert. Kein
+Produktivcode veraendert — `verification_coverage_by_horizon()` war bereits
+seit B283 korrekt.
+**Tests:** `tests/test_c1_dashboard_forecast_mode.py` (korrigiert)
+**Status:** Reine Testkorrektur, keine Phase betroffen. Zusammen mit B289/B290
+sind damit alle bekannten Test-Nachwirkungen aus B278/B283/B284/P69
+bereinigt.
