@@ -3760,3 +3760,16 @@ Zaehlung im Normalfall.
 **Status Phase „ML-Transparenz im Admin-Panel" (P69/B284):** vollstaendig
 abgeschlossen inkl. dieser Nachbesserung. Keine weiteren offenen
 Codex-Review-Punkte zu PR #916/#917 bekannt.
+
+### B289 — Testfix: test_b260_adaptive_tolerance.py auf B278-Signatur angepasst ✅ erledigt
+
+**Datei:** `tests/test_b260_adaptive_tolerance.py`
+**Problem:** B278 aenderte die Rueckgabe von `_find_target_frame()` von einem
+einzelnen String auf ein 3-Tupel `(pfad, delta_min, missing_reason)`. Der
+B260-Regressionstest wurde dabei nicht aktualisiert und verglich weiterhin
+direkt mit einem String (`AssertionError: assert ('f_2.json', 0.0, None) ==
+'f_2.json'`).
+**Fix:** Beide betroffenen Tests entpacken das Tupel explizit. Kein
+Produktivcode veraendert.
+**Tests:** `tests/test_b260_adaptive_tolerance.py` (korrigiert)
+**Status:** Reine Testkorrektur, keine Phase betroffen.
