@@ -293,13 +293,29 @@ def evaluate_on_recent(model_dir, hours=24):
         _valid_h_maes.append(_h_mae)
     mae_total = float(np.mean(_valid_h_maes)) if _valid_h_maes else float("inf")
 
-    # B243: kinematische Baseline-MAE auf denselben recent-Samples.
-    kin_mae_by_horizon, kin_mae_total = _kinematic_baseline_mae(
+    # B277: Promotion nutzt dieselbe reale Betriebskinematik wie das Runtime-Gate
+    # (accuracy_history.jsonl). B243-Fallback (Position + v*Horizont) nur wenn für
+    # einen Horizont keine ausreichenden Realdaten vorliegen (Cold-Start).
+    from accuracy_tracker import get_runtime_kinematic_mae_by_horizon as _get_runtime_kin
+    _runtime_kin = _get_runtime_kin()
+    _fallback_by_h, _fallback_total = _kinematic_baseline_mae(
         X_recent, y_recent, model_dir, _eval_horizons, _avail_cols
     )
+    kin_mae_by_horizon = {}
+    promotion_baseline_source = {}
+    for horizon in _eval_horizons:
+        hk = str(horizon)
+        if hk in _runtime_kin:
+            kin_mae_by_horizon[hk] = _runtime_kin[hk]["kinematic_mae"]
+            promotion_baseline_source[hk] = "runtime_accuracy_history"
+        elif hk in _fallback_by_h:
+            kin_mae_by_horizon[hk] = _fallback_by_h[hk]
+            promotion_baseline_source[hk] = "b243_synthetic_fallback"
+    kin_mae_total = float(np.mean(list(kin_mae_by_horizon.values()))) if kin_mae_by_horizon else float("inf")
     return {
         "mae_total": mae_total, "mae_by_horizon": mae_by_horizon,
         "kin_mae_total": kin_mae_total, "kin_mae_by_horizon": kin_mae_by_horizon,
+        "promotion_baseline_source": promotion_baseline_source,
         "samples": len(idx),
     }
 
@@ -928,7 +944,9 @@ def retrain_all():
     promotion_samples = int(new_eval.get("samples", 0) or 0)
     _mae_new     = float(new_eval.get("mae_total", float("inf")))
     _mae_old     = float(old_eval.get("mae_total", float("inf")))
-    _kin_baseline_mae = float(new_eval.get("kin_mae_total", float("inf")))  # B243
+    _kin_baseline_mae = float(new_eval.get("kin_mae_total", float("inf")))  # B243/B277
+    _promotion_decision = "promoted" if _kin_baseline_mae > 0 and new_eval.get("mae_total", float("inf")) < _kin_baseline_mae else "rejected"
+    _promotion_reject_reason = None if _promotion_decision == "promoted" else "ml_mae_worse_than_runtime_kinematic_baseline"
 
     # P30: Zentrale Compat-Prüfung vor jeder Promotion (Cold-Start + regulär).
     # Prüft: Horizonte, Feature-Anzahl (aus training_meta.json).
@@ -1036,6 +1054,9 @@ def retrain_all():
         "holdout_samples": 0,
         "sequence_length": ML_SEQUENCE_LENGTH,
     })
+    meta["promotion_baseline_source"] = new_eval.get("promotion_baseline_source", {})  # B277
+    meta["promotion_decision"] = _promotion_decision                          # B277
+    meta["promotion_reject_reason"] = _promotion_reject_reason                # B277
     meta["validation"] = {
         "mae_old": old_eval.get("mae_total"),
         "mae_new": new_eval.get("mae_total"),
@@ -1043,6 +1064,9 @@ def retrain_all():
         "mae_by_horizon_new": new_eval.get("mae_by_horizon", {}),
         "kin_baseline_mae": new_eval.get("kin_mae_total"),                 # B243
         "kin_baseline_by_horizon": new_eval.get("kin_mae_by_horizon", {}),  # B243
+        "promotion_baseline_source": new_eval.get("promotion_baseline_source", {}),  # B277
+        "promotion_decision": _promotion_decision,                          # B277
+        "promotion_reject_reason": _promotion_reject_reason,                # B277
         "samples_recent": promotion_samples,
         "samples_required": MIN_SAMPLES_FOR_PROMOTION,
         "samples_missing": max(0, MIN_SAMPLES_FOR_PROMOTION - promotion_samples),

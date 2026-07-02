@@ -817,6 +817,46 @@ def append_history_point(metric: dict) -> str:
     return HISTORY_FILE
 
 
+def get_runtime_kinematic_mae_by_horizon(min_samples: int = 20) -> dict:
+    """B277: Liefert je Horizont die jüngste, ausreichend abgesicherte reale
+    Betriebs-Kinematik-MAE aus accuracy_history.jsonl (breakdown_by_forecast_mode).
+    Einzige Quelle der Wahrheit für Runtime-Gate UND Modell-Promotion.
+    Rückgabe: {"10": {"kinematic_mae": float, "kinematic_samples": int}, ...}
+    """
+    path = os.path.join(SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/"), "accuracy_history.jsonl")
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+    except Exception as exc:
+        debug_log(f"[BASELINE][B277] accuracy_history nicht lesbar: {exc}")
+        return {}
+    out = {}
+    for rec in reversed(rows):
+        modes_by_h = rec.get("breakdown_by_forecast_mode") or {}
+        if not isinstance(modes_by_h, dict):
+            continue
+        for h, modes in modes_by_h.items():
+            try:
+                key = str(int(float(h)))
+            except Exception:
+                continue
+            if key in out or not isinstance(modes, dict):
+                continue
+            kin_candidates = [modes.get("kinematic"), modes.get("kinematic_fallback")]
+            kin_stats = next((m for m in kin_candidates if isinstance(m, dict) and m.get("mae_km") is not None), None)
+            if not kin_stats:
+                continue
+            kin_n = int(kin_stats.get("verified", kin_stats.get("samples", 0)) or 0)
+            if kin_n < min_samples:
+                continue
+            kin_mae = _safe_float(kin_stats.get("mae_km"))
+            if kin_mae and kin_mae > 0:
+                out[key] = {"kinematic_mae": kin_mae, "kinematic_samples": kin_n}
+    return out
+
+
 def load_history(since_hours: int = 24 * 7) -> list:
     if not os.path.exists(HISTORY_FILE):
         return []

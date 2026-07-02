@@ -2117,10 +2117,26 @@ def api_accuracy():
 def api_ml_quality():
     since = int(request.args.get("hours", "168"))
     horizons = runtime_config.get("ML_FORECAST_HORIZONS_MIN", [10, 20, 30, 40, 60])
-    from accuracy_tracker import load_history as _lh, ml_quality_series as _mqs
+    from accuracy_tracker import load_history as _lh, ml_quality_series as _mqs, get_runtime_kinematic_mae_by_horizon as _grk
+    last_promotion = {}
+    try:
+        meta_path = os.path.join(SAVE_PATHS.get("models", "train_data/models").rstrip("/"), "training_meta.json")
+        if os.path.exists(meta_path):
+            with open(meta_path, encoding="utf-8") as f:
+                _meta = json.load(f)
+            _validation = _meta.get("validation", {}) if isinstance(_meta.get("validation"), dict) else {}
+            last_promotion = {
+                "promotion_decision": _meta.get("promotion_decision", _validation.get("promotion_decision")),
+                "promotion_reject_reason": _meta.get("promotion_reject_reason", _validation.get("promotion_reject_reason")),
+                "promotion_baseline_source": _meta.get("promotion_baseline_source", _validation.get("promotion_baseline_source", {})),
+            }
+    except Exception as exc:
+        debug_log(f"[API][B277] ml_quality Promotion-Meta nicht lesbar: {exc}")
     return jsonify({
         "horizons": [int(h) for h in horizons],
         "series": _mqs(_lh(since_hours=max(since, 24 * 7)), horizons),
+        "runtime_kinematic_mae_by_horizon": _grk(),
+        "last_promotion": last_promotion,
     })
 
 

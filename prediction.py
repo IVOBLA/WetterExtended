@@ -767,8 +767,15 @@ def _runtime_bool_value(name: str, default: bool) -> bool:
 
 
 def _latest_runtime_mae_by_horizon(min_samples: int | None = None) -> dict:
-    """Liest je Horizont die jüngste ausreichende ML/Kinematik-MAE-Attribution."""
+    """Liest je Horizont die jüngste ausreichende ML/Kinematik-MAE-Attribution.
+    B277: kinematic_mae stammt aus accuracy_tracker.get_runtime_kinematic_mae_by_horizon(),
+    derselben Funktion, die auch model_training.py für die Promotion-Baseline nutzt."""
     min_samples = _runtime_int_value("ML_RUNTIME_MIN_SAMPLES_PER_MODE", _STATIC_ML_RUNTIME_MIN_SAMPLES_PER_MODE) if min_samples is None else int(min_samples)
+    from accuracy_tracker import get_runtime_kinematic_mae_by_horizon
+
+    kin_map = get_runtime_kinematic_mae_by_horizon(min_samples)
+    if not kin_map:
+        return {}
     path = os.path.join(SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/"), "accuracy_history.jsonl")
     if not os.path.exists(path):
         return {}
@@ -788,21 +795,24 @@ def _latest_runtime_mae_by_horizon(min_samples: int | None = None) -> dict:
                 key = str(int(float(h)))
             except Exception:
                 continue
-            if key in out or not isinstance(modes, dict):
+            if key in out or key not in kin_map or not isinstance(modes, dict):
                 continue
-            kin_candidates = [modes.get("kinematic"), modes.get("kinematic_fallback")]
-            kin_stats = next((m for m in kin_candidates if isinstance(m, dict) and m.get("mae_km") is not None), None)
             ml_stats = modes.get("ml") if isinstance(modes.get("ml"), dict) else None
-            if not ml_stats or not kin_stats:
+            if not ml_stats:
                 continue
             ml_n = int(ml_stats.get("verified", ml_stats.get("samples", 0)) or 0)
-            kin_n = int(kin_stats.get("verified", kin_stats.get("samples", 0)) or 0)
-            if ml_n < min_samples or kin_n < min_samples:
+            if ml_n < min_samples:
                 continue
             ml_mae = _safe_float(ml_stats.get("mae_km"))
-            kin_mae = _safe_float(kin_stats.get("mae_km"))
+            kin_entry = kin_map[key]
+            kin_mae = _safe_float(kin_entry.get("kinematic_mae"))
             if ml_mae > 0 and kin_mae > 0:
-                out[key] = {"ml_mae": ml_mae, "kinematic_mae": kin_mae, "ml_samples": ml_n, "kinematic_samples": kin_n}
+                out[key] = {
+                    "ml_mae": ml_mae,
+                    "kinematic_mae": kin_mae,
+                    "ml_samples": ml_n,
+                    "kinematic_samples": int(kin_entry.get("kinematic_samples", 0) or 0),
+                }
     return out
 
 def _runtime_training_meta(runtime_status: dict | None) -> dict:
