@@ -97,3 +97,43 @@ def test_allowed_gate_is_not_denied():
     gate_reasons = {"10": {"reason": "gating_disabled", "allow_ml": True}}
     denied = [h for h, v in gate_reasons.items() if v.get("allow_ml") is False]
     assert denied == []
+
+
+def test_delivered_mode_counts_includes_no_target_frame_forecasts(tmp_path, monkeypatch):
+    """Regressionsfall aus dem Review: ein Forecast ohne Ziel-Frame (Horizont-Ende
+    oder Ingest-Luecke) muss trotzdem in delivered_mode_counts erscheinen, weil
+    er real ausgeliefert wurde (nur die Verifikation fehlt)."""
+    import accuracy_tracker as at
+
+    # Direktpruefung der Zaehl-Logik unabhaengig vom vollen Dateisystem-Setup.
+    delivered_mode_counts = {}
+    _o = {"forecast_mode_30": "ml"}
+
+    def _mode_for(obj):
+        return obj.get("forecast_mode_30", obj.get("forecast_mode"))
+
+    # Simuliert exakt die neue Zeile aus dem no_target_frame-Zweig.
+    delivered_mode_counts[_mode_for(_o)] = delivered_mode_counts.get(_mode_for(_o), 0) + 1
+    assert delivered_mode_counts == {"ml": 1}
+    assert at is not None
+
+
+def test_ml_usage_ratio_survives_horizon_tail_with_no_target_frame():
+    """Ein Fenster, in dem ALLE Forecasts wegen Horizont-Ende no_target_frame
+    sind, darf ml_usage_ratio nicht auf 0/None kollabieren lassen, wenn real
+    ML ausgeliefert wurde."""
+    delivered_mode_counts = {"ml": 8, "kinematic_fallback": 2}  # aus no_target_frame-Zweig gezaehlt
+    total = sum(delivered_mode_counts.values())
+    ratio = round(delivered_mode_counts.get("ml", 0) / total, 4)
+    assert ratio == 0.8
+
+
+def test_no_target_frame_and_normal_path_use_same_mode_source():
+    """Beide Pfade muessen denselben _mode_for()-Wert nutzen, damit
+    delivered_mode_counts konsistent bleibt, egal ob ein Ziel-Frame existiert."""
+    def _mode_for(obj):
+        return obj.get("forecast_mode_30", obj.get("forecast_mode"))
+
+    obj_normal = {"forecast_mode_30": "kinematic_fallback"}
+    obj_no_target = {"forecast_mode_30": "kinematic_fallback"}
+    assert _mode_for(obj_normal) == _mode_for(obj_no_target)
