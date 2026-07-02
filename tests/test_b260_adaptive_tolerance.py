@@ -40,21 +40,26 @@ def test_config_min_wird_nie_unterschritten():
 
 
 def test_find_target_frame_findet_frame_bei_15min_kadenz():
-    """_find_target_frame findet einen Frame bei 15-min Kadenz und h=10-Forecast."""
+    """_find_target_frame findet einen Frame bei 15-min Kadenz und h=10-Forecast.
+    B289: Rueckgabe ist seit B278 ein 3-Tupel (pfad, delta_min, missing_reason)."""
     base = datetime(2026, 6, 29, 1, 0)
     # Frames alle 15 Minuten
     by_ts = {base + timedelta(minutes=i * 15): f"frame_{i}.json" for i in range(4)}
     target = base + timedelta(minutes=10)  # h10-Forecast zwischen zwei Frames
-    result = _find_target_frame(by_ts, target, 90)
-    assert result is not None, (
+    path, delta_min, missing_reason = _find_target_frame(by_ts, target, 90)
+    assert path is not None, (
         "h10-Forecast bei 15-min Kadenz darf nicht als no_target_frame gezählt werden"
     )
+    assert missing_reason is None
 
 
 def test_regression_5min_kadenz_unveraendert():
-    """B260 darf 5-min-Kadenz-Verhalten nicht verschlechtern."""
+    """B260 darf 5-min-Kadenz-Verhalten nicht verschlechtern.
+    B289: Rueckgabe ist seit B278 ein 3-Tupel (pfad, delta_min, missing_reason)."""
     base = datetime(2026, 6, 28, 12, 0)
     by_ts = {base + timedelta(minutes=i * 5): f"f_{i}.json" for i in range(12)}
     # Ziel exakt auf einen vorhandenen Frame
-    result = _find_target_frame(by_ts, base + timedelta(minutes=10), 90)
-    assert result == by_ts[base + timedelta(minutes=10)]
+    path, delta_min, missing_reason = _find_target_frame(by_ts, base + timedelta(minutes=10), 90)
+    assert path == by_ts[base + timedelta(minutes=10)]
+    assert delta_min == 0.0
+    assert missing_reason is None
