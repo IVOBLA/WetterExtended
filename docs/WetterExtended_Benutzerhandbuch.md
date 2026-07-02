@@ -2805,3 +2805,12 @@ oder aktuell verworfen wird — inklusive des jeweiligen Grundes je
 Vorhersagehorizont. Zusätzlich sichtbar: Anteil verifizierbarer Vorhersagen
 (Coverage) und der Anteil, in dem tatsächlich Machine Learning statt der
 kinematischen Fallback-Berechnung verwendet wurde.
+
+### Qualitätsziele je Vorhersagehorizont (P70)
+
+Im Admin-Panel unter Konfiguration sind die Zielwerte für die mittlere
+Abweichung (MAE) je Vorhersagehorizont sichtbar. Für die Horizonte 10, 20 und
+30 Minuten gilt eine feste, nicht änderbare Vorgabe von unter 1 km
+(Produktionsziel). Für die Horizonte 40 und 60 Minuten können eigene Zielwerte
+festgelegt werden, da hierfür keine feste Vorgabe besteht. Der Diagnosebereich
+zeigt an, welcher Horizont aktuell das jeweilige Ziel verfehlt.

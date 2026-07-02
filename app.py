@@ -552,6 +552,59 @@ def api_forecast_quality_diagnosis():
         return jsonify({"status": "error", "error": str(exc), "important_findings": [], "recommendations": []}), 500
 
 
+@app.route("/api/quality_targets", methods=["GET", "POST"])
+def api_quality_targets():
+    """P70: Qualitätsziele je Horizont; h10/h20/h30 schreibgeschützt."""
+    from config import QUALITY_TARGET_MAE_KM_CONFIGURABLE_DEFAULT, QUALITY_TARGET_MAE_KM_FIXED
+    from drift_detector import load_status
+
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        horizon = str(data.get("horizon", "")).strip().replace("h", "")
+        if not horizon and isinstance(data.get("targets"), dict):
+            try:
+                for h, v in data["targets"].items():
+                    runtime_config.set_override(f"QUALITY_TARGET_MAE_KM_{str(h).replace('h', '')}", float(v))
+                return jsonify({"ok": True})
+            except ValueError as exc:
+                return jsonify({"ok": False, "error": str(exc)}), 400
+        try:
+            target_km = float(data.get("target_km"))
+            runtime_config.set_override(f"QUALITY_TARGET_MAE_KM_{horizon}", target_km)
+        except (TypeError, ValueError) as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, "horizon": horizon, "target_km": target_km})
+
+    status = load_status()
+    by_horizon = dict(status.get("quality_target_by_horizon") or {})
+    horizons = sorted(
+        set(QUALITY_TARGET_MAE_KM_FIXED) | set(QUALITY_TARGET_MAE_KM_CONFIGURABLE_DEFAULT) | set(by_horizon),
+        key=lambda x: int(x) if str(x).isdigit() else 9999,
+    )
+    targets = {}
+    for h in horizons:
+        entry = dict(by_horizon.get(str(h)) or {})
+        editable = str(h) not in QUALITY_TARGET_MAE_KM_FIXED
+        default_target = (
+            QUALITY_TARGET_MAE_KM_FIXED.get(str(h))
+            if not editable
+            else runtime_config.get(
+                f"QUALITY_TARGET_MAE_KM_{h}",
+                QUALITY_TARGET_MAE_KM_CONFIGURABLE_DEFAULT.get(str(h), 2.0),
+            )
+        )
+        entry.setdefault("target_km", float(default_target))
+        entry.setdefault("actual_mae_km", None)
+        entry.setdefault("met", None)
+        entry["editable"] = editable
+        targets[str(h)] = entry
+    return jsonify({
+        "targets": targets,
+        "quality_target_met": status.get("quality_target_met"),
+        "quality_target_violation_horizon": status.get("quality_target_violation_horizon"),
+    })
+
+
 @app.route("/api/drift")
 def api_drift():
     """

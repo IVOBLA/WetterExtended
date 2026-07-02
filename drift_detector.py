@@ -17,7 +17,8 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from config import SAVE_PATHS
+from config import SAVE_PATHS, QUALITY_TARGET_MAE_KM_CONFIGURABLE_DEFAULT, QUALITY_TARGET_MAE_KM_FIXED
+import runtime_config as _runtime_cfg
 from debug_utils import debug_log
 from utils import utc_iso_z
 
@@ -34,6 +35,30 @@ DRIFT_SHORT_HORIZON_MAX_MIN = float(os.getenv("DRIFT_SHORT_HORIZON_MAX_MIN", "30
 _EVAL_DIR = SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/")
 _HISTORY_FILE = os.path.join(_EVAL_DIR, "accuracy_history.jsonl")
 _STATUS_FILE = os.path.join(_EVAL_DIR, "drift_status.json")
+
+
+def _quality_target_for_horizon(horizon_key: str) -> float:
+    """P70: <=30-Min-Ziele sind fest; h40/h60 via Runtime-Override."""
+    horizon_key = str(horizon_key)
+    if horizon_key in QUALITY_TARGET_MAE_KM_FIXED:
+        return QUALITY_TARGET_MAE_KM_FIXED[horizon_key]
+    runtime_val = _runtime_cfg.get(f"QUALITY_TARGET_MAE_KM_{horizon_key}") if _runtime_cfg else None
+    if runtime_val is not None:
+        return float(runtime_val)
+    return QUALITY_TARGET_MAE_KM_CONFIGURABLE_DEFAULT.get(horizon_key, 2.0)
+
+
+def _mae_by_horizon(records: list) -> dict:
+    values: dict[str, list[float]] = {}
+    for rec in records:
+        for horizon in rec.get("horizons", []):
+            h = horizon.get("horizon")
+            v = horizon.get("mae_km")
+            if h is None or not isinstance(v, (int, float)) or v <= 0:
+                continue
+            key = str(int(h)) if isinstance(h, (int, float)) and float(h).is_integer() else str(h)
+            values.setdefault(key, []).append(float(v))
+    return {h: round(sum(vals) / len(vals), 3) for h, vals in values.items() if vals}
 
 
 def _read_history() -> list:
@@ -116,6 +141,8 @@ def check_drift() -> dict:
         "short_horizon_max_min": DRIFT_SHORT_HORIZON_MAX_MIN,
         "abs_threshold_km": DRIFT_MAE_ABS_MAX_KM,
         "quality_target_met": None,
+        "quality_target_by_horizon": {},
+        "quality_target_violation_horizon": None,
         "bias_by_horizon": {},
         "quality_status": "unknown",
         "quality_message": "Zu wenige Kurzhorizont-Messpunkte für Qualitätsziel-Auswertung.",
@@ -160,19 +187,37 @@ def check_drift() -> dict:
                 f"(recent={mae_recent:.2f} km, baseline={mae_baseline:.2f} km)"
             )
 
-    if mae_recent_short is not None and len(recent_recs) >= DRIFT_MIN_POINTS:
-        quality_missed = mae_recent_short > DRIFT_MAE_ABS_MAX_KM
-        result["quality_target_met"] = not quality_missed
-        result["quality_status"] = "missed" if quality_missed else "met"
-        if quality_missed:
-            result["quality_message"] = (
-                "Das Modell verbessert sich, erreicht die konfigurierte Zielqualität jedoch noch nicht."
-                if mae_recent is not None and mae_baseline is not None and mae_recent <= mae_baseline
-                else f"Qualitätsziel noch nicht erreicht: MAE(≤{int(DRIFT_SHORT_HORIZON_MAX_MIN)} min) "
-                     f"= {mae_recent_short:.2f} km > {DRIFT_MAE_ABS_MAX_KM} km."
-            )
-        else:
-            result["quality_message"] = "Qualitätsziel erreicht."
+    if len(recent_recs) >= DRIFT_MIN_POINTS:
+        mae_by_horizon = _mae_by_horizon(recent_recs)
+        quality_target_by_horizon = {}
+        for h, actual in mae_by_horizon.items():
+            target = _quality_target_for_horizon(h)
+            quality_target_by_horizon[h] = {
+                "target_km": target,
+                "actual_mae_km": actual,
+                "met": actual <= target,
+                "editable": h not in QUALITY_TARGET_MAE_KM_FIXED,
+            }
+        violation_horizon = next(
+            (h for h, actual in mae_by_horizon.items() if actual is not None and actual > _quality_target_for_horizon(h)),
+            None,
+        )
+        result["quality_target_by_horizon"] = quality_target_by_horizon
+        result["quality_target_violation_horizon"] = violation_horizon
+        if quality_target_by_horizon:
+            quality_missed = violation_horizon is not None
+            result["quality_target_met"] = all(v["met"] for v in quality_target_by_horizon.values())
+            result["quality_status"] = "missed" if quality_missed else "met"
+            if quality_missed:
+                missed = quality_target_by_horizon[violation_horizon]
+                result["quality_message"] = (
+                    "Das Modell verbessert sich, erreicht die konfigurierte Zielqualität jedoch noch nicht."
+                    if mae_recent is not None and mae_baseline is not None and mae_recent <= mae_baseline
+                    else f"Qualitätsziel noch nicht erreicht: MAE(h{violation_horizon}) "
+                         f"= {missed['actual_mae_km']:.2f} km > {missed['target_km']} km."
+                )
+            else:
+                result["quality_message"] = "Qualitätsziel erreicht."
 
 
     try:

@@ -186,6 +186,34 @@ _FORBIDDEN_KEY_ALLOWLIST = frozenset({
 })
 
 
+# P70: Qualitätsziele <=30 Min sind laut zieldefinition.txt fest und dürfen
+# nicht per Runtime-Override gelockert werden. Schreibbar sind nur h40/h60.
+_FIXED_QUALITY_TARGET_OVERRIDE_KEYS = frozenset({
+    "QUALITY_TARGET_MAE_KM_10",
+    "QUALITY_TARGET_MAE_KM_20",
+    "QUALITY_TARGET_MAE_KM_30",
+})
+_CONFIGURABLE_QUALITY_TARGET_OVERRIDE_KEYS = frozenset({
+    "QUALITY_TARGET_MAE_KM_40",
+    "QUALITY_TARGET_MAE_KM_60",
+})
+
+
+def validate_override_key(key: str) -> None:
+    ku = str(key).upper()
+    if ku in _FIXED_QUALITY_TARGET_OVERRIDE_KEYS:
+        raise ValueError(
+            f"{ku} ist durch zieldefinition.txt fest vorgegeben und nicht überschreibbar"
+        )
+    if ku.startswith("QUALITY_TARGET_MAE_KM_") and ku not in _CONFIGURABLE_QUALITY_TARGET_OVERRIDE_KEYS:
+        raise ValueError(f"{ku} ist kein administrierbares Qualitätsziel")
+
+
+def set_override(key: str, value) -> dict:
+    validate_override_key(key)
+    return patch({key: value})
+
+
 def is_forbidden_override_key(key) -> bool:
     """True wenn key nicht als Runtime-Override zulässig ist (P1-4).
 
@@ -248,6 +276,7 @@ def patch_exact_key(top_key: str, value) -> dict:
     Verwenden statt patch() wenn ein verschachteltes Dict komplett neu gesetzt
     werden soll und _deep_merge das Löschen von Unter-Schlüsseln verhindern würde
     (z. B. Löschen von mark_q_m3s in HYDRO_STATION_OVERRIDES[sid])."""
+    validate_override_key(top_key)
     if is_forbidden_override_key(top_key):
         return dict(_OVERRIDES)
     with _LOCK:
@@ -269,6 +298,8 @@ def patch(partial: dict) -> dict:
     Pfaden mit HTTP 400 ab (vor patch()-Aufruf).
     """
     if isinstance(partial, dict):
+        for _key in partial:
+            validate_override_key(_key)
         _forbidden = forbidden_keys_in(partial)
         if _forbidden:
             # B106: Gesamte Anfrage defensiv ablehnen wenn verbotene Pfade vorhanden.

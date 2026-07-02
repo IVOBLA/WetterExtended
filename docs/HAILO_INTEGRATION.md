@@ -3648,3 +3648,16 @@ KEIN neuer Endpoint — bewusste Entscheidung gegen Duplizierung bestehender
 Admin-Datenquellen. Statusdateien (`forecast_bias_status.json`,
 `radar_ingest_gaps.json`) im 24h-Debug-Export enthalten.
 **Tests:** `tests/test_p69_ml_transparency.py`, erweitert `tests/test_c1_dashboard_forecast_mode.py`
+
+## P70 — Horizontabhängige Qualitätsziele administrierbar (h40/h60), <=30-Min-Ziel bleibt fest (2026-07-02)
+
+**Dateien:** `config.py`, `runtime_config.py`, `drift_detector.py`, `app.py`
+**Wichtige Korrektur gegenüber Erstentwurf:** Die Zieldefinition fordert
+verbindlich <1km MAE für Horizonte <=30 Min. Dieses Ziel wird durch P70 NICHT
+aufgeweicht oder administrierbar gemacht — es bleibt hart in
+`QUALITY_TARGET_MAE_KM_FIXED` verdrahtet und ist über die Admin-API/Runtime-Config
+schreibgeschützt. Administrierbar sind ausschließlich die zusätzlichen Horizonte
+h40/h60, für die die Zieldefinition keine explizite Zahl vorgibt.
+**Feature:** `/api/quality_targets`, Drift-Status zeigt `quality_target_by_horizon`
+inkl. `quality_target_violation_horizon`.
+**Tests:** `tests/test_p70_quality_targets.py`
