@@ -82,3 +82,18 @@ def test_real_ml_delivery_still_counted():
     total = sum(mode_counts.values())
     ratio = round(mode_counts.get("ml", 0) / total, 4)
     assert ratio == 0.75
+
+
+def test_gate_reasons_include_allow_ml_flag():
+    gate_result = {10: {"allow_ml": True, "reason": "ml_mae_better_or_equal"},
+                   30: {"allow_ml": False, "reason": "ml_mae_worse_than_kinematic"}}
+    gate_reasons = {str(h): {"reason": v.get("reason"), "allow_ml": bool(v.get("allow_ml"))}
+                    for h, v in gate_result.items()}
+    assert gate_reasons["10"]["allow_ml"] is True
+    assert gate_reasons["30"]["allow_ml"] is False
+
+
+def test_allowed_gate_is_not_denied():
+    gate_reasons = {"10": {"reason": "gating_disabled", "allow_ml": True}}
+    denied = [h for h, v in gate_reasons.items() if v.get("allow_ml") is False]
+    assert denied == []

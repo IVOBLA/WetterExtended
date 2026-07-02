@@ -3697,3 +3697,16 @@ ausgelieferte forecast_mode-Werte) wird zusaetzlich persistiert.
 `ml_usage_ratio` in `/api/ml_quality` basiert ausschliesslich darauf.
 P53/P54-Schatten-Logik bleibt unveraendert.
 **Tests:** erweitert `tests/test_p69_ml_transparency.py`, `tests/test_c1_dashboard_forecast_mode.py`
+
+## B285 — Codex-Review-Fix zu P69: Ampel zeigte "ML verworfen" auch bei erlaubtem Gate (2026-07-02)
+
+**Dateien:** `app.py`, `frontend/src/pages/Accuracy.jsx`
+**Problem (Codex-Review PR #912):** `/api/ml_quality` lieferte nur den
+Reason-String je Horizont, nicht das `allow_ml`-Flag. Das Frontend behandelte
+dadurch auch erlaubte Gate-Zustaende ("ml_mae_better_or_equal",
+"gating_disabled") als Ablehnung und zeigte in ruhigen Zeitfenstern faelschlich
+Rot statt Gelb/Gruen.
+**Fix:** `/api/ml_quality["ml_gate_reasons"]` liefert je Horizont
+`{reason, allow_ml}`. Frontend unterscheidet `allow_ml === false` (abgelehnt)
+von `allow_ml === true` (erlaubt, aber ggf. wenig Traffic).
+**Tests:** erweitert `tests/test_p69_ml_transparency.py`, `tests/test_c1_dashboard_forecast_mode.py`

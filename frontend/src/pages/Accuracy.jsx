@@ -46,12 +46,21 @@ export default function Accuracy() {
   const mlUsageRatio = mlQuality.ml_usage_ratio ?? 0
   const mlGateReasons = mlQuality.ml_gate_reasons || {}
   const verificationCoverage = mlQuality.verification_coverage_by_horizon || {}
-  const mlGateReasonList = Object.entries(mlGateReasons).filter(([, reason]) => reason)
+  // B285: ml_gate_reasons liefert jetzt {reason, allow_ml} je Horizont. Nur
+  // Horizonte mit allow_ml === false gelten als tatsaechlich abgelehnt.
+  // "ml_mae_better_or_equal" und "gating_disabled" sind ERLAUBTE Zustaende und
+  // duerfen die Ampel nicht auf Rot setzen.
+  const mlGateEntries = Object.entries(mlGateReasons)
+  const mlGateReasonList = mlGateEntries.filter(([, v]) => v && v.reason)
+  const mlDeniedList = mlGateEntries.filter(([, v]) => v && v.allow_ml === false)
+  const mlAllowedList = mlGateEntries.filter(([, v]) => v && v.allow_ml === true)
   const mlTrafficStatus = mlUsageRatio > 0.05
     ? { label: 'ML aktiv', color: 'bg-green-100 border-green-300 text-green-900', icon: '🟢' }
-    : mlGateReasonList.length
+    : mlDeniedList.length > 0 && mlAllowedList.length === 0
       ? { label: 'ML verworfen', color: 'bg-red-100 border-red-300 text-red-900', icon: '🔴' }
-      : { label: 'ML shadow only', color: 'bg-yellow-100 border-yellow-300 text-yellow-900', icon: '🟡' }
+      : mlAllowedList.length > 0
+        ? { label: 'ML erlaubt, wenig Traffic', color: 'bg-yellow-100 border-yellow-300 text-yellow-900', icon: '🟡' }
+        : { label: 'ML shadow only', color: 'bg-yellow-100 border-yellow-300 text-yellow-900', icon: '🟡' }
 
   return (
     <div>
@@ -239,7 +248,7 @@ export default function Accuracy() {
             <div className="font-semibold">{mlTrafficStatus.icon} {mlTrafficStatus.label}</div>
             <div>ML-Nutzungsanteil im Zeitraum: <b>{(mlUsageRatio * 100).toFixed(1)}%</b></div>
             {mlGateReasonList.length ? (
-              <div className="mt-1 text-xs">Gate-Gründe: {mlGateReasonList.map(([h, reason]) => `+${h} min: ${reason}`).join(' · ')}</div>
+              <div className="mt-1 text-xs">Gate-Gründe: {mlGateReasonList.map(([h, v]) => `+${h} min: ${v.reason} (${v.allow_ml ? 'erlaubt' : 'abgelehnt'})`).join(' · ')}</div>
             ) : (
               <div className="mt-1 text-xs">Keine Runtime-Gate-Gründe gemeldet.</div>
             )}

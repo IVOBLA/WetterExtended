@@ -2206,7 +2206,10 @@ def api_ml_quality():
     ml_usage_ratio = round(_mode_counts.get("ml", 0) / _total_modes, 4) if _mode_counts else None
     try:
         from prediction import _ml_runtime_gate_by_horizon
-        _gate_reasons = {str(h): v.get("reason") for h, v in _ml_runtime_gate_by_horizon(horizons).items()}
+        _gate_reasons = {
+            str(h): {"reason": v.get("reason"), "allow_ml": bool(v.get("allow_ml"))}
+            for h, v in _ml_runtime_gate_by_horizon(horizons).items()
+        }
     except Exception as exc:
         debug_log(f"[API][P69] Gate-Gruende nicht lesbar: {exc}")
     return jsonify({

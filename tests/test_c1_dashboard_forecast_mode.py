@@ -137,7 +137,7 @@ def test_p69_existing_quality_endpoints_expose_transparency_fields(monkeypatch, 
 
     monkeypatch.setattr(
         "prediction._ml_runtime_gate_by_horizon",
-        lambda horizons: {int(h): {"reason": "shadow_mode"} for h in horizons},
+        lambda horizons: {int(h): {"reason": "shadow_mode", "allow_ml": False} for h in horizons},
         raising=False,
     )
     monkeypatch.setattr(
@@ -157,7 +157,8 @@ def test_p69_existing_quality_endpoints_expose_transparency_fields(monkeypatch, 
     assert "verification_coverage_by_horizon" in ml_payload
     assert ml_payload["forecast_mode_counts"]["ml"] == 10
     assert ml_payload["ml_usage_ratio"] == 0.1
-    assert ml_payload["ml_gate_reasons"] == {"10": "shadow_mode"}
+    assert ml_payload["ml_gate_reasons"] == {"10": {"reason": "shadow_mode", "allow_ml": False}}
+    assert set(ml_payload["ml_gate_reasons"]["10"].keys()) == {"reason", "allow_ml"}
     assert ml_payload["verification_coverage_by_horizon"]["10"] == round(98 / 102, 4)
 
     assert diag_resp.status_code == 200
