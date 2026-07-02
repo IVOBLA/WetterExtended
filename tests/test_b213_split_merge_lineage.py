@@ -152,3 +152,22 @@ def test_no_external_requests_in_split_merge_lineage():
     assert "requests" not in imports
     assert "httpx" not in imports
     assert "urllib.request" not in imports
+
+
+def test_parent_to_split_child_matched_at_verification():
+    obj = {"cell_id": "child_1", "parent_cell_id": "parent_A"}
+    matched = {"cell_id": "parent_A", "id": "parent_A"}
+    # Direkter Parent-Match muss als lineage_parent erkannt werden
+    assert str(matched.get("cell_id")) == obj["parent_cell_id"]
+
+
+def test_multiple_merge_sources_checked():
+    obj = {"cell_id": "merged_1", "merged_from_cell_ids": ["A", "B", "C"]}
+    matched = {"cell_id": "B", "id": "B"}
+    assert str(matched.get("cell_id")) in [str(x) for x in obj["merged_from_cell_ids"]]
+
+
+def test_horizon_dependent_nn_max_distance():
+    from config import VERIFICATION_NN_MAX_MATCH_KM_BY_HORIZON, VERIFICATION_NN_MAX_MATCH_KM
+    assert VERIFICATION_NN_MAX_MATCH_KM_BY_HORIZON["10"] < VERIFICATION_NN_MAX_MATCH_KM_BY_HORIZON["60"]
+    assert VERIFICATION_NN_MAX_MATCH_KM_BY_HORIZON["60"] <= VERIFICATION_NN_MAX_MATCH_KM

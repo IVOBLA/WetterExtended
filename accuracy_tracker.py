@@ -33,6 +33,7 @@ from config import (
     VERIFICATION_TIME_TOLERANCE_S,
     VERIFICATION_MAX_SEARCH_RADIUS_KM,
     VERIFICATION_NN_MAX_MATCH_KM,
+    VERIFICATION_NN_MAX_MATCH_KM_BY_HORIZON,
     VERIFICATION_MATCH_MAX_ACTUAL_SPEED_KMH,
     VERIFICATION_CORE_MIN_RATIO,
     FRAME_INTERVAL_MIN,
@@ -55,14 +56,18 @@ except Exception:  # pragma: no cover
     _runtime_cfg = None
 
 
-def _nn_max_match_km() -> float:
-    """B228: NN-Akzeptanzschwelle, runtime-ueberschreibbar (Admin-Panel)."""
+def _nn_max_match_km(horizon_min: Optional[int] = None) -> float:
+    """B228/B279: NN-Akzeptanzschwelle, runtime-ueberschreibbar und horizontabhängig gedeckelt."""
+    hard_limit = float(VERIFICATION_NN_MAX_MATCH_KM)
+    threshold = hard_limit
+    if horizon_min is not None:
+        threshold = float(VERIFICATION_NN_MAX_MATCH_KM_BY_HORIZON.get(str(horizon_min), hard_limit))
     if _runtime_cfg is not None:
         try:
-            return float(_runtime_cfg.get("VERIFICATION_NN_MAX_MATCH_KM", VERIFICATION_NN_MAX_MATCH_KM))
+            threshold = float(_runtime_cfg.get("VERIFICATION_NN_MAX_MATCH_KM", threshold))
         except Exception:
             pass
-    return float(VERIFICATION_NN_MAX_MATCH_KM)
+    return min(float(threshold), hard_limit)
 
 
 def _max_actual_speed_kmh() -> float:
@@ -244,6 +249,9 @@ def _load_detail_keys(path: str, since_hours: int = 24) -> Set[tuple]:
     return seen
 
 def _match_type(raw: str) -> str:
+    # B279: Lineage-Match-Typen werden 1:1 durchgereicht (keine Umschreibung auf "none"/"nn").
+    if raw in ("lineage_parent", "lineage_merged_from", "lineage_split_child"):
+        return raw
     return {"nn": "nearest", "miss": "none"}.get(raw, raw or "none")
 
 
@@ -409,6 +417,34 @@ def _match_actual(obj: dict, target_objs: list, horizon_min: int
     oid = str(obj.get("id"))
     cell_id = str(obj.get("cell_id", obj.get("id", "")))
 
+    # B279: Lineage-aware Match VOR dem B247-Speed/Core-Gate. Wenn ein direkter
+    # ID-Match am Speed/Core-Gate scheitert, aber die Lineage (parent_cell_id,
+    # merged_from_cell_ids) den Zusammenhang erklärt, wird der Match trotzdem
+    # akzeptiert — mit eigenem match_type statt NN-Fallback.
+    def _lineage_values(value) -> List[str]:
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple, set)):
+            return [str(x) for x in value]
+        if isinstance(value, str) and "," in value:
+            return [x.strip() for x in value.split(",") if x.strip()]
+        return [str(value)]
+
+    def _lineage_explains_match(obj: dict, matched: dict) -> Optional[str]:
+        obj_id = str(obj.get("cell_id", obj.get("id", "")))
+        matched_id = str(matched.get("cell_id", matched.get("id", "")))
+        if str(matched.get("parent_cell_id", "")) == obj_id:
+            return "lineage_parent"
+        merged_from = _lineage_values(obj.get("merged_from_cell_ids"))
+        if matched_id in merged_from:
+            return "lineage_merged_from"
+        matched_merged_from = _lineage_values(matched.get("merged_from_cell_ids"))
+        if obj_id in matched_merged_from:
+            return "lineage_merged_from"
+        if str(obj.get("parent_cell_id", "")) == matched_id:
+            return "lineage_split_child"
+        return None
+
     # B247: ID-Match mit Speed-Gate + Core-Anforderung.
     # Besteht der Match die Validierung nicht, wird auf NN-Suche zurückgefallen statt
     # ein physikalisch unplausibler Treffer zu zählen (Merge-Inheritance-Schutz).
@@ -417,6 +453,10 @@ def _match_actual(obj: dict, target_objs: list, horizon_min: int
         d = _haversine_km(fc_lat, fc_lon, float(id_match["lat"]), float(id_match["lon"]))
         if _match_valid_b247(obj, id_match, horizon_min):
             return id_match, d, "id"
+        lineage_reason = _lineage_explains_match(obj, id_match) if id_match else None
+        if lineage_reason:
+            debug_log(f"[MATCH][B279] {oid}: Speed/Core-Gate verworfen, aber Lineage erklärt Match ({lineage_reason}) — akzeptiert")
+            return id_match, d, lineage_reason
         debug_log(
             f"[MATCH][B247] ID-Match {oid} verworfen: Speed/Core-Validierung fehlgeschlagen "
             f"(h={horizon_min}, match_dist={d:.1f} km) — NN-Fallback"
@@ -428,6 +468,10 @@ def _match_actual(obj: dict, target_objs: list, horizon_min: int
             d = _haversine_km(fc_lat, fc_lon, float(cell_match["lat"]), float(cell_match["lon"]))
             if _match_valid_b247(obj, cell_match, horizon_min):
                 return cell_match, d, "cell_id"
+            lineage_reason = _lineage_explains_match(obj, cell_match) if cell_match else None
+            if lineage_reason:
+                debug_log(f"[MATCH][B279] {cell_id}: Speed/Core-Gate verworfen, aber Lineage erklärt Match ({lineage_reason}) — akzeptiert")
+                return cell_match, d, lineage_reason
             debug_log(
                 f"[MATCH][B247] cell_id-Match {cell_id} verworfen: Speed/Core-Validierung fehlgeschlagen "
                 f"(h={horizon_min}) — NN-Fallback"
@@ -590,7 +634,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
     by_ts: Dict[datetime, str] = {t: f for f, t in fts}
 
     n_total = hits = verified = missed = no_target_frame = id_lost = nn_rejected = 0
-    _nn_threshold = _nn_max_match_km()
+    _nn_threshold = _nn_max_match_km(horizon_min)
     sum_km = sum_km2 = sum_abs_px = sum_sx2 = sum_sy2 = 0.0
     for fpath, ts in fts:
         if ts < cutoff:
