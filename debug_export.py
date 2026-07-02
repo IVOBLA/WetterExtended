@@ -56,6 +56,8 @@ _ALWAYS_INCLUDE_NAMES = {
     "forecast_error_diagnosis.json",
     "forecast_quality_diagnosis_latest.json",
     "forecast_quality_diagnosis_error.json",
+    "forecast_bias_status.json",
+    "radar_ingest_gaps.json",
     "config.py",
 }
 _EXCLUDED_NAMES = {".admin_password"}

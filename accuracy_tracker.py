@@ -950,6 +950,25 @@ def load_history(since_hours: int = 24 * 7) -> list:
     return out
 
 
+def verification_coverage_by_horizon(history: list, horizons: list) -> dict:
+    """P69: Anteil verifizierbarer (nicht no_target_frame) Forecasts je Horizont."""
+    out = {}
+    for h in horizons:
+        hk = str(int(h))
+        total = verified = 0
+        for rec in history:
+            modes = (rec.get("breakdown_by_forecast_mode") or {}).get(hk, {})
+            if not isinstance(modes, dict):
+                continue
+            for stats in modes.values():
+                if not isinstance(stats, dict):
+                    continue
+                total += int(stats.get("samples", 0) or 0) + int(stats.get("no_target_frame", 0) or 0)
+                verified += int(stats.get("verified", stats.get("samples", 0)) or 0)
+        out[hk] = round(verified / total, 4) if total else None
+    return out
+
+
 def ml_quality_series(history, horizons):
     """P54: Champion(Kinematik)- vs. Challenger(ML)-MAE je Horizont ueber die Zeit,
     aus breakdown_by_forecast_mode der Accuracy-History. Liefert

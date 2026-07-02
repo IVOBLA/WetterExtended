@@ -3637,3 +3637,14 @@ Faktor `CIRCUIT_BACKOFF_FACTOR`), Tages-Aussetzer nach `CIRCUIT_SUSPEND_AFTER_ST
 Folgefehlern (`suspended_until`), sauberer Reset bei Erfolg. Geblockte Versuche
 werden getrennt von echten HTTP-Requests gezählt.
 **Tests:** erweitert `tests/test_circuit_breaker.py`, `tests/test_b144_circuit_walltime.py`
+
+## P69 — ML-Transparenz konsolidiert in bestehenden Admin-Endpoints (2026-07-02)
+
+**Dateien:** `app.py`, `accuracy_tracker.py`, `debug_export.py`
+**Feature:** `/api/ml_quality` liefert zusätzlich `forecast_mode_counts`,
+`ml_usage_ratio`, `ml_gate_reasons`, `verification_coverage_by_horizon`.
+`/api/forecast_quality_diagnosis` liefert (via P68) bereits `bias_by_horizon`.
+KEIN neuer Endpoint — bewusste Entscheidung gegen Duplizierung bestehender
+Admin-Datenquellen. Statusdateien (`forecast_bias_status.json`,
+`radar_ingest_gaps.json`) im 24h-Debug-Export enthalten.
+**Tests:** `tests/test_p69_ml_transparency.py`, erweitert `tests/test_c1_dashboard_forecast_mode.py`
