@@ -982,7 +982,11 @@ def load_history(since_hours: int = 24 * 7) -> list:
 
 
 def verification_coverage_by_horizon(history: list, horizons: list) -> dict:
-    """P69: Anteil verifizierbarer (nicht no_target_frame) Forecasts je Horizont."""
+    """P69: Anteil verifizierbarer (nicht no_target_frame) Forecasts je Horizont.
+    B283-Fix: `samples` in breakdown_by_forecast_mode enthaelt bereits
+    no_target_frame (siehe _finish() in evaluate_for_horizon: total = samples +
+    no_target_frame VOR dem Persistieren). Hier NICHT erneut addieren, sonst
+    Doppelzaehlung und kuenstlich niedrige Coverage (z.B. 8/12 statt 8/10)."""
     out = {}
     for h in horizons:
         hk = str(int(h))
@@ -994,7 +998,7 @@ def verification_coverage_by_horizon(history: list, horizons: list) -> dict:
             for stats in modes.values():
                 if not isinstance(stats, dict):
                     continue
-                total += int(stats.get("samples", 0) or 0) + int(stats.get("no_target_frame", 0) or 0)
+                total += int(stats.get("samples", 0) or 0)
                 verified += int(stats.get("verified", stats.get("samples", 0)) or 0)
         out[hk] = round(verified / total, 4) if total else None
     return out
