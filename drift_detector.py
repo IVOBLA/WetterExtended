@@ -116,6 +116,7 @@ def check_drift() -> dict:
         "short_horizon_max_min": DRIFT_SHORT_HORIZON_MAX_MIN,
         "abs_threshold_km": DRIFT_MAE_ABS_MAX_KM,
         "quality_target_met": None,
+        "bias_by_horizon": {},
         "quality_status": "unknown",
         "quality_message": "Zu wenige Kurzhorizont-Messpunkte für Qualitätsziel-Auswertung.",
         "model_status": "unknown",
@@ -175,7 +176,8 @@ def check_drift() -> dict:
 
 
     try:
-        from forecast_error_diagnosis import build_forecast_error_diagnosis
+        from forecast_error_diagnosis import build_forecast_error_diagnosis, load_forecast_bias_status
+        result["bias_by_horizon"] = load_forecast_bias_status().get("bias_by_horizon", {})
         _diag = build_forecast_error_diagnosis(
             details_path=os.path.join(_EVAL_DIR, "forecast_error_details.jsonl"),
             accuracy_history_path=_HISTORY_FILE,

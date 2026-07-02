@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import statistics
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -249,6 +250,83 @@ def _confidence(n: int, strong: bool = False) -> float:
     return 0.85 if not strong else 0.92
 
 
+def compute_signed_bias_by_horizon(rows: list[dict], *, min_samples: int = 20) -> dict:
+    """P68: Signierte Bias-Metriken je Horizont aus forecast_error_details-Zeilen.
+
+    Nutzt ausschließlich bereits vorhandene Felder und trimmt p10-p90 vor der
+    Mittelwertbildung, damit einzelne Ausreißer den Bias nicht dominieren.
+    """
+    by_h: dict[str, list[dict]] = {}
+    for r in rows:
+        h = r.get("horizon_min")
+        if h is None:
+            continue
+        try:
+            by_h.setdefault(str(int(float(h))), []).append(r)
+        except (TypeError, ValueError):
+            continue
+
+    def _trimmed(values: list[float]) -> list[float]:
+        clean = [v for v in values if v is not None and math.isfinite(v)]
+        if len(clean) < 10:
+            return clean
+        lo, hi = _pct(clean, 10), _pct(clean, 90)
+        if lo is None or hi is None:
+            return clean
+        return [v for v in clean if lo <= v <= hi]
+
+    def _circular_diff_deg(actual: float, forecast: float) -> float:
+        return (actual - forecast + 180.0) % 360.0 - 180.0
+
+    out = {}
+    for h, group in by_h.items():
+        dlon = [float(r["actual_lon"]) - float(r["forecast_lon"]) for r in group
+                if _f(r.get("actual_lon")) is not None and _f(r.get("forecast_lon")) is not None]
+        dlat = [float(r["actual_lat"]) - float(r["forecast_lat"]) for r in group
+                if _f(r.get("actual_lat")) is not None and _f(r.get("forecast_lat")) is not None]
+        speed_err = [float(r["actual_speed_kmh"]) - float(r["forecast_speed_kmh"]) for r in group
+                     if _f(r.get("actual_speed_kmh")) is not None and _f(r.get("forecast_speed_kmh")) is not None]
+        dir_err = [_circular_diff_deg(float(r["actual_direction_deg"]), float(r["forecast_direction_deg"])) for r in group
+                   if _f(r.get("actual_direction_deg")) is not None and _f(r.get("forecast_direction_deg")) is not None]
+        n = len(group)
+        if n < min_samples:
+            out[h] = {"sample_count": n, "insufficient_data": True}
+            continue
+        dlon_t, dlat_t, speed_t, dir_t = map(_trimmed, (dlon, dlat, speed_err, dir_err))
+        out[h] = {
+            "sample_count": n,
+            "insufficient_data": False,
+            "mean_dlon_deg": round(statistics.mean(dlon_t), 6) if dlon_t else None,
+            "mean_dlat_deg": round(statistics.mean(dlat_t), 6) if dlat_t else None,
+            "mean_speed_error_kmh": round(statistics.mean(speed_t), 3) if speed_t else None,
+            "median_speed_error_kmh": round(statistics.median(speed_t), 3) if speed_t else None,
+            "mean_direction_error_deg": round(statistics.mean(dir_t), 3) if dir_t else None,
+        }
+    return out
+
+
+def write_forecast_bias_status(bias_by_horizon: dict, path: str | Path = "train_data/evaluation/forecast_bias_status.json") -> None:
+    """P68: Persistiert die Bias-Metriken für Runtime-Korrektur und Admin-Anzeige."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"computed_at_utc": _now(), "bias_by_horizon": bias_by_horizon}, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, p)
+
+
+def load_forecast_bias_status(path: str | Path = "train_data/evaluation/forecast_bias_status.json") -> dict:
+    p = Path(path)
+    if not p.exists():
+        return {"bias_by_horizon": {}}
+    try:
+        with open(p, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {"bias_by_horizon": {}}
+    except Exception:
+        return {"bias_by_horizon": {}}
+
+
 def build_forecast_error_diagnosis(*, details_path: str | Path = DETAILS_FILE, accuracy_history_path: str | Path = HISTORY_FILE, hours: int = 24) -> dict:
     details_path = Path(details_path); history_path = Path(accuracy_history_path)
     base = {
@@ -265,6 +343,9 @@ def build_forecast_error_diagnosis(*, details_path: str | Path = DETAILS_FILE, a
     all_details = _read_jsonl(details_path, hours, ("verified_at_utc", "target_timestamp_utc", "forecast_created_at_utc"))
     valid_before_dedup, invalid_detail_counts, invalid_examples = _filter_valid_details(all_details)
     details, duplicates_removed = _dedupe_details(valid_before_dedup)
+    bias_by_horizon = compute_signed_bias_by_horizon(details)
+    write_forecast_bias_status(bias_by_horizon)
+    base["bias_by_horizon"] = bias_by_horizon
     history = _read_jsonl(history_path, hours, ("timestamp_utc",)) if history_path.exists() else []
     base["invalid_detail_counts"] = invalid_detail_counts
     base["invalid_detail_examples"] = invalid_examples

@@ -2788,3 +2788,11 @@ Die Angabe in Klammern zeigt die berechnete Änderung und das verwendete Verglei
 Wenn die bestehende Hydro-Flood-Risk-Auswertung für einen Pegel eine Hochwassergefahr meldet, wird der normale Pegel-Kreis in der Karte durch ein rotes Warnsymbol ersetzt. Das Symbol zeigt einen roten Warnkreis mit Rufzeichen und Wellen und markiert damit denselben Pegel-Punkt ohne zusätzlichen Doppelmarker.
 
 Die Anzeige basiert ausschließlich auf der vorhandenen Hydro-Flood-Risk-Auswertung im Cache. Beim Anzeigen der Karte werden dafür keine zusätzlichen Datenquellen abgefragt und keine Flood-Risk-Werte neu berechnet.
+
+### Bias-Diagnose (P68)
+
+Im Admin-Panel unter Genauigkeit/Accuracy wird zusätzlich zur mittleren Abweichung
+(MAE) je Vorhersagehorizont der **signierte Versatz** angezeigt: ob die Vorhersage
+im Mittel zu langsam/schnell oder in eine bestimmte Richtung verschoben ist (Ost/West,
+Nord/Süd). Optional kann in der Konfiguration eine automatische, begrenzte Korrektur
+des kinematischen Fallbacks aktiviert werden, sobald genug Messdaten vorliegen.

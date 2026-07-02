@@ -65,6 +65,10 @@ from config import (
     STEERING_BLEND_MIN_ANGLE_DEG as _STATIC_STEERING_BLEND_MIN_ANGLE_DEG,
     STEERING_BLEND_WEIGHT as _STATIC_STEERING_BLEND_WEIGHT,
     STEERING_BLEND_MIN_WIND_KMH as _STATIC_STEERING_BLEND_MIN_WIND_KMH,
+    FORECAST_BIAS_CORRECTION_ENABLED as _STATIC_BIAS_CORRECTION_ENABLED,
+    FORECAST_BIAS_MIN_SAMPLES as _STATIC_BIAS_MIN_SAMPLES,
+    FORECAST_BIAS_MAX_OFFSET_KM as _STATIC_BIAS_MAX_OFFSET_KM,
+    FORECAST_BIAS_MAX_SPEED_FACTOR as _STATIC_BIAS_MAX_SPEED_FACTOR,
 )
 
 try:
@@ -101,6 +105,20 @@ def _runtime_int_value(name: str, default: int) -> int:
         return int(_runtime_cfg.get(name, default) if _runtime_cfg else default)
     except Exception:
         return int(default)
+
+
+def _apply_bias_correction(lat, lon, horizon_min):
+    """P68: Begrenzte, datenbasierte Korrektur des kinematischen Fallbacks."""
+    if not _runtime_bool_value("FORECAST_BIAS_CORRECTION_ENABLED", _STATIC_BIAS_CORRECTION_ENABLED):
+        return lat, lon
+    from forecast_error_diagnosis import load_forecast_bias_status
+    bias = load_forecast_bias_status().get("bias_by_horizon", {}).get(str(int(horizon_min)))
+    if not bias or bias.get("insufficient_data") or bias.get("sample_count", 0) < _STATIC_BIAS_MIN_SAMPLES:
+        return lat, lon
+    max_offset_deg = _STATIC_BIAS_MAX_OFFSET_KM / 111.0  # grobe km->deg Näherung
+    dlon = max(-max_offset_deg, min(max_offset_deg, bias.get("mean_dlon_deg") or 0.0))
+    dlat = max(-max_offset_deg, min(max_offset_deg, bias.get("mean_dlat_deg") or 0.0))
+    return lat + dlat, lon + dlon
 
 
 def _forecast_bbox_with_tolerance() -> dict:
@@ -626,9 +644,10 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
     # werden nicht mehr überprojiziert. Auf [0.1, 1.0] geklammert; 1.0 = neutral.
     try:
         _spd_factor = float(obj.get("forecast_speed_factor", 1.0) or 1.0)
+        debug_log(f"[PREDICT][P68] orographic forecast_speed_factor={_spd_factor:.3f} obj={obj.get('id')}")
     except (TypeError, ValueError):
         _spd_factor = 1.0
-    _spd_factor = max(0.1, min(1.0, _spd_factor))
+    _spd_factor = max(0.1, min(1.0, min(_STATIC_BIAS_MAX_SPEED_FACTOR, _spd_factor)))
     if _spd_factor < 1.0:
         avg_vx *= _spd_factor
         avg_vy *= _spd_factor
@@ -676,6 +695,7 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
                 lon = base_lon + _dlon
         else:
             lat, lon = pixel_to_geo(x_pred, y_pred)
+        lat, lon = _apply_bias_correction(lat, lon, horizon)
         obj[f"forecast_x_{horizon}"]   = float(x_pred)
         obj[f"forecast_y_{horizon}"]   = float(y_pred)
         obj[f"forecast_lat_{horizon}"] = float(lat)

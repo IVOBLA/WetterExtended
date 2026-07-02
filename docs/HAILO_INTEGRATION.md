@@ -3579,3 +3579,14 @@ fehlenden Realdaten. `/api/ml_quality` zeigt Baseline-Quelle und letzten
 Promotion-Entscheid.
 **Tests:** `tests/test_b277_unified_kinematic_baseline.py`, erweitert:
 `tests/test_b243_baseline_gate.py`, `tests/test_c1_dashboard_forecast_mode.py`
+
+## P68 — Signierter Forecast-Bias: Messung, Anzeige, optionale Korrektur (2026-07-02)
+
+**Dateien:** `forecast_error_diagnosis.py`, `prediction.py`, `orographic_module.py`, `drift_detector.py`, `config.py`, `app.py`
+**Feature:** Signierte Bias-Metriken (dLon/dLat/Speed/Richtung) werden je Horizont
+aus vorhandenen `forecast_error_details.jsonl`-Rohdaten berechnet (p10-p90-getrimmt),
+in `train_data/evaluation/forecast_bias_status.json` persistiert und im Admin-Panel
+angezeigt. Optionale, hart begrenzte Bias-Korrektur des kinematischen Fallbacks
+(`FORECAST_BIAS_CORRECTION_ENABLED`, default aus). Ändert NICHT die Qualitätsziele
+aus der Zieldefinition (<1 km / ≤30 Min bleibt unverändert).
+**Tests:** `tests/test_p68_bias_metrics.py`
