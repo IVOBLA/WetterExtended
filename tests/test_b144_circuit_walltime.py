@@ -40,3 +40,10 @@ def test_future_cooldown_stays_open_after_reload(tmp_path, monkeypatch):
     import api_circuit_breaker
     cb2 = importlib.reload(api_circuit_breaker)
     assert cb2.is_open("svc") is True
+
+
+def test_no_request_during_cooldown_or_suspension(tmp_path, monkeypatch):
+    cb = _fresh(tmp_path, monkeypatch)
+    svc = "test_service_walltime"
+    cb.open_circuit(svc, 3600, "test")
+    assert cb.is_open(svc) is True

@@ -147,6 +147,8 @@ def retry_get(
     # B149: Circuit-Breaker zentral. Ist der Service offen, gar nicht erst senden.
     if breaker_service and api_circuit_breaker and api_circuit_breaker.is_open(breaker_service):
         debug_log(f"[{service}] Circuit offen ({breaker_service}) — Request übersprungen")
+        if api_budget_guard is not None:
+            api_budget_guard.record_blocked_by_circuit(service)
         raise CircuitOpenError(f"circuit open: {breaker_service}")
 
     # 1E: Budget-Guard zentral. Ist das Tagesbudget der Gruppe erschöpft, gar nicht senden.

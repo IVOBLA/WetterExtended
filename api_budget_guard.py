@@ -77,8 +77,9 @@ def _budgets() -> dict:
 def _reset_if_new_day(state: dict) -> dict:
     today = _today()
     if not isinstance(state, dict) or state.get("date") != today:
-        state = {"date": today, "counts": {}}
+        state = {"date": today, "counts": {}, "blocked_by_circuit": {}}
     state.setdefault("counts", {})
+    state.setdefault("blocked_by_circuit", {})
     return state
 
 
@@ -140,12 +141,46 @@ def record_request(service: str) -> None:
         debug_log(f"[BUDGET] record_request fehlgeschlagen ({service}): {exc}")
 
 
+
+def record_blocked_by_circuit(service: str) -> None:
+    """Zaehlt einen vom Circuit-Breaker geblockten Versuch getrennt von echten Requests."""
+    grp = group_for(service)
+    try:
+        os.makedirs(os.path.dirname(_BUDGET_FILE) or ".", exist_ok=True)
+        if not os.path.exists(_BUDGET_FILE):
+            with open(_BUDGET_FILE, "w", encoding="utf-8") as _f0:
+                _f0.write("")
+        with open(_BUDGET_FILE, "r+", encoding="utf-8") as fh:
+            if fcntl is not None:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            try:
+                try:
+                    fh.seek(0)
+                    raw = fh.read()
+                    state = json.loads(raw) if raw.strip() else {}
+                except Exception:
+                    state = {}
+                state = _reset_if_new_day(state)
+                blocked = state.setdefault("blocked_by_circuit", {})
+                blocked[grp] = int(blocked.get(grp, 0)) + 1
+                fh.seek(0)
+                fh.truncate()
+                fh.write(json.dumps(state, ensure_ascii=False))
+                fh.flush()
+                os.fsync(fh.fileno())
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    except Exception as exc:
+        debug_log(f"[BUDGET] record_blocked_by_circuit fehlgeschlagen ({service}): {exc}")
+
 def snapshot() -> dict:
     """Zustand fuer Dashboard/Logs/Endpoint: je Gruppe count/budget/remaining/over."""
     state = _load_state()
     budgets = _budgets()
     counts = state.get("counts", {})
-    groups = set(counts) | set(budgets)
+    blocked = state.get("blocked_by_circuit", {})
+    groups = set(counts) | set(blocked) | set(budgets)
     out = {}
     for grp in sorted(groups):
         cnt = int(counts.get(grp, 0))
@@ -159,5 +194,6 @@ def snapshot() -> dict:
             "budget": lim,
             "remaining": (max(0, lim - cnt) if lim and lim > 0 else None),
             "over": bool(lim and lim > 0 and cnt >= lim),
+            "blocked_by_circuit_total": int(blocked.get(grp, 0)),
         }
     return {"date": state.get("date"), "groups": out}
