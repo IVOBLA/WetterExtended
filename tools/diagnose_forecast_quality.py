@@ -116,29 +116,41 @@ def _model_usage_from_accuracy_history(rows: list[dict]) -> dict:
     if not rows:
         return {"status": "not_available"}
 
-    by_horizon = {}
-    usable = 0
-    total_samples = 0
+    # B294: Pro Horizont die JÜNGSTE Zeile mit samples>0 behalten, statt bei
+    # jeder Zeile zu überschreiben (sonst gewinnt die letzte, evtl. leere
+    # 0-Sample-Zeile aus einer Schönwetter-Flaute). total_samples wird
+    # konsistent aus genau diesen ausgewählten Einträgen summiert.
+    def _row_ts(r):
+        return _parse_ts(r.get("timestamp_utc")) or datetime.min.replace(tzinfo=timezone.utc)
+
+    best_by_horizon: dict[str, dict] = {}
+    best_ts_by_horizon: dict[str, datetime] = {}
     for row in rows:
         horizon = row.get("horizon")
         if horizon is None:
             continue
         samples = int(_f(row.get("samples")) or 0)
-        mae = _f(row.get("mae_km"))
-        hit_rate = _f(row.get("hit_rate"))
-        item = {"samples": samples, "mae_km": mae, "hit_rate": hit_rate}
-        by_horizon[str(horizon)] = item
-        total_samples += samples
-        if samples > 0 or mae is not None or hit_rate is not None:
-            usable += 1
+        if samples <= 0:
+            continue
+        hk = str(horizon)
+        ts = _row_ts(row)
+        if hk not in best_ts_by_horizon or ts >= best_ts_by_horizon[hk]:
+            best_ts_by_horizon[hk] = ts
+            best_by_horizon[hk] = {
+                "samples": samples,
+                "mae_km": _f(row.get("mae_km")),
+                "hit_rate": _f(row.get("hit_rate")),
+            }
 
-    if not by_horizon or usable == 0:
+    if not best_by_horizon:
         return {"status": "not_available"}
+
+    total_samples = sum(item["samples"] for item in best_by_horizon.values())
     return {
         "status": "available",
-        "horizon_count": len(by_horizon),
+        "horizon_count": len(best_by_horizon),
         "total_samples": total_samples,
-        "by_horizon": by_horizon,
+        "by_horizon": best_by_horizon,
     }
 
 def _ratio(rows, pred):
