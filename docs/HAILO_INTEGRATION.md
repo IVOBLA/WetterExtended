@@ -3852,3 +3852,18 @@ erledigt (P71). Zusammen mit B293/B294 (Diagnose-Korrektheit) und B292
 verifizierten Punkte abgeschlossen. NICHT umgesetzt (bewusst, da bereits im
 Code vorhanden): ML-Baseline-Gate (bereits via B277 aktiv, ML-Anteil real von
 13% auf 2,5% gefallen).
+
+### B293 — Diagnose-Kopf-Status ehrlich (insufficient_data bei kleiner Stichprobe) ✅ erledigt
+
+**Dateien:** `tools/diagnose_forecast_quality.py`, `config.py`
+**Problem (verifiziert an echtem Export):** status="ok" fest verdrahtet; bei nur
+3 verifizierten Samples + hoher Missing-Ratio verdeckte der Kopf-Status das reale
+Genauigkeitsproblem.
+**Fix:** status wird aus verified_forecasts (< DIAGNOSIS_MIN_VERIFIED_FORECASTS)
+und Missing-Target-Ratio (> DIAGNOSIS_MAX_MISSING_TARGET_RATIO) abgeleitet →
+"insufficient_data", inkl. Hinweis in important_findings/recommendations.
+**Tests:** `tests/test_b293_diagnosis_status.py`
+
+**Phasenstatus Diagnose/Forecast-Quality:** Status-Gating erledigt (B293),
+Aggregation erledigt (B294). Damit ist die Kern-Korrektheit der lokalen
+24h-Diagnose (Status + model_usage) abgeschlossen.

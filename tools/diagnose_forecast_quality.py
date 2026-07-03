@@ -10,6 +10,15 @@ import sys
 import traceback
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+try:
+    from config import (
+        DIAGNOSIS_MIN_VERIFIED_FORECASTS as _DIAG_MIN_VERIFIED,
+        DIAGNOSIS_MAX_MISSING_TARGET_RATIO as _DIAG_MAX_MISSING_RATIO,
+    )
+except Exception:
+    _DIAG_MIN_VERIFIED = 30
+    _DIAG_MAX_MISSING_RATIO = 0.4
 from typing import Any
 
 REPO = Path(__file__).resolve().parent.parent
@@ -244,9 +253,21 @@ def build_diagnosis(base_dir: Path, hours: int, evaluation_dir: Path | None = No
         recs.append("Pixel→Geo/BBOX/Crop-Upscale-Kette anhand der Verdachtsfälle prüfen.")
     if missing_target:
         recs.append("Radarframe-Coverage und Verifikationstoleranz im Exportfenster prüfen.")
+    # B293: Status ehrlich aus Stichprobengröße + Coverage ableiten statt fest "ok".
+    _missing_ratio = round(missing_target / len(details), 4) if details else None
+    if len(verified) < _DIAG_MIN_VERIFIED or (_missing_ratio is not None and _missing_ratio > _DIAG_MAX_MISSING_RATIO):
+        _status = "insufficient_data"
+        findings.insert(0, (
+            f"Geringe Aussagekraft: nur {len(verified)} verifizierte Forecasts"
+            f"{f', Missing-Target-Ratio {_missing_ratio}' if _missing_ratio is not None else ''}."
+        ))
+        if "Datenlage vor Interpretation prüfen (Flaute/geringe Coverage)." not in recs:
+            recs.insert(0, "Datenlage vor Interpretation prüfen (Flaute/geringe Coverage).")
+    else:
+        _status = "ok"
     return {
         "schema": 1,
-        "status": "ok",
+        "status": _status,
         "checked_at_utc": utc_now_z(),
         "hours": hours,
         "sample_counts": {"forecast_error_details": len(details), "verified_forecasts": len(verified), "ir_lead_time_labels": len(label_rows)},
