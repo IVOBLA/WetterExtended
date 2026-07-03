@@ -1311,3 +1311,10 @@ QUALITY_TARGET_MAE_KM_FIXED = {
 QUALITY_TARGET_MAE_KM_CONFIGURABLE_DEFAULT = {
     "40": 1.5, "60": 2.0,
 }
+
+# --- B292: Steering-Seed für brandneue Zellen ohne Bewegungshistorie ---
+# Anteil des 700/500-hPa-Steuerstroms, der als initiale Zuggeschwindigkeit
+# angesetzt wird, wenn eine Zelle im ersten Frame (kalman_only) sonst 0 km/h
+# prognostiziert bekaeme. Konvektive Zellen ziehen typisch mit ~50-70% des
+# Steuerstroms; konservativer Default 0.6.
+STEERING_NEW_CELL_SPEED_FRAC = 0.6

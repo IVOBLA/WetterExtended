@@ -65,6 +65,7 @@ from config import (
     STEERING_BLEND_MIN_ANGLE_DEG as _STATIC_STEERING_BLEND_MIN_ANGLE_DEG,
     STEERING_BLEND_WEIGHT as _STATIC_STEERING_BLEND_WEIGHT,
     STEERING_BLEND_MIN_WIND_KMH as _STATIC_STEERING_BLEND_MIN_WIND_KMH,
+    STEERING_NEW_CELL_SPEED_FRAC as _STATIC_STEERING_NEW_CELL_SPEED_FRAC,
     FORECAST_BIAS_CORRECTION_ENABLED as _STATIC_BIAS_CORRECTION_ENABLED,
     FORECAST_BIAS_MIN_SAMPLES as _STATIC_BIAS_MIN_SAMPLES,
     FORECAST_BIAS_MAX_OFFSET_KM as _STATIC_BIAS_MAX_OFFSET_KM,
@@ -607,19 +608,41 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
             )
             if _blend_enabled and _weak_motion_basis and _angle_diff > _min_angle:
                 _orig_speed = (avg_vx ** 2 + avg_vy ** 2) ** 0.5
-                _steer_vx, _steer_vy = _vxy_from_motion_dir_speed(
-                    _steering["direction_to_deg"],
-                    normierter_speed=_orig_speed,
-                )
-                avg_vx = (1.0 - _weight) * avg_vx + _weight * _steer_vx
-                avg_vy = (1.0 - _weight) * avg_vy + _weight * _steer_vy
-                _new_speed = (avg_vx ** 2 + avg_vy ** 2) ** 0.5
-                if _orig_speed > 0.0 and _new_speed > _orig_speed:
-                    _scale = _orig_speed / _new_speed
-                    avg_vx *= _scale
-                    avg_vy *= _scale
-                obj["steering_blend_applied"] = 1
-                src = f"{src}+steering"
+                # B292: Brandneue Zelle (kalman_only) ohne Bewegungshistorie ->
+                # _orig_speed==0. Der bisherige Blend skalierte den Steering-Vektor
+                # auf 0 zurueck => unphysikalische Stillstands-Prognose, obwohl die
+                # Zelle real mit dem Steuerstrom zieht. In diesem Fall den
+                # Steering-Wind mit konfigurierbarem Daempfungsfaktor direkt als
+                # Bewegung ansetzen (Richtung UND Geschwindigkeit).
+                # WICHTIG: _vxy_from_motion_dir_speed(..., speed_kmh=...) rechnet
+                # km/h SELBST in px/min um (UF/60) — KEINE zweite Umrechnung!
+                if _orig_speed <= 0.0 and src == "kalman_only" and _steering.get("speed_kmh"):
+                    _new_cell_frac = float(
+                        _runtime_cfg.get("STEERING_NEW_CELL_SPEED_FRAC", _STATIC_STEERING_NEW_CELL_SPEED_FRAC)
+                        if _runtime_cfg else _STATIC_STEERING_NEW_CELL_SPEED_FRAC
+                    )
+                    _new_cell_frac = max(0.0, min(1.0, _new_cell_frac))
+                    _seed_speed_kmh = float(_steering["speed_kmh"]) * _new_cell_frac
+                    avg_vx, avg_vy = _vxy_from_motion_dir_speed(
+                        _steering["direction_to_deg"], speed_kmh=_seed_speed_kmh
+                    )
+                    obj["steering_blend_applied"] = 1
+                    obj["steering_new_cell_seed"] = 1
+                    src = f"{src}+steering_seed"
+                else:
+                    _steer_vx, _steer_vy = _vxy_from_motion_dir_speed(
+                        _steering["direction_to_deg"],
+                        normierter_speed=_orig_speed,
+                    )
+                    avg_vx = (1.0 - _weight) * avg_vx + _weight * _steer_vx
+                    avg_vy = (1.0 - _weight) * avg_vy + _weight * _steer_vy
+                    _new_speed = (avg_vx ** 2 + avg_vy ** 2) ** 0.5
+                    if _orig_speed > 0.0 and _new_speed > _orig_speed:
+                        _scale = _orig_speed / _new_speed
+                        avg_vx *= _scale
+                        avg_vy *= _scale
+                    obj["steering_blend_applied"] = 1
+                    src = f"{src}+steering"
 
     # B219: Geschwindigkeits-Cap UNBEDINGT durchsetzen (vorher nur im Steering-
     # Blend-Zweig). Der optische-Fluss-/EWMA-/Kalman-Pfad lief ungeklemmt in die

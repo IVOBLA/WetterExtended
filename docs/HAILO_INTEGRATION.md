@@ -3817,3 +3817,20 @@ diesen Einträgen.
 **Phasenstatus Diagnose/Forecast-Quality:** Aggregations- und Statuskorrektheit
 der lokalen 24h-Diagnose in Arbeit — B294 (model_usage) erledigt; offen:
 B293 (Status-Gating bei kleiner Stichprobe).
+
+### B292 — Stillstands-Prognose bei brandneuer Zelle vermieden (Steering-Seed) ✅ erledigt
+
+**Dateien:** `prediction.py`, `config.py`
+**Datenbefund (echter Export):** Nur 15 von 5707 Forecasts waren echte
+Stillstaende (forecast_speed=0), alle kalman_only am Track-Anfang; der
+EWMA/Kalman-Fallback deckt bereits 402/417 prev_radar_missing-Faelle ab.
+**Fix:** Bei kalman_only mit Nullgeschwindigkeit und vorhandenem Steuerstrom
+wird der 700/500-hPa-Wind mit STEERING_NEW_CELL_SPEED_FRAC (default 0.6) als
+initiale Zuggeschwindigkeit angesetzt statt 0. Geschwindigkeits-Cap (B219)
+begrenzt weiterhin. Keine Doppel-Einheitenumrechnung (verifiziert).
+**Tests:** `tests/test_b292_new_cell_steering_seed.py`
+
+**Phasenstatus Kurzhorizont-Genauigkeit:** Stillstands-Rest-Fall (B292)
+erledigt. Offen bleibt die generelle Reduktion des Richtungsfehlers
+(Median h10 ~54 Grad) — bewusst NICHT als Blind-Fix, sondern datengetrieben mit
+echten Bewegungsdaten separat anzugehen (siehe Report-Prompt 1).
