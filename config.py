@@ -1325,3 +1325,6 @@ STEERING_NEW_CELL_SPEED_FRAC = 0.6
 DRIFT_DIRECTION_P90_MAX_DEG = 90.0      # p90-Richtungsfehler-Alarmschwelle
 DRIFT_SPEED_P90_MAX_KMH = 30.0          # p90-Geschwindigkeitsfehler-Alarmschwelle
 DRIFT_DIRECTION_SPEED_MIN_POINTS = 20   # Mindest-Samples je Horizont fuer Auswertung
+# --- B293: Diagnose-Status-Gating bei kleiner Stichprobe ---
+DIAGNOSIS_MIN_VERIFIED_FORECASTS = 30      # darunter: insufficient_data
+DIAGNOSIS_MAX_MISSING_TARGET_RATIO = 0.4   # darüber: insufficient_data
