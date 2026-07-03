@@ -3802,3 +3802,18 @@ seit B283 korrekt.
 **Status:** Reine Testkorrektur, keine Phase betroffen. Zusammen mit B289/B290
 sind damit alle bekannten Test-Nachwirkungen aus B278/B283/B284/P69
 bereinigt.
+
+### B294 — _model_usage_from_accuracy_history: Aggregationsbug behoben ✅ erledigt
+
+**Datei:** `tools/diagnose_forecast_quality.py`
+**Problem (verifiziert an echtem Export):** by_horizon wurde pro Zeile
+überschrieben, die letzte 0-Sample-Zeile (Schönwetter-Flaute) gewann, während
+total_samples über alle Zeilen summiert wurde → total_samples=66970 bei allen
+Horizonten samples=0.
+**Fix:** Pro Horizont jüngste Zeile mit samples>0; total_samples konsistent aus
+diesen Einträgen.
+**Tests:** `tests/test_b294_model_usage_aggregation.py`
+
+**Phasenstatus Diagnose/Forecast-Quality:** Aggregations- und Statuskorrektheit
+der lokalen 24h-Diagnose in Arbeit — B294 (model_usage) erledigt; offen:
+B293 (Status-Gating bei kleiner Stichprobe).
