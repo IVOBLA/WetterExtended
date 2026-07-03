@@ -19,6 +19,13 @@ export default function Accuracy() {
 
   const horizons = data.current.horizons.map(h => h.horizon)
   const tolKm = data.current.tolerance_km
+  const driftStatus = data.drift_status || {}
+  const directionDrift = driftStatus.direction_drift_by_horizon || {}
+  const speedDrift = driftStatus.speed_drift_by_horizon || {}
+  const driftHorizons = Array.from(new Set([...Object.keys(directionDrift), ...Object.keys(speedDrift)]))
+    .sort((a, b) => Number(a) - Number(b))
+  const directionAlarm = driftStatus.direction_drift_alarm === true
+  const speedAlarm = driftStatus.speed_drift_alarm === true
 
   const seriesKm = data.history.map((rec, i) => {
     const row = { idx: i + 1 }
@@ -140,6 +147,55 @@ export default function Accuracy() {
             ))}
             {!Object.keys(qualityDiagnosis.bias_by_horizon || {}).length && (
               <tr><td className="p-1 text-gray-500" colSpan="6">Keine Bias-Daten vorhanden.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+
+      <div className="card mb-4">
+        <h3 className="text-lg font-medium mb-2">Richtungs-/Geschwindigkeits-Drift</h3>
+        <p className="text-xs text-gray-500 mb-2">
+          Eigenständige Kurzhorizont-Prüfung der Zugbahn: Rot, wenn der p90-Richtungs- oder p90-Geschwindigkeitsfehler bei ausreichenden Samples über dem konfigurierten Schwellwert liegt.
+        </p>
+        <div className="grid md:grid-cols-2 gap-3 mb-3 text-sm">
+          <div className={`rounded border p-3 ${directionAlarm ? 'bg-red-100 border-red-300 text-red-900' : 'bg-green-100 border-green-300 text-green-900'}`}>
+            <div className="font-semibold">{directionAlarm ? '🔴 Richtungs-Drift' : '🟢 Richtung unauffällig'}</div>
+            <div>p90-Schwelle: {Object.values(directionDrift)[0]?.threshold_deg ?? '—'}°</div>
+          </div>
+          <div className={`rounded border p-3 ${speedAlarm ? 'bg-red-100 border-red-300 text-red-900' : 'bg-green-100 border-green-300 text-green-900'}`}>
+            <div className="font-semibold">{speedAlarm ? '🔴 Geschwindigkeits-Drift' : '🟢 Geschwindigkeit unauffällig'}</div>
+            <div>p90-Schwelle: {Object.values(speedDrift)[0]?.threshold_kmh ?? '—'} km/h</div>
+          </div>
+        </div>
+        <table className="w-full text-sm">
+          <thead><tr className="border-b text-xs">
+            <th className="text-left p-1">Horizont</th>
+            <th className="text-left p-1">Richtung Median</th>
+            <th className="text-left p-1">Richtung p90</th>
+            <th className="text-left p-1">Richtung Samples</th>
+            <th className="text-left p-1">Speed Median</th>
+            <th className="text-left p-1">Speed p90</th>
+            <th className="text-left p-1">Speed Samples</th>
+          </tr></thead>
+          <tbody>
+            {driftHorizons.map(h => {
+              const dir = directionDrift[h] || {}
+              const spd = speedDrift[h] || {}
+              return (
+                <tr key={h} className="border-b">
+                  <td className="p-1">+{h} min</td>
+                  <td className="p-1">{dir.median_deg?.toFixed?.(1) ?? '—'}°</td>
+                  <td className="p-1">{dir.p90_deg?.toFixed?.(1) ?? '—'}°</td>
+                  <td className="p-1">{dir.samples ?? '—'}</td>
+                  <td className="p-1">{spd.median_kmh?.toFixed?.(1) ?? '—'} km/h</td>
+                  <td className="p-1">{spd.p90_kmh?.toFixed?.(1) ?? '—'} km/h</td>
+                  <td className="p-1">{spd.samples ?? '—'}</td>
+                </tr>
+              )
+            })}
+            {!driftHorizons.length && (
+              <tr><td className="p-1 text-gray-500" colSpan="7">Keine Richtungs-/Geschwindigkeits-Drift-Daten vorhanden.</td></tr>
             )}
           </tbody>
         </table>

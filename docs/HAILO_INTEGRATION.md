@@ -3834,3 +3834,21 @@ begrenzt weiterhin. Keine Doppel-Einheitenumrechnung (verifiziert).
 erledigt. Offen bleibt die generelle Reduktion des Richtungsfehlers
 (Median h10 ~54 Grad) — bewusst NICHT als Blind-Fix, sondern datengetrieben mit
 echten Bewegungsdaten separat anzugehen (siehe Report-Prompt 1).
+
+### P71 — Richtungs-/Geschwindigkeitsfehler als eigenstaendige Drift-Kennzahl ✅ erledigt
+
+**Dateien:** `config.py`, `drift_detector.py`, `runtime_config.py`, `app.py`
+**Datenbefund (echter Export):** Median-Richtungsfehler h10 ~54 Grad ist die
+Kernursache der Positions-Drift, ging aber in der Positions-MAE unter.
+**Feature:** check_drift() wertet direction_stats_by_horizon /
+speed_stats_by_horizon (juengste Zeile mit genug Samples, Kurzhorizonte) aus,
+alarmiert bei Ueberschreitung admin-editierbarer p90-Schwellwerte
+(DRIFT_DIRECTION_P90_MAX_DEG / DRIFT_SPEED_P90_MAX_KMH), zeigt sie im Admin-Panel.
+**Tests:** `tests/test_p71_direction_speed_drift.py`
+
+**Phasenstatus Drift-/Qualitaets-Diagnose:** Richtungs-/Speed-Drift-Kennzahl
+erledigt (P71). Zusammen mit B293/B294 (Diagnose-Korrektheit) und B292
+(Stillstands-Rest-Fall) sind die aus dem 03.07.-Analyse-Report abgeleiteten,
+verifizierten Punkte abgeschlossen. NICHT umgesetzt (bewusst, da bereits im
+Code vorhanden): ML-Baseline-Gate (bereits via B277 aktiv, ML-Anteil real von
+13% auf 2,5% gefallen).

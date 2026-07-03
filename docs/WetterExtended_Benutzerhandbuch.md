@@ -2814,3 +2814,15 @@ Abweichung (MAE) je Vorhersagehorizont sichtbar. Für die Horizonte 10, 20 und
 (Produktionsziel). Für die Horizonte 40 und 60 Minuten können eigene Zielwerte
 festgelegt werden, da hierfür keine feste Vorgabe besteht. Der Diagnosebereich
 zeigt an, welcher Horizont aktuell das jeweilige Ziel verfehlt.
+
+### Richtungs- und Geschwindigkeits-Drift (P71)
+
+Zusätzlich zur mittleren Positionsabweichung (MAE) überwacht das System nun den
+Richtungs- und den Geschwindigkeitsfehler der Zugbahn-Vorhersage als eigene
+Kennzahlen. Für die kurzen Vorhersagehorizonte (bis 30 Minuten) werden
+Median und 90-Prozent-Wert je Horizont angezeigt. Überschreitet der
+90-Prozent-Wert einen einstellbaren Schwellwert (Richtung standardmäßig 90 Grad,
+Geschwindigkeit 30 km/h), schlägt das Admin-Panel Alarm. So wird sichtbar, ob
+eine schlechte Trefferquote von einer falschen Zugrichtung oder einer falschen
+Zuggeschwindigkeit herrührt. Die Schwellwerte sind in der Konfiguration
+anpassbar.

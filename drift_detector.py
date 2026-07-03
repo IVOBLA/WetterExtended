@@ -17,7 +17,14 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from config import SAVE_PATHS, QUALITY_TARGET_MAE_KM_CONFIGURABLE_DEFAULT, QUALITY_TARGET_MAE_KM_FIXED
+from config import (
+    SAVE_PATHS,
+    QUALITY_TARGET_MAE_KM_CONFIGURABLE_DEFAULT,
+    QUALITY_TARGET_MAE_KM_FIXED,
+    DRIFT_DIRECTION_P90_MAX_DEG,
+    DRIFT_SPEED_P90_MAX_KMH,
+    DRIFT_DIRECTION_SPEED_MIN_POINTS,
+)
 import runtime_config as _runtime_cfg
 from debug_utils import debug_log
 from utils import utc_iso_z
@@ -45,6 +52,28 @@ def _horizon_is_fixed_target(horizon_key: str) -> bool:
         return int(horizon_key) <= 30
     except (TypeError, ValueError):
         return False
+
+
+def _runtime_float(key: str, default: float) -> float:
+    try:
+        if _runtime_cfg is not None:
+            value = _runtime_cfg.get(key, default)
+            if value is not None:
+                return float(value)
+    except Exception as exc:
+        debug_log(f"[DRIFT] Runtime-Float {key} nicht lesbar: {exc}")
+    return float(default)
+
+
+def _runtime_int(key: str, default: int) -> int:
+    try:
+        if _runtime_cfg is not None:
+            value = _runtime_cfg.get(key, default)
+            if value is not None:
+                return int(value)
+    except Exception as exc:
+        debug_log(f"[DRIFT] Runtime-Int {key} nicht lesbar: {exc}")
+    return int(default)
 
 
 def _quality_target_for_horizon(horizon_key: str) -> float:
@@ -231,6 +260,60 @@ def check_drift() -> dict:
             else:
                 result["quality_message"] = "Qualitätsziel erreicht."
 
+
+    # P71: Richtungs-/Geschwindigkeitsfehler als eigenstaendige Drift-Kennzahl.
+    # Quelle: direction_stats_by_horizon / speed_stats_by_horizon aus der
+    # juengsten accuracy_history-Zeile mit ausreichenden Samples auf Kurzhorizonten.
+    try:
+        _dir_thr = _runtime_float("DRIFT_DIRECTION_P90_MAX_DEG", DRIFT_DIRECTION_P90_MAX_DEG)
+        _spd_thr = _runtime_float("DRIFT_SPEED_P90_MAX_KMH", DRIFT_SPEED_P90_MAX_KMH)
+        _min_pts = _runtime_int("DRIFT_DIRECTION_SPEED_MIN_POINTS", DRIFT_DIRECTION_SPEED_MIN_POINTS)
+        _latest = None
+        for _rec in reversed(all_records):
+            if _rec.get("direction_stats_by_horizon") or _rec.get("speed_stats_by_horizon"):
+                _latest = _rec
+                break
+        _dir_by_h = {}
+        _spd_by_h = {}
+        _dir_alarm = False
+        _spd_alarm = False
+        if _latest:
+            _dstats = _latest.get("direction_stats_by_horizon", {}) or {}
+            _sstats = _latest.get("speed_stats_by_horizon", {}) or {}
+            for _hk, _v in _dstats.items():
+                try:
+                    if float(_hk) > DRIFT_SHORT_HORIZON_MAX_MIN:
+                        continue
+                except (TypeError, ValueError):
+                    continue
+                _p90 = _v.get("p90_direction_error_deg")
+                _median = _v.get("median_direction_error_deg")
+                _n = int(_v.get("samples", _v.get("n", 0)) or 0)
+                _dir_by_h[_hk] = {"median_deg": _median, "p90_deg": _p90, "samples": _n, "threshold_deg": _dir_thr}
+                if _p90 is not None and _n >= _min_pts and _p90 > _dir_thr:
+                    _dir_alarm = True
+            for _hk, _v in _sstats.items():
+                try:
+                    if float(_hk) > DRIFT_SHORT_HORIZON_MAX_MIN:
+                        continue
+                except (TypeError, ValueError):
+                    continue
+                _p90 = _v.get("p90_speed_error_kmh")
+                _median = _v.get("median_speed_error_kmh")
+                _n = int(_v.get("samples", _v.get("n", 0)) or 0)
+                _spd_by_h[_hk] = {"median_kmh": _median, "p90_kmh": _p90, "samples": _n, "threshold_kmh": _spd_thr}
+                if _p90 is not None and _n >= _min_pts and _p90 > _spd_thr:
+                    _spd_alarm = True
+        result["direction_drift_by_horizon"] = _dir_by_h
+        result["speed_drift_by_horizon"] = _spd_by_h
+        result["direction_drift_alarm"] = _dir_alarm
+        result["speed_drift_alarm"] = _spd_alarm
+    except Exception as _exc:
+        debug_log(f"[DRIFT][P71] Richtungs-/Speed-Auswertung fehlgeschlagen: {_exc}")
+        result["direction_drift_by_horizon"] = {}
+        result["speed_drift_by_horizon"] = {}
+        result["direction_drift_alarm"] = False
+        result["speed_drift_alarm"] = False
 
     try:
         from forecast_error_diagnosis import build_forecast_error_diagnosis, load_forecast_bias_status
