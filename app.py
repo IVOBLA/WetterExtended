@@ -2164,9 +2164,15 @@ def api_severity_accuracy():
 def api_accuracy():
     since = int(request.args.get("hours", "24"))
     horizons = runtime_config.get("ML_FORECAST_HORIZONS_MIN", [10, 20, 30, 40, 60])
+    try:
+        from drift_detector import load_status as _load_drift_status
+        drift_status = _load_drift_status()
+    except Exception:
+        drift_status = {}
     return jsonify({
         "current": evaluate_all(horizons, since_hours=since),
         "history": load_history(since_hours=max(since, 24 * 7)),
+        "drift_status": drift_status,
     })
 
 

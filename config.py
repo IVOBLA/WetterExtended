@@ -1318,3 +1318,10 @@ QUALITY_TARGET_MAE_KM_CONFIGURABLE_DEFAULT = {
 # prognostiziert bekaeme. Konvektive Zellen ziehen typisch mit ~50-70% des
 # Steuerstroms; konservativer Default 0.6.
 STEERING_NEW_CELL_SPEED_FRAC = 0.6
+
+# --- P71: Richtungs-/Geschwindigkeits-Drift-Schwellwerte (admin-editierbar) ---
+# Ausgewertet auf Kurzhorizonten (<= DRIFT_SHORT_HORIZON_MAX_MIN). Alarm, wenn
+# der p90-Wert ueber dem Schwellwert liegt UND genug Messpunkte vorliegen.
+DRIFT_DIRECTION_P90_MAX_DEG = 90.0      # p90-Richtungsfehler-Alarmschwelle
+DRIFT_SPEED_P90_MAX_KMH = 30.0          # p90-Geschwindigkeitsfehler-Alarmschwelle
+DRIFT_DIRECTION_SPEED_MIN_POINTS = 20   # Mindest-Samples je Horizont fuer Auswertung
