@@ -194,11 +194,17 @@ def _height(lat, lon):
 
 
 def get_dem_features(lat, lon, vx=0.0, vy=0.0):
-    # B299: dem_slope_barrier_status kennzeichnet, WARUM dem_slope_toward_cell/
-    # dem_barrier_ahead 0.0 sein können — "dem_unavailable" (Tile fehlt),
-    # "no_movement_vector" (speed <= 0.5, Richtung nicht definierbar, z.B. neue
-    # Tracks/kalman_only) oder "computed" (echter berechneter Gradient, auch
-    # wenn dieser zufällig nahe 0 liegt, z.B. tatsaechlich flaches Gelaende).
+    # B299/B300 (Codex-Review-Fix): dem_slope_barrier_status kennzeichnet, WARUM
+    # dem_slope_toward_cell/dem_barrier_ahead 0.0 (oder aus weniger Punkten
+    # gemittelt) sein können:
+    #   "dem_unavailable"      — Tile fehlt oder keine Hoehe im 3x3-Zentrum
+    #   "no_movement_vector"   — speed <= 0.5, Richtung nicht definierbar
+    #   "dem_partial_coverage" — Bewegungsvektor vorhanden, aber das 3x3-Gitter
+    #                            (Slope) oder die 4 Lookahead-Punkte (Barrier)
+    #                            waren NICHT vollstaendig (Kachel-Rand/NaN) —
+    #                            B300: dieser Fall wurde zuvor faelschlich als
+    #                            "computed" ausgewiesen (Codex-Review-Fund)
+    #   "computed"             — beide Anforderungen vollstaendig erfuellt
     default = {"dem_elevation_m": 0.0, "dem_slope_toward_cell": 0.0,
                "dem_barrier_ahead": 0.0, "dem_slope_barrier_status": "dem_unavailable"}
     if not _ensure_dem():
@@ -221,30 +227,39 @@ def get_dem_features(lat, lon, vx=0.0, vy=0.0):
             return {"dem_elevation_m": mean_elev, "dem_slope_toward_cell": 0.0,
                     "dem_barrier_ahead": 0.0, "dem_slope_barrier_status": "no_movement_vector"}
 
+        nx, ny = vx/speed, vy/speed
+
+        # B300: Slope nur dann als vollstaendig berechnet werten, wenn wirklich
+        # alle 9 Gitterpunkte vorlagen.
+        slope_complete = len(heights) == 9
         slope_toward = 0.0
-        if len(heights) == 9:
+        if slope_complete:
             scale = r * 111_000
             gx = (heights[5]-heights[3])/(2*scale)
             gy = (heights[7]-heights[1])/(2*scale)
-            nx, ny = vx/speed, vy/speed
             slope_toward = round(gx*nx + gy*ny, 6)
 
-        nx, ny = vx/speed, vy/speed
-        barrier_ahead = 0.0
+        # B300: Barrier-Ahead nur dann als vollstaendig werten, wenn alle 4
+        # Lookahead-Distanzen eine Hoehe geliefert haben — ein fehlender
+        # Fernpunkt (DEM-Kachel-Rand) ist sonst nicht von einem echten flachen
+        # Vorfeld unterscheidbar.
+        ahead_points = (10.0, 13.0, 16.0, 20.0)
         ahead = []
-        for km in (10.0, 13.0, 16.0, 20.0):
+        for km in ahead_points:
             dlat = (km/111.0)*(-ny)
             dlon = (km/(111.0*max(math.cos(math.radians(lat)), 0.01)))*nx
             h = _height(lat+dlat, lon+dlon)
             if h is not None:
                 ahead.append(h)
-        if ahead:
-            barrier_ahead = round(sum(ahead)/len(ahead) - mean_elev, 1)
+        barrier_complete = len(ahead) == len(ahead_points)
+        barrier_ahead = round(sum(ahead)/len(ahead) - mean_elev, 1) if ahead else 0.0
+
+        status = "computed" if (slope_complete and barrier_complete) else "dem_partial_coverage"
 
         return {"dem_elevation_m": mean_elev,
                 "dem_slope_toward_cell": slope_toward,
                 "dem_barrier_ahead": barrier_ahead,
-                "dem_slope_barrier_status": "computed"}
+                "dem_slope_barrier_status": status}
     except Exception as exc:
         debug_log(f"[DEM] Fehler ({lat:.3f},{lon:.3f}): {exc}")
         return default
