@@ -36,6 +36,7 @@ from config import (
     VERIFICATION_NN_MAX_MATCH_KM_BY_HORIZON,
     VERIFICATION_MATCH_MAX_ACTUAL_SPEED_KMH,
     VERIFICATION_CORE_MIN_RATIO,
+    VERIFICATION_INTERPOLATION_MAX_GAP_S,
     FRAME_INTERVAL_MIN,
 )
 from debug_utils import debug_log
@@ -386,6 +387,50 @@ def _find_target_frame(by_ts: Dict[datetime, str],
 
 
 
+def _interpolate_target_objects(by_ts: Dict[datetime, str],
+                                 target_ts: datetime,
+                                 max_gap_s: int) -> Optional[list]:
+    """B295: Rekonstruiert eine Ziel-Objektliste durch lineare Interpolation
+    zwischen den beiden real vorhandenen Radarframes, die target_ts einschliessen.
+
+    Wird nur aufgerufen, wenn _find_target_frame keinen Frame innerhalb der
+    adaptiven Toleranz gefunden hat (missing_due_to_tolerance). max_gap_s
+    verhindert Interpolation über echte Ingest-Lücken hinweg. Objekte werden
+    über 'id', ersatzweise 'cell_id', zwischen den Frames gepaart; nur Paare
+    mit identischer ID/Cell-ID werden interpoliert.
+    """
+    before_ts = max((ts for ts in by_ts if ts <= target_ts), default=None)
+    after_ts = min((ts for ts in by_ts if ts >= target_ts), default=None)
+    if before_ts is None or after_ts is None or before_ts == after_ts:
+        return None
+    gap_s = (after_ts - before_ts).total_seconds()
+    if gap_s <= 0 or gap_s > max_gap_s:
+        return None
+    frac = (target_ts - before_ts).total_seconds() / gap_s
+
+    def _key(o: dict) -> str:
+        return str(o.get("id") or o.get("cell_id") or "")
+
+    before_objs = {_key(o): o for o in _load_objects(by_ts[before_ts]) if _key(o)}
+    after_objs = {_key(o): o for o in _load_objects(by_ts[after_ts]) if _key(o)}
+
+    interpolated = []
+    for key, a_obj in after_objs.items():
+        b_obj = before_objs.get(key)
+        if b_obj is None:
+            continue
+        b_lat = _safe_float(b_obj.get("lat")); b_lon = _safe_float(b_obj.get("lon"))
+        a_lat = _safe_float(a_obj.get("lat")); a_lon = _safe_float(a_obj.get("lon"))
+        if None in (b_lat, b_lon, a_lat, a_lon):
+            continue
+        i_obj = dict(a_obj)
+        i_obj["lat"] = b_lat + (a_lat - b_lat) * frac
+        i_obj["lon"] = b_lon + (a_lon - b_lon) * frac
+        i_obj["_interpolated_target"] = True
+        interpolated.append(i_obj)
+    return interpolated or None
+
+
 def _is_synthetic_object(obj: dict) -> bool:
     if not isinstance(obj, dict):
         return True
@@ -686,7 +731,11 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
             and _is_real_forecast_object(o, horizon_min)
         )
 
-        if target_path is None:
+        interpolated_objs = None
+        if target_path is None and missing_target_frame_reason == "missing_due_to_tolerance":
+            interpolated_objs = _interpolate_target_objects(by_ts, target_ts, VERIFICATION_INTERPOLATION_MAX_GAP_S)
+
+        if target_path is None and interpolated_objs is None:
             no_target_frame += forecast_count_this_frame
             n_total += forecast_count_this_frame
             for _o in objs:
@@ -703,7 +752,14 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
                     details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
             continue
 
-        target_objs = [o for o in _load_objects(target_path) if not _is_synthetic_object(o)]
+        # B295: Bei erfolgreicher Interpolation gibt es keinen einzelnen target_path;
+        # target_objs stammt dann direkt aus der linearen Interpolation zwischen den
+        # zwei umgebenden echten Radarframes (exakter Ziel-Zeitpunkt, delta=0).
+        if interpolated_objs is not None:
+            target_objs = interpolated_objs
+            target_frame_delta_min = 0.0
+        else:
+            target_objs = [o for o in _load_objects(target_path) if not _is_synthetic_object(o)]
         if not target_objs:
             no_target_frame += forecast_count_this_frame
             n_total += forecast_count_this_frame

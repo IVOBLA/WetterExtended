@@ -872,6 +872,13 @@ VERIFICATION_TOLERANCE_KM = 1.0
 # ARSO liefert ca. alle 2-5 Min ein Bild → 90 s sind robust.
 VERIFICATION_TIME_TOLERANCE_S = 90
 
+# B295: Maximale Zeitspanne zwischen zwei realen Radarframes (Sekunden), über die
+# noch linear interpoliert werden darf, um einen fehlenden Ziel-Frame für die
+# Verifikation zu rekonstruieren. Verhindert Interpolation über echte, längere
+# Ingest-Lücken hinweg (siehe radar_ingest_gaps.json). Runtime-überschreibbar
+# via runtime_overrides.json (VERIFICATION_INTERPOLATION_MAX_GAP_S).
+VERIFICATION_INTERPOLATION_MAX_GAP_S = 1800
+
 # Maximaler Suchradius für Nearest-Neighbor-Match (km).
 # Wenn keine Zelle in diesem Radius → "kein Treffer" geloggt, fließt in Hit-Rate ein.
 VERIFICATION_MAX_SEARCH_RADIUS_KM = 25.0
