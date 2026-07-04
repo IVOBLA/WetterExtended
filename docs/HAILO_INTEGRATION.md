@@ -3868,6 +3868,24 @@ und Missing-Target-Ratio (> DIAGNOSIS_MAX_MISSING_TARGET_RATIO) abgeleitet →
 Aggregation erledigt (B294). Damit ist die Kern-Korrektheit der lokalen
 24h-Diagnose (Status + model_usage) abgeschlossen.
 
+### B298 — Radar-Ingest-Health-/Alarmschwelle ✅ erledigt
+
+**Dateien:** `config.py`, `dataset_builder.py`
+**Datenbefund (echter Export 2026-07-04):** radar_ingest_gaps.json zeigt
+present_frames=170/289 (Coverage ~59%), longest_gap_min=20.0 (4x expected_interval_min)
+— bislang ohne automatisierte Einordnung.
+**Fix:** `compute_radar_ingest_gaps()` liefert jetzt zusätzlich `coverage_ratio`,
+`health_status` ("ok"/"warning"/"critical") und die verwendeten Schwellwerte.
+Schwellen (RADAR_INGEST_GAP_WARN_FACTOR=2.0, RADAR_INGEST_GAP_CRITICAL_FACTOR=4.0,
+als Vielfaches von expected_interval_min) sind runtime-überschreibbar.
+**Tests:** `tests/test_b298_radar_ingest_health.py`
+
+**Phasenstatus Radar-Coverage/Verifikation:** Interpolation (B295), NN-Härtung
+(B296) und Ingest-Health-Klassifikation (B298) zusammen abgeschlossen. Eine
+Anzeige von health_status im Admin-Panel ist NICHT Teil dieses Prompts (reine
+Backend-/Diagnose-Kennzahl) und müsste als eigenes Fach-Feature (P-Prompt)
+separat beauftragt werden.
+
 ### B297 — Skywarn-Snapshot: gültige Lage nicht durch leeren Fehler überschreiben ✅ erledigt
 
 **Datei:** `skywarn_export_snapshot.py`

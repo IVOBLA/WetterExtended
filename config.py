@@ -313,6 +313,14 @@ FRAME_INTERVAL_MIN: float = 5.0
 # Bei _fm_of > Schwellwert → EWMA/History-Fallback statt OF.
 OF_MAX_FRAME_INTERVAL_MIN: float = 8.0
 
+# B298: Schwellwerte fuer die Radar-Ingest-Gesundheitsbewertung, als Vielfaches
+# von expected_interval_min (aktuell 5 min). Datenbefund 2026-07-04:
+# longest_gap_min=20.0 (=4x) bei einer Coverage von nur 59%. "warning" ab mehr
+# als einem verpassten Intervall, "critical" ab dem 4-fachen. Admin-/
+# runtime-editierbar via runtime_overrides.json.
+RADAR_INGEST_GAP_WARN_FACTOR: float = 2.0
+RADAR_INGEST_GAP_CRITICAL_FACTOR: float = 4.0
+
 # ── Kinematisches Tracking / EWMA (P27) ──────────────────────────────────────
 TRACK_HISTORY_LEN: int = 6          # History-Buffer pro Zelle in Frames (min. 2, empfohlen 4–8)
 KINEMATIC_EWMA_ALPHA: float = 0.6  # EWMA-Faktor: 0.01=gleichgewichtet · 0.99=nur neuester Frame
