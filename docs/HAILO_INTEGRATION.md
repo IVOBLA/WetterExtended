@@ -3868,6 +3868,23 @@ und Missing-Target-Ratio (> DIAGNOSIS_MAX_MISSING_TARGET_RATIO) abgeleitet →
 Aggregation erledigt (B294). Damit ist die Kern-Korrektheit der lokalen
 24h-Diagnose (Status + model_usage) abgeschlossen.
 
+### B296 — NN-Akzeptanzschwelle an Zielqualität gekoppelt + robuste Kennzahl ✅ erledigt
+
+**Dateien:** `config.py`, `accuracy_tracker.py`
+**Datenbefund (echter Export 2026-07-04):** Zelle WX-20260703-0002 erzeugte
+akzeptierte NN-Treffer von 5.0-7.3 km bei h30/h40/h60, obwohl die bestehende
+horizontabhängige Schwelle (B279: 8/9/10 km) das formal zuließ — weit über den
+Qualitätszielen dieser Horizonte (1.0/1.5/2.0 km).
+**Fix:** VERIFICATION_NN_MAX_MATCH_KM_BY_HORIZON für h30/h40/h60 auf 3.0/4.0/5.0 km
+verschärft (h10/h20 unverändert, dort bereits im Ziel). Zusätzlich `median_km`
+als robuste Kennzahl neben `mae_km` je Horizont in `evaluate_for_horizon()`
+ausgegeben.
+**Tests:** `tests/test_b296_nn_threshold_and_median.py`
+
+**Phasenstatus Radar-Coverage/Verifikation:** NN-Ausreisser-Härtung (B296)
+erledigt, zusammen mit B295 (Interpolation). Offen: Radar-Ingest-Alarmschwelle
+(B298).
+
 ### B295 — Ziel-Radarframe-Interpolation bei fehlender exakter Aufnahme ✅ erledigt
 
 **Dateien:** `accuracy_tracker.py`, `config.py`
