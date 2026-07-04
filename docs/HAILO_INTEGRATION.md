@@ -3867,3 +3867,20 @@ und Missing-Target-Ratio (> DIAGNOSIS_MAX_MISSING_TARGET_RATIO) abgeleitet →
 **Phasenstatus Diagnose/Forecast-Quality:** Status-Gating erledigt (B293),
 Aggregation erledigt (B294). Damit ist die Kern-Korrektheit der lokalen
 24h-Diagnose (Status + model_usage) abgeschlossen.
+
+### B295 — Ziel-Radarframe-Interpolation bei fehlender exakter Aufnahme ✅ erledigt
+
+**Dateien:** `accuracy_tracker.py`, `config.py`
+**Datenbefund (echter Export 2026-07-04):** 129/196 Forecasts ohne Ziel-Frame
+(missing_target_frames.ratio=0.6582), radar_ingest_gaps.json zeigt Lücken bis
+20 Minuten. B260 deckt nur die nächstgelegene reale Aufnahme ab, keine
+Interpolation zwischen zwei Frames.
+**Fix:** Neue Funktion `_interpolate_target_objects()` rekonstruiert bei
+`missing_due_to_tolerance` eine Ziel-Objektliste per linearer Interpolation
+zwischen den zwei umgebenden realen Frames (ID-gepaart), begrenzt auf
+VERIFICATION_INTERPOLATION_MAX_GAP_S (1800s), um echte Ingest-Lücken nicht zu
+überbrücken.
+**Tests:** `tests/test_b295_target_frame_interpolation.py`
+
+**Phasenstatus Radar-Coverage/Verifikation:** Interpolationsfall (B295)
+erledigt. Offen: NN-Ausreißer-Härtung (B296), Radar-Ingest-Alarmschwelle (B298).
