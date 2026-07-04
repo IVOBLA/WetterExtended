@@ -3884,6 +3884,19 @@ DEM-Tile.
 keine Änderung an Forecast-/Orographie-Verhalten.
 **Tests:** `tests/test_b299_dem_status_flag.py`
 
+### B300 — Codex-Review-Fix zu B299: unvollständige DEM-Abdeckung als eigener Status ✅ erledigt
+
+**Dateien:** `dem_feature.py`, `tools/diagnose_forecast_quality.py`
+**Codex-Review-Fund (PR zu B299):** Bei vorhandenem Bewegungsvektor, aber
+unvollständigem 3×3-Slope-Gitter oder unvollständigen Barrier-Lookahead-Punkten
+(DEM-Kachel-Rand/NaN), wurde trotzdem `dem_slope_barrier_status="computed"`
+zurückgegeben — DEM-Abdeckungslücken erschienen dadurch als gültige
+Flachgelände-Nullwerte in der neuen Diagnose.
+**Fix:** Neuer Status `dem_partial_coverage`, wenn `slope_complete` (9/9
+Gitterpunkte) oder `barrier_complete` (4/4 Lookahead-Punkte) nicht erfüllt
+sind. `dem_slope_barrier_status_breakdown` um diesen Wert ergänzt.
+**Tests:** `tests/test_b299_dem_status_flag.py` (erweitert um 2 Fälle)
+
 ### B298 — Radar-Ingest-Health-/Alarmschwelle ✅ erledigt
 
 **Dateien:** `config.py`, `dataset_builder.py`

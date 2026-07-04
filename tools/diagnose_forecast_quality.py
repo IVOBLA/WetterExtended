@@ -219,8 +219,11 @@ def build_diagnosis(base_dir: Path, hours: int, evaluation_dir: Path | None = No
     # "no_movement_vector" (physikalisch erwartbar) nicht mit "dem_unavailable"
     # (echter Datenausfall) verwechselt wird.
     status_values = [r.get("dem_slope_barrier_status") for r in details if r.get("dem_slope_barrier_status")]
+    # B300 (Codex-Review-Fix): "dem_partial_coverage" ergaenzt — unvollstaendige
+    # DEM-Abdeckung (Kachel-Rand) darf nicht mit "computed" verwechselt werden.
     dem_slope_barrier_status_breakdown = {
-        status: status_values.count(status) for status in ("computed", "no_movement_vector", "dem_unavailable")
+        status: status_values.count(status)
+        for status in ("computed", "no_movement_vector", "dem_partial_coverage", "dem_unavailable")
     } if status_values else None
     weather = ["wind_speed_700hPa", "wind_speed_500hPa", "wind_dir_cos", "wind_dir_sin", "cape", "arome_li", "arome_t2m", "nowcast_rr_mm15", "lightning_count_10km"]
     lineage_dir = _resolve_save_path(base_dir, "cell_lineage", "train_data/cell_lineage")
