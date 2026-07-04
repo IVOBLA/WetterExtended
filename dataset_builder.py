@@ -41,8 +41,27 @@ from config import (
     ML_SEQUENCE_LENGTH,
     ML_STATION_FEATURES,
     ML_TARGET_ENCODING,
+    RADAR_INGEST_GAP_WARN_FACTOR,
+    RADAR_INGEST_GAP_CRITICAL_FACTOR,
     SAVE_PATHS,
 )
+
+_rc = importlib.import_module("runtime_config") if importlib.util.find_spec("runtime_config") else None
+
+
+def _radar_ingest_gap_thresholds():
+    """B298: Admin-/runtime-editierbare Schwellwerte (Vielfaches von
+    expected_interval_min) fuer die Radar-Ingest-Gesundheitsbewertung."""
+    warn = float(RADAR_INGEST_GAP_WARN_FACTOR)
+    crit = float(RADAR_INGEST_GAP_CRITICAL_FACTOR)
+    if _rc is not None:
+        try:
+            warn = float(_rc.get("RADAR_INGEST_GAP_WARN_FACTOR", warn))
+            crit = float(_rc.get("RADAR_INGEST_GAP_CRITICAL_FACTOR", crit))
+        except Exception:
+            pass
+    return warn, crit
+
 from data_quality import validate_sample
 from feature_schema import compare_sample_schema, extract_source_schema, get_current_feature_schema, schema_metadata
 
@@ -95,14 +114,31 @@ def compute_radar_ingest_gaps(expected_interval_min, hours=24):
     if not sorted_present and expected:
         longest_gap_min = len(expected) * interval_min
 
+    # B298: Health-/Alarmklassifikation, unterscheidet "ARSO liefert seltener
+    # als erwartet" (viele kurze Luecken, geringe Coverage) von echten
+    # Ingest-Ausfaellen (einzelne lange Luecke). health_status fasst beides fuer
+    # Monitoring/Admin-Panel zusammen.
+    warn_factor, critical_factor = _radar_ingest_gap_thresholds()
+    gap_factor = (longest_gap_min / interval_min) if interval_min else 0.0
+    if gap_factor >= critical_factor:
+        health_status = "critical"
+    elif gap_factor > warn_factor:
+        health_status = "warning"
+    else:
+        health_status = "ok"
+    coverage_ratio = round(len(present_set) / len(expected), 4) if expected else None
+
     result = {
         "computed_at_utc": now.isoformat(timespec="seconds") + "Z",
         "expected_interval_min": interval_min,
         "hours": hours,
         "expected_frames": len(expected),
         "present_frames": len(present_set),
+        "coverage_ratio": coverage_ratio,
         "missing_timestamps": [ts.isoformat(timespec="minutes") for ts in missing],
         "longest_gap_min": round(longest_gap_min, 3),
+        "health_status": health_status,
+        "health_thresholds": {"warn_factor": warn_factor, "critical_factor": critical_factor},
     }
 
     out_path = os.path.join(SAVE_PATHS.get("evaluation", "train_data/evaluation/"), "radar_ingest_gaps.json")
