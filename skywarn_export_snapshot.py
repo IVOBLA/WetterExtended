@@ -321,15 +321,22 @@ def _write_snapshot(snapshot: dict) -> None:
     path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _snapshot_is_from_today(path: Path, now: datetime) -> bool:
+def _todays_snapshot_status(path: Path, now: datetime) -> str | None:
+    """B297: Liefert den status-Wert ('ok'/'error') des heutigen Snapshots,
+    sonst None (kein Snapshot von heute / Datei fehlt / nicht lesbar).
+    Ersetzt _snapshot_is_from_today(), damit zwischen gueltigem und
+    fehlerhaftem Snapshot unterschieden werden kann — ein Fehlerstatus darf
+    weitere Versuche am selben Tag nicht blockieren."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         fetched = datetime.fromisoformat(str(data.get("fetched_at")))
         if fetched.tzinfo is None:
             fetched = fetched.replace(tzinfo=VIENNA_TZ)
-        return fetched.astimezone(VIENNA_TZ).date() == now.date()
+        if fetched.astimezone(VIENNA_TZ).date() != now.date():
+            return None
+        return data.get("status")
     except Exception:
-        return False
+        return None
 
 
 def _log_snapshot(snapshot: dict) -> None:
@@ -351,7 +358,10 @@ def _log_snapshot(snapshot: dict) -> None:
 def fetch_and_store_skywarn_export_snapshot(force: bool = False) -> dict:
     now = _now_vienna()
     path = _snapshot_path()
-    if not force and path.exists() and _snapshot_is_from_today(path, now):
+    # B297: Nur ueberspringen, wenn der heutige Snapshot tatsaechlich gueltig
+    # ('ok') ist. Ein Fehlerstatus (z.B. empty_payload) blockierte zuvor jeden
+    # weiteren Versuch fuer den Rest des Tages.
+    if not force and path.exists() and _todays_snapshot_status(path, now) == "ok":
         return {
             "source": "skywarn.at",
             "source_url": SKYWARN_EXPORT_URL,
@@ -365,7 +375,7 @@ def fetch_and_store_skywarn_export_snapshot(force: bool = False) -> dict:
     try:
         request = urllib.request.Request(SKYWARN_EXPORT_URL, headers=headers, method="GET")
         with urllib.request.urlopen(request, timeout=SKYWARN_EXPORT_TIMEOUT_SECONDS) as response:
-            http_status = int(getattr(response, "status", response.getcode()))
+            http_status = int(getattr(response, "status", None) or response.getcode())
             body = response.read()
         if http_status >= 400:
             snapshot = _error_snapshot("http_error", f"HTTP {http_status}", http_status, now)
@@ -382,6 +392,13 @@ def fetch_and_store_skywarn_export_snapshot(force: bool = False) -> dict:
         snapshot = _error_snapshot("timeout", exc, None, now)
     except Exception as exc:
         snapshot = _error_snapshot("unexpected_error", exc, None, now)
+
+    # B297: Ein bereits vorhandener gueltiger Snapshot von heute darf durch
+    # eine leere Lage (z.B. empty_payload) nicht geloescht werden — Fehler wird
+    # geloggt, der bestehende gueltige Snapshot bleibt unveraendert erhalten.
+    if snapshot.get("status") == "error" and _todays_snapshot_status(path, now) == "ok":
+        _log_snapshot(snapshot)
+        return snapshot
 
     _write_snapshot(snapshot)
     _log_snapshot(snapshot)
