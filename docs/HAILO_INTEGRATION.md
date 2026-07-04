@@ -3868,6 +3868,20 @@ und Missing-Target-Ratio (> DIAGNOSIS_MAX_MISSING_TARGET_RATIO) abgeleitet →
 Aggregation erledigt (B294). Damit ist die Kern-Korrektheit der lokalen
 24h-Diagnose (Status + model_usage) abgeschlossen.
 
+### B297 — Skywarn-Snapshot: gültige Lage nicht durch leeren Fehler überschreiben ✅ erledigt
+
+**Datei:** `skywarn_export_snapshot.py`
+**Datenbefund (echter Export 2026-07-04):** `skywarn_export.json` status='error',
+error.type='empty_payload', fetched_at 12:00 Europe/Vienna.
+**Problem (verifiziert im Code):** `_write_snapshot()` überschrieb immer, auch
+bei leerer Lage — ein zuvor gültiger Snapshot ging verloren. `_snapshot_is_from_today()`
+blockierte zusätzlich jeden weiteren Versuch für den Rest des Tages, unabhängig
+vom Status.
+**Fix:** Neue Funktion `_todays_snapshot_status()` unterscheidet 'ok'/'error'.
+Skip-Bedingung greift nur noch bei status='ok'. Ein Fehler-Snapshot überschreibt
+keinen bereits vorhandenen gültigen Snapshot von heute mehr.
+**Tests:** `tests/test_b175_skywarn_empty_payload.py`
+
 ### B296 — NN-Akzeptanzschwelle an Zielqualität gekoppelt + robuste Kennzahl ✅ erledigt
 
 **Dateien:** `config.py`, `accuracy_tracker.py`
