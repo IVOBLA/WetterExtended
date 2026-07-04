@@ -194,8 +194,13 @@ def _height(lat, lon):
 
 
 def get_dem_features(lat, lon, vx=0.0, vy=0.0):
+    # B299: dem_slope_barrier_status kennzeichnet, WARUM dem_slope_toward_cell/
+    # dem_barrier_ahead 0.0 sein können — "dem_unavailable" (Tile fehlt),
+    # "no_movement_vector" (speed <= 0.5, Richtung nicht definierbar, z.B. neue
+    # Tracks/kalman_only) oder "computed" (echter berechneter Gradient, auch
+    # wenn dieser zufällig nahe 0 liegt, z.B. tatsaechlich flaches Gelaende).
     default = {"dem_elevation_m": 0.0, "dem_slope_toward_cell": 0.0,
-               "dem_barrier_ahead": 0.0}
+               "dem_barrier_ahead": 0.0, "dem_slope_barrier_status": "dem_unavailable"}
     if not _ensure_dem():
         return default
     try:
@@ -211,31 +216,35 @@ def get_dem_features(lat, lon, vx=0.0, vy=0.0):
             return default
         mean_elev = round(sum(heights)/len(heights), 1)
 
-        slope_toward = 0.0
         speed = math.hypot(vx, vy)
-        if speed > 0.5 and len(heights) == 9:
+        if speed <= 0.5:
+            return {"dem_elevation_m": mean_elev, "dem_slope_toward_cell": 0.0,
+                    "dem_barrier_ahead": 0.0, "dem_slope_barrier_status": "no_movement_vector"}
+
+        slope_toward = 0.0
+        if len(heights) == 9:
             scale = r * 111_000
             gx = (heights[5]-heights[3])/(2*scale)
             gy = (heights[7]-heights[1])/(2*scale)
             nx, ny = vx/speed, vy/speed
             slope_toward = round(gx*nx + gy*ny, 6)
 
+        nx, ny = vx/speed, vy/speed
         barrier_ahead = 0.0
-        if speed > 0.5:
-            nx, ny = vx/speed, vy/speed
-            ahead = []
-            for km in (10.0, 13.0, 16.0, 20.0):
-                dlat = (km/111.0)*(-ny)
-                dlon = (km/(111.0*max(math.cos(math.radians(lat)), 0.01)))*nx
-                h = _height(lat+dlat, lon+dlon)
-                if h is not None:
-                    ahead.append(h)
-            if ahead:
-                barrier_ahead = round(sum(ahead)/len(ahead) - mean_elev, 1)
+        ahead = []
+        for km in (10.0, 13.0, 16.0, 20.0):
+            dlat = (km/111.0)*(-ny)
+            dlon = (km/(111.0*max(math.cos(math.radians(lat)), 0.01)))*nx
+            h = _height(lat+dlat, lon+dlon)
+            if h is not None:
+                ahead.append(h)
+        if ahead:
+            barrier_ahead = round(sum(ahead)/len(ahead) - mean_elev, 1)
 
         return {"dem_elevation_m": mean_elev,
                 "dem_slope_toward_cell": slope_toward,
-                "dem_barrier_ahead": barrier_ahead}
+                "dem_barrier_ahead": barrier_ahead,
+                "dem_slope_barrier_status": "computed"}
     except Exception as exc:
         debug_log(f"[DEM] Fehler ({lat:.3f},{lon:.3f}): {exc}")
         return default

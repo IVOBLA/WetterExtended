@@ -3868,6 +3868,22 @@ und Missing-Target-Ratio (> DIAGNOSIS_MAX_MISSING_TARGET_RATIO) abgeleitet →
 Aggregation erledigt (B294). Damit ist die Kern-Korrektheit der lokalen
 24h-Diagnose (Status + model_usage) abgeschlossen.
 
+### B299 — DEM-Slope/Barrier: Bewegungsvektor-Gate von Berechnungsfehler unterscheiden ✅ erledigt
+
+**Dateien:** `dem_feature.py`, `accuracy_tracker.py`, `tools/diagnose_forecast_quality.py`
+**Datenbefund (echter Export 2026-07-04):** dem_slope_toward_cell/dem_barrier_ahead
+zero_ratio=0.852 bei 196 Samples. Ursache laut Code-Verifikation ist NICHT
+flaches Gelände (wie der Analyse-Report vermutete), sondern das
+Bewegungsvektor-Gate `speed <= 0.5` in `get_dem_features()`, das unabhängig
+vom Terrain auf 0.0 zurückfällt — identisch mit dem Rückfall bei fehlendem
+DEM-Tile.
+**Fix:** Neues Feld `dem_slope_barrier_status` ("dem_unavailable" /
+"no_movement_vector" / "computed") in `get_dem_features()`, durchgereicht über
+`_detail_record()` und als Verteilung in `diagnose_forecast_quality.py`
+(`dem_slope_barrier_status_breakdown`) ausgewiesen. Reine Diagnose-Erweiterung,
+keine Änderung an Forecast-/Orographie-Verhalten.
+**Tests:** `tests/test_b299_dem_status_flag.py`
+
 ### B298 — Radar-Ingest-Health-/Alarmschwelle ✅ erledigt
 
 **Dateien:** `config.py`, `dataset_builder.py`
