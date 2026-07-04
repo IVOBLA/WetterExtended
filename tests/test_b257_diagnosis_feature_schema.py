@@ -20,7 +20,8 @@ def _write_details(ev: Path):
         "no_target_frame": False,
         # B249-Schema (echte Feldnamen):
         "dem_elevation_m": 1606.9, "dem_slope_toward_cell": 0.12,
-        "dem_barrier_ahead": 0.0, "valley_alignment": 0.5,
+        "dem_barrier_ahead": 0.0, "dem_slope_barrier_status": "no_movement_vector",
+        "valley_alignment": 0.5,
         "terrain_blocking_score": 0.0, "orographic_lift_score": 0.0,
         "wind_speed_700hPa": 20.5, "wind_speed_500hPa": 26.3,
         "wind_dir_cos": 0.99, "wind_dir_sin": 0.03,
@@ -48,6 +49,10 @@ def test_active_schema_features_present(tmp_path):
     # Legacy-Schlüssel dürfen NICHT mehr geprüft werden:
     for legacy in ("wind_speed", "temperature", "grosswetterlage"):
         assert legacy not in wf, f"Legacy-Schlüssel {legacy} sollte entfernt sein"
+
+    assert diag["dem_slope_barrier_status_breakdown"] == {
+        "computed": 0, "no_movement_vector": 1, "dem_unavailable": 0
+    }
 
     terr = diag["dem_orography"]
     assert terr["valley_alignment"]["present_samples"] == 1

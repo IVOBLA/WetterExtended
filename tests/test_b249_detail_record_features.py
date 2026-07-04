@@ -33,6 +33,7 @@ def _obj_with_features():
         "dem_elevation_m": 812.0,
         "dem_slope_toward_cell": 0.03,
         "dem_barrier_ahead": 150.0,
+        "dem_slope_barrier_status": "computed",
         "valley_alignment": 0.7,
         "terrain_blocking_score": 0.4,
         "orographic_lift_score": 0.6,
@@ -81,6 +82,11 @@ def test_dem_barrier_present():
     rec = _call_detail_record(_obj_with_features(), _matched())
     assert "dem_barrier_ahead" in rec
     assert rec["dem_barrier_ahead"] == 150.0
+
+
+def test_dem_slope_barrier_status_present():
+    rec = _call_detail_record(_obj_with_features(), _matched())
+    assert rec["dem_slope_barrier_status"] == "computed"
 
 
 def test_terrain_scores_present():

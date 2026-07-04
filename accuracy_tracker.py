@@ -315,6 +315,9 @@ def _detail_record(obj: dict, ts: datetime, target_ts: datetime, horizon_min: in
         "dem_elevation_m":       _safe_float(obj.get("dem_elevation_m")),
         "dem_slope_toward_cell": _safe_float(obj.get("dem_slope_toward_cell")),
         "dem_barrier_ahead":     _safe_float(obj.get("dem_barrier_ahead")),
+        # B299: unterscheidet dem_unavailable/no_movement_vector/computed —
+        # damit ein Nullwert nicht faelschlich als Datenausfall gilt.
+        "dem_slope_barrier_status": obj.get("dem_slope_barrier_status"),
         "valley_alignment":      _safe_float(obj.get("valley_alignment")),
         "terrain_blocking_score":_safe_float(obj.get("terrain_blocking_score")),
         "orographic_lift_score": _safe_float(obj.get("orographic_lift_score")),

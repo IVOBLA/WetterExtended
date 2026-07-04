@@ -215,6 +215,13 @@ def build_diagnosis(base_dir: Path, hours: int, evaluation_dir: Path | None = No
     # Spalten koppeln. Legacy-Namen (wind_speed/temperature/grosswetterlage/valley_*_score)
     # erzeugten sonst falsche "100 % missing"-Befunde und verdeckten echte Defizite.
     terrain = ["dem_elevation_m", "dem_slope_toward_cell", "dem_barrier_ahead", "valley_alignment", "terrain_blocking_score", "orographic_lift_score"]
+    # B299: dem_slope_barrier_status-Verteilung separat ausweisen, damit
+    # "no_movement_vector" (physikalisch erwartbar) nicht mit "dem_unavailable"
+    # (echter Datenausfall) verwechselt wird.
+    status_values = [r.get("dem_slope_barrier_status") for r in details if r.get("dem_slope_barrier_status")]
+    dem_slope_barrier_status_breakdown = {
+        status: status_values.count(status) for status in ("computed", "no_movement_vector", "dem_unavailable")
+    } if status_values else None
     weather = ["wind_speed_700hPa", "wind_speed_500hPa", "wind_dir_cos", "wind_dir_sin", "cape", "arome_li", "arome_t2m", "nowcast_rr_mm15", "lightning_count_10km"]
     lineage_dir = _resolve_save_path(base_dir, "cell_lineage", "train_data/cell_lineage")
     label_rows = _read_jsonl(lineage_dir / "ir_lead_time_labels.jsonl", hours)
@@ -276,6 +283,7 @@ def build_diagnosis(base_dir: Path, hours: int, evaluation_dir: Path | None = No
         "id_matching": _id_matching(details, outliers),
         "missing_target_frames": {"count": missing_target, "ratio": round(missing_target / len(details), 4) if details else None},
         "dem_orography": _feature_stats(details, terrain),
+        "dem_slope_barrier_status_breakdown": dem_slope_barrier_status_breakdown,
         "weather_features": _feature_stats(details, weather),
         "ir_precursors": {"median_lead_time_min": round(statistics.median(leads), 2) if leads else None, "matched_count": len(leads), "no_lead_count": no_lead},
         "model_usage": _model_usage_from_accuracy_history(accuracy_rows),
