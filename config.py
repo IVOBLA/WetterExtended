@@ -890,10 +890,16 @@ VERIFICATION_MAX_SEARCH_RADIUS_KM = 25.0
 # Runtime-ueberschreibbar via runtime_overrides.json (VERIFICATION_NN_MAX_MATCH_KM).
 VERIFICATION_NN_MAX_MATCH_KM = 10.0
 
-# B279: horizontabhängige NN-Maxdistanz (enger bei kurzen, weiter bei langen
-# Horizonten). Harte Obergrenze bleibt VERIFICATION_NN_MAX_MATCH_KM.
+# B279/B296: horizontabhängige NN-Maxdistanz (enger bei kurzen, weiter bei
+# langen Horizonten). Harte Obergrenze bleibt VERIFICATION_NN_MAX_MATCH_KM.
+# B296: h30/h40/h60 verschärft — Datenbefund (Export 2026-07-04, Zelle
+# WX-20260703-0002) zeigte akzeptierte NN-Treffer von 5.0-7.3 km, obwohl das
+# Qualitätsziel dieser Horizonte nur 1.0-2.0 km ist (drift_status.json
+# quality_target_by_horizon). Neue Werte ~2.5-3x Zielwert. h10/h20 unverändert,
+# da dort MAE bereits im Ziel liegt. Runtime-überschreibbar via
+# runtime_overrides.json (VERIFICATION_NN_MAX_MATCH_KM).
 VERIFICATION_NN_MAX_MATCH_KM_BY_HORIZON = {
-    "10": 4.0, "20": 6.0, "30": 8.0, "40": 9.0, "60": 10.0,
+    "10": 4.0, "20": 6.0, "30": 3.0, "40": 4.0, "60": 5.0,
 }
 
 # B247: Maximale implizite Ist-Geschwindigkeit für einen gültigen Verifikations-Match (km/h).

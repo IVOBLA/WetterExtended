@@ -65,7 +65,16 @@ def _nn_max_match_km(horizon_min: Optional[int] = None) -> float:
         threshold = float(VERIFICATION_NN_MAX_MATCH_KM_BY_HORIZON.get(str(horizon_min), hard_limit))
     if _runtime_cfg is not None:
         try:
-            threshold = float(_runtime_cfg.get("VERIFICATION_NN_MAX_MATCH_KM", threshold))
+            # B296: runtime_config.get() fällt auf config.VERIFICATION_NN_MAX_MATCH_KM
+            # zurück; das darf die horizontabhängige Tabelle nicht implizit wieder
+            # auf die harte Obergrenze anheben. Nur echte Runtime-Overrides ersetzen
+            # den Horizontwert. Test-Stubs ohne _OVERRIDES nutzen weiterhin get().
+            overrides = getattr(_runtime_cfg, "_OVERRIDES", None)
+            if isinstance(overrides, dict):
+                if "VERIFICATION_NN_MAX_MATCH_KM" in overrides:
+                    threshold = float(overrides["VERIFICATION_NN_MAX_MATCH_KM"])
+            else:
+                threshold = float(_runtime_cfg.get("VERIFICATION_NN_MAX_MATCH_KM", threshold))
         except Exception:
             pass
     return min(float(threshold), hard_limit)
@@ -714,6 +723,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
     n_total = hits = verified = missed = no_target_frame = id_lost = nn_rejected = 0
     _nn_threshold = _nn_max_match_km(horizon_min)
     sum_km = sum_km2 = sum_abs_px = sum_sx2 = sum_sy2 = 0.0
+    km_values: list = []  # B296: für robuste Median-Kennzahl neben der MAE
     for fpath, ts in fts:
         if ts < cutoff:
             continue
@@ -830,6 +840,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
 
             sum_km += dist_km
             sum_km2 += dist_km * dist_km
+            km_values.append(dist_km)
             verified += 1
             _bm["verified"] += 1; _bs["verified"] += 1; _bt["verified"] += 1
             _bm["sum_km"] += dist_km; _bs["sum_km"] += dist_km; _bt["sum_km"] += dist_km
@@ -873,6 +884,9 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         "hit_rate": round(hits / verified, 4) if verified else None,
         "coverage_rate": _coverage,          # verified / n_total
         "mae_km": round(sum_km / eval_n, 3) if eval_n else None,
+        # B296: Median neben MAE — einzelne lineage-lose NN-Ausreisser sollen
+        # die Horizont-Bewertung nicht dominieren (Datenbefund WX-20260703-0002).
+        "median_km": round(_percentile(km_values, 50), 3) if km_values else None,
         "rmse_km": round(math.sqrt(sum_km2 / eval_n), 3) if eval_n else None,
         "mae_px": round(sum_abs_px / eval_n, 2) if eval_n else None,
         "rmse_x_px": round(math.sqrt(sum_sx2 / eval_n), 2) if eval_n else None,
