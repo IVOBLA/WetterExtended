@@ -51,7 +51,8 @@ def test_active_schema_features_present(tmp_path):
         assert legacy not in wf, f"Legacy-Schlüssel {legacy} sollte entfernt sein"
 
     assert diag["dem_slope_barrier_status_breakdown"] == {
-        "computed": 0, "no_movement_vector": 1, "dem_unavailable": 0
+        "computed": 0, "no_movement_vector": 1,
+        "dem_partial_coverage": 0, "dem_unavailable": 0
     }
 
     terr = diag["dem_orography"]
