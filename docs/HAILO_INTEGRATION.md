@@ -3897,6 +3897,26 @@ Gitterpunkte) oder `barrier_complete` (4/4 Lookahead-Punkte) nicht erfüllt
 sind. `dem_slope_barrier_status_breakdown` um diesen Wert ergänzt.
 **Tests:** `tests/test_b299_dem_status_flag.py` (erweitert um 2 Fälle)
 
+### B301 — Codex-Review-Folgefix zu B300: test_b257 kannte dem_partial_coverage nicht ✅ erledigt
+
+**Datei:** `tests/test_b257_diagnosis_feature_schema.py` (+ neuer Test
+`tests/test_b301_dem_partial_coverage_schema.py`)
+**Datenbefund (echter Export 2026-07-05):** `install_pytest.log` zeigt
+`1 failed, 1459 passed` — `test_active_schema_features_present` erwartete
+noch das Drei-Schlüssel-Schema aus B257, während der Erzeuger seit B300
+vier Schlüssel (inkl. `dem_partial_coverage`) liefert.
+**Fix:** Testerwartung in `test_b257` auf das aktuelle Vier-Schlüssel-Schema
+angeglichen. Neuer Regressionstest `test_b301_dem_partial_coverage_schema.py`
+sichert ab, dass `dem_partial_coverage` korrekt gezählt wird und alle vier
+Status-Schlüssel im Breakdown stets vorhanden sind, unabhängig davon welcher
+Status tatsächlich beobachtet wurde.
+**Tests:** `tests/test_b257_diagnosis_feature_schema.py`,
+`tests/test_b301_dem_partial_coverage_schema.py`
+
+**Phasenstatus Diagnose/Forecast-Quality:** Schema-Konsistenz zwischen
+Erzeuger (`diagnose_forecast_quality.py`) und Test-Suite wiederhergestellt.
+Komplette Testsuite wieder grün (0 failed).
+
 ### B298 — Radar-Ingest-Health-/Alarmschwelle ✅ erledigt
 
 **Dateien:** `config.py`, `dataset_builder.py`
