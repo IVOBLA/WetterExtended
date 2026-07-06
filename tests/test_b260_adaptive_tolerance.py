@@ -27,9 +27,9 @@ def test_15min_kadenz_ergibt_mindestens_450s():
     assert tol >= 450, f"Erwartet ≥450s bei 15-min Kadenz, erhalten {tol}s"
 
 
-def test_ohne_by_ts_fallback_auf_nominal():
+def test_ohne_by_ts_fallback_auf_nearest_frame_toleranz():
     tol = _effective_target_tolerance_s(90, None)
-    assert tol == 150  # max(90, 150)
+    assert tol >= 450  # B302: max(90, 150, VERIFICATION_NEAREST_FRAME_TOLERANCE_S)
 
 
 def test_config_min_wird_nie_unterschritten():
