@@ -290,6 +290,19 @@ def write_status(status: str, message: str, static_dir: str | None = None, **ext
     return payload
 
 
+def _stable_fallback_station_id(lon: float | None, lat: float | None, name: str | None) -> str:
+    """B312: Deterministischer Fallback fuer station_id, wenn die Quelle keine
+    offizielle ID liefert. Ersetzt den vormals positionsabhaengigen Fallback
+    (Array-Index), der bei jedem Static-Reimport eine andere ID fuer dieselbe
+    physische Station erzeugen konnte und dadurch gespeicherte Admin-Overrides
+    (enabled/mark_q_m3s in hydro_station_overrides.json) verwaisen liess.
+    Basis: gerundete Koordinaten + Name — liefert fuer dieselbe Station bei
+    jedem Reimport denselben Wert, unabhaengig von der Reihenfolge der Quelldaten."""
+    import hashlib
+    basis = f"{round(float(lon or 0.0), 5)}:{round(float(lat or 0.0), 5)}:{(name or '').strip().lower()}"
+    return "auto-" + hashlib.sha1(basis.encode("utf-8")).hexdigest()[:10]
+
+
 def hydro_json_to_geojson(data: Any) -> dict:
     rows = data.get("features") or data.get("stations") or data.get("data") or data.get("pegel") or [] if isinstance(data, dict) else data
     features = []
@@ -300,7 +313,7 @@ def hydro_json_to_geojson(data: Any) -> dict:
         lat = props.get("lat") or props.get("latitude") or props.get("y")
         if geom and geom.get("type") == "Point": lon, lat = geom.get("coordinates", [None, None])[:2]
         if lon is None or lat is None: continue
-        sid = props.get("station_id") or props.get("id") or props.get("number") or props.get("pegel_id") or props.get("kennzahl") or str(idx+1)
+        sid = props.get("station_id") or props.get("id") or props.get("number") or props.get("pegel_id") or props.get("kennzahl") or _stable_fallback_station_id(lon, lat, props.get("name") or props.get("station_name"))
         out = dict(props); out.setdefault("station_id", str(sid)); out.setdefault("station_name", props.get("name") or props.get("station_name") or str(sid)); out.setdefault("river_name", props.get("river") or props.get("river_name") or props.get("gewaesser") or props.get("Gewässer") or ""); out.setdefault("live_source", data.get("source") if isinstance(data, dict) else "hydro_live"); out.setdefault("live_metadata", {k: props.get(k) for k in ("q_m3s","w_cm","measured_at") if k in props})
         features.append({"type":"Feature","geometry":{"type":"Point","coordinates":[float(lon),float(lat)]},"properties":out})
     return {"type":"FeatureCollection","features":features}

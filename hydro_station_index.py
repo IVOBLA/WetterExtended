@@ -53,6 +53,16 @@ def _station_point(feature: dict) -> tuple[float, float] | None:
     return None
 
 
+def _stable_fallback_station_id(lon: float | None, lat: float | None, name: str | None) -> str:
+    """B312: Deterministischer Fallback fuer station_id, wenn die Quelle keine
+    offizielle ID liefert. Siehe identische Funktion in hydro_static_import.py
+    fuer den vollen Kontext (Root-Cause: Array-Positions-Fallback war instabil
+    ueber mehrere Static-Reimporte hinweg)."""
+    import hashlib
+    basis = f"{round(float(lon or 0.0), 5)}:{round(float(lat or 0.0), 5)}:{(name or '').strip().lower()}"
+    return "auto-" + hashlib.sha1(basis.encode("utf-8")).hexdigest()[:10]
+
+
 
 def _as_list(value: Any) -> list[str]:
     if value is None or value == "":
@@ -360,7 +370,9 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
     catchment_features = []
     for st in stations.get("features", []):
         pt = _station_point(st)
-        sid = str(_prop(st, ["station_id", "id", "number", "pegel_id"], len(index) + 1))
+        _fallback_name = _prop(st, ["station_name", "name", "bez", "Bezeichnung"])
+        _fallback_sid = _stable_fallback_station_id(pt[0] if pt else None, pt[1] if pt else None, _fallback_name)
+        sid = str(_prop(st, ["station_id", "id", "number", "pegel_id"], _fallback_sid))
         name = str(_prop(st, ["station_name", "name", "bez", "Bezeichnung"], sid))
         river = str(_prop(st, ["river_name", "river", "gewaesser", "Gewässer"], ""))
         if not pt:
