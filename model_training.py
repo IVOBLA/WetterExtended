@@ -75,6 +75,12 @@ from config import (
 MIN_SAMPLES_FOR_PROMOTION = 50
 LARGE_SAMPLE_THRESHOLD = 500
 TOLERANCE_LARGE = 1.02
+# B308: Bei zu wenigen verifizierten Samples im Standard-Evaluationsfenster (z. B.
+# ruhige Wetterlagen mit wenigen Zellen) wird das Fenster schrittweise verdoppelt,
+# bis entweder MIN_SAMPLES_FOR_PROMOTION erreicht ist oder diese Obergrenze greift.
+# Verhindert dauerhafte Promotion-Ablehnung allein wegen Coverage, ohne die
+# Mindest-Sample-Qualitaetsschwelle selbst abzusenken. Weit innerhalb DATA_RETENTION_DAYS=90.
+MODEL_PROMOTION_EVAL_MAX_HOURS = 168  # 7 Tage
 
 
 def _clean_json_value(value):
@@ -318,6 +324,26 @@ def evaluate_on_recent(model_dir, hours=24):
         "promotion_baseline_source": promotion_baseline_source,
         "samples": len(idx),
     }
+
+
+def evaluate_on_recent_adaptive(model_dir, *, start_hours: int = 24, min_samples: int | None = None, max_hours: int | None = None) -> dict:
+    """B308: Erweitert das Evaluationsfenster schrittweise (Verdopplung), wenn im
+    Startfenster (Standard 24h) zu wenige verifizierte Samples vorliegen — etwa bei
+    ruhigen Wetterlagen mit wenigen Zellen. Verhindert dauerhafte Promotion-Ablehnung
+    allein wegen Coverage, ohne MIN_SAMPLES_FOR_PROMOTION selbst abzusenken. Wird das
+    Maximum erreicht, ohne genug Samples zu finden, liefert die Funktion das Ergebnis
+    des groessten versuchten Fensters (transparent markiert via 'eval_window_hours').
+    """
+    min_samples = MIN_SAMPLES_FOR_PROMOTION if min_samples is None else int(min_samples)
+    max_hours = MODEL_PROMOTION_EVAL_MAX_HOURS if max_hours is None else int(max_hours)
+    hours = int(start_hours)
+    result = evaluate_on_recent(model_dir, hours=hours)
+    while int(result.get("samples", 0) or 0) < min_samples and hours < max_hours:
+        hours = min(hours * 2, max_hours)
+        result = evaluate_on_recent(model_dir, hours=hours)
+    result["eval_window_hours"] = hours
+    return result
+
 
 def _masked_mse(y_true, y_pred):
     """P-T08: MSE-Loss der maskierte Ziele (NaN) ignoriert.
@@ -930,10 +956,10 @@ def retrain_all():
             "target_encoding": ML_TARGET_ENCODING,               # P58: delta|absolute
         }
 
-    new_eval = evaluate_on_recent(version_dir)
+    new_eval = evaluate_on_recent_adaptive(version_dir)
     current_dir = _current_models_dir()
     has_current = _is_valid_current_model(current_dir)
-    old_eval = evaluate_on_recent(current_dir) if has_current else {"mae_total": float("inf"), "mae_by_horizon": {}, "samples": 0}
+    old_eval = evaluate_on_recent_adaptive(current_dir) if has_current else {"mae_total": float("inf"), "mae_by_horizon": {}, "samples": 0}
 
     # Fix P07: harte Promotion-Regeln
     #
@@ -981,7 +1007,8 @@ def retrain_all():
         status = "rejected_low_samples"
         debug_log(
             f"[TRAINING] REJECTED {timestamp} "
-            f"(samples={promotion_samples} < {MIN_SAMPLES_FOR_PROMOTION} — "
+            f"(samples={promotion_samples} < {MIN_SAMPLES_FOR_PROMOTION} nach Fenster-Erweiterung auf "
+            f"{new_eval.get('eval_window_hours', 24)}h von max. {MODEL_PROMOTION_EVAL_MAX_HOURS}h — "
             f"keine Promotion ohne ausreichende Validierung)"
         )
     elif (
