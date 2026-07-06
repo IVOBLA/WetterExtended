@@ -4001,3 +4001,24 @@ erledigt. Offen: NN-Ausreißer-Härtung (B296), Radar-Ingest-Alarmschwelle (B298
 - Dateien: `config.py`, `accuracy_tracker.py`,
   `tests/test_b302_nearest_target_frame_tolerance.py`, `docs/WetterExtended_Benutzerhandbuch.md`.
 - Test: `tests/test_b302_nearest_target_frame_tolerance.py`.
+
+### B303 — frame_empty getrennt von no_target_frame in der Verifikation ✅ erledigt
+- Ursache: `evaluate_for_horizon()` zählte sowohl „kein Radar-Frame gefunden" als auch
+  „Radar-Frame gefunden, aber 0 Zellen" identisch als `no_target_frame`. Letzteres ist
+  jedoch kein Datenlücken-Fall, sondern ein korrektes negatives Messergebnis (Zelle real
+  aufgelöst). Verifiziert im 24-h-Export: 125 von 145 Objekt-Dateien enthalten `[]`.
+- Fix: neuer eigenständiger Zähler `frame_empty` in `_bucket()`, `_finish()`, `base`-Dict,
+  finalem Rückgabe-Dict sowie neues Feld `frame_empty` in `_detail_record()`. `id_lost` und
+  `missed` schließen `frame_empty`-Fälle jetzt korrekt aus. Der Zweig `target_path is None`
+  (echte Lücke) bleibt unverändert.
+- Wirkung: `no_target_frame`-Quote in Diagnose/Reports spiegelt künftig nur noch echte
+  Radar-Coverage-Lücken wider, nicht mehr meteorologisch korrekte Null-Zellen-Ergebnisse.
+  Baut auf B302 (Nearest-Frame-Toleranz) auf.
+- Dateien: `accuracy_tracker.py`, `tests/test_b303_frame_empty_vs_no_target_frame.py`.
+- Test: `tests/test_b303_frame_empty_vs_no_target_frame.py`.
+- Follow-up (nicht Teil dieses Prompts): deutschsprachige Diagnose-Meldung für hohe
+  `frame_empty`-Quote in `_diagnosis()` + Übersetzung in `email_notifier.py`.
+
+**Phasenstatus Radar-Coverage/Verifikation:** Coverage-Diagnose jetzt zwischen echten
+Datenlücken und aufgelösten Zellen unterscheidbar (B303) — Voraussetzung für belastbare
+Root-Cause-Analysen in Phase B (Hailo-Training).
