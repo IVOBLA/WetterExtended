@@ -1327,6 +1327,10 @@ FORECAST_BIAS_MIN_SAMPLES = 20                    # Mindest-Samples je Horizont 
 FORECAST_BIAS_MAX_OFFSET_KM = 2.0                 # harte Obergrenze für Positions-Korrektur
 FORECAST_BIAS_MAX_SPEED_FACTOR = 1.3              # harte Obergrenze für Speed-Korrekturfaktor (max +30%)
 
+# --- B307: 2nd-Order-Beschleunigungsterm der kinematischen Extrapolation ---
+KINEMATIC_ACCELERATION_ENABLED = False            # Default AUS, admin-umschaltbar
+KINEMATIC_ACCEL_MAX_FRACTION = 0.3                # Beschleunigungsanteil <= 30% der linearen Verschiebung
+
 # --- B278: Verifikations-Coverage-Warnschwelle ---
 MIN_VERIFICATION_COVERAGE_RATIO = 0.5
 
