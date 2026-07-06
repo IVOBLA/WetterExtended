@@ -4022,3 +4022,16 @@ erledigt. Offen: NN-Ausreißer-Härtung (B296), Radar-Ingest-Alarmschwelle (B298
 **Phasenstatus Radar-Coverage/Verifikation:** Coverage-Diagnose jetzt zwischen echten
 Datenlücken und aufgelösten Zellen unterscheidbar (B303) — Voraussetzung für belastbare
 Root-Cause-Analysen in Phase B (Hailo-Training).
+
+### B306 — forecast_speed_factor nur bei echtem Terrain-Blocking ✅ erledigt
+- Ursache: `compute_orographic_scores()` berechnete `speed_factor` unbedingt aus
+  `stationary_risk`, auch bei sehr niedrigem `terrain_blocking_score`. Verifiziert im
+  Scheduler-Log: Zelle PIB5Z4CB erhielt `forecast_speed_factor=0.860` trotz freier Zugbahn.
+  Verschärfte den bereits bestehenden Speed-Underestimation-Bias (Report-Befund #2).
+- Fix: neue Schwelle `OROGRAPHIC_BLOCKING_MIN_FOR_DAMPING` (0.3, runtime-überschreibbar) —
+  unterhalb bleibt `speed_factor=1.0`. Neue Untergrenze `OROGRAPHIC_SPEED_FACTOR_FLOOR`
+  (0.4, runtime-überschreibbar), angehoben von vormals hart codiert 0.1.
+- Dateien: `orographic_module.py`, `tests/test_b306_orographic_speed_factor_threshold.py`.
+- Test: `tests/test_b306_orographic_speed_factor_threshold.py`.
+- Follow-up (nicht Teil dieses Prompts): Kopplung mit künftiger Speed-Bias-Korrektur
+  (B305), sobald `forecast_bias_status.json`-Schreibpfad verifiziert ist.
