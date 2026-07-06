@@ -4035,3 +4035,20 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Test: `tests/test_b306_orographic_speed_factor_threshold.py`.
 - Follow-up (nicht Teil dieses Prompts): Kopplung mit künftiger Speed-Bias-Korrektur
   (B305), sobald `forecast_bias_status.json`-Schreibpfad verifiziert ist.
+
+### B307 — 2nd-Order-Beschleunigungsterm in der Kinematik ✅ erledigt (Default AUS)
+- Ursache: `_append_kinematic()` extrapolierte ausschließlich mit konstanter
+  Geschwindigkeit (1st-Order). Verifiziert im 24h-Export: Zelle WX-20260705-0099
+  erreichte bei h40 einen Fehler von 18,3 km durch unterschätzte Nordbeschleunigung.
+- Fix: neue Funktionen `_compute_acceleration_px_per_min2()` (Beschleunigung aus den
+  2 jüngsten Geschwindigkeitsintervallen der History) und
+  `_bounded_acceleration_displacement()` (0.5·a·t², hart gekappt auf
+  `KINEMATIC_ACCEL_MAX_FRACTION=0.3` der linearen Verschiebung). Additiv zur
+  bestehenden linearen Prognose, NACH Speed-Cap und orographischer Dämpfung (B306).
+- Sicherheit: `KINEMATIC_ACCELERATION_ENABLED` Default **False** — wie bei
+  `FORECAST_BIAS_CORRECTION_ENABLED` (P68) etabliert, aktiviert Horst manuell nach
+  Validierung gegen reale Daten (Admin-Panel/runtime_overrides.json).
+- Bereits vorhanden, nicht Teil dieses Prompts: getrimmte/mediane MAE (B296,
+  `median_km`), Steering-Wind-Blend, Speed-Cap, orographische Dämpfung (B306).
+- Dateien: `config.py`, `prediction.py`, `tests/test_b307_kinematic_acceleration.py`.
+- Test: `tests/test_b307_kinematic_acceleration.py`.

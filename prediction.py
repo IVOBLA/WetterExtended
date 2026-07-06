@@ -70,6 +70,8 @@ from config import (
     FORECAST_BIAS_MIN_SAMPLES as _STATIC_BIAS_MIN_SAMPLES,
     FORECAST_BIAS_MAX_OFFSET_KM as _STATIC_BIAS_MAX_OFFSET_KM,
     FORECAST_BIAS_MAX_SPEED_FACTOR as _STATIC_BIAS_MAX_SPEED_FACTOR,
+    KINEMATIC_ACCELERATION_ENABLED as _STATIC_ACCEL_ENABLED,
+    KINEMATIC_ACCEL_MAX_FRACTION as _STATIC_ACCEL_MAX_FRACTION,
 )
 
 try:
@@ -407,6 +409,57 @@ def _steering_motion_vector_from_obj(obj):
         return {"level": level, "speed_kmh": speed, "direction_to_deg": direction_to, "vx": vx, "vy": vy}
     return None
 
+def _compute_acceleration_px_per_min2(history: list) -> tuple[float, float] | None:
+    """B307: Schaetzt eine Beschleunigung (px/min^2) aus den beiden juengsten
+    Geschwindigkeitsintervallen der History. Braucht mindestens 3 Punkte mit
+    gueltigem Timestamp + x/y (2 Intervalle). Liefert None wenn nicht berechenbar
+    (zu wenig History, ungueltige/doppelte Zeitstempel)."""
+    pts = [h for h in (history or []) if h.get("timestamp") and "x" in h and "y" in h]
+    if len(pts) < 3:
+        return None
+    try:
+        vxs, vys, dts = [], [], []
+        for i in range(1, len(pts)):
+            t0 = datetime.strptime(pts[i - 1]["timestamp"], "%Y-%m-%d_%H-%M-%S")
+            t1 = datetime.strptime(pts[i]["timestamp"], "%Y-%m-%d_%H-%M-%S")
+            dt_min = (t1 - t0).total_seconds() / 60.0
+            if dt_min < 0.5:
+                continue
+            vxs.append((pts[i]["x"] - pts[i - 1]["x"]) / dt_min)
+            vys.append((pts[i]["y"] - pts[i - 1]["y"]) / dt_min)
+            dts.append(dt_min)
+        if len(vxs) < 2:
+            return None
+        dv_x = vxs[-1] - vxs[-2]
+        dv_y = vys[-1] - vys[-2]
+        dt_mid = (dts[-1] + dts[-2]) / 2.0
+        if dt_mid < 0.5:
+            return None
+        return dv_x / dt_mid, dv_y / dt_mid
+    except Exception:
+        return None
+
+
+def _bounded_acceleration_displacement(vx: float, vy: float, accel, horizon_min: float) -> tuple[float, float]:
+    """B307: 2nd-Order-Verschiebungsanteil (0.5*a*t^2) aus der Beschleunigung,
+    hart begrenzt auf einen konfigurierbaren Anteil der linearen (1st-Order)
+    Verschiebung. Verhindert, dass verrauschte Beschleunigungsschaetzungen bei
+    langen Horizonten (quadratisches Wachstum) die Prognose dominieren/eskalieren."""
+    if not accel:
+        return 0.0, 0.0
+    ax, ay = accel
+    dx = 0.5 * ax * horizon_min * horizon_min
+    dy = 0.5 * ay * horizon_min * horizon_min
+    lin_disp = sqrt((vx * horizon_min) ** 2 + (vy * horizon_min) ** 2)
+    accel_disp = sqrt(dx * dx + dy * dy)
+    max_frac = _runtime_float_value("KINEMATIC_ACCEL_MAX_FRACTION", _STATIC_ACCEL_MAX_FRACTION)
+    if accel_disp > 0.0 and lin_disp > 0.0 and accel_disp > lin_disp * max_frac:
+        scale = (lin_disp * max_frac) / accel_disp
+        dx *= scale
+        dy *= scale
+    return dx, dy
+
+
 def _append_kinematic(obj: dict, forecasts: dict) -> None:
     """
     Kinematischer Fallback wenn kein ML-Modell verfügbar oder Sequenz zu kurz.
@@ -686,6 +739,12 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
     except Exception:
         obj["kinematic_speed_kmh"] = 0.0
 
+    # B307: Beschleunigung einmalig vor der Horizont-Schleife berechnen (nicht pro
+    # Horizont neu), gleiche History-Basis wie avg_vx/avg_vy (inkl. Merge-Guard).
+    _accel = None
+    if bool(_runtime_bool_value("KINEMATIC_ACCELERATION_ENABLED", _STATIC_ACCEL_ENABLED)) and not _merge_guard_applied:
+        _accel = _compute_acceleration_px_per_min2(history)
+
     for horizon in _get_horizons():
         # EINHEITEN (Fix P01 + P26):
         # avg_vx/vy = px/min (echte Zeitdifferenz oder Fallback via FRAME_INTERVAL_MIN).
@@ -693,8 +752,9 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
         # pixel_to_geo() erwartet SKALIERTE Koordinaten (teilt intern durch _UF).
         _x0 = _safe_float(obj.get("x", 0.0))
         _y0 = _safe_float(obj.get("y", 0.0))
-        x_pred   = (_x0 + avg_vx * float(horizon)) * _UF
-        y_pred   = (_y0 + avg_vy * float(horizon)) * _UF
+        _accel_dx, _accel_dy = _bounded_acceleration_displacement(avg_vx, avg_vy, _accel, float(horizon))
+        x_pred   = (_x0 + avg_vx * float(horizon) + _accel_dx) * _UF
+        y_pred   = (_y0 + avg_vy * float(horizon) + _accel_dy) * _UF
         origin_x = _x0 * _UF
         origin_y = _y0 * _UF
         if origin_x == 0.0 and origin_y == 0.0:
