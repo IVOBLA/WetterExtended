@@ -4083,3 +4083,23 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - **Nächster Schritt (separater Prompt, erst nach neuem Export):** Root-Cause anhand
   `reason_counts`/`decision_counts` aus einem frischen 24h-Export identifizieren und
   gezielt beheben.
+
+### B312 — Stabile Fallback-Stations-ID statt Array-Position ✅ erledigt
+- Ursache: `hydro_json_to_geojson()` (`hydro_static_import.py`) und die Stationsschleife
+  in `build_static_hydro()` (`hydro_station_index.py`) vergaben für Stationen ohne
+  offizielle ID einen Fallback basierend auf der Array-Position (`idx+1` bzw.
+  `len(index)+1`). Bei jedem Static-Reimport (`install.sh --mode=full` Phase 6a, oder
+  Admin-Button „Static-Hydro neu einlesen") konnte sich diese Position ändern, wodurch
+  gespeicherte Admin-Overrides (`enabled`, `mark_q_m3s` in
+  `data/config/hydro_station_overrides.json`) für exakt diese Stationen verwaisten — die
+  Datei selbst blieb dabei unverändert erhalten (bereits korrekt vor install.sh geschützt).
+- Fix: neue Hilfsfunktion `_stable_fallback_station_id()` in beiden Dateien — leitet eine
+  deterministische Hash-ID aus gerundeten Koordinaten + Name ab, unabhängig von der
+  Reihenfolge der Quelldaten. Offizielle IDs (`station_id`/`id`/`number`/`pegel_id`/
+  `kennzahl`) haben weiterhin Vorrang.
+- Migrations-Hinweis: bereits unter alter Positions-ID gespeicherte Overrides bleiben
+  verwaist — einmalig nach diesem Fix betroffene Stationen im Admin-Panel neu setzen,
+  danach stabil.
+- Dateien: `hydro_static_import.py`, `hydro_station_index.py`,
+  `tests/test_b312_stable_fallback_station_id.py`.
+- Test: `tests/test_b312_stable_fallback_station_id.py`.
