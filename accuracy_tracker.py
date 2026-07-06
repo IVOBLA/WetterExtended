@@ -274,7 +274,8 @@ def _detail_record(obj: dict, ts: datetime, target_ts: datetime, horizon_min: in
                    dist_km: Optional[float], match_src: str, no_target_frame: bool, stale: bool,
                    effective_lead_min: float, ex_px: Optional[float] = None, ey_px: Optional[float] = None,
                    target_frame_delta_min: Optional[float] = None,
-                   missing_target_frame_reason: Optional[str] = None) -> dict:
+                   missing_target_frame_reason: Optional[str] = None,
+                   frame_empty: bool = False) -> dict:
     f_lat = _safe_float(obj.get(f"forecast_lat_{horizon_min}")); f_lon = _safe_float(obj.get(f"forecast_lon_{horizon_min}"))
     o_lat = _safe_float(obj.get("origin_lat", obj.get("lat"))); o_lon = _safe_float(obj.get("origin_lon", obj.get("lon")))
     a_lat = _safe_float(matched.get("lat") if matched else None); a_lon = _safe_float(matched.get("lon") if matched else None)
@@ -307,10 +308,11 @@ def _detail_record(obj: dict, ts: datetime, target_ts: datetime, horizon_min: in
         "matched_cell_id": str(matched.get("cell_id", matched.get("id", ""))) if matched else None,
         "match_distance_km": round(dist_km, 6) if dist_km is not None and math.isfinite(dist_km) else None,
         "radar_age_min": _safe_float(obj.get("radar_age_min"), 0.0), "no_target_frame": bool(no_target_frame),
+        "frame_empty": bool(frame_empty),
         "target_frame_delta_min": target_frame_delta_min,
         "missing_target_frame_reason": missing_target_frame_reason,
-        "id_lost": bool((not no_target_frame) and matched is not None and str(matched.get("id")) != str(obj.get("id"))),
-        "missed": bool((not no_target_frame) and matched is None),
+        "id_lost": bool((not no_target_frame) and (not frame_empty) and matched is not None and str(matched.get("id")) != str(obj.get("id"))),
+        "missed": bool((not no_target_frame) and (not frame_empty) and matched is None),
         # B249: DEM-Features aus Tracking-Objekt für Fehler-Attribution (Diagnose + ML).
         # Werte 0.0/None wenn DEM-Tiles beim Forecast-Zeitpunkt nicht geladen waren.
         "dem_elevation_m":       _safe_float(obj.get("dem_elevation_m")),
@@ -633,7 +635,7 @@ def _accumulate_ml_shadow(by_mode, obj, horizon_min, matched, tol_km):
     d = _haversine_km(_ml_lat, _ml_lon, _a_lat, _a_lon)
     if d is None:
         return None
-    b = by_mode.setdefault("ml", {"samples": 0, "verified": 0, "hits": 0, "missed": 0, "no_target_frame": 0, "sum_km": 0.0, "sum_km2": 0.0})
+    b = by_mode.setdefault("ml", {"samples": 0, "verified": 0, "hits": 0, "missed": 0, "no_target_frame": 0, "frame_empty": 0, "sum_km": 0.0, "sum_km2": 0.0})
     b["samples"] += 1
     b["verified"] += 1
     b["sum_km"] += d
@@ -681,7 +683,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
 
     def _bucket(store, key):
         k = str(key or "unknown")
-        return store.setdefault(k, {"samples": 0, "verified": 0, "hits": 0, "missed": 0, "no_target_frame": 0, "sum_km": 0.0, "sum_km2": 0.0})
+        return store.setdefault(k, {"samples": 0, "verified": 0, "hits": 0, "missed": 0, "no_target_frame": 0, "frame_empty": 0, "sum_km": 0.0, "sum_km2": 0.0})
 
 
     def _mode_for(obj):
@@ -693,11 +695,12 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
     def _finish(store):
         out = {}
         for k, v in store.items():
-            total = int(v.get("samples", 0)) + int(v.get("no_target_frame", 0))
+            total = int(v.get("samples", 0)) + int(v.get("no_target_frame", 0)) + int(v.get("frame_empty", 0))
             ver = int(v.get("verified", 0))
             out[k] = {
                 "samples": total, "verified": ver, "missed": int(v.get("missed", 0)),
                 "no_target_frame": int(v.get("no_target_frame", 0)),
+                "frame_empty": int(v.get("frame_empty", 0)),
                 "mae_km": round(v["sum_km"] / ver, 3) if ver else None,
                 "rmse_km": round(math.sqrt(v.get("sum_km2", 0.0) / ver), 3) if ver else None,
                 "hit_rate": round(v["hits"] / ver, 4) if ver else None,
@@ -712,6 +715,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         "verified": 0,
         "missed": 0,
         "no_target_frame": 0,
+        "frame_empty": 0,
         "id_lost": 0,
         "nn_rejected": 0,
         "hit_rate": None,
@@ -736,7 +740,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
     cutoff = fts[-1][1] - timedelta(hours=since_hours)
     by_ts: Dict[datetime, str] = {t: f for f, t in fts}
 
-    n_total = hits = verified = missed = no_target_frame = id_lost = nn_rejected = 0
+    n_total = hits = verified = missed = no_target_frame = frame_empty = id_lost = nn_rejected = 0
     _nn_threshold = _nn_max_match_km(horizon_min)
     sum_km = sum_km2 = sum_abs_px = sum_sx2 = sum_sy2 = 0.0
     km_values: list = []  # B296: für robuste Median-Kennzahl neben der MAE
@@ -787,16 +791,20 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         else:
             target_objs = [o for o in _load_objects(target_path) if not _is_synthetic_object(o)]
         if not target_objs:
-            no_target_frame += forecast_count_this_frame
+            # B303: Radar-Frame wurde gefunden, zeigt aber 0 Zellen (Zelle real
+            # aufgeloest oder Wetterlage beruhigt) -> KEIN Datenluecken-Fall.
+            # Getrennt von no_target_frame gezaehlt, damit die Coverage-Diagnose
+            # nicht faelschlich echte Radar-Ausfaelle/Luecken meldet.
+            frame_empty += forecast_count_this_frame
             n_total += forecast_count_this_frame
             for _o in objs:
                 if _o.get(f"forecast_lat_{horizon_min}") is not None and _o.get(f"forecast_lon_{horizon_min}") is not None and _is_real_forecast_object(_o, horizon_min):
-                    _bucket(by_mode, _mode_for(_o))["no_target_frame"] += 1
-                    _bucket(by_source, _source_for(_o))["no_target_frame"] += 1
-                    _bucket(by_match, "none")["no_target_frame"] += 1
+                    _bucket(by_mode, _mode_for(_o))["frame_empty"] += 1
+                    _bucket(by_source, _source_for(_o))["frame_empty"] += 1
+                    _bucket(by_match, "frame_empty")["frame_empty"] += 1
                     # B288: siehe Kommentar im ersten no_target_frame-Zweig oben.
                     delivered_mode_counts[_mode_for(_o)] = delivered_mode_counts.get(_mode_for(_o), 0) + 1
-                    rec = _detail_record(_o, ts, target_ts, horizon_min, None, None, "none", True, False, horizon_min, target_frame_delta_min=target_frame_delta_min, missing_target_frame_reason=missing_target_frame_reason)
+                    rec = _detail_record(_o, ts, target_ts, horizon_min, None, None, "frame_empty", False, False, horizon_min, target_frame_delta_min=target_frame_delta_min, missing_target_frame_reason=missing_target_frame_reason, frame_empty=True)
                     details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
             continue
 
@@ -895,6 +903,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         "verified": verified,
         "missed": missed,
         "no_target_frame": no_target_frame,
+        "frame_empty": frame_empty,
         "id_lost": id_lost,
         "nn_rejected": nn_rejected,
         "hit_rate": round(hits / verified, 4) if verified else None,
