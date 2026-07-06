@@ -4066,3 +4066,20 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   REJECTED-Logmeldung zeigt jetzt zusätzlich das tatsächlich genutzte Fenster.
 - Dateien: `model_training.py`, `tests/test_b308_adaptive_promotion_window.py`.
 - Test: `tests/test_b308_adaptive_promotion_window.py`.
+
+### B310 — Diagnose-Instrumentierung für IR→Radar-Match-Rate 🔍 Diagnose (kein Fix)
+- Befund: `ir_lead_time_labels.jsonl` zeigt über den gesamten Bestand (2525 Einträge)
+  `became_radar_cell=1` in KEINEM Fall — jeder IR-Vorläufer endet als
+  `ended_without_radar`. Root-Cause ohne Live-Kandidaten-Daten nicht sicher lokalisierbar
+  (Kandidaten unter `IR_RADAR_MATCH_SCORE_MIN`? `ir_tracks` meist leer bei neuen
+  Radar-Detektionen? anderer Ausschluss-Mechanismus?).
+- Maßnahme: `select_ir_radar_matches()` schreibt jetzt aggregierte Diagnose
+  (`ir_radar_match_diagnostics.jsonl`: Kandidaten-/Decision-/Reason-Zähler, KEINE
+  Einzel-Details) nach `train_data/cell_lineage/` — automatisch im nächsten
+  Debug-Export enthalten (bestehender `cell_lineage`-Export-Pfad).
+  Schalter `IR_RADAR_MATCH_DIAGNOSTICS_ENABLED` (Default true, runtime-abschaltbar).
+- Dateien: `cell_lineage.py`, `tests/test_b310_ir_radar_match_diagnostics.py`.
+- Test: `tests/test_b310_ir_radar_match_diagnostics.py`.
+- **Nächster Schritt (separater Prompt, erst nach neuem Export):** Root-Cause anhand
+  `reason_counts`/`decision_counts` aus einem frischen 24h-Export identifizieren und
+  gezielt beheben.

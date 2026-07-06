@@ -791,6 +791,47 @@ def _real_cell_id(value: Any) -> bool:
     return isinstance(value, str) and value.startswith(str(_cfg("CELL_ID_PREFIX", CELL_ID_PREFIX) or "WX") + "-")
 
 
+_IR_MATCH_DIAG_FILE = "ir_radar_match_diagnostics.jsonl"
+
+
+def _match_diagnostics_path() -> Path:
+    return _state_dir() / str(_cfg("IR_RADAR_MATCH_DIAGNOSTICS_FILE", _IR_MATCH_DIAG_FILE))
+
+
+def _record_match_diagnostics(candidates: list[dict], radar_objects: list[dict], ir_tracks: list[dict], selected: list[dict], timestamp: str | None) -> None:
+    """B310: Aggregierte Diagnose warum IR->Radar-Matches (nicht) zustande kommen.
+    Schreibt NUR aggregierte Zaehler (keine Einzel-Kandidaten-Details) — geringe
+    Schreiblast, um die 0-Match-Rate offline analysierbar zu machen (siehe B310-Prompt)."""
+    if not bool(_cfg("IR_RADAR_MATCH_DIAGNOSTICS_ENABLED", True)):
+        return
+    try:
+        eligible_radar = sum(1 for r in (radar_objects or []) if not _real_cell_id((r or {}).get("cell_id")))
+        reason_counts: dict[str, int] = {}
+        decision_counts: dict[str, int] = {}
+        for m in candidates:
+            _reason = m.get("reason") or "unknown"
+            _decision = m.get("decision") or "unknown"
+            reason_counts[_reason] = reason_counts.get(_reason, 0) + 1
+            decision_counts[_decision] = decision_counts.get(_decision, 0) + 1
+        rec = {
+            "ts_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "timestamp": _timestamp_str(timestamp),
+            "radar_object_count": len(radar_objects or []),
+            "radar_eligible_count": eligible_radar,
+            "ir_track_count": len(ir_tracks or []),
+            "candidate_pair_count": len(candidates),
+            "selected_count": len(selected),
+            "decision_counts": decision_counts,
+            "reason_counts": reason_counts,
+        }
+        path = _match_diagnostics_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        _debug(f"[CELL-LINEAGE] Match-Diagnostics konnte nicht geschrieben werden: {exc}")
+
+
 def select_ir_radar_matches(radar_objects: list[dict], ir_tracks: list[dict], *, timestamp: str | None = None, weather_context: dict | None = None) -> tuple[list[dict], dict]:
     candidates = []
     for ri, robj in enumerate(radar_objects or []):
@@ -818,6 +859,7 @@ def select_ir_radar_matches(radar_objects: list[dict], ir_tracks: list[dict], *,
         if not m.get("matched") or ri in used_radar or ii in used_ir or (ii, ri) not in allowed_ir_radar:
             continue
         selected.append(m); used_radar.add(ri); used_ir.add(ii)
+    _record_match_diagnostics(candidates, radar_objects, ir_tracks, selected, timestamp)
     return selected, {"candidates": candidates, "selected_count": len(selected)}
 
 
