@@ -12,6 +12,8 @@ führen. Die Scores kodieren physikalische Plausibilität, nicht Regeln.
 Angezeigt im Admin-Panel als Diagnose-Felder.
 """
 from __future__ import annotations
+import importlib
+import importlib.util
 import math
 
 try:
@@ -20,10 +22,38 @@ except Exception:
     def debug_log(msg):
         print(msg)
 
+_runtime_cfg = importlib.import_module("runtime_config") if importlib.util.find_spec("runtime_config") else None
+
 _BARRIER_M  = 200.0   # Höhengewinn voraus für blocking=1.0
 _SLOPE_TH   = 0.005   # Gradient m/m für signifikanten Stau
 _SPEED_TH   = 1.5     # Pixel/Frame — "langsame" Zelle
 _CAPE_TH    = 500.0   # J/kg
+
+# B306: Speed-Faktor nur bei tatsaechlich terrain-geblockten Zellen anwenden.
+# Frei ziehende Zellen mit geringem/keinem Blocking-Score duerfen nicht kuenstlich
+# gedaempft werden (verschaerft sonst die Speed-Underestimation, vgl. Report-Befund #2).
+_BLOCKING_MIN_FOR_DAMPING = 0.3
+_SPEED_FACTOR_FLOOR = 0.4
+
+
+def _blocking_min_for_damping() -> float:
+    """Runtime-ueberschreibbar (Admin-Panel): Mindest-Blocking-Score fuer Speed-Abschlag."""
+    if _runtime_cfg is not None:
+        try:
+            return float(_runtime_cfg.get("OROGRAPHIC_BLOCKING_MIN_FOR_DAMPING", _BLOCKING_MIN_FOR_DAMPING))
+        except Exception:
+            pass
+    return _BLOCKING_MIN_FOR_DAMPING
+
+
+def _speed_factor_floor() -> float:
+    """Runtime-ueberschreibbar (Admin-Panel): Untergrenze fuer forecast_speed_factor."""
+    if _runtime_cfg is not None:
+        try:
+            return float(_runtime_cfg.get("OROGRAPHIC_SPEED_FACTOR_FLOOR", _SPEED_FACTOR_FLOOR))
+        except Exception:
+            pass
+    return _SPEED_FACTOR_FLOOR
 
 
 def _c01(x):
@@ -52,7 +82,12 @@ def compute_orographic_scores(obj):
         speed_f    = _c01(1.0 - speed / max(_SPEED_TH, 0.01))
         stationary = _c01(blocking * (0.5 + 0.5*speed_f))
 
-        speed_factor = round(max(0.1, 1.0 - 0.7*stationary), 3)
+        # B306: Nur tatsaechlich terrain-geblockte Zellen daempfen; frei ziehende
+        # Zellen (blocking < Schwelle) erhalten keinen Speed-Abschlag.
+        if blocking < _blocking_min_for_damping():
+            speed_factor = 1.0
+        else:
+            speed_factor = round(max(_speed_factor_floor(), 1.0 - 0.7*stationary), 3)
 
         return {
             "terrain_blocking_score": round(blocking,   3),
