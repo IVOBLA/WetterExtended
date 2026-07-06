@@ -4052,3 +4052,17 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   `median_km`), Steering-Wind-Blend, Speed-Cap, orographische Dämpfung (B306).
 - Dateien: `config.py`, `prediction.py`, `tests/test_b307_kinematic_acceleration.py`.
 - Test: `tests/test_b307_kinematic_acceleration.py`.
+
+### B308 — Promotion-Gate: adaptives Evaluationsfenster statt harter 24h-Grenze ✅ erledigt
+- Ursache: `evaluate_on_recent(model_dir, hours=24)` wurde für Promotion-Vergleiche
+  ausschließlich mit dem Default-Fenster 24h aufgerufen. Bei ruhigen Wetterlagen
+  (verifiziert: 125/145 Objekt-Dateien im 24h-Export ohne Zelle) sammeln sich in 24h zu
+  wenige verifizierte Samples → `MIN_SAMPLES_FOR_PROMOTION=50` dauerhaft unerreichbar
+  ("samples=4 < 50"), Modell bleibt eingefroren unabhängig von seiner Qualität.
+- Fix: neue Funktion `evaluate_on_recent_adaptive()` verdoppelt das Fenster schrittweise
+  (24h → 48h → 96h → … max. `MODEL_PROMOTION_EVAL_MAX_HOURS=168h`/7 Tage, innerhalb
+  `DATA_RETENTION_DAYS=90`), bis `MIN_SAMPLES_FOR_PROMOTION` erreicht ist oder das Maximum
+  greift. Die Qualitätsschwelle selbst (50 Samples) bleibt unverändert streng.
+  REJECTED-Logmeldung zeigt jetzt zusätzlich das tatsächlich genutzte Fenster.
+- Dateien: `model_training.py`, `tests/test_b308_adaptive_promotion_window.py`.
+- Test: `tests/test_b308_adaptive_promotion_window.py`.
