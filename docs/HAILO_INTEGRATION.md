@@ -3930,7 +3930,9 @@ als Vielfaches von expected_interval_min) sind runtime-überschreibbar.
 **Tests:** `tests/test_b298_radar_ingest_health.py`
 
 **Phasenstatus Radar-Coverage/Verifikation:** Interpolation (B295), NN-Härtung
-(B296) und Ingest-Health-Klassifikation (B298) zusammen abgeschlossen. Eine
+(B296), Ingest-Health-Klassifikation (B298) und Kurzhorizont-Verifikation bei
+grobem Radar-Takt (B302) zusammen abgeschlossen — verifizierte Samples für
+Promotion/Training wieder verfügbar. Eine
 Anzeige von health_status im Admin-Panel ist NICHT Teil dieses Prompts (reine
 Backend-/Diagnose-Kennzahl) und müsste als eigenes Fach-Feature (P-Prompt)
 separat beauftragt werden.
@@ -3982,3 +3984,20 @@ VERIFICATION_INTERPOLATION_MAX_GAP_S (1800s), um echte Ingest-Lücken nicht zu
 
 **Phasenstatus Radar-Coverage/Verifikation:** Interpolationsfall (B295)
 erledigt. Offen: NN-Ausreißer-Härtung (B296), Radar-Ingest-Alarmschwelle (B298).
+
+### B302 — Nearest-Target-Frame-Toleranz für Kurzhorizont-Verifikation ✅ erledigt
+- Ursache: `_effective_target_tolerance_s()` begrenzte die Zielframe-Suche auf
+  `max(VERIFICATION_TIME_TOLERANCE_S=90 s, frame_half_s=150 s)` = 150 s. Bei 15-min-Radartakt
+  (Ruhephasen) ist der nächste reale Frame für +10/+20/+40-Horizonte 5–10 min entfernt →
+  `no_target_frame`. Verifiziert im 24-h-Export: missing_target_frames.ratio = 0.6142,
+  h10 13/22 „none", h20 17/22, h30/h40 je 19/22.
+- Fix: Neue Config-Konstante `VERIFICATION_NEAREST_FRAME_TOLERANCE_S` (450 s = 7,5 min,
+  runtime-überschreibbar). `_effective_target_tolerance_s()` bezieht sie ein
+  (`max(time_tol_s, frame_half_s, nearest_tol_s)`). Nearest-Auswahl (`best_delta`) und
+  NN-/ID-Match-Logik unverändert. Echte Lücken > 7,5 min bleiben `no_target_frame`.
+- Wirkung: Kurzhorizonte 10/20/40 min werden bei beliebigem Radar-Takt verifizierbar →
+  Voraussetzung für zieldefinition.txt (≤30 min < 1 km) und für Modell-Promotion
+  (behebt indirekt „samples=4 < 50").
+- Dateien: `config.py`, `accuracy_tracker.py`,
+  `tests/test_b302_nearest_target_frame_tolerance.py`, `docs/WetterExtended_Benutzerhandbuch.md`.
+- Test: `tests/test_b302_nearest_target_frame_tolerance.py`.

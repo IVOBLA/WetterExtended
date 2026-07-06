@@ -36,6 +36,7 @@ from config import (
     VERIFICATION_NN_MAX_MATCH_KM_BY_HORIZON,
     VERIFICATION_MATCH_MAX_ACTUAL_SPEED_KMH,
     VERIFICATION_CORE_MIN_RATIO,
+    VERIFICATION_NEAREST_FRAME_TOLERANCE_S,
     VERIFICATION_INTERPOLATION_MAX_GAP_S,
     FRAME_INTERVAL_MIN,
 )
@@ -347,6 +348,18 @@ def _effective_target_tolerance_s(time_tol_s: int,
     bleiben (missing_target_frames ratio sinkt).
     """
     frame_half_s = int(round(float(FRAME_INTERVAL_MIN) * 60.0 / 2.0))
+    nearest_tol_s = float(VERIFICATION_NEAREST_FRAME_TOLERANCE_S)
+    if _runtime_cfg is not None:
+        try:
+            nearest_tol_s = float(
+                _runtime_cfg.get(
+                    "VERIFICATION_NEAREST_FRAME_TOLERANCE_S",
+                    VERIFICATION_NEAREST_FRAME_TOLERANCE_S,
+                )
+            )
+        except Exception:
+            pass
+    nearest_tol_i = int(round(nearest_tol_s))
     if by_ts and len(by_ts) == 1:
         frame_half_s = max(frame_half_s, int(round(float(FRAME_INTERVAL_MIN) * 60.0)))
     if by_ts and len(by_ts) >= 2:
@@ -358,8 +371,8 @@ def _effective_target_tolerance_s(time_tol_s: int,
         if gaps_s:
             import statistics as _statistics
             measured_half_s = int(round(_statistics.median(gaps_s) / 2.0))
-            frame_half_s = max(frame_half_s, measured_half_s)
-    return max(int(time_tol_s), frame_half_s)
+            frame_half_s = max(frame_half_s, min(measured_half_s, nearest_tol_i))
+    return max(int(time_tol_s), frame_half_s, nearest_tol_i)
 
 
 def _classify_missing_target_frame(by_ts: Dict[datetime, str], target_ts: datetime, effective_tol_s: int, now_utc: datetime) -> str:

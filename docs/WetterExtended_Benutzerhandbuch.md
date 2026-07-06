@@ -629,7 +629,19 @@ Das System vergleicht nach Ablauf jedes Vorhersage-Horizonts die vorhergesagte P
 |---|---:|---|
 | `VERIFICATION_TOLERANCE_KM` | 1 km | Treffer wenn tatsächliche Zelle ≤ 1 km von Vorhersage (Zieldefinition <1 km bei ≤30 min) |
 | `VERIFICATION_TIME_TOLERANCE_S` | 90 s | Zeitfenster für Frame-Suche (ARSO liefert alle 2–5 min) |
+| `VERIFICATION_NEAREST_FRAME_TOLERANCE_S` | 450 s | Nearest-Target-Frame-Toleranz bei gröberem Radar-Takt |
 | `VERIFICATION_MAX_SEARCH_RADIUS_KM` | 25 km | Suchradius für Nearest-Neighbor-Match |
+
+### Nearest-Target-Frame-Toleranz (B302)
+
+Die Closed-Loop-Verifikation vergleicht jede Vorhersage (+10/+20/+30/+40/+60 min) mit dem
+tatsächlichen Radarbild zum Zielzeitpunkt. Liefert das Radar in ruhigen Phasen nur alle
+15 Minuten ein Bild, existiert für kurze Horizonte kein exakt passender Frame. Über den
+Parameter `VERIFICATION_NEAREST_FRAME_TOLERANCE_S` (Standard 450 s = 7,5 min) akzeptiert die
+Verifikation den nächstgelegenen real vorhandenen Radar-Frame innerhalb dieser Zeittoleranz.
+Dadurch werden auch Kurzhorizonte bei grobem Takt verifiziert; echte Datenlücken
+(> Toleranz) bleiben unverifiziert. Der Wert ist über das Admin-Panel
+(`runtime_overrides.json`) ohne Service-Neustart anpassbar.
 
 **Verifikations-Buckets (seit v1.2)**
 
@@ -1634,6 +1646,7 @@ Alle Parameter werden in `config.py` als Python-Konstanten definiert und können
 | `ML_FORECAST_HORIZONS_MIN` | `[10,20,30,40,60]` | ML |
 | `DATA_RETENTION_DAYS` | 90 | Daten-Rotation |
 | `VERIFICATION_TOLERANCE_KM` | 1 km | Verifikation |
+| `VERIFICATION_NEAREST_FRAME_TOLERANCE_S` | 450 s | Verifikation |
 | `AI_ANALYSIS_CONFIG.enabled` | `false` | KI-Analyse |
 | `AI_ANALYSIS_CONFIG.cron_hour` | 6 | KI-Analyse |
 | `LOCAL_TRAINING` | `true` | Multi-Rechner |

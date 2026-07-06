@@ -891,6 +891,14 @@ VERIFICATION_INTERPOLATION_MAX_GAP_S = 1800
 # Wenn keine Zelle in diesem Radius → "kein Treffer" geloggt, fließt in Hit-Rate ein.
 VERIFICATION_MAX_SEARCH_RADIUS_KM = 25.0
 
+# B302: Zeittoleranz (Sekunden) für die Nearest-Target-Frame-Zuordnung in der
+# Closed-Loop-Verifikation. Erlaubt, dass 10/20/40-min-Horizonte auch bei
+# gröberem Radar-Takt (z. B. 15 min in Ruhephasen) gegen den nächstgelegenen
+# real vorhandenen Radar-Frame verifiziert werden, statt als no_target_frame zu
+# gelten. 450 s = 7,5 min = halbes 15-min-Intervall. Runtime-überschreibbar via
+# runtime_overrides.json (Admin-Panel).
+VERIFICATION_NEAREST_FRAME_TOLERANCE_S = 450
+
 # B228: Strenge Akzeptanzschwelle fuer Nearest-Neighbor-Matches (km).
 # NN-Treffer (kein ID-/cell_id-Match) jenseits dieser Distanz gelten als
 # Fehlzuordnung und fliessen NICHT in MAE/Drift ein (Bucket "nn_rejected").
