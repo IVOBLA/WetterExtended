@@ -4147,3 +4147,17 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Dateien: `config.py`, `accuracy_tracker.py`,
   `tests/test_b315_stationary_direction_error_exclusion.py`.
 - Test: `tests/test_b315_stationary_direction_error_exclusion.py`.
+
+### B316 — Radar-Ingest-Gesundheit idle-aware ✅ erledigt
+- Ursache: `build_dataset()` rief `compute_radar_ingest_gaps(FRAME_INTERVAL_MIN, hours=24)`
+  immer mit dem aktiven 5-Minuten-Takt auf, unabhängig davon, ob im Fenster überhaupt
+  Zellen aktiv waren. In Ruhephasen (bewusst 15-min-Takt, `LOOP_INTERVAL_NO_CELLS_S=900`)
+  führte das zu dauerhaft falschem `health_status="critical"`
+  (verifiziert: `coverage_ratio=0.3737` ≈ 5/15 — exakt das erwartete Verhältnis bei
+  korrektem 15-min-Realtakt gegen falsche 5-min-Erwartung).
+- Fix: neue Funktion `_expected_radar_interval_min()` prüft die letzten `train_data/
+  objects/*.json`-Dateien im Fenster auf tatsächliche Zellaktivität und leitet daraus den
+  erwarteten Takt ab (Zellen vorhanden → `FRAME_INTERVAL_MIN`, sonst
+  `LOOP_INTERVAL_NO_CELLS_S/60`).
+- Dateien: `dataset_builder.py`, `tests/test_b316_radar_health_idle_aware.py`.
+- Test: `tests/test_b316_radar_health_idle_aware.py`.
