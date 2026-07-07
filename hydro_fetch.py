@@ -20,7 +20,11 @@ SERVICE_NAME = "hydro_kaernten"
 SOURCE_NAME = "hydro_kaernten"
 RAW_DATA_NOTICE = "ungeprüfte Rohdaten / Live-Indikator"
 DEFAULT_TTL_SECONDS = int(os.getenv("HYDRO_API_TTL_SECONDS", os.getenv("HYDRO_LIVE_TTL_SECONDS", "600")))
-REQUEST_TIMEOUT_SECONDS = float(os.getenv("HYDRO_LIVE_TIMEOUT_SECONDS", "15"))
+# B317: Default von 15s auf 10s gesenkt — info.ktn.gv.at ist gelegentlich langsam,
+# der bestehende Fallback (Cache) und Circuit-Breaker (B149, CIRCUIT_THRESHOLD_CONN=4,
+# CIRCUIT_COOLDOWN_CONN=900s) fangen Ausfälle bereits zuverlässig ab. Ein kürzerer
+# Timeout reduziert die Blockierzeit des Hauptverarbeitungs-Loops pro Fehlversuch.
+REQUEST_TIMEOUT_SECONDS = float(os.getenv("HYDRO_LIVE_TIMEOUT_SECONDS", "10"))
 
 _BASE_DIR = Path(SAVE_PATHS.get("hydro", "train_data/hydro/live"))
 if _BASE_DIR.name != "live":
