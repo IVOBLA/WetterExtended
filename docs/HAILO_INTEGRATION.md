@@ -4195,3 +4195,16 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   `tests/test_b314_ml_runtime_gate_fallback.py`.
 - Test: bestehende Tests korrigiert, keine neue Testdatei nötig (reine
   Nachbesserung bereits vorhandener Tests plus ein Code-Fix).
+
+### B319 — Codex-Review-Nachbesserung zu B317: Timeout als Tupel ✅ erledigt
+- Ursache: B317 übergab `REQUEST_TIMEOUT_SECONDS` (10s) als Skalar an `retry_get()`.
+  `http_retry._normalize_timeout()` hebt Skalare aber auf `max(t,
+  _DEFAULT_READ_TIMEOUT=15)` an — der tatsächliche Read-Timeout blieb bei 15s, B317
+  war in der Produktion wirkungslos. Der ursprüngliche B317-Test prüfte nur den rohen
+  Parameter, nicht die normalisierte Wirkung, und übersah den Fehler deshalb.
+- Fix: `timeout=(5.0, REQUEST_TIMEOUT_SECONDS)` als explizites Tupel — wird von
+  `_normalize_timeout()` unverändert durchgereicht. Neuer Test prüft die tatsächliche,
+  normalisierte Ausgabe direkt über `http_retry._normalize_timeout()`.
+- Dateien: `hydro_fetch.py`, `tests/test_b317_hydro_timeout.py`.
+- Test: `tests/test_b317_hydro_timeout.py`
+  (`test_effective_timeout_is_not_clamped_to_fifteen_seconds`, neu).
