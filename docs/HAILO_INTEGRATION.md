@@ -4132,3 +4132,18 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   unverändert zusätzlich wirksam.
 - Dateien: `config.py`, `prediction.py`, `tests/test_b314_ml_runtime_gate_fallback.py`.
 - Test: `tests/test_b314_ml_runtime_gate_fallback.py`.
+
+### B315 — Scheindirektionsfehler bei quasi-stationären Zellen ausgeklammert ✅ erledigt
+- Ursache: `evaluate_for_horizon()` übernahm `direction_error_deg`/`speed_error_kmh`
+  unbedingt in die Drift-/Accuracy-Aggregation. Bei quasi-stationären Zellen
+  (`actual_displacement_km` nahe 0) ist die berechnete Ist-Richtung geometrisch
+  instabil — verifiziert: 114,6° Richtungsfehler bei 0,17 km realer Verschiebung,
+  `p90_direction_error_deg=113,4` bei h10.
+- Fix: neue Schwelle `DIRECTION_ERROR_MIN_DISPLACEMENT_KM=0.3` (admin-wartbar).
+  Records mit `actual_displacement_km` darunter werden weiterhin vollständig in
+  `forecast_error_km`/MAE erfasst, aber aus `direction_errors`/`speed_errors`
+  ausgeklammert. Ergänzt B231 (das die Prognoseerstellung selbst bereits gegen
+  Mikrobewegung absichert) um den fehlenden Bewertungs-seitigen Fall.
+- Dateien: `config.py`, `accuracy_tracker.py`,
+  `tests/test_b315_stationary_direction_error_exclusion.py`.
+- Test: `tests/test_b315_stationary_direction_error_exclusion.py`.

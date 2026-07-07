@@ -1342,6 +1342,14 @@ KINEMATIC_ACCEL_MAX_FRACTION = 0.3                # Beschleunigungsanteil <= 30%
 # --- B278: Verifikations-Coverage-Warnschwelle ---
 MIN_VERIFICATION_COVERAGE_RATIO = 0.5
 
+# --- B315: Richtungs-/Geschwindigkeitsfehler bei quasi-stationaeren Zellen ---
+# Unterhalb dieser Ist-Verschiebung (km) ist die berechnete "Ist-Richtung" geometrisch
+# instabil (Rauschen dominiert echte Bewegung) und erzeugt Schein-Richtungsfehler von
+# oft >100 Grad bei ~0 km Verschiebung. Solche Records bleiben vollstaendig in
+# forecast_error_km/MAE (Positionsgenauigkeit bleibt gueltig), werden aber aus den
+# direction_error_deg-/speed_error_kmh-Aggregaten ausgeklammert. Runtime-ueberschreibbar.
+DIRECTION_ERROR_MIN_DISPLACEMENT_KM = 0.3
+
 
 # --- P70: Horizontabhängige Qualitätsziele. Die <=30-Min-Vorgabe (<1km) ist
 # durch die Zieldefinition FEST vorgegeben und NICHT admin-änderbar. Nur
