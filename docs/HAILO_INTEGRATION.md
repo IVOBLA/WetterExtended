@@ -4172,3 +4172,26 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   bleiben unverändert.
 - Dateien: `hydro_fetch.py`, `tests/test_b317_hydro_timeout.py`.
 - Test: `tests/test_b317_hydro_timeout.py`.
+
+
+### B318 — Codex-Review-Nachbesserungen zu B313/B314 ✅ erledigt
+- Fix 1 (echter Logikfehler): `fetch_outlook_series.py` prüfte das
+  `OUTLOOK_SERIES_MAX_WALLTIME_S`-Budget nur am Batch-Anfang, nicht vor dem zweiten
+  `_HOURLY_MIN`-Versuch innerhalb desselben Batches — konnte das harte Wall-Time-Budget
+  aus B313 um ein weiteres Timeout-Fenster überschreiten. Jetzt zusätzlicher Check
+  innerhalb der inneren Schleife.
+- Fix 2 (Test-Isolation): `tests/test_b313_outlook_watchdog_walltime.py` installierte
+  `sys.modules["http_retry"]` als dauerhaften Stub ohne Teardown — ließ
+  `tests/test_b149_retry_get_breaker.py` je nach Ausführungsreihenfolge fehlschlagen
+  (fehlendes `_SESSION`-Attribut). Jetzt mit `autouse`-Modul-Fixture sauber
+  zurückgesetzt.
+- Fix 3 (Test-Isolation): `tests/test_b314_ml_runtime_gate_fallback.py` patchte ein bei
+  Modul-Import gebundenes, potenziell verwaistes `accuracy_tracker`-Objekt statt den
+  aktuellen `sys.modules`-Eintrag. Reproduziert mit
+  `pytest tests/test_accuracy_tracker_horizon_mode.py tests/test_b314_ml_runtime_gate_fallback.py`
+  (2 Fehlschläge). Jetzt String-Form `monkeypatch.setattr("accuracy_tracker.<attr>", ...)`
+  an allen 4 Stellen, löst das Zielmodul bei jedem Patch frisch auf.
+- Dateien: `fetch_outlook_series.py`, `tests/test_b313_outlook_watchdog_walltime.py`,
+  `tests/test_b314_ml_runtime_gate_fallback.py`.
+- Test: bestehende Tests korrigiert, keine neue Testdatei nötig (reine
+  Nachbesserung bereits vorhandener Tests plus ein Code-Fix).

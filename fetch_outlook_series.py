@@ -180,6 +180,14 @@ def fetch_outlook_series(force=False):
             # das Budget bereits erschöpft ist.
             if requests_used >= MAX_REQUESTS_PER_RUN:
                 break
+            # B318: Wall-Time-Budget zusaetzlich VOR dem zweiten hourly-Versuch pruefen,
+            # nicht nur am Batch-Anfang. Sonst kann im HTTP-400-dann-Minimalparameter-
+            # Pfad der erste Request das Budget bereits ausschoepfen, und der zweite
+            # Request (_HOURLY_MIN) startet trotzdem noch ein komplettes neues
+            # Timeout-Fenster — das hebelt das harte Wall-Time-Budget aus B313 aus.
+            if (_time_outlook.monotonic() - _t_run_start) >= OUTLOOK_SERIES_MAX_WALLTIME_S:
+                log_api_failure("Open-Meteo-Outlook", _URL, "walltime-budget-exceeded", fallback_used=True)
+                break
             try:
                 requests_used += 1
                 data = _request(lats, lons, hourly)
