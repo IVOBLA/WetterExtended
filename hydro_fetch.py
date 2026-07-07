@@ -257,7 +257,11 @@ def fetch_hydro_live(force: bool = False) -> dict:
             HYDRO_SOURCE_URL,
             service=SERVICE_NAME,
             breaker_service=SERVICE_NAME,
-            timeout=REQUEST_TIMEOUT_SECONDS,
+            # B319: Tupel statt Skalar — http_retry._normalize_timeout() wuerde einen
+            # Skalar sonst auf max(t, _DEFAULT_READ_TIMEOUT=15) anheben und den
+            # kuerzeren Read-Timeout aus B317 wirkungslos machen. Ein 2er-Tupel wird
+            # von _normalize_timeout() unveraendert durchgereicht.
+            timeout=(5.0, REQUEST_TIMEOUT_SECONDS),
             max_retries=1,
             headers={"Accept": "application/json"},
         )
