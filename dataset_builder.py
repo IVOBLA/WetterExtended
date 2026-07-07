@@ -36,6 +36,7 @@ except Exception:
 
 from config import (
     FRAME_INTERVAL_MIN,
+    LOOP_INTERVAL_NO_CELLS_S,
     ML_CELL_FEATURES,
     ML_FORECAST_HORIZONS_MIN,
     ML_SEQUENCE_LENGTH,
@@ -65,6 +66,36 @@ def _radar_ingest_gap_thresholds():
 from data_quality import validate_sample
 from feature_schema import compare_sample_schema, extract_source_schema, get_current_feature_schema, schema_metadata
 
+
+
+def _expected_radar_interval_min(hours: int) -> float:
+    """B316: Leitet den erwarteten Radar-Frame-Takt dynamisch aus der tatsaechlichen
+    Zellaktivitaet im Bewertungsfenster ab, statt immer den aktiven Takt
+    (FRAME_INTERVAL_MIN) anzunehmen. Ohne Zellen im Fenster laeuft der Loop bewusst
+    nur alle LOOP_INTERVAL_NO_CELLS_S Sekunden (Ressourcenschonung, siehe B302/B303) —
+    das ist kein Ingest-Fehler und darf die Coverage-Bewertung nicht als 'critical'
+    einstufen. Bei jeglicher gefundener Zellaktivitaet im Fenster wird konservativ der
+    schnellere aktive Takt erwartet."""
+    try:
+        obj_dir = SAVE_PATHS.get("objects", "train_data/objects/")
+        cutoff = datetime.utcnow() - timedelta(hours=max(1, int(hours)))
+        for path in sorted(glob.glob(os.path.join(obj_dir, "*.json")), reverse=True):
+            try:
+                ts = _parse_ts(path)
+            except Exception:
+                continue
+            if ts < cutoff:
+                break
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    objs = json.load(f)
+            except Exception:
+                continue
+            if isinstance(objs, list) and len(objs) > 0:
+                return float(FRAME_INTERVAL_MIN)
+    except Exception:
+        pass
+    return float(LOOP_INTERVAL_NO_CELLS_S) / 60.0
 
 
 def compute_radar_ingest_gaps(expected_interval_min, hours=24):
@@ -287,7 +318,9 @@ def _fit_nan_aware_standard_scaler(values):
 
 def build_dataset(model_save_dir=None):
     try:
-        compute_radar_ingest_gaps(FRAME_INTERVAL_MIN, hours=24)
+        # B316: dynamischer Takt statt immer FRAME_INTERVAL_MIN — vermeidet
+        # faelschliche 'critical'-Einstufung im zellfreien Ruhebetrieb.
+        compute_radar_ingest_gaps(_expected_radar_interval_min(24), hours=24)
     except Exception as exc:
         debug_log(f"[DATASET] Radar-Ingest-Lücken konnten nicht berechnet werden: {exc}")
 
