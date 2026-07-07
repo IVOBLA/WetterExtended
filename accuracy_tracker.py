@@ -37,6 +37,7 @@ from config import (
     VERIFICATION_MATCH_MAX_ACTUAL_SPEED_KMH,
     VERIFICATION_CORE_MIN_RATIO,
     VERIFICATION_NEAREST_FRAME_TOLERANCE_S,
+    DIRECTION_ERROR_MIN_DISPLACEMENT_KM,
     VERIFICATION_INTERPOLATION_MAX_GAP_S,
     FRAME_INTERVAL_MIN,
 )
@@ -613,7 +614,7 @@ def _stat_errors(values: list, name: str) -> dict:
         return {}
     prefix = "direction" if "direction" in name else "speed"
     unit = "deg" if prefix == "direction" else "kmh"
-    return {f"median_{prefix}_error_{unit}": round(_percentile(values, 50), 3), f"p90_{prefix}_error_{unit}": round(_percentile(values, 90), 3)}
+    return {"count": len(values), f"median_{prefix}_error_{unit}": round(_percentile(values, 50), 3), f"p90_{prefix}_error_{unit}": round(_percentile(values, 90), 3)}
 
 
 def _accumulate_ml_shadow(by_mode, obj, horizon_min, matched, tol_km):
@@ -643,6 +644,18 @@ def _accumulate_ml_shadow(by_mode, obj, horizon_min, matched, tol_km):
     if d <= tol_km:
         b["hits"] += 1
     return d
+
+
+def _direction_error_min_displacement_km() -> float:
+    """B315: Runtime-ueberschreibbare Mindest-Ist-Verschiebung, unterhalb derer
+    direction_error_deg/speed_error_kmh als geometrisches Rauschen gelten und aus
+    der Aggregation ausgeklammert werden (siehe DIRECTION_ERROR_MIN_DISPLACEMENT_KM)."""
+    if _runtime_cfg is not None:
+        try:
+            return float(_runtime_cfg.get("DIRECTION_ERROR_MIN_DISPLACEMENT_KM", DIRECTION_ERROR_MIN_DISPLACEMENT_KM))
+        except Exception:
+            pass
+    return DIRECTION_ERROR_MIN_DISPLACEMENT_KM
 
 
 def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
@@ -870,8 +883,17 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
             _bm["sum_km"] += dist_km; _bs["sum_km"] += dist_km; _bt["sum_km"] += dist_km
             _bm["sum_km2"] += dist_km * dist_km; _bs["sum_km2"] += dist_km * dist_km; _bt["sum_km2"] += dist_km * dist_km
             rec = _detail_record(obj, ts, target_ts, horizon_min, matched, dist_km, _match_src, False, False, horizon_min, ex, ey, target_frame_delta_min=target_frame_delta_min)
-            if rec.get("direction_error_deg") is not None: direction_errors.append(float(rec["direction_error_deg"]))
-            if rec.get("speed_error_kmh") is not None: speed_errors.append(float(rec["speed_error_kmh"]))
+            # B315: Bei quasi-stationaeren Zellen (actual_displacement_km unter
+            # Schwelle) ist die "Ist-Richtung" geometrisch instabil und erzeugt
+            # Schein-Richtungs-/Geschwindigkeitsfehler. forecast_error_km/MAE bleibt
+            # unveraendert vollstaendig erfasst; nur Richtung/Geschwindigkeit werden
+            # aus der Aggregation ausgeklammert, damit sie die Drift-Metrik nicht
+            # verzerren. rec selbst behaelt die Rohwerte (keine Datenverfaelschung).
+            _ac_disp_km = rec.get("actual_displacement_km")
+            _stationary_actual = _ac_disp_km is not None and _ac_disp_km < _direction_error_min_displacement_km()
+            if not _stationary_actual:
+                if rec.get("direction_error_deg") is not None: direction_errors.append(float(rec["direction_error_deg"]))
+                if rec.get("speed_error_kmh") is not None: speed_errors.append(float(rec["speed_error_kmh"]))
             details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
             if dist_km <= VERIFICATION_TOLERANCE_KM:
                 hits += 1
