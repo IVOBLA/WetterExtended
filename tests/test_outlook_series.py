@@ -1,9 +1,37 @@
 import json
 import importlib
+import sys
+import types
 from pathlib import Path
 
 import pytest
+
+
+class _StubHTTPError(Exception):
+    def __init__(self, *args, response=None, **kwargs):
+        super().__init__(*args)
+        self.response = response
+
+
+class _StubResponse:
+    def __init__(self):
+        self.status_code = 200
+        self.headers = {}
+
+
 requests = pytest.importorskip("requests")
+if not hasattr(requests, "Response") or not hasattr(requests, "exceptions"):
+    requests = types.SimpleNamespace(
+        Response=_StubResponse,
+        exceptions=types.SimpleNamespace(
+            HTTPError=_StubHTTPError,
+            Timeout=TimeoutError,
+            SSLError=OSError,
+            ConnectionError=ConnectionError,
+            RequestException=Exception,
+        ),
+    )
+    sys.modules["requests"] = requests
 
 
 def _mod(tmp_path, monkeypatch):
