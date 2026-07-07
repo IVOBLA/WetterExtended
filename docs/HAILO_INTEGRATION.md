@@ -4161,3 +4161,14 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   `LOOP_INTERVAL_NO_CELLS_S/60`).
 - Dateien: `dataset_builder.py`, `tests/test_b316_radar_health_idle_aware.py`.
 - Test: `tests/test_b316_radar_health_idle_aware.py`.
+
+### B317 — hydro_kaernten Timeout gesenkt ✅ erledigt
+- Ursache: `REQUEST_TIMEOUT_SECONDS` (Default 15s) verzögerte den
+  Verarbeitungs-Loop bei jedem `ReadTimeout` gegen info.ktn.gv.at unnötig lange
+  (verifiziert: zwei ReadTimeouts à 15s im Export, `fallback_used=true`).
+- Fix: Default auf 10s gesenkt (weiterhin per `HYDRO_LIVE_TIMEOUT_SECONDS`
+  env-überschreibbar). Circuit-Breaker (B149: `CIRCUIT_THRESHOLD_CONN=4`,
+  `CIRCUIT_COOLDOWN_CONN=900s`) und Fallback-Pfad waren bereits korrekt verdrahtet und
+  bleiben unverändert.
+- Dateien: `hydro_fetch.py`, `tests/test_b317_hydro_timeout.py`.
+- Test: `tests/test_b317_hydro_timeout.py`.
