@@ -4118,3 +4118,17 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   `fetch_outlook_series.py`), `fetch_outlook_series.py`,
   `tests/test_b313_outlook_watchdog_walltime.py`.
 - Test: `tests/test_b313_outlook_watchdog_walltime.py`.
+
+### B314 — ML-Runtime-Gate: adaptiver Fallback-Schwellwert ✅ erledigt
+- Ursache: `_latest_runtime_mae_by_horizon()` verlangte hart
+  `ML_RUNTIME_MIN_SAMPLES_PER_MODE=20` verifizierte ML-Samples je Horizont. Verifiziert:
+  ML ist nachweislich genauer (1.712 km vs. 2.639 km bei h10), aber `model_usage`
+  zeigt nur ~3 Samples je Horizont in datenarmen (ruhigen) Phasen — Gate blieb dauerhaft
+  geschlossen, `delivered_mode_counts` fast ausschließlich `kinematic_fallback`.
+- Fix: neuer Fallback-Schwellwert `ML_RUNTIME_MIN_SAMPLES_FALLBACK=5` (admin-wartbar).
+  Wird die Standardschwelle in keiner `accuracy_history.jsonl`-Zeile erreicht, prüft ein
+  zweiter Scan-Durchlauf gegen den niedrigeren Wert. Ergebnis wird transparent mit
+  `reduced_sample_threshold: true` markiert. `ML_RUNTIME_GATING_MARGIN`-Vergleich bleibt
+  unverändert zusätzlich wirksam.
+- Dateien: `config.py`, `prediction.py`, `tests/test_b314_ml_runtime_gate_fallback.py`.
+- Test: `tests/test_b314_ml_runtime_gate_fallback.py`.

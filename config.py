@@ -856,6 +856,14 @@ ML_IGNORE_FLAG = -1
 ML_RUNTIME_GATING_ENABLED = True
 ML_RUNTIME_GATING_MARGIN = 0.0
 ML_RUNTIME_MIN_SAMPLES_PER_MODE = 20
+# B314: Adaptiver Fallback-Schwellwert fuer das ML-Runtime-Gate in datenarmen Phasen
+# (z. B. Schoenwetter mit wenigen Zellen). Wird die Standard-Schwelle
+# (ML_RUNTIME_MIN_SAMPLES_PER_MODE) in KEINER Zeile von accuracy_history.jsonl je
+# Horizont erreicht, prueft das Gate zusaetzlich gegen diesen niedrigeren Wert, damit
+# ML nicht dauerhaft blockiert bleibt, nur weil zu wenige Zellen aufgetreten sind. Der
+# bestehende ML_RUNTIME_GATING_MARGIN-Vergleich bleibt zusaetzlich wirksam. 0 = Fallback
+# deaktiviert (altes strenges Verhalten). Runtime-ueberschreibbar (Admin-Panel).
+ML_RUNTIME_MIN_SAMPLES_FALLBACK = 5
 ML_FORCE_KINEMATIC = False
 
 # P52: ML-Shadow-Scoring (Champion/Challenger). ML wird auch bei Kinematik-Gate im

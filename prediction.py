@@ -54,6 +54,7 @@ from config import (
     ML_RUNTIME_GATING_ENABLED as _STATIC_ML_RUNTIME_GATING_ENABLED,
     ML_RUNTIME_GATING_MARGIN as _STATIC_ML_RUNTIME_GATING_MARGIN,
     ML_RUNTIME_MIN_SAMPLES_PER_MODE as _STATIC_ML_RUNTIME_MIN_SAMPLES_PER_MODE,
+    ML_RUNTIME_MIN_SAMPLES_FALLBACK as _STATIC_ML_RUNTIME_MIN_SAMPLES_FALLBACK,
     ML_FORCE_KINEMATIC as _STATIC_ML_FORCE_KINEMATIC,
     MAX_CELL_SPEED_KMH as _STATIC_MAX_CELL_SPEED_KMH,
     MIN_MOVEMENT_FOR_ARROW_KMH as _STATIC_MIN_MOVEMENT_FOR_ARROW_KMH,
@@ -916,6 +917,47 @@ def _latest_runtime_mae_by_horizon(min_samples: int | None = None) -> dict:
                     "ml_samples": ml_n,
                     "kinematic_samples": int(kin_entry.get("kinematic_samples", 0) or 0),
                 }
+
+    # B314: Adaptiver Fallback fuer Horizonte, die die Standard-Schwelle in KEINER
+    # Zeile erreicht haben (z. B. datenarme Schoenwetterphasen). Nutzt einen
+    # niedrigeren Mindest-Sample-Schwellwert, damit ML nicht dauerhaft blockiert
+    # bleibt. Der aufrufende Margin-Vergleich (ML_RUNTIME_GATING_MARGIN) bleibt
+    # unveraendert zusaetzlich wirksam.
+    missing = [h for h in kin_map if h not in out]
+    if missing:
+        fallback_min = _runtime_int_value("ML_RUNTIME_MIN_SAMPLES_FALLBACK", _STATIC_ML_RUNTIME_MIN_SAMPLES_FALLBACK)
+        if fallback_min > 0:
+            for rec in reversed(rows):
+                if not missing:
+                    break
+                modes_by_h = rec.get("breakdown_by_forecast_mode") or {}
+                if not isinstance(modes_by_h, dict):
+                    continue
+                for h, modes in modes_by_h.items():
+                    try:
+                        key = str(int(float(h)))
+                    except Exception:
+                        continue
+                    if key not in missing or not isinstance(modes, dict):
+                        continue
+                    ml_stats = modes.get("ml") if isinstance(modes.get("ml"), dict) else None
+                    if not ml_stats:
+                        continue
+                    ml_n = int(ml_stats.get("verified", ml_stats.get("samples", 0)) or 0)
+                    if ml_n < fallback_min:
+                        continue
+                    ml_mae = _safe_float(ml_stats.get("mae_km"))
+                    kin_entry = kin_map[key]
+                    kin_mae = _safe_float(kin_entry.get("kinematic_mae"))
+                    if ml_mae > 0 and kin_mae > 0:
+                        out[key] = {
+                            "ml_mae": ml_mae,
+                            "kinematic_mae": kin_mae,
+                            "ml_samples": ml_n,
+                            "kinematic_samples": int(kin_entry.get("kinematic_samples", 0) or 0),
+                            "reduced_sample_threshold": True,
+                        }
+                        missing.remove(key)
     return out
 
 def _runtime_training_meta(runtime_status: dict | None) -> dict:
