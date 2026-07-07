@@ -36,20 +36,53 @@ _requests_stub = types.SimpleNamespace(
     ),
 )
 _existing_requests = sys.modules.get("requests")
-if (
+_needed_requests_stub = (
     _existing_requests is None
     or not hasattr(_existing_requests, "exceptions")
     or not hasattr(_existing_requests.exceptions, "ConnectionError")
     or not hasattr(_existing_requests, "Response")
-):
+)
+if _needed_requests_stub:
     sys.modules["requests"] = _requests_stub
 
 # http_retry importiert normalerweise requests.adapters. In der schlanken
 # Testumgebung reicht fuer B313 ein Stub, weil nur die weitergereichten kwargs
 # verifiziert werden.
-sys.modules.setdefault("http_retry", types.SimpleNamespace(retry_get=lambda *a, **k: None))
+_existing_http_retry = sys.modules.get("http_retry")
+_needed_http_retry_stub = _existing_http_retry is None
+if _needed_http_retry_stub:
+    sys.modules["http_retry"] = types.SimpleNamespace(retry_get=lambda *a, **k: None)
 
 fos = pytest.importorskip("fetch_outlook_series")
+
+# B318: Falls requests nur fuer den fetch_outlook_series-Import gestubbt wurde,
+# darf der Stub nicht schon waehrend der Collection nachfolgender Testmodule in
+# sys.modules sichtbar bleiben. Sonst wuerde z. B. pytest.importorskip("requests")
+# in test_b149_retry_get_breaker.py faelschlich nicht skippen, obwohl das echte
+# Paket in der schlanken Umgebung fehlt. fetch_outlook_series haelt seine
+# Modulreferenz bereits in fos.requests.
+if _needed_requests_stub and _existing_requests is None:
+    sys.modules.pop("requests", None)
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _restore_stubbed_modules():
+    """B318: Stellt sys.modules['requests']/['http_retry'] nach diesem Testmodul
+    wieder her, falls oben ein Stub installiert wurde. Ohne dieses Teardown bleibt
+    der Stub fuer den Rest der pytest-Session aktiv und laesst andere Testdateien
+    (z. B. test_b149_retry_get_breaker.py, das http_retry._SESSION braucht) je
+    nach Sammel-/Ausfuehrungsreihenfolge fehlschlagen."""
+    yield
+    if _needed_http_retry_stub:
+        if _existing_http_retry is None:
+            sys.modules.pop("http_retry", None)
+        else:
+            sys.modules["http_retry"] = _existing_http_retry
+    if _needed_requests_stub:
+        if _existing_requests is None:
+            sys.modules.pop("requests", None)
+        else:
+            sys.modules["requests"] = _existing_requests
 
 
 def test_max_walltime_constant_is_well_under_watchdog_default():

@@ -31,7 +31,14 @@ def test_standard_threshold_used_when_available(monkeypatch, tmp_path):
         {"breakdown_by_forecast_mode": {"10": {"ml": {"verified": 25, "mae_km": 1.7}}}},
     ])
     monkeypatch.setitem(pred.SAVE_PATHS, "evaluation", str(ev_dir))
-    monkeypatch.setattr(accuracy_tracker, "get_runtime_kinematic_mae_by_horizon",
+    # B318: String-Form statt Objekt-Referenz — pytest loest "accuracy_tracker.<attr>"
+    # bei jedem Aufruf frisch ueber sys.modules auf. Die Objekt-Referenz-Form
+    # (monkeypatch.setattr(accuracy_tracker, ...)) patcht sonst ein potenziell
+    # verwaistes Modul-Objekt, falls eine andere Testdatei zuvor
+    # sys.modules["accuracy_tracker"] neu importiert hat (siehe
+    # test_accuracy_tracker_horizon_mode.py) — prediction.py loest den Import selbst
+    # zur Laufzeit ueber das AKTUELLE sys.modules-Eintrag auf.
+    monkeypatch.setattr("accuracy_tracker.get_runtime_kinematic_mae_by_horizon",
                          lambda min_samples: {"10": {"kinematic_mae": 2.6, "kinematic_samples": 30}})
     result = pred._latest_runtime_mae_by_horizon(min_samples=20)
     assert "10" in result
@@ -46,7 +53,14 @@ def test_fallback_kicks_in_when_standard_never_met(monkeypatch, tmp_path):
         {"breakdown_by_forecast_mode": {"10": {"ml": {"verified": 5, "mae_km": 1.8}}}},
     ])
     monkeypatch.setitem(pred.SAVE_PATHS, "evaluation", str(ev_dir))
-    monkeypatch.setattr(accuracy_tracker, "get_runtime_kinematic_mae_by_horizon",
+    # B318: String-Form statt Objekt-Referenz — pytest loest "accuracy_tracker.<attr>"
+    # bei jedem Aufruf frisch ueber sys.modules auf. Die Objekt-Referenz-Form
+    # (monkeypatch.setattr(accuracy_tracker, ...)) patcht sonst ein potenziell
+    # verwaistes Modul-Objekt, falls eine andere Testdatei zuvor
+    # sys.modules["accuracy_tracker"] neu importiert hat (siehe
+    # test_accuracy_tracker_horizon_mode.py) — prediction.py loest den Import selbst
+    # zur Laufzeit ueber das AKTUELLE sys.modules-Eintrag auf.
+    monkeypatch.setattr("accuracy_tracker.get_runtime_kinematic_mae_by_horizon",
                          lambda min_samples: {"10": {"kinematic_mae": 2.6, "kinematic_samples": 30}})
     result = pred._latest_runtime_mae_by_horizon(min_samples=20)
     assert "10" in result
@@ -60,7 +74,14 @@ def test_fallback_disabled_when_zero(monkeypatch, tmp_path):
     ])
     monkeypatch.setitem(pred.SAVE_PATHS, "evaluation", str(ev_dir))
     monkeypatch.setattr(pred, "_STATIC_ML_RUNTIME_MIN_SAMPLES_FALLBACK", 0)
-    monkeypatch.setattr(accuracy_tracker, "get_runtime_kinematic_mae_by_horizon",
+    # B318: String-Form statt Objekt-Referenz — pytest loest "accuracy_tracker.<attr>"
+    # bei jedem Aufruf frisch ueber sys.modules auf. Die Objekt-Referenz-Form
+    # (monkeypatch.setattr(accuracy_tracker, ...)) patcht sonst ein potenziell
+    # verwaistes Modul-Objekt, falls eine andere Testdatei zuvor
+    # sys.modules["accuracy_tracker"] neu importiert hat (siehe
+    # test_accuracy_tracker_horizon_mode.py) — prediction.py loest den Import selbst
+    # zur Laufzeit ueber das AKTUELLE sys.modules-Eintrag auf.
+    monkeypatch.setattr("accuracy_tracker.get_runtime_kinematic_mae_by_horizon",
                          lambda min_samples: {"10": {"kinematic_mae": 2.6, "kinematic_samples": 30}})
     result = pred._latest_runtime_mae_by_horizon(min_samples=20)
     assert "10" not in result
@@ -72,7 +93,14 @@ def test_fallback_still_respects_its_own_minimum(monkeypatch, tmp_path):
         {"breakdown_by_forecast_mode": {"10": {"ml": {"verified": 1, "mae_km": 1.7}}}},
     ])
     monkeypatch.setitem(pred.SAVE_PATHS, "evaluation", str(ev_dir))
-    monkeypatch.setattr(accuracy_tracker, "get_runtime_kinematic_mae_by_horizon",
+    # B318: String-Form statt Objekt-Referenz — pytest loest "accuracy_tracker.<attr>"
+    # bei jedem Aufruf frisch ueber sys.modules auf. Die Objekt-Referenz-Form
+    # (monkeypatch.setattr(accuracy_tracker, ...)) patcht sonst ein potenziell
+    # verwaistes Modul-Objekt, falls eine andere Testdatei zuvor
+    # sys.modules["accuracy_tracker"] neu importiert hat (siehe
+    # test_accuracy_tracker_horizon_mode.py) — prediction.py loest den Import selbst
+    # zur Laufzeit ueber das AKTUELLE sys.modules-Eintrag auf.
+    monkeypatch.setattr("accuracy_tracker.get_runtime_kinematic_mae_by_horizon",
                          lambda min_samples: {"10": {"kinematic_mae": 2.6, "kinematic_samples": 30}})
     result = pred._latest_runtime_mae_by_horizon(min_samples=20)
     assert "10" not in result
