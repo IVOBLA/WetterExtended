@@ -3,13 +3,28 @@ import sys
 import types
 
 # Minimale Mocks
+class _StubResponse:
+    def __init__(self):
+        self.status_code = 200
+        self.headers = {}
+
+
+class _StubHTTPError(Exception):
+    def __init__(self, *args, response=None, **kwargs):
+        super().__init__(*args)
+        self.response = response
+
+
 sys.modules.setdefault(
     "requests",
     types.SimpleNamespace(
         get=lambda *a, **k: None,
+        Response=_StubResponse,
         exceptions=types.SimpleNamespace(
             Timeout=Exception,
-            HTTPError=Exception,
+            SSLError=Exception,
+            ConnectionError=Exception,
+            HTTPError=_StubHTTPError,
             RequestException=Exception,
         ),
     ),

@@ -36,6 +36,11 @@ _OUT_DIR = os.path.join(
 _OUT_FILE = os.path.join(_OUT_DIR, "atmosphere_timeseries.json")
 OUTLOOK_SERVICE = "open_meteo_outlook"
 MAX_REQUESTS_PER_RUN = int(os.getenv("OUTLOOK_SERIES_MAX_REQUESTS_PER_RUN", "9"))
+# B313: Hartes Wall-Time-Budget fuer den GESAMTEN Lauf (alle Batches zusammen),
+# deutlich unter systemd WatchdogSec (60s Default). Verhindert, dass ein
+# haengender/langsamer Open-Meteo-Endpoint ueber mehrere Batches hinweg den
+# Scheduler-Prozess per Watchdog-Timeout abschiesst.
+OUTLOOK_SERIES_MAX_WALLTIME_S = float(os.getenv("OUTLOOK_SERIES_MAX_WALLTIME_S", "25"))
 
 # Vollsatz und Minimalsatz (Fallback). Reihenfolge unwichtig.
 # convective_inhibition und precipitable_water sind für ICON (Default-Modell für AT)
@@ -102,8 +107,12 @@ def _request(lats, lons, hourly):
     }
     _t0 = _time_outlook.monotonic()
     from http_retry import retry_get as _rg_outlook
+    # B313: max_retries=1 statt Default 2 — reduziert die maximale Blockierzeit
+    # eines einzelnen Requests bei haengendem/langsamem Endpoint um die Haelfte;
+    # kombiniert mit dem Wall-Time-Budget oben schuetzt das zuverlaessig gegen
+    # den systemd-Watchdog (WatchdogSec=60s).
     r = _rg_outlook(_URL, params=params, timeout=_TIMEOUT,
-                    service="Open-Meteo-Outlook")
+                    service="Open-Meteo-Outlook", max_retries=1)
     _dur = (_time_outlook.monotonic() - _t0) * 1000
     r.raise_for_status()
     log_http_response("openmeteo_outlook", "GET", r, _dur)
@@ -147,11 +156,17 @@ def fetch_outlook_series(force=False):
     locs = list(ATM_SNAPSHOT_LOCATIONS)
     all_points = []
     requests_used = 0
+    _t_run_start = _time_outlook.monotonic()
     for batch in _batches(locs, _BATCH_SIZE):
         if api_circuit_breaker.is_open(OUTLOOK_SERVICE):
             return _load_fallback()
         if requests_used >= MAX_REQUESTS_PER_RUN:
             log_api_failure("Open-Meteo-Outlook", _URL, "request-budget-exceeded", fallback_used=True)
+            break
+        # B313: Hartes Wall-Time-Budget — schuetzt den systemd-Watchdog unabhaengig
+        # davon, wie viele Retries/Batches theoretisch noch erlaubt waeren.
+        if (_time_outlook.monotonic() - _t_run_start) >= OUTLOOK_SERIES_MAX_WALLTIME_S:
+            log_api_failure("Open-Meteo-Outlook", _URL, "walltime-budget-exceeded", fallback_used=True)
             break
         lats = [float(l["lat"]) for l in batch]
         lons = [float(l["lon"]) for l in batch]

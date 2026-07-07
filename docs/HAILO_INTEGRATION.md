@@ -4103,3 +4103,18 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Dateien: `hydro_static_import.py`, `hydro_station_index.py`,
   `tests/test_b312_stable_fallback_station_id.py`.
 - Test: `tests/test_b312_stable_fallback_station_id.py`.
+
+### B313 — Outlook-Abruf gegen systemd-Watchdog abgesichert ✅ erledigt
+- Ursache: `fetch_outlook_series.py::_request()` rief `retry_get()` ohne
+  `max_retries`-Override auf (Default 2× bei `_TIMEOUT=(5,15)`), und die
+  Batch-Schleife hatte kein Gesamt-Wall-Time-Budget. Ein hängender Open-Meteo-Endpoint
+  blockierte den Scheduler-Job ~3,3 min und riss ihn per systemd-Watchdog
+  (`WatchdogSec=60s`) ab (`Main process exited code=killed status=6/ABRT`).
+- Fix: `max_retries=1` explizit gesetzt; neues hartes Budget
+  `OUTLOOK_SERIES_MAX_WALLTIME_S=25` (env-überschreibbar) bricht die Batch-Schleife
+  unabhängig von Retry-/Batch-Anzahl rechtzeitig ab. Schützt sowohl `outlook_series`
+  als auch `outlook_compute` (ruft dieselbe Funktion bei Cache-Miss auf).
+- Dateien: `config.py` (nur Kommentar-Kontext, Konstante liegt in
+  `fetch_outlook_series.py`), `fetch_outlook_series.py`,
+  `tests/test_b313_outlook_watchdog_walltime.py`.
+- Test: `tests/test_b313_outlook_watchdog_walltime.py`.
