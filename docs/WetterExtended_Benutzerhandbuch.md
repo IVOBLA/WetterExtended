@@ -834,6 +834,29 @@ Die Hagelwahrscheinlichkeit wird pro Zelle heuristisch aus folgenden Faktoren be
 
 In der Leaflet-Karte erscheint bei Hagelwarnung ein roter gestrichelter Rahmen um die betroffene Zelle mit dem Prozentwert. Bei Stationärrisiko erscheint ein ⊕-Symbol in Amber-Farbe.
 
+## 13.3 NEU: Violett-Kernanteil (`core_violet_ratio`) — zusätzliches Hagelsignal
+
+In der ARSO-INCA-Radardarstellung steht Rot für ≥ 54 dBZ, Violett für ≥ 57 dBZ — die höchste
+darstellbare Reflektivitätsstufe. Sehr hohe Radarreflektivität ist eines der zuverlässigsten
+rein radarbasierten Hagelsignale überhaupt. Bisher wurden Rot und Violett in `core_ratio`
+gleichwertig zu einem einzigen Kernanteil zusammengefasst — der stärkste radarbasierte
+Hagelhinweis ging dadurch unter.
+
+`core_violet_ratio` erfasst jetzt separat, welcher Anteil einer Zelle ausschließlich aus
+violetten Pixeln (≥ 57 dBZ) besteht, und fließt als zusätzliches, unabhängiges Signal in die
+Hagelwarnung ein — analog zu `hail_prob2` (SHIP) und `overshooting_top` (IR-Vorläufer).
+
+| Parameter | Standard | Beschreibung |
+|---|---:|---|
+| `HAIL_VIOLET_RATIO_SATURATION` | 0.10 | `core_violet_ratio`-Anteil, ab dem der Violett-Boost seinen Maximalwert 1.0 erreicht |
+
+> **Hinweis:** Bereits ein kleiner echter Violett-Kernanteil (10 % der Zellfläche) reicht aus,
+> um den vollen Warnbeitrag auszulösen — violette Kerne sind in der Praxis meist ein kleiner,
+> aber sehr aussagekräftiger Flächenanteil. Der Wert ist über `config.py` kalibrierbar, sobald
+> erste Praxiswerte aus echten Hagelereignissen vorliegen.
+> **Modelle müssen nach Deployment neu trainiert werden** (`core_violet_ratio` ist neu in
+> `ML_CELL_FEATURES`).
+
 ---
 
 # 14 NEU: Atmosphären-Seite und Großwetterlage 500 hPa

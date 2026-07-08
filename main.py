@@ -41,7 +41,8 @@ import runtime_config
 from locations_check import annotate_locations
 from risk_watch import risk_watch_active
 from config import (HAIL_WARN_THRESHOLD, STATIONARY_RISK_MARKER_THRESHOLD,
-                    GUST_WARN_KMH, HEAVY_RAIN_WARN_MM_PER_H)
+                    GUST_WARN_KMH, HEAVY_RAIN_WARN_MM_PER_H,
+                    HAIL_VIOLET_RATIO_SATURATION)
 
 _ROI_CACHE = None
 _RISK_ALERT_LOG = os.path.join(
@@ -346,11 +347,23 @@ def _compute_hail_warning(obj: dict) -> tuple:
     ein neues, zusaetzliches Feld ausschliesslich fuer Warnentscheidung und
     Kartenanzeige.
 
+    P72: Zusaetzlich fliesst core_violet_ratio (Anteil reiner >=57-dBZ-Pixel,
+    object_tracking.calculate_core_ratio) als dritter Kandidat in die Fusion
+    ein - das staerkste rein radarbasierte Hagelsignal (Rot/54 dBZ und
+    Violett/57 dBZ wurden zuvor gleichwertig in core_ratio zusammengefasst).
+    Skaliert per HAIL_VIOLET_RATIO_SATURATION: bereits ein kleiner echter
+    Violett-Kernanteil erreicht den Maximalwert 1.0.
+
     Rueckgabe: (hail_prob, hail_prob_effective, hail_warning)
     """
     hail_prob = _compute_hail_prob(obj)
     hail_prob2 = float(obj.get("hail_prob2", 0.0) or 0.0)
-    hail_prob_effective = round(max(hail_prob, hail_prob2), 3)
+    core_violet_ratio = float(obj.get("core_violet_ratio", 0.0) or 0.0)
+    hail_prob_violet = (
+        round(min(core_violet_ratio / HAIL_VIOLET_RATIO_SATURATION, 1.0), 3)
+        if HAIL_VIOLET_RATIO_SATURATION > 0 else 0.0
+    )
+    hail_prob_effective = round(max(hail_prob, hail_prob2, hail_prob_violet), 3)
     hail_warning = bool(hail_prob_effective >= HAIL_WARN_THRESHOLD)
     return hail_prob, hail_prob_effective, hail_warning
 
