@@ -839,8 +839,24 @@ def calculate_core_ratio(hsv, contour):
         range_mask = cv2.inRange(hsv, np.array(lower), np.array(upper))
         range_mask = cv2.bitwise_and(range_mask, range_mask, mask=mask)
         core_mask |= range_mask
-        if CORE_VIOLET_HUE_MIN <= lower[0] <= CORE_VIOLET_HUE_MAX:
-            violet_mask |= range_mask
+
+        # B325 (Codex-Review zu P72): Overlap mit dem Violett-Hue-Fenster
+        # berechnen statt nur lower[0] zu pruefen. Erweitert ein Operator ueber
+        # /api/thresholds ein Band so, dass es teilweise in [CORE_VIOLET_HUE_MIN,
+        # CORE_VIOLET_HUE_MAX] hineinreicht, aber mit einer Untergrenze UNTER
+        # CORE_VIOLET_HUE_MIN beginnt, wuerde "lower[0] >= CORE_VIOLET_HUE_MIN"
+        # das gesamte Band verwerfen - auch den echten Violett-Anteil. Der
+        # Hue-Bereich des Bands wird deshalb auf das Violett-Fenster geklammert;
+        # nur der ueberlappende Hue-Teilbereich (bei unveraenderten S/V-Grenzen
+        # des Bands) zaehlt zu core_violet_ratio.
+        violet_hue_lo = max(lower[0], CORE_VIOLET_HUE_MIN)
+        violet_hue_hi = min(upper[0], CORE_VIOLET_HUE_MAX)
+        if violet_hue_lo <= violet_hue_hi:
+            violet_lower = [violet_hue_lo, lower[1], lower[2]]
+            violet_upper = [violet_hue_hi, upper[1], upper[2]]
+            violet_range_mask = cv2.inRange(hsv, np.array(violet_lower), np.array(violet_upper))
+            violet_range_mask = cv2.bitwise_and(violet_range_mask, violet_range_mask, mask=mask)
+            violet_mask |= violet_range_mask
     core_pixels = int(cv2.countNonZero(core_mask))
     violet_pixels = int(cv2.countNonZero(violet_mask))
     total_pixels = int(cv2.countNonZero(mask))

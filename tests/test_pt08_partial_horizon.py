@@ -118,6 +118,22 @@ def test_predict_positions_marks_partial_lgbm_horizons_per_horizon(monkeypatch):
     monkeypatch.setattr(prediction, "_UF", 1.0)
     monkeypatch.setattr(prediction, "pixel_to_geo", lambda x, y: (46.5 + float(y) / 10000.0, 14.0 + float(x) / 10000.0))
     monkeypatch.setattr(prediction, "_build_sequence", lambda *args, **kwargs: np.asarray([[0.0]], dtype=float))
+    # P72/B325: predict_positions() liest via ml_readiness.get_forecast_runtime_status()
+    # das reale training_meta.json vom aktuell auf der Maschine liegenden Modell
+    # (B250-Feature-Konsistenz-Check). Dieser Test prueft Partial-Horizont-
+    # Maskierung, nicht Feature-Schema-Validierung - ohne diesen Mock haengt das
+    # Testergebnis vom zufaelligen Trainingsstand des lokalen current-Modells ab
+    # (z.B. "kinematic_fallback" statt "ml", wenn das lokale Modell noch mit
+    # einem aelteren Feature-Set trainiert wurde). training_meta={} laesst den
+    # B250-Check bewusst uebersprungen (kein feature_names-Feld vorhanden).
+    monkeypatch.setattr(
+        "ml_readiness.get_forecast_runtime_status",
+        lambda write_json=False, model_dir=None: {
+            "runtime_mode": "ml",
+            "active_horizons": [10, 20, 30],
+            "training_meta": {},
+        },
+    )
     monkeypatch.setattr(prediction, "load_lstm", lambda: None)
     monkeypatch.setattr(prediction, "load_intensification_model", lambda: None)
     monkeypatch.setattr(prediction, "_load_intensity_regressors", lambda: (None, None))
