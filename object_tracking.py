@@ -156,6 +156,7 @@ def _suppress_inactive_rain_warning_fields(obj: dict) -> dict:
         obj["hail_warning"] = False
         obj["stationary_marker"] = False
         obj["hail_prob"] = 0.0
+        obj["hail_prob_effective"] = 0.0
         obj["stationary_risk"] = 0.0
     return obj
 

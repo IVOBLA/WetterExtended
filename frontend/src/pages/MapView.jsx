@@ -1295,13 +1295,13 @@ export default function MapView() {
                 </CircleMarker>
               )}
 
-              {/* Hagelwarnung (F43): roter Rahmen wenn hail_prob hoch */}
+              {/* Hagelwarnung (F43/B324): roter Rahmen wenn hail_prob_effective hoch */}
               {o.hail_warning && o.lat && o.lon && (
                 <CircleMarker center={[o.lat, o.lon]} radius={18}
                   pathOptions={{ color:'#dc2626', weight:3, fillOpacity:0, dashArray:'6,3' }}>
                   <Tooltip permanent direction="top" offset={[0,-18]}
                     className="text-xs font-bold text-red-700 bg-transparent border-0 shadow-none">
-                    🧊 Hagel {o.hail_prob != null ? (o.hail_prob*100).toFixed(0)+'%' : ''}
+                    🧊 Hagel {(o.hail_prob_effective ?? o.hail_prob) != null ? ((o.hail_prob_effective ?? o.hail_prob)*100).toFixed(0)+'%' : ''}
                   </Tooltip>
                 </CircleMarker>
               )}

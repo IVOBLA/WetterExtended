@@ -323,12 +323,45 @@ def _compute_hail_prob(obj: dict) -> float:
     return round(core_factor * cape_factor * height_factor, 3)
 
 
+def _compute_hail_warning(obj: dict) -> tuple:
+    """
+    B324: Kombiniert die heuristische Kernformel (_compute_hail_prob, bleibt
+    unveraendert als ML_CELL_FEATURES-Feld "hail_prob" erhalten) mit dem bereits
+    vorhandenen SHIP-basierten "hail_prob2" (compute_convective_indices.py) zu
+    einer robusteren operativen Warnentscheidung.
+
+    Ursache B324: _compute_hail_prob multipliziert core_factor * cape_factor *
+    height_factor. Drei Faktoren <= 1.0 multipliziert unterschaetzen die
+    Hagelwahrscheinlichkeit systematisch, sobald auch nur einer davon
+    mittelmaessig ist (z.B. Gefriergrenze > 3000 m, in Kaernten im Sommer der
+    Normalfall) - hail_prob erreichte HAIL_WARN_THRESHOLD dadurch faktisch nie.
+
+    hail_prob2 ist laut eigenem Docstring in compute_convective_indices.py
+    bereits "kompatibel mit HAIL_WARN_THRESHOLD" konzipiert (SHIP + Lapse +
+    Shear + Lightning-Jump + Core-Ratio, additiv gewichtet), wurde bisher
+    aber nirgends fuer die Warnentscheidung ausgewertet.
+
+    hail_prob (ML-Feature) bleibt exakt wie zuvor berechnet, damit bereits
+    trainierte Modelle kein Retraining benoetigen. hail_prob_effective ist
+    ein neues, zusaetzliches Feld ausschliesslich fuer Warnentscheidung und
+    Kartenanzeige.
+
+    Rueckgabe: (hail_prob, hail_prob_effective, hail_warning)
+    """
+    hail_prob = _compute_hail_prob(obj)
+    hail_prob2 = float(obj.get("hail_prob2", 0.0) or 0.0)
+    hail_prob_effective = round(max(hail_prob, hail_prob2), 3)
+    hail_warning = bool(hail_prob_effective >= HAIL_WARN_THRESHOLD)
+    return hail_prob, hail_prob_effective, hail_warning
+
+
 def _suppress_inactive_rain_warning_badges(obj: dict) -> dict:
     """Entfernt Karten-Warnmarker fuer still nachverfolgte Regenreste."""
     if obj.get("tracking_state") == "inactive_rain" or obj.get("silent_tracking") is True:
         obj["hail_warning"] = False
         obj["stationary_marker"] = False
         obj["hail_prob"] = 0.0
+        obj["hail_prob_effective"] = 0.0
         obj["stationary_risk"] = 0.0
     return obj
 
@@ -829,9 +862,10 @@ def main_loop():
                     _suppress_inactive_rain_warning_badges(_obj)
                     continue
 
-                _hp = _compute_hail_prob(_obj)
-                _obj["hail_prob"]    = _hp
-                _obj["hail_warning"] = bool(_hp >= HAIL_WARN_THRESHOLD)
+                _hp, _hp_eff, _hw = _compute_hail_warning(_obj)
+                _obj["hail_prob"]           = _hp
+                _obj["hail_prob_effective"] = _hp_eff
+                _obj["hail_warning"]        = _hw
 
                 _sr = float(_obj.get("stationary_risk", 0.0))
                 _obj["stationary_marker"] = bool(_sr >= STATIONARY_RISK_MARKER_THRESHOLD)
