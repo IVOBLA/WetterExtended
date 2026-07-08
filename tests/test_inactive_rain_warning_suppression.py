@@ -19,6 +19,7 @@ def test_object_tracking_clears_inactive_rain_warning_fields():
         "hail_warning": True,
         "stationary_marker": True,
         "hail_prob": 0.91,
+        "hail_prob_effective": 0.93,
         "stationary_risk": 0.88,
     }
 
@@ -26,6 +27,7 @@ def test_object_tracking_clears_inactive_rain_warning_fields():
     assert obj["hail_warning"] is False
     assert obj["stationary_marker"] is False
     assert obj["hail_prob"] == 0.0
+    assert obj["hail_prob_effective"] == 0.0
     assert obj["stationary_risk"] == 0.0
 
 
@@ -36,6 +38,7 @@ def test_main_suppresses_inactive_rain_badges_but_keeps_active_cells():
         "hail_warning": True,
         "stationary_marker": True,
         "hail_prob": 0.75,
+        "hail_prob_effective": 0.77,
         "stationary_risk": 0.8,
     }
     active = {
@@ -43,6 +46,7 @@ def test_main_suppresses_inactive_rain_badges_but_keeps_active_cells():
         "hail_warning": True,
         "stationary_marker": True,
         "hail_prob": 0.75,
+        "hail_prob_effective": 0.77,
         "stationary_risk": 0.8,
     }
 
@@ -50,12 +54,14 @@ def test_main_suppresses_inactive_rain_badges_but_keeps_active_cells():
     assert inactive["hail_warning"] is False
     assert inactive["stationary_marker"] is False
     assert inactive["hail_prob"] == 0.0
+    assert inactive["hail_prob_effective"] == 0.0
     assert inactive["stationary_risk"] == 0.0
 
     suppress(active)
     assert active["hail_warning"] is True
     assert active["stationary_marker"] is True
     assert active["hail_prob"] == 0.75
+    assert active["hail_prob_effective"] == 0.77
     assert active["stationary_risk"] == 0.8
 
 
@@ -63,7 +69,7 @@ def test_main_inactive_rain_branch_skips_hail_recalculation():
     text = Path("main.py").read_text(encoding="utf-8")
     assert 'if _obj.get("tracking_state") == "inactive_rain" or _obj.get("silent_tracking") is True:' in text
     branch_start = text.index('if _obj.get("tracking_state") == "inactive_rain" or _obj.get("silent_tracking") is True:')
-    hail_start = text.index('_hp = _compute_hail_prob(_obj)', branch_start)
+    hail_start = text.index('_hp, _hp_eff, _hw = _compute_hail_warning(_obj)', branch_start)
     branch = text[branch_start:hail_start]
     assert '_suppress_inactive_rain_warning_badges(_obj)' in branch
     assert 'continue' in branch

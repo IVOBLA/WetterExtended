@@ -4270,3 +4270,26 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - **Nächster Schritt (separater Prompt, erst nach neuem Retrain):** Falls
   `quasi_stationary_fraction_lt2px` beim nächsten Retrain deutlich höher ist als bei
   der 1727-Sample-Version, gezielt Sample-Gewichtung oder Klassenbalance einführen.
+
+### B324 — Hagelwarnung feuert faktisch nie: SHIP-basiertes hail_prob2 wurde nie ausgewertet ✅ erledigt
+- Ursache: `_compute_hail_prob()` (main.py) multipliziert core_factor * cape_factor *
+  height_factor. Drei Faktoren <= 1.0 multipliziert unterschaetzen die Hagelwahr-
+  scheinlichkeit systematisch, sobald auch nur einer davon mittelmaessig ist — in Kaernten
+  regelmaessig der Fall (Gefriergrenze im Sommer meist 3200-4200 m statt <= 3000 m).
+  `hail_warning >= HAIL_WARN_THRESHOLD (0.45)` wurde dadurch faktisch nie erreicht, obwohl
+  reale Hagelereignisse vorlagen (Nutzerbefund). Das bereits vorhandene, additiv gewichtete
+  SHIP-basierte `hail_prob2` (compute_convective_indices.py, eigener Docstring: "kompatibel
+  mit HAIL_WARN_THRESHOLD") wurde nirgends fuer die Warnentscheidung gelesen, nur als
+  ML-Feature verwendet — die Integration war vorbereitet, aber nie fertiggestellt.
+- Fix: Neue Funktion `_compute_hail_warning()` in main.py kombiniert `hail_prob` (ML-Feature,
+  unveraendert, kein Retraining noetig) und `hail_prob2` per `max()` zu `hail_prob_effective`.
+  `hail_warning` wird ab jetzt gegen `hail_prob_effective` statt gegen `hail_prob` allein
+  geprueft. Beide Suppress-Funktionen (main.py, object_tracking.py) setzen
+  `hail_prob_effective` bei still weiterverfolgten Regenresten ebenfalls auf 0.0 zurueck.
+  Frontend (MapView.jsx) zeigt im Warn-Tooltip `hail_prob_effective` statt `hail_prob`, damit
+  der angezeigte Prozentwert immer zur tatsaechlichen Ausloesebedingung passt.
+- Dateien: `main.py`, `object_tracking.py`, `frontend/src/pages/MapView.jsx`,
+  `tests/test_b324_hail_warning_ship_fusion.py`.
+- Test: `tests/test_b324_hail_warning_ship_fusion.py`.
+- Phasen-Status (Hailo): unveraendert; betrifft nur die operative Kartenwarnung, keine
+  Hailo-U-Net-Nowcasting-Phase B.
