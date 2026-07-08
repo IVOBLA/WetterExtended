@@ -4208,3 +4208,23 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Dateien: `hydro_fetch.py`, `tests/test_b317_hydro_timeout.py`.
 - Test: `tests/test_b317_hydro_timeout.py`
   (`test_effective_timeout_is_not_clamped_to_fifteen_seconds`, neu).
+
+### B320 — Test-Fehlerinjektion verschmutzte Produktions-api_health.jsonl ✅ erledigt
+- Ursache: `test_b313_outlook_watchdog_walltime.py::
+  test_fetch_series_aborts_within_walltime_budget` patchte `api_circuit_breaker.
+  record_failure` als No-Op, ließ aber `log_api_failure` ungeschützt. Die
+  Standard-Schutz-Fixture (`_isolate_api_health_log`, B129) patcht
+  `debug_utils._API_HEALTH_FILE` — greift aber nicht mehr, sobald `debug_utils`
+  irgendwo in der Gesamt-Suite neu geladen wird, da `fetch_outlook_series.py` die
+  Funktion bereits beim eigenen Import gebunden hat (Stale-Modul-Referenz, wie B318).
+  Verifiziert: 5 synthetische Zeilen ("simulated hang") in der echten
+  `api_health.jsonl` vom 2026-07-07, 08:27:34-36Z. Erklärt zugleich den scheinbaren
+  Widerspruch zum Circuit-Breaker-Status (Report-Befund 4) — Produktionscode koppelt
+  beide bereits korrekt, nur der Test tat es einseitig nicht.
+- Fix: `fos.log_api_failure` direkt gepatcht statt `debug_utils`. Empirisch mit dem
+  vollen 1442-Test-Lauf verifiziert: keine Verschmutzung mehr.
+- Manuelle Einmal-Bereinigung der bereits verschmutzten `api_health.jsonl` auf dem Pi
+  nötig (siehe Prompt Abschnitt 3).
+- Dateien: `tests/test_b313_outlook_watchdog_walltime.py`.
+- Test: bestehender Test korrigiert; zusätzlich Vollsuite-Verifikationsschritt in
+  Abschnitt 4 dokumentiert (kein separates neues Testfile).

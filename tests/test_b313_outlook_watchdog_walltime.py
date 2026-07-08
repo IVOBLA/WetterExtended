@@ -106,6 +106,18 @@ def test_request_uses_max_retries_one(monkeypatch):
 
 
 def test_fetch_series_aborts_within_walltime_budget(monkeypatch):
+    # B320: fos.log_api_failure DIREKT patchen (nicht debug_utils._API_HEALTH_FILE
+    # oder debug_utils.log_api_failure). fetch_outlook_series.py bindet
+    # log_api_failure per "from debug_utils import log_api_failure" EINMALIG beim
+    # eigenen Modulimport. Wird debug_utils irgendwo in der Gesamt-Suite neu geladen
+    # (sys.modules.pop + reimport, z. B. via conftest._ensure_real_debug_utils()),
+    # zeigt diese bereits gebundene Referenz weiter auf das ALTE Modul-Dict — ein
+    # Patch auf debug_utils selbst hat dann keine Wirkung mehr und synthetische
+    # Testeintraege ("simulated hang") landen in der ECHTEN
+    # train_data/evaluation/api_health.jsonl (verifiziert im 24h-Debug-Export vom
+    # 2026-07-07, Zeitstempel 08:27:34-36Z). Empirisch mit dem vollen 1442-Test-Lauf
+    # verifiziert: mit diesem Patch bleibt die echte Datei unberuehrt.
+    monkeypatch.setattr(fos, "log_api_failure", lambda *a, **k: None)
     # Simuliert einen Endpoint, der bei jedem Versuch haengt (ConnectionError nach
     # kurzer, aber wiederholbarer Verzoegerung). Der Gesamtlauf darf trotzdem nicht
     # laenger als OUTLOOK_SERIES_MAX_WALLTIME_S + eine kleine Toleranz dauern.
