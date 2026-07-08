@@ -26,6 +26,7 @@ def test_hail_warning_triggers_via_ship_based_hail_prob2_alone():
     obwohl hail_prob2 (SHIP) klar auf Hagel hindeutet - die Fusion muss trotzdem warnen."""
     ns = _load_functions("main.py", ["_compute_hail_prob", "_compute_hail_warning"])
     ns["HAIL_WARN_THRESHOLD"] = 0.45
+    ns["HAIL_VIOLET_RATIO_SATURATION"] = 0.10
     obj = {
         "core_ratio": 0.10,
         "cape": 400.0,
@@ -43,6 +44,7 @@ def test_hail_warning_still_triggers_via_legacy_formula_alone():
     muessen weiterhin warnen."""
     ns = _load_functions("main.py", ["_compute_hail_prob", "_compute_hail_warning"])
     ns["HAIL_WARN_THRESHOLD"] = 0.45
+    ns["HAIL_VIOLET_RATIO_SATURATION"] = 0.10
     obj = {
         "core_ratio": 0.60,
         "cape": 1600.0,
@@ -58,6 +60,7 @@ def test_hail_warning_still_triggers_via_legacy_formula_alone():
 def test_hail_warning_false_when_both_metrics_low():
     ns = _load_functions("main.py", ["_compute_hail_prob", "_compute_hail_warning"])
     ns["HAIL_WARN_THRESHOLD"] = 0.45
+    ns["HAIL_VIOLET_RATIO_SATURATION"] = 0.10
     obj = {"core_ratio": 0.10, "cape": 300.0, "arome_fl_height": 4200.0, "hail_prob2": 0.10}
     hp, hp_eff, warn = ns["_compute_hail_warning"](obj)
     assert warn is False
@@ -70,6 +73,7 @@ def test_hail_prob_ml_feature_unchanged_for_backward_compat():
     obj = {"core_ratio": 0.5, "cape": 1000.0, "arome_fl_height": 3200.0, "hail_prob2": 0.9}
     hp_direct = ns["_compute_hail_prob"](obj)
     ns["HAIL_WARN_THRESHOLD"] = 0.45
+    ns["HAIL_VIOLET_RATIO_SATURATION"] = 0.10
     hp, hp_eff, warn = ns["_compute_hail_warning"](obj)
     assert hp == hp_direct
 

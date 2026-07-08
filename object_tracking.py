@@ -6,7 +6,7 @@ from radar_download import get_acquisition_timestamp
 from filterpy.kalman import KalmanFilter
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
-from config import UPSCALE_FACTOR, FILTER_CONFIG as _DEFAULT_FILTER_CONFIG, CORE_HSV_RANGES as _DEFAULT_CORE_HSV_RANGES, BBOX_KAERNTEN_EXTENDED as BBOX
+from config import UPSCALE_FACTOR, FILTER_CONFIG as _DEFAULT_FILTER_CONFIG, CORE_HSV_RANGES as _DEFAULT_CORE_HSV_RANGES, BBOX_KAERNTEN_EXTENDED as BBOX, CORE_VIOLET_HUE_MIN, CORE_VIOLET_HUE_MAX
 import math as _math_ot
 import runtime_config as _rc
 from geo_utils import pixel_to_geo
@@ -824,23 +824,36 @@ def calculate_core_ratio(hsv, contour):
 
     Rückgabe bleibt über den Schlüssel ``core_ratio`` kompatibel; Aufrufer, die
     nur den numerischen Anteil benötigen, können diesen Wert verwenden.
+
+    P72: Zusaetzlich core_violet_ratio (Anteil NUR der Baender mit
+    Hue in [CORE_VIOLET_HUE_MIN, CORE_VIOLET_HUE_MAX], d.h. >=57 dBZ statt nur
+    >=54 dBZ) - staerkstes rein radarbasiertes Hagelsignal, bisher nicht
+    separat erfasst.
     """
     CORE_HSV_RANGES = _rc.get("CORE_HSV_RANGES", _DEFAULT_CORE_HSV_RANGES)
     mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
     cv2.drawContours(mask, [contour], -1, 255, -1)
     core_mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+    violet_mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
     for lower, upper in CORE_HSV_RANGES:
         range_mask = cv2.inRange(hsv, np.array(lower), np.array(upper))
-        core_mask |= cv2.bitwise_and(range_mask, range_mask, mask=mask)
+        range_mask = cv2.bitwise_and(range_mask, range_mask, mask=mask)
+        core_mask |= range_mask
+        if CORE_VIOLET_HUE_MIN <= lower[0] <= CORE_VIOLET_HUE_MAX:
+            violet_mask |= range_mask
     core_pixels = int(cv2.countNonZero(core_mask))
+    violet_pixels = int(cv2.countNonZero(violet_mask))
     total_pixels = int(cv2.countNonZero(mask))
     core_ratio = core_pixels / total_pixels if total_pixels > 0 else 0.0
+    core_violet_ratio = violet_pixels / total_pixels if total_pixels > 0 else 0.0
     return {
         "core_ratio": float(core_ratio),
+        "core_violet_ratio": float(core_violet_ratio),
         "core_area_px": float(core_pixels),
         "cell_area_px": float(total_pixels),
         "core_pixels": int(core_pixels),
         "total_pixels": int(total_pixels),
+        "core_violet_pixels": int(violet_pixels),
     }
 
 
@@ -1085,10 +1098,12 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
             core_ratio = float(core_info.get("core_ratio", 0.0) or 0.0)
             core_area_px = float(core_info.get("core_area_px", core_info.get("core_pixels", 0.0)) or 0.0)
             cell_area_px = float(core_info.get("cell_area_px", core_info.get("total_pixels", 0.0)) or 0.0)
+            core_violet_ratio = float(core_info.get("core_violet_ratio", 0.0) or 0.0)
         else:
             core_ratio = float(core_info or 0.0)
             cell_area_px = float(cv2.contourArea(contour) or area or 0.0)
             core_area_px = core_ratio * cell_area_px
+            core_violet_ratio = 0.0
         if area < FILTER_CONFIG["min_object_area"] and core_ratio < 0.05:
             continue
         # pixel_to_geo erwartet SKALIERTE Koordinaten (teilt intern durch upscale).
@@ -1333,6 +1348,7 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
             "x": original_cx, "y": original_cy, "vx": float(vx), "vy": float(vy),
             "size": int(np.sqrt(area)), "area": float(area), "eccentricity": float(eccentricity),
             "core_ratio": float(core_ratio), "core_area_px": float(core_area_px),
+            "core_violet_ratio": float(core_violet_ratio),
             "cell_area_px": float(cell_area_px), "prev_core_area_px": float(prev_core_area or 0.0),
             "delta_core_ratio": float(delta_core_ratio), "delta_area_pct": float(delta_area_pct),
             "delta_core_area_pct": float(delta_core_area_pct), "core_compact_signal": 1 if is_compact else 0,

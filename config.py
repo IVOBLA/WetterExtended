@@ -119,6 +119,18 @@ CORE_HSV_RANGES = [
     ([125, 100, 120], [155, 255, 255]),  # Violett      57    dBZ
 ]
 
+# P72: Hue-Intervall, ab dem ein CORE_HSV_RANGES-Band als "violett" (>=57 dBZ)
+# gilt statt nur als "rot" (54 dBZ). In der ARSO-INCA-Farbskala liegt Rot bei
+# Hue ~0-10 bzw. ~165-179 (zyklischer OpenCV-Hue-Wraparound, 0-179) und Orange
+# bei Hue ~10-27; Violett/Magenta liegt bei Hue ~100-160 (hier: 125-155).
+# Ein reines ">= CORE_VIOLET_HUE_MIN" wuerde den Rot-Wrap-Bereich (Hue 165-179)
+# faelschlich miterfassen - deshalb zwingend ein Intervall, keine Untergrenze.
+# Numerischer Vergleich statt Listenposition, damit /api/thresholds-Bearbeitungen
+# von CORE_HSV_RANGES (Reihenfolge/Anzahl der Baender) die Violett-Erkennung
+# nicht brechen.
+CORE_VIOLET_HUE_MIN: int = 100
+CORE_VIOLET_HUE_MAX: int = 160
+
 # Stratiforme Umgebungsbänder (36–47 dBZ).
 # Werden NICHT getrackt / angezeigt, nur als ML-Kontext-Features genutzt.
 # ARSO INCA Farbskala:
@@ -436,6 +448,13 @@ API_DAILY_BUDGET: dict = {
 # ── Warnschwellwerte ──────────────────────────────────────────────────────────
 # Hagelwarnung wird ausgelöst wenn hail_prob diesen Wert überschreitet.
 HAIL_WARN_THRESHOLD: float = 0.45
+# P72: core_violet_ratio-Anteil (reine >=57-dBZ-Pixel, siehe CORE_VIOLET_HUE_MIN),
+# ab dem der Violett-Boost fuer die Hagelwarnung seinen Maximalwert 1.0 erreicht.
+# Violette Kerne bleiben in der Praxis meist ein kleiner Flaechenanteil der
+# Gesamtzelle (extreme Reflektivitaet = kompakter Kern) - 10% wird bewusst
+# niedrig angesetzt, da schon ein kleiner echter Violett-Kernanteil ein starkes,
+# eigenstaendiges Hagelsignal ist. Kalibrierbar nach ersten Praxiswerten.
+HAIL_VIOLET_RATIO_SATURATION: float = 0.10
 # Stationärrisiko-Marker auf Karte wird angezeigt ab diesem Schwellwert.
 STATIONARY_RISK_MARKER_THRESHOLD: float = 0.60
 GUST_WARN_KMH: float = 60.0
@@ -561,7 +580,7 @@ ML_CELL_FEATURES = [
     # Zellgeometrie & Kalman-Kinematik
     "x", "y",
     "vx", "vy",
-    "size", "area", "eccentricity", "core_ratio", "trend",
+    "size", "area", "eccentricity", "core_ratio", "core_violet_ratio", "trend",
     # Höhenwind (700 hPa) via Open-Meteo
     "wind_speed_700hPa", "wind_dir_cos", "wind_dir_sin",
     # Thermodynamik (GeoSphere AROME)
