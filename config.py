@@ -5,6 +5,7 @@
 # --------------------------------------
 
 import os as _os
+_env_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), ".env")
 try:
     from dotenv import load_dotenv as _load_dotenv
     # Expliziter Pfad relativ zu config.py — funktioniert unabhängig vom Arbeitsverzeichnis.
@@ -16,11 +17,41 @@ try:
     # Um systemd-Vorrang zu wahren: override=False; für .env-Vorrang: override=True.
     # override=True gewählt: .env ist die primäre Konfigurationsquelle auf dem Pi.
     _load_dotenv(
-        dotenv_path=_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), ".env"),
+        dotenv_path=_env_path,
         override=True,
     )
 except ImportError:
     pass  # python-dotenv nicht installiert — nur os.environ gilt
+
+# B322: Warnt bei doppelt definierten Schluesseln in .env. python-dotenv wertet
+# Duplikate innerhalb derselben Datei stillschweigend nach "last-wins" aus --
+# ohne Warnung bleibt unklar, welcher Wert tatsaechlich greift (reales
+# Fehlkonfigurations-/Sicherheitsrisiko, z.B. bei ADMIN_API_TOKEN/
+# ADMIN_REQUIRE_TOKEN).
+def _warn_duplicate_env_keys(path):
+    try:
+        if not _os.path.isfile(path):
+            return []
+        seen = {}
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key = line.split("=", 1)[0].strip()
+                if key:
+                    seen[key] = seen.get(key, 0) + 1
+        duplicates = sorted(k for k, n in seen.items() if n > 1)
+        if duplicates:
+            print(
+                "[CONFIG-WARNUNG] Doppelt definierte .env-Schluessel (last-wins, "
+                "pruefe welcher Wert tatsaechlich greift): " + ", ".join(duplicates)
+            )
+        return duplicates
+    except Exception:
+        return []
+
+_warn_duplicate_env_keys(_env_path)
 # Aktivierung: WETTER_DEBUG=1 in .env  ODER  export WETTER_DEBUG=1 vor dem Start
 DEBUG_MODE = _os.environ.get("WETTER_DEBUG", "0") == "1"
 DEBUG_IMAGE_SAVE = DEBUG_MODE  # Bilder speichern nur bei aktiviertem Debug-Modus

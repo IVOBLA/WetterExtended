@@ -4240,3 +4240,16 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   damit feinere reale Kadenz als vollständige Abdeckung statt Übererfüllung zählt.
 - Dateien: `dataset_builder.py`, `tests/test_b321_radar_ingest_gap_phase.py`.
 - Test: `tests/test_b321_radar_ingest_gap_phase.py`.
+
+### B322 — Warnung bei doppelt definierten .env-Schlüsseln ✅ erledigt
+- Ursache: `config/.env` definierte `ADMIN_API_TOKEN` und `ADMIN_REQUIRE_TOKEN`
+  jeweils dreifach (nicht aus `.env.example` stammend). `python-dotenv` wertet
+  Duplikate stillschweigend nach „last-wins" aus, ohne Warnung — unklar, welcher
+  Wert die Admin-Authentifizierung tatsächlich steuert (Fehlkonfigurations-/
+  Sicherheitsrisiko).
+- Fix: Neue Funktion `_warn_duplicate_env_keys()` in `config.py`, direkt nach
+  `_load_dotenv()` aufgerufen. Gibt beim Start eine deutliche Konsolen-Warnung mit
+  allen doppelten Schlüsseln aus. `.env` selbst liegt außerhalb des Git-Repos und
+  muss manuell auf dem Pi bereinigt werden (siehe Prompt Abschnitt 5).
+- Dateien: `config.py`, `tests/test_b322_env_duplicate_key_warning.py`.
+- Test: `tests/test_b322_env_duplicate_key_warning.py`.
