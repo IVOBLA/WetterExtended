@@ -517,6 +517,27 @@ def build_dataset(model_save_dir=None):
     X = np.asarray(X_rows, dtype=float)
     y_raw = np.asarray(y_rows, dtype=float)
 
+    # B323: Diagnose der Ziel-Verschiebungsverteilung (erster Horizont). Rein
+    # diagnostisch, aendert kein Trainings-/Sampling-Verhalten. Soll klaeren, ob ein
+    # hoher Anteil quasi-stationaerer Zellen (siehe B315) die Zielverteilung
+    # verschiebt und dadurch den LSTM-Validierungsverlust bei Retrains beeinflusst.
+    target_displacement_stats = {}
+    try:
+        if y_raw.shape[0] > 0 and y_raw.shape[1] >= 2:
+            _disp = np.sqrt(y_raw[:, 0] ** 2 + y_raw[:, 1] ** 2)
+            _disp_valid = _disp[~np.isnan(_disp)]
+            if _disp_valid.size > 0:
+                target_displacement_stats = {
+                    "horizon0_median_px": round(float(np.median(_disp_valid)), 3),
+                    "horizon0_mean_px": round(float(np.mean(_disp_valid)), 3),
+                    "horizon0_p10_px": round(float(np.percentile(_disp_valid, 10)), 3),
+                    "horizon0_p90_px": round(float(np.percentile(_disp_valid, 90)), 3),
+                    "quasi_stationary_fraction_lt2px": round(float(np.mean(_disp_valid < 2.0)), 4),
+                    "sample_count": int(_disp_valid.size),
+                }
+    except Exception as exc:
+        debug_log(f"[DATASET] target_displacement_stats fehlgeschlagen: {exc}")
+
     effective_model_dir = model_save_dir
     if effective_model_dir is not None:
         os.makedirs(effective_model_dir, exist_ok=True)
@@ -555,7 +576,7 @@ def build_dataset(model_save_dir=None):
     debug_log(f"[DATASET] Abgelehnt: {n_rejected} (reasons: {rejection_reasons})")
     # Timestamps pro Sample extrahieren (aus ids-Liste, 1:1 zu X/y)
     _ts_list = [entry.get("timestamp", "") for entry in ids]
-    return {"X": X_scaled, "y": y_scaled, "y_raw": y_raw, "ids": ids, "timestamps": _ts_list, "rejected_samples": n_rejected, "rejection_reasons": rejection_reasons, "feature_schema_hash": current_schema["feature_schema_hash"], "feature_schema": current_schema, "schema_compatible_samples": schema_compatible_samples, "schema_legacy_samples": schema_legacy_samples, "schema_mismatch_samples": schema_mismatch_samples}
+    return {"X": X_scaled, "y": y_scaled, "y_raw": y_raw, "ids": ids, "timestamps": _ts_list, "rejected_samples": n_rejected, "rejection_reasons": rejection_reasons, "feature_schema_hash": current_schema["feature_schema_hash"], "feature_schema": current_schema, "schema_compatible_samples": schema_compatible_samples, "schema_legacy_samples": schema_legacy_samples, "schema_mismatch_samples": schema_mismatch_samples, "target_displacement_stats": target_displacement_stats}
 
 
 def _merge_contaminated(o_now, o_fut):
