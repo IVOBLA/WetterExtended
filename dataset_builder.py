@@ -1,3 +1,4 @@
+import bisect
 import glob
 import json
 import os
@@ -137,7 +138,24 @@ def compute_radar_ingest_gaps(expected_interval_min, hours=24):
         cur += step
 
     present_set = set(present_ts)
-    missing = [ts for ts in expected if ts not in present_set]
+    # B321: Statt exaktem Set-Mitgliedschaftstest (der bei einem an cutoff/now statt
+    # an der realen Frame-Phase verankerten Erwartungsraster fast immer fehlschlaegt,
+    # da z.B. :05/:20/:35/:50-Frames selten exakt auf :27/:42/:57/:12-Slots fallen)
+    # wird jedem Erwartungsslot der naechstgelegene tatsaechliche Frame innerhalb
+    # einer Toleranz von interval_min/2 zugeordnet. Nur echte Luecken (kein Frame in
+    # der Naehe) gelten als 'missing'.
+    _sorted_present = sorted(present_set)
+    _tolerance = timedelta(minutes=interval_min / 2.0)
+    missing = []
+    for slot in expected:
+        idx = bisect.bisect_left(_sorted_present, slot)
+        candidates = []
+        if idx < len(_sorted_present):
+            candidates.append(_sorted_present[idx])
+        if idx > 0:
+            candidates.append(_sorted_present[idx - 1])
+        if not candidates or min(abs(slot - c) for c in candidates) > _tolerance:
+            missing.append(slot)
     longest_gap_min = 0.0
     sorted_present = sorted(present_set)
     for prev, nxt in zip(sorted_present, sorted_present[1:]):
@@ -157,7 +175,15 @@ def compute_radar_ingest_gaps(expected_interval_min, hours=24):
         health_status = "warning"
     else:
         health_status = "ok"
-    coverage_ratio = round(len(present_set) / len(expected), 4) if expected else None
+    # B321: Coverage niemals >1.0 - eine feinere reale Kadenz als das grobe
+    # Erwartungsraster (z.B. 5-min-Frames waehrend aktiver Zellen) ist keine
+    # "Uebererfuellung", sondern soll als vollstaendige Abdeckung (100%) gewertet
+    # werden.
+    coverage_ratio = (
+        round(min(len(present_set), len(expected)) / len(expected), 4)
+        if expected
+        else None
+    )
 
     result = {
         "computed_at_utc": now.isoformat(timespec="seconds") + "Z",
