@@ -4253,3 +4253,20 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   muss manuell auf dem Pi bereinigt werden (siehe Prompt Abschnitt 5).
 - Dateien: `config.py`, `tests/test_b322_env_duplicate_key_warning.py`.
 - Test: `tests/test_b322_env_duplicate_key_warning.py`.
+
+### B323 — Diagnose der Ziel-Verschiebungsverteilung 🔍 Diagnose (kein Fix)
+- Befund: `lstm.val_loss` sprang einmalig von 0.592 (1727 Samples) auf ~1.20-1.24
+  (alle 5 Retrains vom 07./08.07., konstant 2169 Samples). Plausible, aber nicht
+  abschließend verifizierte Hypothese: die zusätzlichen ~442 Trainingszeilen stammen
+  überproportional von quasi-stationären Zellen (siehe B315), was die
+  Ziel-Verschiebungsverteilung verschiebt.
+- Maßnahme: `build_dataset()` berechnet jetzt `target_displacement_stats`
+  (Median/Mittelwert/P10/P90 der Horizont-0-Verschiebung in px,
+  `quasi_stationary_fraction_lt2px`), gespeichert in `training_meta.json`. Rein
+  diagnostisch, keine Änderung an Training/Sampling/Promotion.
+- Dateien: `dataset_builder.py`, `model_training.py`,
+  `tests/test_b323_target_displacement_diagnostics.py`.
+- Test: `tests/test_b323_target_displacement_diagnostics.py`.
+- **Nächster Schritt (separater Prompt, erst nach neuem Retrain):** Falls
+  `quasi_stationary_fraction_lt2px` beim nächsten Retrain deutlich höher ist als bei
+  der 1727-Sample-Version, gezielt Sample-Gewichtung oder Klassenbalance einführen.

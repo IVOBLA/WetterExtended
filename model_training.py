@@ -895,6 +895,7 @@ def retrain_all():
             "schema_compatible_samples": int(dataset.get("schema_compatible_samples", 0)),
             "schema_legacy_samples": int(dataset.get("schema_legacy_samples", 0)),
             "schema_mismatch_samples": int(dataset.get("schema_mismatch_samples", 0)),
+            "target_displacement_stats": dataset.get("target_displacement_stats", {}),
             "lstm": {"trained": lstm_result.get("trained", False), "val_loss": lstm_result.get("val_loss")},
             "horizons_trained": list(_get_training_horizons()),   # P0-2 + P23: Runtime-Horizonte
             "feature_count": int(ML_NUM_FEATURES),               # P23: Feature-Dimension bei Training
@@ -929,6 +930,7 @@ def retrain_all():
                 "schema_compatible_samples": int(dataset.get("schema_compatible_samples", 0)),
                 "schema_legacy_samples": int(dataset.get("schema_legacy_samples", 0)),
                 "schema_mismatch_samples": int(dataset.get("schema_mismatch_samples", 0)),
+                "target_displacement_stats": dataset.get("target_displacement_stats", {}),
             },
             "holdout": _compute_holdout_metrics(
                 X_holdout, y_holdout,
