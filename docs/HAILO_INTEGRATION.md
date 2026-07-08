@@ -4228,3 +4228,15 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Dateien: `tests/test_b313_outlook_watchdog_walltime.py`.
 - Test: bestehender Test korrigiert; zusätzlich Vollsuite-Verifikationsschritt in
   Abschnitt 4 dokumentiert (kein separates neues Testfile).
+
+### B321 — Radar-Ingest-Gap-Detektor: Raster-Phase und Coverage-Klammerung ✅ erledigt
+- Ursache: `compute_radar_ingest_gaps()` verglich Erwartungsslots exakt mit vorhandenen
+  Radar-Frame-Zeitpunkten. Wenn das Erwartungsraster durch `cutoff/now` auf einer
+  anderen Minutenphase lag als reale Radarframes (z.B. :05/:20/:35/:50), entstanden
+  falsche `missing_timestamps`. Zusätzlich konnte `coverage_ratio` bei feinerer realer
+  Kadenz als dem erwarteten Raster über 1.0 steigen.
+- Fix: Missing-Slots werden jetzt per Nächste-Nachbar-Zuordnung gegen vorhandene Frames
+  mit `interval_min/2` Toleranz bestimmt. Die Coverage wird auf maximal 100% geklammert,
+  damit feinere reale Kadenz als vollständige Abdeckung statt Übererfüllung zählt.
+- Dateien: `dataset_builder.py`, `tests/test_b321_radar_ingest_gap_phase.py`.
+- Test: `tests/test_b321_radar_ingest_gap_phase.py`.
