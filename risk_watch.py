@@ -21,6 +21,7 @@ from config import (
     RISK_WATCH_ENABLED,
     RISK_WATCH_MIN_RISK_LEVEL,
     RISK_WATCH_MAX_DATA_AGE_MIN,
+    RISK_WATCH_STARTUP_GRACE_S, RISK_WATCH_STARTUP_MAX_RETRIES,
     IR_MAX_DATA_AGE_MIN, IR_WATCH_MIN_SCORE,
     SAVE_PATHS,
 )
@@ -30,6 +31,10 @@ _RISK_GRID_URL = "http://127.0.0.1:5000/api/risk_grid"
 _IR_STATE_FILE = os.path.join(
     SAVE_PATHS.get("ir_cells", "train_data/ir_cells/"), "ir_track_state.json"
 )
+# B327: Zeitpunkt des Prozessstarts (Modul-Import) — Basis für das
+# Startup-Grace-Fenster in _max_risk_level(). Modulattribut statt lokale
+# Konstante, damit Tests es via monkeypatch zurückdatieren/vordatieren können.
+_PROC_START_MONOTONIC = time.monotonic()
 
 
 def _underlying_data_age_min() -> float:
@@ -63,16 +68,38 @@ def _default_http_get(url: str, timeout: float = 5.0):
 
 def _max_risk_level(http_get: Callable) -> int:
     """Maximale Risikostufe (0..3) aus dem lokalen /api/risk_grid. 0 bei Fehler.
-    Reiner localhost-Aufruf (eigener Flask-Dienst) — KEIN externer Request."""
-    try:
-        resp = http_get(_RISK_GRID_URL, timeout=5)
-        if getattr(resp, "status_code", 0) != 200:
+    Reiner localhost-Aufruf (eigener Flask-Dienst) — KEIN externer Request.
+
+    B327: Kurz nach dem Prozessstart (RISK_WATCH_STARTUP_GRACE_S) ist der lokale
+    Flask-/API-Server unter Umständen noch nicht bereit ("Connection refused").
+    Innerhalb des Grace-Fensters wird daher mit kurzem Backoff bis zu
+    RISK_WATCH_STARTUP_MAX_RETRIES-mal erneut versucht, statt den Fehler sofort
+    als echten Ausfall zu werten. Nach Ablauf des Fensters (regulärer Betrieb)
+    bleibt das Verhalten unverändert: ein Fehler zählt sofort als 0 — keine
+    zusätzliche Latenz im laufenden Polling-Zyklus.
+    """
+    grace_s = float(runtime_config.get("RISK_WATCH_STARTUP_GRACE_S", RISK_WATCH_STARTUP_GRACE_S))
+    max_retries = int(runtime_config.get("RISK_WATCH_STARTUP_MAX_RETRIES", RISK_WATCH_STARTUP_MAX_RETRIES))
+    attempts = 0
+    while True:
+        try:
+            resp = http_get(_RISK_GRID_URL, timeout=5)
+            if getattr(resp, "status_code", 0) != 200:
+                return 0
+            cells = resp.json().get("cells", []) or []
+            return max((int(c.get("risk", 0)) for c in cells), default=0)
+        except Exception as exc:
+            elapsed_since_start = time.monotonic() - _PROC_START_MONOTONIC
+            if elapsed_since_start <= grace_s and attempts < max_retries:
+                attempts += 1
+                debug_log(
+                    f"[RISK-WATCH] Risikogitter noch nicht erreichbar (Startup-Grace, "
+                    f"Versuch {attempts}/{max_retries}, {elapsed_since_start:.1f}s seit Start): {exc}"
+                )
+                time.sleep(0.5 * attempts)
+                continue
+            debug_log(f"[RISK-WATCH] Risikogitter nicht erreichbar: {exc}")
             return 0
-        cells = resp.json().get("cells", []) or []
-        return max((int(c.get("risk", 0)) for c in cells), default=0)
-    except Exception as exc:
-        debug_log(f"[RISK-WATCH] Risikogitter nicht erreichbar: {exc}")
-        return 0
 
 
 def risk_watch_active(

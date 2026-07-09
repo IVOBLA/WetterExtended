@@ -545,6 +545,14 @@ RISK_WATCH_MIN_RISK_LEVEL: int = 2
 # bis zu dem Risk-Watch den kurzen Intervall erzwingen darf. Verhindert, dass nach einem
 # Radar-Ausfall veraltete Zellen/IR-Tracks den kurzen Intervall unbegrenzt halten.
 RISK_WATCH_MAX_DATA_AGE_MIN: float = 20.0
+# B327: Zeitfenster (s) seit Prozessstart, in dem ein "Connection refused" auf
+# /api/risk_grid als Startup-Race (API-Server noch nicht hochgefahren) statt als
+# echter Ausfall gewertet wird — innerhalb des Fensters wird kurz mit Backoff
+# nachgefragt statt sofort auf Risikostufe 0 zurückzufallen.
+RISK_WATCH_STARTUP_GRACE_S: float = 30.0
+# Zusätzliche Verbindungsversuche innerhalb des Startup-Grace-Fensters
+# (0 = altes Verhalten, kein Retry).
+RISK_WATCH_STARTUP_MAX_RETRIES: int = 2
 
 # --------------------------------------
 # P-T06: Zell-Überleben bis zum Ort
