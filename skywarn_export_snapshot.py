@@ -247,17 +247,11 @@ def _max_severity(values: list[Any]) -> Any:
 
 def build_success_snapshot(payload: dict, fetched_at: datetime | None = None) -> dict:
     fetched_at = fetched_at or _now_vienna()
-    # B175: skywarn.at liefert bei leerer Lage JSON `null` / eine Nicht-Dict-Struktur.
-    # Das Return griff direkt auf payload.get("start"/"end"/"text") zu → AttributeError
-    # ("'NoneType' object has no attribute 'get'"), den der Catch-All als
-    # "unexpected_error" maskierte. Definierter, sauberer Fehlerpfad statt Exception:
+    # B175/B326: skywarn.at liefert bei leerer Lage JSON `null` / eine
+    # Nicht-Dict-Struktur. Das ist kein API-Fehler, sondern der regulaere
+    # Zustand "keine Warnlage"; siehe _no_active_warning_snapshot().
     if not isinstance(payload, dict):
-        return _error_snapshot(
-            "empty_payload",
-            "payload is None or not a dict (skywarn.at lieferte leere Lage)",
-            None,
-            fetched_at,
-        )
+        return _no_active_warning_snapshot(fetched_at)
     features = []
     polygon = payload.get("polygon") if isinstance(payload, dict) else None
     malformed_count = 0
@@ -284,6 +278,7 @@ def build_success_snapshot(payload: dict, fetched_at: datetime | None = None) ->
         "source_url": SKYWARN_EXPORT_URL,
         "fetched_at": fetched_at.isoformat(timespec="seconds"),
         "status": "ok",
+        "data_available": True,
         "valid_from": payload.get("start"),
         "valid_to": payload.get("end"),
         "text": _html_to_plaintext(payload.get("text")),
@@ -315,6 +310,26 @@ def _error_snapshot(error_type: str, message: str, http_status: int | None = Non
     }
 
 
+def _no_active_warning_snapshot(fetched_at: datetime | None = None) -> dict:
+    """B326: Leere Skywarn-Lage als erfolgreichen Abruf ohne Warnlage abbilden."""
+    return {
+        "source": "skywarn.at",
+        "source_url": SKYWARN_EXPORT_URL,
+        "fetched_at": (fetched_at or _now_vienna()).isoformat(timespec="seconds"),
+        "status": "ok",
+        "data_available": False,
+        "valid_from": None,
+        "valid_to": None,
+        "text": None,
+        "features_inside_kaernten_bbox": {"type": "FeatureCollection", "features": []},
+        "severity_values_inside_kaernten_bbox": [],
+        "max_severity_inside_kaernten_bbox": None,
+        "kaernten_bbox_relevant": False,
+        "clip_reference": "BBOX_KAERNTEN_EXTENDED",
+        "error": None,
+    }
+
+
 def _write_snapshot(snapshot: dict) -> None:
     path = _snapshot_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -337,6 +352,20 @@ def _todays_snapshot_status(path: Path, now: datetime) -> str | None:
         return data.get("status")
     except Exception:
         return None
+
+
+def _todays_snapshot_had_real_data(path: Path, now: datetime) -> bool:
+    """B326: True fuer heutigen ok-Snapshot mit echten/Legacy-Warndaten."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        fetched = datetime.fromisoformat(str(data.get("fetched_at")))
+        if fetched.tzinfo is None:
+            fetched = fetched.replace(tzinfo=VIENNA_TZ)
+        if fetched.astimezone(VIENNA_TZ).date() != now.date():
+            return False
+        return data.get("status") == "ok" and data.get("data_available", True) is not False
+    except Exception:
+        return False
 
 
 def _log_snapshot(snapshot: dict) -> None:
@@ -393,10 +422,10 @@ def fetch_and_store_skywarn_export_snapshot(force: bool = False) -> dict:
     except Exception as exc:
         snapshot = _error_snapshot("unexpected_error", exc, None, now)
 
-    # B297: Ein bereits vorhandener gueltiger Snapshot von heute darf durch
-    # eine leere Lage (z.B. empty_payload) nicht geloescht werden — Fehler wird
-    # geloggt, der bestehende gueltige Snapshot bleibt unveraendert erhalten.
-    if snapshot.get("status") == "error" and _todays_snapshot_status(path, now) == "ok":
+    # B297/B326: Ein bereits heute gespeicherter Snapshot MIT echten Warndaten
+    # darf nicht durch einen neuen Snapshot OHNE echte Daten ueberschrieben werden.
+    new_has_data = snapshot.get("status") == "ok" and snapshot.get("data_available", True) is not False
+    if not new_has_data and _todays_snapshot_had_real_data(path, now):
         _log_snapshot(snapshot)
         return snapshot
 

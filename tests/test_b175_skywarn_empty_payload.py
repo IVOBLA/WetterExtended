@@ -9,19 +9,23 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 skywarn = pytest.importorskip("skywarn_export_snapshot")
 
 
-def test_none_payload_returns_clean_error():
+def test_none_payload_ist_ok_ohne_warnlage_b326():
+    """B326: None-Payload = regulaerer Zustand 'keine Warnlage', kein Fehler."""
     snap = skywarn.build_success_snapshot(None)
-    assert snap["status"] == "error"
-    assert snap["error"]["type"] == "empty_payload"
+    assert snap["status"] == "ok"
+    assert snap["data_available"] is False
+    assert snap["error"] is None
     assert snap["valid_from"] is None
     assert snap["valid_to"] is None
     assert snap["features_inside_kaernten_bbox"]["features"] == []
 
 
-def test_non_dict_payload_returns_clean_error():
+def test_non_dict_payload_ist_ok_ohne_warnlage_b326():
+    """B326: Nicht-Dict-Payload = regulaerer Zustand 'keine Warnlage', kein Fehler."""
     snap = skywarn.build_success_snapshot([])
-    assert snap["status"] == "error"
-    assert snap["error"]["type"] == "empty_payload"
+    assert snap["status"] == "ok"
+    assert snap["data_available"] is False
+    assert snap["error"] is None
     assert snap["valid_to"] is None
 
 
@@ -48,9 +52,8 @@ def test_todays_snapshot_status_none_for_missing_file(tmp_path):
     assert skywarn._todays_snapshot_status(p, now) is None
 
 
-def test_error_status_does_not_overwrite_valid_snapshot(monkeypatch, tmp_path):
-    """B297: Ein bereits vorhandener gueltiger Snapshot von heute darf durch
-    einen spaeteren empty_payload-Fehler nicht ueberschrieben werden."""
+def test_no_warning_status_does_not_overwrite_valid_snapshot(monkeypatch, tmp_path):
+    """B297/B326: Echte Warndaten werden nicht durch 'keine Warnlage' ueberschrieben."""
     snap_path = tmp_path / "skywarn_export.json"
     monkeypatch.setattr(skywarn, "_snapshot_path", lambda: snap_path)
     now = skywarn._now_vienna()
@@ -72,9 +75,11 @@ def test_error_status_does_not_overwrite_valid_snapshot(monkeypatch, tmp_path):
 
     result = skywarn.fetch_and_store_skywarn_export_snapshot(force=True)
 
-    assert result["status"] == "error"
+    assert result["status"] == "ok"
+    assert result["data_available"] is False
     persisted = _json.loads(snap_path.read_text(encoding="utf-8"))
     assert persisted["status"] == "ok"
+    assert persisted["data_available"] is True
     assert persisted["valid_from"] == "2026-07-03T10:00:00"
 
 
