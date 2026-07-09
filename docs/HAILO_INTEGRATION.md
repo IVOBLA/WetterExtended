@@ -4294,6 +4294,26 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Phasen-Status (Hailo): unveraendert; betrifft nur die operative Kartenwarnung, keine
   Hailo-U-Net-Nowcasting-Phase B.
 
+### B327 — Risk-Watch Startup-Race gegen lokalen API-Server abgefedert ✅ erledigt
+- Ursache: `_max_risk_level()` (`risk_watch.py`) pollt direkt nach dem Prozessstart
+  `http://127.0.0.1:5000/api/risk_grid`. Ist der Flask-/API-Server (systemd-Dienst
+  `wetterprojekt`) noch nicht vollständig hochgefahren, schlägt der Request mit
+  "Connection refused" fehl und die Funktion liefert sofort `0` zurück — kein
+  Readiness-Mechanismus vorhanden. Korrektur zum ursprünglichen Analyse-Report:
+  der dort referenzierte Test `tests/test_b262_risk_watch_retry.py` betrifft einen
+  anderen Codepfad (`main.py::_risk_alert_check`, E-Mail-Alert) und war als
+  Grundlage ungeeignet.
+- Fix: Neue Config-Konstanten `RISK_WATCH_STARTUP_GRACE_S` (Default 30 s) und
+  `RISK_WATCH_STARTUP_MAX_RETRIES` (Default 2). `_max_risk_level()` versucht
+  innerhalb des Grace-Fensters seit Prozessstart (`_PROC_START_MONOTONIC`) bei
+  Exception bis zu `RISK_WATCH_STARTUP_MAX_RETRIES`-mal mit kurzem Backoff erneut,
+  bevor auf `0` zurückgefallen wird. Außerhalb des Fensters (regulärer Betrieb)
+  unverändertes Verhalten — kein zusätzlicher Retry, keine zusätzliche Latenz.
+- Dateien: `config.py`, `risk_watch.py`, `tests/test_b327_risk_watch_startup_grace.py`.
+- Test: `tests/test_b327_risk_watch_startup_grace.py`.
+- Phasen-Status (Hailo): unverändert; reine Startup-Robustheit des Risk-Watch-Pollings,
+  keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
+
 ### B325 — Atmosphären-Stale-Cache griff nicht über die Stundengrenze ✅ erledigt
 - Ursache: `_bulk_get()` (`fetch_atmospheric_snapshot.py`) bildete den Cache-Key über
   `cache_key(_cache_prefix, url, _nearest_hour_str())` und suchte im Fehlerfall den
