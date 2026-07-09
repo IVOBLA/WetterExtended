@@ -4294,6 +4294,29 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Phasen-Status (Hailo): unveraendert; betrifft nur die operative Kartenwarnung, keine
   Hailo-U-Net-Nowcasting-Phase B.
 
+### B328 — Zeitbomben-Timestamp in Test (kein Produktivcode-Bug) ✅ erledigt
+- Ursache: `test_p69_existing_quality_endpoints_expose_transparency_fields`
+  (`tests/test_c1_dashboard_forecast_mode.py`) verwendete einen fest verdrahteten
+  Fixture-Zeitstempel (`"2026-07-02T00:00:00Z"`) für `/api/ml_quality?hours=168`
+  (→ `accuracy_tracker.load_history(since_hours=168)`, Cutoff =
+  `datetime.utcnow() - timedelta(hours=168)`). Ab 2026-07-09 fiel dieser feste
+  Zeitstempel aus dem 168h-Fenster heraus → `load_history()` lieferte `[]` →
+  `forecast_mode_counts` blieb `{}` → `KeyError: 'ml'`. Reines Testartefakt, kein
+  Fehler in `app.py`/`accuracy_tracker.py`.
+- Fix: Fixture-Zeitstempel wird relativ zur Testlaufzeit (`datetime.utcnow() -
+  timedelta(hours=1)`) berechnet statt fest verdrahtet. Neuer Regressionstest
+  `tests/test_b328_load_history_window_boundary.py` sichert die
+  Fenstergrenzen-Logik von `load_history()` direkt und zeitunabhängig ab.
+  Der zweite Test mit identischem altem Fixture-Datum
+  (`test_ml_quality_api_exposes_b277_fields`) nutzt `load_history()` nicht und
+  war nicht betroffen — dort keine Änderung.
+- Dateien: `tests/test_c1_dashboard_forecast_mode.py`,
+  `tests/test_b328_load_history_window_boundary.py`.
+- Test: `tests/test_b328_load_history_window_boundary.py`,
+  `tests/test_c1_dashboard_forecast_mode.py`.
+- Phasen-Status (Hailo): unverändert; reiner Test-Fix, keine Auswirkung auf
+  Produktivcode oder Phase B.
+
 ### B327 — Risk-Watch Startup-Race gegen lokalen API-Server abgefedert ✅ erledigt
 - Ursache: `_max_risk_level()` (`risk_watch.py`) pollt direkt nach dem Prozessstart
   `http://127.0.0.1:5000/api/risk_grid`. Ist der Flask-/API-Server (systemd-Dienst

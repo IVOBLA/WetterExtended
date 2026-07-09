@@ -117,12 +117,18 @@ def test_p69_existing_quality_endpoints_expose_transparency_fields(monkeypatch, 
     assert flask is not None
     import app as wetter_app
 
+    # B328: Zeitstempel relativ zur Testlaufzeit statt fest verdrahtet —
+    # ein absolutes Datum faellt irgendwann aus dem 168h-Fenster von
+    # load_history(since_hours=168) heraus (siehe HAILO_INTEGRATION.md B328).
+    from datetime import datetime, timedelta
+    _fixture_ts = (datetime.utcnow() - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     eval_dir = tmp_path / "evaluation"
     model_dir = tmp_path / "models"
     eval_dir.mkdir()
     model_dir.mkdir()
     (eval_dir / "accuracy_history.jsonl").write_text(
-        '{"timestamp_utc":"2026-07-02T00:00:00Z","breakdown_by_forecast_mode":{"10":{"kinematic_fallback":{"mae_km":0.7,"samples":90,"verified":90},"ml":{"mae_km":0.6,"samples":10,"verified":8,"no_target_frame":2}}},"delivered_mode_counts":{"10":{"kinematic_fallback":90,"ml":10}}}\n',
+        '{"timestamp_utc":"' + _fixture_ts + '","breakdown_by_forecast_mode":{"10":{"kinematic_fallback":{"mae_km":0.7,"samples":90,"verified":90},"ml":{"mae_km":0.6,"samples":10,"verified":8,"no_target_frame":2}}},"delivered_mode_counts":{"10":{"kinematic_fallback":90,"ml":10}}}\n',
         encoding="utf-8",
     )
     (model_dir / "training_meta.json").write_text(
