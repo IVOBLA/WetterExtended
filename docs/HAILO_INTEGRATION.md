@@ -4311,3 +4311,25 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Test: `tests/test_b325_atmosphere_cross_hour_stale.py`.
 - Phasen-Status (Hailo): unverändert; reine Robustheits-Verbesserung der
   Atmosphäre-Datenbeschaffung, keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
+
+### B326 — Skywarn: leere Lage (`null`-Payload) ist keine Fehlermeldung ✅ erledigt
+- Ursache: `build_success_snapshot()` (`skywarn_export_snapshot.py`) klassifizierte
+  jede leere Lage (skywarn.at liefert bei "keine aktive Warnung" JSON `null`) als
+  `status="error"` (`error.type="empty_payload"`) — obwohl das der reguläre,
+  erwartbare Zustand ist. Nachgelagerte Auswertungen konnten dadurch "Abruf
+  fehlgeschlagen" nicht von "Abruf erfolgreich, aktuell keine Warnung" unterscheiden.
+  Abgrenzung zu B297: B297 verhindert das Überschreiben eines gültigen Snapshots durch
+  einen *echten* Fehler — B326 korrigiert die Klassifikation des leere-Lage-Falls selbst.
+- Fix: Neue Funktion `_no_active_warning_snapshot()` liefert `status="ok"`,
+  `data_available=False`, `error=None`. Echte Fehler (`http_error`,
+  `json_parse_error`, `timeout`, `unexpected_error`) bleiben unverändert
+  `status="error"`. Der Erfolgspfad mit echten Warndaten führt zusätzlich
+  `data_available=True`. Der B297-Überschreibschutz wurde erweitert: ein
+  bereits heute gespeicherter Snapshot mit echten Warndaten darf nicht durch ein
+  späteres "keine Warnlage"-Ergebnis überschrieben werden (neue Hilfsfunktion
+  `_todays_snapshot_had_real_data()`).
+- Dateien: `skywarn_export_snapshot.py`, `tests/test_b175_skywarn_empty_payload.py`
+  (3 Assertions an neues Verhalten angepasst), `tests/test_b326_skywarn_no_active_warning.py`.
+- Test: `tests/test_b326_skywarn_no_active_warning.py`, `tests/test_b175_skywarn_empty_payload.py`.
+- Phasen-Status (Hailo): unverändert; betrifft nur den täglichen Skywarn-Debug-Export,
+  keine Auswirkung auf Tracking/Forecast/ML oder Phase B.
