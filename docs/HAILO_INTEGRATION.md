@@ -4293,3 +4293,21 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Test: `tests/test_b324_hail_warning_ship_fusion.py`.
 - Phasen-Status (Hailo): unveraendert; betrifft nur die operative Kartenwarnung, keine
   Hailo-U-Net-Nowcasting-Phase B.
+
+### B325 — Atmosphären-Stale-Cache griff nicht über die Stundengrenze ✅ erledigt
+- Ursache: `_bulk_get()` (`fetch_atmospheric_snapshot.py`) bildete den Cache-Key über
+  `cache_key(_cache_prefix, url, _nearest_hour_str())` und suchte im Fehlerfall den
+  Stale-Cache ausschließlich unter demselben stundengenauen Key. Beim ersten
+  fehlgeschlagenen Request einer neuen Stunde (z. B. Open-Meteo HTTP 503 um 19:20)
+  existierte dieser Key noch nicht, obwohl für die Vorstunde ein gültiger Snapshot
+  vorlag — Ergebnis: `[ATMOSPHERE] ... kein Stale-Cache verfügbar`, alle
+  atmosphärischen Features fehlten für den Zyklus komplett.
+- Fix: Neue Funktion `_stale_get_recent_hours()` sucht rückwärts stundenweise
+  (aktuelle Stunde zuerst, bis zu 24 h zurück) nach dem jüngsten gültigen
+  Stale-Eintrag desselben Namespace/URL. `_bulk_get()` nutzt diese Funktion statt
+  des einzelnen `_ck`-Lookups. `api_cache.py` (generischer Cache-Mechanismus für
+  weitere Fetcher) bleibt unverändert.
+- Dateien: `fetch_atmospheric_snapshot.py`, `tests/test_b325_atmosphere_cross_hour_stale.py`.
+- Test: `tests/test_b325_atmosphere_cross_hour_stale.py`.
+- Phasen-Status (Hailo): unverändert; reine Robustheits-Verbesserung der
+  Atmosphäre-Datenbeschaffung, keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).

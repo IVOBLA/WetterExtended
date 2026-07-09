@@ -7,7 +7,7 @@ und über /api/atmosphere im Admin-Panel angezeigt.
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from math import atan2, cos, pi, radians, sin
 from zoneinfo import ZoneInfo
 
@@ -91,6 +91,36 @@ _BULK_SOURCE_MAP = {
 }
 
 
+def _stale_get_recent_hours(cache_prefix: str, url: str, max_stale_seconds: int = 24 * 3600,
+                             max_hours_back: int = 24):
+    """B325: Cross-Hour-Stale-Fallback.
+
+    ``cache_key()`` haengt ``_nearest_hour_str()`` in den Hash ein — ein
+    Stale-Lookup mit dem *aktuellen* Stundenschluessel findet daher nichts,
+    wenn der letzte erfolgreiche Fetch in einer Vorstunde war (typischer Fall:
+    erster Request einer neuen Stunde schlaegt fehl, z.B. HTTP 503 um HH:20 Uhr,
+    obwohl fuer HH-1:00 ein gueltiger Snapshot existiert). Sucht rueckwaerts
+    stundenweise (aktuelle Stunde zuerst, dann bis zu ``max_hours_back`` Stunden
+    zurueck) nach dem juengsten noch gueltigen (<= ``max_stale_seconds`` alten)
+    Snapshot desselben Cache-Namespace/URL und liefert den ersten Treffer
+    (= juengste passende Stunde) zurueck. ``None``, wenn keine Stunde einen
+    gueltigen Stale-Eintrag hat.
+    """
+    from api_cache import cache_key
+    try:
+        from api_cache import cache_get_stale
+    except ImportError:
+        return None
+    now = datetime.now(ZoneInfo(_TZ))
+    for hours_back in range(0, max_hours_back + 1):
+        hour_str = (now - timedelta(hours=hours_back)).strftime("%Y-%m-%dT%H:00")
+        ck = cache_key(cache_prefix, url, hour_str)
+        stale = cache_get_stale(ck, max_stale_seconds=max_stale_seconds)
+        if stale is not None:
+            return stale
+    return None
+
+
 def _bulk_get(url: str, label: str) -> list | None:
     """B217: HTTP GET über zentralen ``retry_get`` (Backoff, Retry-After-Header,
     Circuit-Breaker) MIT Cache + Stale-While-Error-Fallback — identisch zum Pfad
@@ -105,10 +135,6 @@ def _bulk_get(url: str, label: str) -> list | None:
     """
     import time as _t_bulk
     from api_cache import cache_key, cache_get, cache_set, get_ttl
-    try:
-        from api_cache import cache_get_stale
-    except ImportError:
-        cache_get_stale = lambda *a, **kw: None  # noqa: E731
 
     _src = label.split("-B")[0]
     _breaker_service, _cache_prefix = _BULK_SOURCE_MAP.get(_src, (None, None))
@@ -136,14 +162,14 @@ def _bulk_get(url: str, label: str) -> list | None:
     except Exception as exc:
         # retry_get protokolliert den Ausfall bereits (log_api_failure + Breaker).
         # KEIN zweites log_api_failure (B159-Lehre: sonst Doppelzählung).
-        if _ck is not None:
-            _stale = cache_get_stale(_ck, max_stale_seconds=24 * 3600)
+        if _cache_prefix:
+            _stale = _stale_get_recent_hours(_cache_prefix, url, max_stale_seconds=24 * 3600)
             if _stale is not None:
                 debug_log(f"[ATMOSPHERE] {label} STALE-Cache-Fallback "
-                          f"({type(exc).__name__}) — kein 0.0-Default.")
+                          f"({type(exc).__name__}) — kein 0.0-Default (Cross-Hour, B325).")
                 return [_stale] if isinstance(_stale, dict) else _stale
         debug_log(f"[ATMOSPHERE] {label} fehlgeschlagen "
-                  f"({type(exc).__name__}: {exc}) — kein Stale-Cache verfügbar.")
+                  f"({type(exc).__name__}: {exc}) — kein Stale-Cache verfügbar (auch Vorstunden leer).")
     return None
 
 
