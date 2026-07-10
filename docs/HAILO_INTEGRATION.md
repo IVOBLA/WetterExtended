@@ -4294,6 +4294,19 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Phasen-Status (Hailo): unveraendert; betrifft nur die operative Kartenwarnung, keine
   Hailo-U-Net-Nowcasting-Phase B.
 
+### B333 — Beobachtungspunkt zu samples=0 im Bewegungs-Dataset dokumentiert ✅ erledigt
+- Kein Bugfix: reine Dokumentation. `samples=0` im Bewegungs-Dataset wurde am
+  2026-07-10 analysiert und auf konvektionsarme Wetterlage zurückgeführt
+  (nur 14 neue Zellen am 2026-07-09 laut `cell_lineage_state.json`, gegenüber
+  500-680/Tag Ende Juni). Damit erübrigt sich vorerst die in B332 aufgeworfene
+  Architekturfrage zu `ML_SEQUENCE_LENGTH`.
+- Fix: Ein Satz in `zieldefinition.txt` ergänzt, der festhält, dass `samples=0`
+  erst bei anhaltendem Auftreten TROTZ ausreichender Zell-Lebensdauer erneut
+  zu prüfen ist — verhindert erneute Vollanalyse bei der nächsten ruhigen Phase.
+- Dateien: `zieldefinition.txt`.
+- Test: kein Code geändert, kein Test nötig.
+- Phasen-Status (Hailo): unverändert; reine Dokumentation.
+
 ### B330 — Open-Meteo 5xx wurden nach Retry-Erschöpfung mit `http=None` geloggt ✅ erledigt
 - Ursache: `retry_get()` (`http_retry.py`) berechnete den echten HTTP-Statuscode
   (`_b_status`) nach Retry-Erschöpfung ausschließlich innerhalb des
