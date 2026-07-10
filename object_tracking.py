@@ -1374,6 +1374,11 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
             "dem_elevation_m":        dem["dem_elevation_m"],
             "dem_slope_toward_cell":  dem["dem_slope_toward_cell"],
             "dem_barrier_ahead":      dem.get("dem_barrier_ahead", 0.0),
+            # B329: Status-Flag aus get_dem_features() wurde bisher nicht
+            # uebernommen -> accuracy_tracker.py/diagnose_forecast_quality.py
+            # lasen immer None. Werte: "computed"/"dem_partial_coverage"/
+            # "no_movement_vector"/"dem_unavailable" (siehe dem_feature.py).
+            "dem_slope_barrier_status": dem.get("dem_slope_barrier_status"),
             "valley_alignment":       valley["valley_alignment"],
             "valley_distance_km":     valley["valley_distance_km"],
             "valley_confinement":     valley["valley_confinement"],

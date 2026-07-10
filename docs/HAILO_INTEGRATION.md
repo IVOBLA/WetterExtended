@@ -4294,6 +4294,22 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Phasen-Status (Hailo): unveraendert; betrifft nur die operative Kartenwarnung, keine
   Hailo-U-Net-Nowcasting-Phase B.
 
+### B329 — `dem_slope_barrier_status` wird nie am Objekt persistiert ✅ erledigt
+- Ursache: `get_dem_features()` (`dem_feature.py`) liefert `dem_slope_barrier_status`
+  ("computed"/"dem_partial_coverage"/"no_movement_vector"/"dem_unavailable"), aber
+  `object_tracking.py` uebernahm beim Aufbau von `new_memory[obj_id]` nur
+  `dem_elevation_m`/`dem_slope_toward_cell`/`dem_barrier_ahead` — das Statusfeld fehlte.
+  `accuracy_tracker.py` und `tools/diagnose_forecast_quality.py` lasen dadurch
+  immer `None`; `dem_slope_barrier_status_breakdown` in der Diagnose blieb leer.
+  Reproduziert: alle 129 Records im aktuellen `forecast_error_details` hatten
+  `dem_slope_barrier_status=None`.
+- Fix: Eine Zeile in `object_tracking.py` ergaenzt — `dem.get("dem_slope_barrier_status")`
+  wird in `new_memory[obj_id]` uebernommen. Keine Aenderung an der Berechnung selbst.
+- Dateien: `object_tracking.py`, `tests/test_b329_dem_slope_barrier_status_persisted.py`.
+- Test: `tests/test_b329_dem_slope_barrier_status_persisted.py`.
+- Phasen-Status (Hailo): unveraendert; reines Feature-Plumbing fuer die
+  Terrain-Diagnose, keine Auswirkung auf Phase B.
+
 ### B328 — Zeitbomben-Timestamp in Test (kein Produktivcode-Bug) ✅ erledigt
 - Ursache: `test_p69_existing_quality_endpoints_expose_transparency_fields`
   (`tests/test_c1_dashboard_forecast_mode.py`) verwendete einen fest verdrahteten
