@@ -4429,3 +4429,26 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Test: `tests/test_b331_eumetview_capabilities_negative_cache.py`.
 - Phasen-Status (Hailo): unverändert; reduziert externe Last für IR-/Cloud-Top-
   Datenbeschaffung, keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
+
+### B332 — Bewegungs-Sequenzbildung nutzt cell_id statt volatiler id (Teilfix) ✅ erledigt
+- Ursache: `build_dataset()` (`dataset_builder.py`, beide Sequenzbildungs-Schleifen)
+  schlüsselte Sequenzen über die volatile Tracking-`id` statt der von
+  `cell_lineage.py` stabil über Merge/Split/IR-Precursor-Brücken gepflegten
+  `cell_id`. Ein Wechsel der `id` innerhalb einer Sequenz (z. B. kurzer
+  Tracking-Sprung) ließ `common_ids` leerlaufen, obwohl dieselbe fachliche Zelle
+  gemeint war.
+- **Wichtig:** Dieser Fix behebt NICHT allein das im Debug-Export beobachtete
+  `samples=0` — im geprüften 24h-Fenster war `id == cell_id` für jede Zelle
+  (kein Merge/Split aufgetreten), das dortige `samples=0` liegt primär an
+  `ML_SEQUENCE_LENGTH=6` bei Zell-Lebensdauern von 1-3 Frames. Diese Reduktion
+  ändert die LSTM-Eingabeform (`model_training.py`) und erfordert Neutraining —
+  das ist eine Architekturentscheidung, kein Bugfix, und wurde NICHT automatisch
+  umgesetzt (siehe Rückfrage an Horst).
+- Fix: `cell_id` (Fallback `id` für Legacy-Frames) als Sequenzschlüssel in
+  beiden Schleifen von `dataset_builder.py`. Rein additiv/rückwärtskompatibel —
+  reduziert niemals die Anzahl möglicher Sequenzen gegenüber dem alten Verhalten,
+  kann sie in Merge/Split-/IR-Brücken-Fällen erhöhen.
+- Dateien: `dataset_builder.py`, `tests/test_b332_dataset_builder_cell_id_key.py`.
+- Test: `tests/test_b332_dataset_builder_cell_id_key.py`.
+- Phasen-Status (Hailo): unverändert; Datenaufbereitung für das (aktuell im
+  kinematischen Fallback laufende) Bewegungs-ML, keine Auswirkung auf Phase B.

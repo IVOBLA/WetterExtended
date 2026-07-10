@@ -422,7 +422,15 @@ def build_dataset(model_save_dir=None):
             rejection_reasons[slice_reason] = rejection_reasons.get(slice_reason, 0) + 1
             continue
         schema_compatible_samples += 1
-        seq_obj_maps = [{str(o.get("id")): o for o in frm[3] if isinstance(o, dict) and "id" in o} for frm in seq_slice]
+        # B332: cell_id (stabile fachliche Identitaet, ueberlebt Merge/Split/
+        # IR-Precursor-Bruecken via cell_lineage.py) statt der volatilen
+        # Tracking-'id' als Sequenzschluessel. Fallback auf 'id' fuer
+        # Legacy-Frames ohne cell_id-Feld.
+        seq_obj_maps = [
+            {str(o.get("cell_id") or o.get("id")): o for o in frm[3]
+             if isinstance(o, dict) and (o.get("cell_id") or o.get("id") is not None)}
+            for frm in seq_slice
+        ]
 
         common_ids = set(seq_obj_maps[0].keys())
         for m in seq_obj_maps[1:]:
@@ -449,8 +457,11 @@ def build_dataset(model_save_dir=None):
                 fut_objs = []
                 debug_log(f"[DATASET] Kein Frame für h={h_min}min nahe {target_ts} (best_diff={best_diff})")
             future_obj_maps.append(
-                {str(o.get("id")): o for o in fut_objs
-                 if isinstance(o, dict) and "id" in o}
+                # B332: gleicher Schluessel wie bei seq_obj_maps (cell_id
+                # bevorzugt, Fallback id) -- sonst wuerde targets/common_ids
+                # inkonsistent gegen unterschiedliche Identitaeten gematcht.
+                {str(o.get("cell_id") or o.get("id")): o for o in fut_objs
+                 if isinstance(o, dict) and (o.get("cell_id") or o.get("id") is not None)}
             )
 
         for oid in common_ids:
@@ -463,7 +474,12 @@ def build_dataset(model_save_dir=None):
             seq_objects = []
             valid = True
             for op, wp, ts, objs, stations in seq_slice:
-                obj = next((o for o in objs if str(o.get("id")) == oid), None)
+                # B332: Lookup gegen denselben Schluessel wie beim Aufbau der
+                # seq_obj_maps (cell_id bevorzugt, Fallback id).
+                obj = next(
+                    (o for o in objs if str(o.get("cell_id") or o.get("id")) == oid),
+                    None,
+                )
                 if obj is None:
                     valid = False
                     break
@@ -655,8 +671,9 @@ def build_classification_dataset():
             rejection_reasons[slice_reason] = rejection_reasons.get(slice_reason, 0) + 1
             continue
         schema_compatible_samples += 1
-        now_map = {str(o.get("id")): o for o in seq_slice[-1][3]
-                   if isinstance(o, dict) and "id" in o}
+        # B332: cell_id bevorzugt, Fallback id (siehe build_dataset() oben).
+        now_map = {str(o.get("cell_id") or o.get("id")): o for o in seq_slice[-1][3]
+                   if isinstance(o, dict) and (o.get("cell_id") or o.get("id") is not None)}
 
         # Besten Frame ~20 min in der Zukunft suchen (Timestamp-basiert)
         target_ts  = now_ts + _td_cls(minutes=_CLS_HORIZON_MIN)
@@ -671,8 +688,8 @@ def build_classification_dataset():
         if best_idx is None or best_diff > tol:
             continue
         fut_objs = frames[best_idx][3]
-        fut_map  = {str(o.get("id")): o for o in fut_objs
-                    if isinstance(o, dict) and "id" in o}
+        fut_map  = {str(o.get("cell_id") or o.get("id")): o for o in fut_objs
+                    if isinstance(o, dict) and (o.get("cell_id") or o.get("id") is not None)}
 
         common_ids = set(now_map.keys()) & set(fut_map.keys())
         if not common_ids:
@@ -683,7 +700,8 @@ def build_classification_dataset():
             seq_objects = []
             valid = True
             for _, _, ts, objs, stations in seq_slice:
-                obj = next((o for o in objs if str(o.get("id")) == oid), None)
+                # B332: Lookup gegen denselben Schluessel wie now_map/fut_map.
+                obj = next((o for o in objs if str(o.get("cell_id") or o.get("id")) == oid), None)
                 if obj is None:
                     valid = False
                     break
