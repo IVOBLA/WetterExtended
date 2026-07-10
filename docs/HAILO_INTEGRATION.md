@@ -4294,6 +4294,23 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Phasen-Status (Hailo): unveraendert; betrifft nur die operative Kartenwarnung, keine
   Hailo-U-Net-Nowcasting-Phase B.
 
+### B330 — Open-Meteo 5xx wurden nach Retry-Erschöpfung mit `http=None` geloggt ✅ erledigt
+- Ursache: `retry_get()` (`http_retry.py`) berechnete den echten HTTP-Statuscode
+  (`_b_status`) nach Retry-Erschöpfung ausschließlich innerhalb des
+  `breaker_service`-Zweigs für den Circuit-Breaker, übergab ihn aber nicht an den
+  direkt danach folgenden `log_api_failure()`-Aufruf. Reale 5xx-Antworten
+  (Open-Meteo-Outlook HTTP 502, Open-Meteo-Atmosphere-AROME-B1 HTTP 503) wurden
+  dadurch als `(fallback=True, http=None)` protokolliert — der Statuscode ging
+  für die Fehlerdiagnose verloren, obwohl der Fallback selbst korrekt griff.
+- Fix: `_final_http_status` wird jetzt unabhängig vom `breaker_service`-Zweig aus
+  `last_exc` ermittelt und an den abschließenden `log_api_failure()`-Aufruf
+  übergeben. Der bereits korrekte 4xx-Sonderpfad und der Circuit-Breaker-Aufruf
+  selbst bleiben unverändert.
+- Dateien: `http_retry.py`, `tests/test_b330_retry_get_http_status_logging.py`.
+- Test: `tests/test_b330_retry_get_http_status_logging.py`.
+- Phasen-Status (Hailo): unverändert; reine Logging-Korrektur, keine
+  funktionale Änderung am Fallback-/Retry-Verhalten.
+
 ### B329 — `dem_slope_barrier_status` wird nie am Objekt persistiert ✅ erledigt
 - Ursache: `get_dem_features()` (`dem_feature.py`) liefert `dem_slope_barrier_status`
   ("computed"/"dem_partial_coverage"/"no_movement_vector"/"dem_unavailable"), aber

@@ -233,10 +233,16 @@ def retry_get(
             time.sleep(wait)
 
     _last_err_str = f"{type(last_exc).__name__}: {str(last_exc)}"
+    # B330: HTTP-Statuscode auch OHNE breaker_service ermitteln — vorher wurde
+    # _b_status nur innerhalb des Circuit-Breaker-Zweigs berechnet und ging fuer
+    # den log_api_failure()-Aufruf verloren (Log zeigte "http=None" bei echten
+    # 5xx-Antworten wie Open-Meteo 502/503).
+    _final_http_status = None
+    if isinstance(last_exc, requests.exceptions.HTTPError):
+        _final_http_status = getattr(getattr(last_exc, "response", None), "status_code", None)
     if breaker_service and api_circuit_breaker:
-        _b_status = None
+        _b_status = _final_http_status
         if isinstance(last_exc, requests.exceptions.HTTPError):
-            _b_status = getattr(getattr(last_exc, "response", None), "status_code", None)
             _b_reason = f"http-{_b_status}" if _b_status else "HTTPError"
         elif isinstance(last_exc, requests.exceptions.Timeout):
             _b_reason = "Timeout"
@@ -247,7 +253,7 @@ def retry_get(
         else:
             _b_reason = type(last_exc).__name__
         api_circuit_breaker.record_failure(breaker_service, _b_reason, http_status=_b_status)
-    log_api_failure(service, url, _last_err_str, fallback_used=True)
+    log_api_failure(service, url, _last_err_str, fallback_used=True, http_status=_final_http_status)
     # In api_call_counts loggen → Dashboard zeigt fehlgeschlagene Requests
     _last_resp_text = None
     try:
