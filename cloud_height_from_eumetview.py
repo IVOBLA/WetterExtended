@@ -182,6 +182,25 @@ def get_latest_wms_time() -> str | None:
         debug_log(f"[CLOUD] WMS-Timestamp aus Cache: {cached_ts}")
         return cached_ts
 
+    # B331: Negativ-Cache — verhindert, dass ein anhaltender Parse-/Abruffehler
+    # bei JEDEM Aufruf einen kompletten Fetch+3x-Retry-Zyklus neu ausloest. Der
+    # Erfolgs-Cache (ck) wird im Fehlerfall nie befuellt (korrekt, da kein
+    # gueltiger Timestamp vorliegt) — ohne diesen Negativ-Cache entsteht daher
+    # bei anhaltenden Stoerungen ein Request-Sturm (siehe B331-Log-Analyse:
+    # 1751 capabilities_request/24h bei 93x parse-failed-after-retries).
+    ck_fail = cache_key("eumetview:capabilities_failed", _active_layer, _WMS_VERSION)
+    cached_fail_reason = cache_get(ck_fail, ttl_seconds=get_ttl("eumetview_capabilities", 600))
+    if cached_fail_reason is not None:
+        debug_log(f"[CLOUD] GetCapabilities zuletzt fehlgeschlagen ({cached_fail_reason}) "
+                  f"— Negativ-Cache aktiv, kein erneuter Fetch.")
+        return _caps_fallback(str(cached_fail_reason))
+
+    def _fail(reason: str):
+        """B331: Fehlergrund im Negativ-Cache vermerken, dann wie bisher auf
+        den zuletzt erfolgreich geschriebenen Timestamp zurueckfallen."""
+        cache_set(ck_fail, reason)
+        return _caps_fallback(reason)
+
     def _norm_tag(tag: str) -> str:
         return tag.split("}", 1)[-1] if "}" in tag else tag
 
@@ -281,7 +300,7 @@ def get_latest_wms_time() -> str | None:
                     _caps_body = b""
             if root is None:
                 _dbg("timestamp_missing", reason="parse-failed-after-retries")
-                return _caps_fallback("parse-failed-after-retries")
+                return _fail("parse-failed-after-retries")
             target_layer = None
             for layer in root.iter():
                 if _norm_tag(layer.tag) != "Layer":
@@ -295,7 +314,7 @@ def get_latest_wms_time() -> str | None:
             _dbg("target_layer_search", target_layer_found=bool(target_layer))
             if target_layer is None:
                 _dbg("timestamp_missing", reason="target-layer-missing")
-                return _caps_fallback("target-layer-missing")
+                return _fail("target-layer-missing")
 
             extent_default = None
             extent_text = None
@@ -346,7 +365,10 @@ def get_latest_wms_time() -> str | None:
         log_api_failure(
             "EUMETView-WMS", url, f"{type(e).__name__}: {e}", fallback_used=True
         )
-    return _caps_fallback("capabilities-failed")
+        return _fail(f"exception-{type(e).__name__}")
+    # B331: deckt u.a. den "parser-no-timestamp"-Fall ab (kein expliziter
+    # return im try-Block, faellt bis hierher durch).
+    return _fail("capabilities-failed")
 
 
 
