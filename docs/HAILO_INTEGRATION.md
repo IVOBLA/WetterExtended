@@ -4409,3 +4409,23 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Test: `tests/test_b326_skywarn_no_active_warning.py`, `tests/test_b175_skywarn_empty_payload.py`.
 - Phasen-Status (Hailo): unverändert; betrifft nur den täglichen Skywarn-Debug-Export,
   keine Auswirkung auf Tracking/Forecast/ML oder Phase B.
+
+### B331 — EUMETView GetCapabilities: Request-Sturm bei anhaltenden Parse-Fehlern ✅ erledigt
+- Ursache: `get_latest_wms_time()` (`cloud_height_from_eumetview.py`) cached
+  ausschließlich das erfolgreiche Ergebnis. Jeder Fehlerfall (Parse-Fehler nach
+  3 Retries, fehlender Ziel-Layer, fehlendes Zeit-Element, Exception) schrieb
+  nichts in den Cache — der nächste Aufruf löste daher unabhängig vom zeitlichen
+  Abstand erneut den vollen Fetch- + 3-fachen-Parse-Retry-Zyklus aus. Reproduziert:
+  1751 `capabilities_request` in 24 h bei 93× `parse-failed-after-retries` und
+  insgesamt 155× `timestamp_missing` — deutlich mehr Fremdrequests als nötig,
+  entgegen der Zieldefinition ("unnötige Fremdrequests vermeiden").
+- Fix: Neuer Negativ-Cache (`eumetview:capabilities_failed`, gleiche TTL wie der
+  Erfolgs-Cache, Default 600 s) speichert den zuletzt aufgetretenen Fehlergrund.
+  Ein Aufruf innerhalb der TTL überspringt den Fetch komplett und liefert direkt
+  den bestehenden Datei-Fallback (`_caps_fallback`). Der Erfolgs-Cache und
+  `_caps_fallback()` selbst bleiben unverändert.
+- Dateien: `cloud_height_from_eumetview.py`,
+  `tests/test_b331_eumetview_capabilities_negative_cache.py`.
+- Test: `tests/test_b331_eumetview_capabilities_negative_cache.py`.
+- Phasen-Status (Hailo): unverändert; reduziert externe Last für IR-/Cloud-Top-
+  Datenbeschaffung, keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
