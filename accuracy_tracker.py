@@ -905,8 +905,6 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         debug_log(f"[ACCURACY] horizon=+{horizon_min}m: 0 verifizierbare Samples in den letzten {since_hours}h")
         return base
 
-    eval_n = verified if verified > 0 else 1
-
     # P24: coverage_rate = Anteil verifizierbarer Forecasts an allen.
     # Hohe hit_rate ist nur aussagekräftig wenn coverage_rate hoch ist.
     # coverage_rate < 0.3 → Metriken unzuverlässig (zu viele not_found frames).
@@ -930,14 +928,14 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         "nn_rejected": nn_rejected,
         "hit_rate": round(hits / verified, 4) if verified else None,
         "coverage_rate": _coverage,          # verified / n_total
-        "mae_km": round(sum_km / eval_n, 3) if eval_n else None,
+        "mae_km": round(sum_km / verified, 3) if verified else None,
         # B296: Median neben MAE — einzelne lineage-lose NN-Ausreisser sollen
         # die Horizont-Bewertung nicht dominieren (Datenbefund WX-20260703-0002).
         "median_km": round(_percentile(km_values, 50), 3) if km_values else None,
-        "rmse_km": round(math.sqrt(sum_km2 / eval_n), 3) if eval_n else None,
-        "mae_px": round(sum_abs_px / eval_n, 2) if eval_n else None,
-        "rmse_x_px": round(math.sqrt(sum_sx2 / eval_n), 2) if eval_n else None,
-        "rmse_y_px": round(math.sqrt(sum_sy2 / eval_n), 2) if eval_n else None,
+        "rmse_km": round(math.sqrt(sum_km2 / verified), 3) if verified else None,
+        "mae_px": round(sum_abs_px / verified, 2) if verified else None,
+        "rmse_x_px": round(math.sqrt(sum_sx2 / verified), 2) if verified else None,
+        "rmse_y_px": round(math.sqrt(sum_sy2 / verified), 2) if verified else None,
         "since_hours": since_hours,
         "tolerance_km": VERIFICATION_TOLERANCE_KM,
         "by_forecast_mode": _finish(by_mode),

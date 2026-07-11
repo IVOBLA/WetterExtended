@@ -4465,3 +4465,20 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Test: `tests/test_b332_dataset_builder_cell_id_key.py`.
 - Phasen-Status (Hailo): unverändert; Datenaufbereitung für das (aktuell im
   kinematischen Fallback laufende) Bewegungs-ML, keine Auswirkung auf Phase B.
+
+### B335 — accuracy_tracker: mae_km/rmse_km/mae_px meldeten faelschlich 0.0 statt None bei verified=0 ✅ erledigt
+- Ursache: `evaluate_for_horizon()` setzte `eval_n = verified if verified > 0 else 1`
+  (Divisions-Fallback). Die Rueckgabe-Kennzahlen `mae_km`/`rmse_km`/`mae_px`/
+  `rmse_x_px`/`rmse_y_px` pruefen `if eval_n else None` — da `eval_n` durch den
+  Fallback nie 0 ist, griff der None-Guard nie. Horizonte ohne eine einzige
+  verifizierte Vorhersage (z. B. +60 min bei fehlenden Ziel-Radarframes) meldeten
+  dadurch eine scheinbar perfekte 0-km-Vorhersage in
+  `forecast_quality_diagnosis_latest.json` und der taeglichen Analyse-Mail, obwohl
+  `verified=0`. `_finish()` und der `n_total==0`-Base-Case waren bereits korrekt
+  (`if ver/verified else None`) — nur der finale Return-Block war betroffen.
+- Fix: `eval_n` vollstaendig entfernt; alle fuenf Kennzahlen dividieren jetzt direkt
+  gegen `verified` mit `if verified else None`, analog zu `_finish()`.
+- Dateien: `accuracy_tracker.py`, `tests/test_b335_accuracy_tracker_verified_zero_none.py`.
+- Test: `tests/test_b335_accuracy_tracker_verified_zero_none.py`.
+- Phasen-Status (Hailo): unveraendert; reine Korrektheits-Verbesserung der
+  Nowcast-Verifikationsmetriken, keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
