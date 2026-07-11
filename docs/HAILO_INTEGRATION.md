@@ -4547,3 +4547,33 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Phasen-Status (Hailo): unveraendert; reine Test-Infrastruktur-Korrektur
   (behebt eigene B330/B331-Regressionen), keine Auswirkung auf Produktionscode
   oder Phase B (Hailo-U-Net-Nowcasting).
+
+### B339 — Hagelanzeige beruecksichtigte core_violet_ratio (P72) an zwei Stellen nicht ✅ erledigt
+- Ursache 1: `MapFullscreen.jsx` (oeffentliche `/karte`-Ansicht ohne Auth) zeigte im
+  separaten Hagel-Marker weiterhin `o.hail_prob` (violet-blinde Alt-Heuristik
+  core_factor*cape_factor*height_factor) statt `o.hail_prob_effective`, das B324
+  bereits korrekt nur in `MapView.jsx` gepatcht hatte. Bei niedrigem CAPE blieb
+  der angezeigte Wert klein (z. B. 5%), obwohl `hail_warning` durch einen
+  violetten Kern korrekt ausgeloest wurde.
+- Ursache 2: `severity_predict._hail_index()` (steuert die Haupt-Popup-Zeile
+  `🧊 {hail_cat} (...%)`, identisch in beiden Kartendateien) nutzte nur
+  `core_ratio` (Rot+Violett kombiniert), nie `core_violet_ratio`. Bei geringem
+  SHIP/CAPE blieb `hail_prob` unter der 0.25-Kategorie-Schwelle, `hail_cat`
+  blieb "keiner" und die Zeile wurde komplett ausgeblendet — auch bei
+  eindeutig violettem Kern.
+- Fix: `_hail_index()` erhaelt denselben Violett-Floor wie
+  `main.py._compute_hail_warning()`s `hail_prob_violet`
+  (`HAIL_VIOLET_RATIO_SATURATION`, config.py, unveraendert). Der separate
+  Kartenmarker (`hail_warning`-CircleMarker+Tooltip) wurde in BEIDEN
+  Kartendateien vollstaendig entfernt (User-Vorgabe: keine Hagelanzeige
+  ausserhalb des Zellen-Popups). Die bereits bestehende Popup-Zeile
+  `o.severity.hail_cat`/`hail_prob` bleibt unveraendert und zeigt nun den
+  korrekten Wert.
+- Kein Schema-Change, kein Retraining: `core_violet_ratio` ist bereits seit
+  P72 Teil von `ML_CELL_FEATURES`; diese Aenderung betrifft ausschliesslich
+  den Severity-/Anzeigepfad.
+- Dateien: `severity_predict.py`, `frontend/src/pages/MapView.jsx`,
+  `frontend/src/pages/MapFullscreen.jsx`.
+- Test: `tests/test_b339_severity_hail_violet_floor.py`.
+- Phasen-Status (Hailo): unveraendert; reine UI-/Anzeigekorrektur, keine
+  Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
