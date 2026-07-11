@@ -61,6 +61,12 @@ def _import_http_retry_with_fake_requests(monkeypatch):
         def __init__(self, *args, **kwargs):
             pass
 
+    class Response:
+        """Platzhalter — http_retry.py referenziert requests.Response nur als
+        Typ-Annotation (`-> requests.Response`), die beim Modul-Import sofort
+        ausgewertet wird. Ohne dieses Attribut schlaegt der Reimport unten mit
+        AttributeError fehl."""
+
     requests_mod = types.ModuleType("requests")
     exceptions_mod = types.SimpleNamespace(
         RequestException=RequestException,
@@ -71,6 +77,7 @@ def _import_http_retry_with_fake_requests(monkeypatch):
     )
     requests_mod.exceptions = exceptions_mod
     requests_mod.Session = _Session
+    requests_mod.Response = Response
 
     adapters_mod = types.ModuleType("requests.adapters")
     adapters_mod.HTTPAdapter = _HTTPAdapter
@@ -86,7 +93,10 @@ def _import_http_retry_with_fake_requests(monkeypatch):
     monkeypatch.setitem(sys.modules, "urllib3", urllib3_mod)
     monkeypatch.setitem(sys.modules, "urllib3.util", urllib3_util_mod)
     monkeypatch.setitem(sys.modules, "urllib3.util.retry", urllib3_retry_mod)
-    sys.modules.pop("http_retry", None)
+    # B338-Fix: monkeypatch.delitem statt rohem sys.modules.pop() — stellt den
+    # urspruenglichen Zustand von sys.modules["http_retry"] beim Test-Teardown
+    # garantiert wieder her, auch wenn der folgende Reimport fehlschlaegt.
+    monkeypatch.delitem(sys.modules, "http_retry", raising=False)
     return importlib.import_module("http_retry"), requests_mod
 
 

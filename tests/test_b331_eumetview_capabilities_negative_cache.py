@@ -7,16 +7,17 @@ import types
 import pytest
 
 
-def _stub_requests():
-    sys.modules["requests"] = types.SimpleNamespace(
+def _stub_requests(monkeypatch):
+    monkeypatch.setitem(sys.modules, "requests", types.SimpleNamespace(
         exceptions=types.SimpleNamespace(Timeout=TimeoutError, HTTPError=Exception),
         get=lambda *a, **k: None,
-    )
-    sys.modules.setdefault("numpy", types.SimpleNamespace())
+    ))
+    if "numpy" not in sys.modules:
+        monkeypatch.setitem(sys.modules, "numpy", types.SimpleNamespace())
 
 
 def test_wiederholter_aufruf_innerhalb_ttl_loest_keinen_neuen_fetch_aus(monkeypatch):
-    _stub_requests()
+    _stub_requests(monkeypatch)
     mod = pytest.importorskip("cloud_height_from_eumetview")
 
     cache_store = {}
@@ -52,7 +53,7 @@ def test_wiederholter_aufruf_innerhalb_ttl_loest_keinen_neuen_fetch_aus(monkeypa
 def test_erfolgreicher_fetch_nach_fehler_ueberschreibt_negativ_cache_nicht_faelschlich(monkeypatch):
     """Nach einem Erfolg darf der naechste Aufruf den Erfolgs-Cache treffen,
     nicht den (inzwischen veralteten) Negativ-Cache."""
-    _stub_requests()
+    _stub_requests(monkeypatch)
     mod = pytest.importorskip("cloud_height_from_eumetview")
 
     monkeypatch.setattr(mod, "get_active_ir108_layer", lambda *a, **k: "ir108_fes")
