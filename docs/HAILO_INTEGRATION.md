@@ -4520,3 +4520,30 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   `tests/test_b294_model_usage_aggregation.py` (Regressionsschutz, unveraendert).
 - Phasen-Status (Hailo): unveraendert; Korrektur einer eigenen Regression aus B336,
   keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
+
+### B338 — Zwei sys.modules-Leaks aus B330/B331 kontaminierten die gesamte Testsession ✅ erledigt
+- Ursache 1 (B331): `_stub_requests()` in
+  `tests/test_b331_eumetview_capabilities_negative_cache.py` schrieb
+  `sys.modules["requests"]` roh (ohne monkeypatch, ohne Wiederherstellung) mit
+  einem unvollstaendigen Stub (fehlt `.exceptions.ConnectionError`, `.Response`).
+  Blieb fuer den Rest der Session aktiv, kontaminierte u. a. `test_circuit_breaker.py`,
+  `test_outlook_conn_break.py`, `test_outlook_series.py`, `test_training_readiness.py`.
+- Ursache 2 (B330): `_import_http_retry_with_fake_requests()` in
+  `tests/test_b330_retry_get_http_status_logging.py` entfernte `http_retry` per
+  rohem `sys.modules.pop()` und baute einen Fake-`requests` ohne `.Response` —
+  `http_retry.py`s Typ-Annotation `-> requests.Response` liess den Reimport mit
+  AttributeError fehlschlagen, wonach CPython das Modul automatisch aus
+  sys.modules entfernte. `http_retry` blieb danach dauerhaft verschwunden,
+  kontaminierte u. a. `test_eumetview_parser.py`, `test_geosphere_nowcast_b88.py`,
+  `test_nowcast_out_of_coverage_b131.py` (`KeyError: 'http_retry'`/`'url'`).
+  Beide sind Instanzen der dokumentierten Fehlerklasse B96/B160/B161/B334.
+- Fix: B331s Stub jetzt per `monkeypatch.setitem` (automatische Wiederherstellung).
+  B330s Fake-`requests` bekommt einen `Response`-Platzhalter; der `pop()` ist
+  jetzt `monkeypatch.delitem(..., raising=False)`.
+- Dateien: `tests/test_b331_eumetview_capabilities_negative_cache.py`,
+  `tests/test_b330_retry_get_http_status_logging.py`.
+- Test: voller `pytest tests`-Lauf lokal verifiziert — vorher 24 durch diese
+  Kontamination verursachte Fehlschlaege, danach 0.
+- Phasen-Status (Hailo): unveraendert; reine Test-Infrastruktur-Korrektur
+  (behebt eigene B330/B331-Regressionen), keine Auswirkung auf Produktionscode
+  oder Phase B (Hailo-U-Net-Nowcasting).
