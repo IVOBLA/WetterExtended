@@ -65,3 +65,26 @@ def test_model_usage_keeps_verified_horizon_with_true_zero_mae():
     assert "10" in result["by_horizon"]
     assert result["by_horizon"]["10"]["mae_km"] == 0.0
     assert result["by_horizon"]["10"]["verified"] == 5
+
+
+def test_model_usage_keeps_legacy_row_without_verified_field():
+    """B337-Regressionsschutz: eine Zeile OHNE 'verified'-Feld (Legacy-/Test-Schema,
+    z. B. tests/test_b294_model_usage_aggregation.py) darf NICHT wie verified=0
+    behandelt werden. 'Feld fehlt' ist etwas anderes als 'explizit 0'."""
+    import tools.diagnose_forecast_quality as mod
+
+    rows = [{
+        "timestamp_utc": "2026-07-01T20:00:00Z",
+        "horizon": 10,
+        "samples": 500,
+        "mae_km": 4.6,
+        "hit_rate": 0.11,
+    }]
+
+    result = mod._model_usage_from_accuracy_history(rows)
+
+    assert result["status"] == "available"
+    assert "10" in result["by_horizon"]
+    assert result["by_horizon"]["10"]["samples"] == 500
+    assert result["by_horizon"]["10"]["mae_km"] == 4.6
+    assert result["by_horizon"]["10"]["verified"] is None

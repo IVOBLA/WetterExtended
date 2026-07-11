@@ -145,10 +145,17 @@ def _model_usage_from_accuracy_history(rows: list[dict]) -> dict:
         # Ziel-Radarframes im Auswertezeitraum fehlten) darf nicht im
         # model_usage-Report auftauchen — samples allein (=n_total, zaehlt auch
         # no_target_frame/frame_empty/missed) reicht als Filter nicht aus.
-        verified = int(_f(row.get("verified")) or 0)
-        mae_km = _f(row.get("mae_km"))
-        if verified <= 0 or mae_km is None:
+        # B337-Fix: NUR ueberspringen, wenn "verified" EXPLIZIT vorhanden UND <=0
+        # ist. Zeilen ohne "verified"-Feld (Legacy-Schema, z. B.
+        # tests/test_b294_model_usage_aggregation.py) duerfen NICHT wie
+        # verified=0 behandelt werden — "Feld fehlt" != "explizit 0".
+        _verified_raw = row.get("verified")
+        if _verified_raw is not None and int(_f(_verified_raw) or 0) <= 0:
             continue
+        mae_km = _f(row.get("mae_km"))
+        if mae_km is None:
+            continue
+        verified = int(_f(_verified_raw) or 0) if _verified_raw is not None else None
         hk = str(horizon)
         ts = _row_ts(row)
         if hk not in best_ts_by_horizon or ts >= best_ts_by_horizon[hk]:
