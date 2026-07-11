@@ -4482,3 +4482,20 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Test: `tests/test_b335_accuracy_tracker_verified_zero_none.py`.
 - Phasen-Status (Hailo): unveraendert; reine Korrektheits-Verbesserung der
   Nowcast-Verifikationsmetriken, keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
+
+### B336 — model_usage-Report filterte nur auf samples statt auf verified ✅ erledigt
+- Ursache: `_model_usage_from_accuracy_history()` (`tools/diagnose_forecast_quality.py`)
+  waehlte pro Horizont die juengste Zeile mit `samples > 0` (= n_total, zaehlt auch
+  no_target_frame/frame_empty/missed mit), ohne zu pruefen ob `verified > 0`. Ein
+  Horizont ohne jede Verifikation (z. B. +60 min, samples=64, verified=0) landete
+  dadurch im `model_usage.by_horizon`-Report und in der taeglichen Analyse-Mail,
+  ohne dass Abdeckungskontext (`verified`/`coverage_rate`) im Ausgabeobjekt vorhanden
+  war. Voraussetzung/Ergaenzung zu B335, das die Erzeuger-Seite (accuracy_tracker.py)
+  korrigiert.
+- Fix: Auswahl ueberspringt jetzt Zeilen mit `verified<=0` oder `mae_km is None`.
+  `by_horizon`-Eintraege enthalten zusaetzlich `verified` und `coverage_rate`, damit
+  ein `mae_km`-Wert nicht mehr ohne Abdeckungskontext interpretiert werden kann.
+- Dateien: `tools/diagnose_forecast_quality.py`, `tests/test_b336_model_usage_verified_filter.py`.
+- Test: `tests/test_b336_model_usage_verified_filter.py`.
+- Phasen-Status (Hailo): unveraendert; reine Korrektheits-Verbesserung des
+  Diagnose-/Mail-Reports, keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
