@@ -4499,3 +4499,24 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Test: `tests/test_b336_model_usage_verified_filter.py`.
 - Phasen-Status (Hailo): unveraendert; reine Korrektheits-Verbesserung des
   Diagnose-/Mail-Reports, keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
+
+### B337 — Codex-Review-Fix zu B336: verified-Filter behandelte fehlendes Feld wie verified=0 ✅ erledigt
+- Ursache: B336 prüfte `int(_f(row.get("verified")) or 0) <= 0` — dabei liefert
+  `row.get("verified")` sowohl bei explizit `verified=0` als auch bei GAR KEINEM
+  `"verified"`-Feld `None`, wodurch beide Faelle identisch als "nicht verifiziert"
+  behandelt wurden. `tests/test_b294_model_usage_aggregation.py` (Legacy-Schema
+  ohne `"verified"`-Feld) brach dadurch: `_model_usage_from_accuracy_history()`
+  lieferte faelschlich `status="not_available"` statt der vorhandenen Daten
+  (reproduziert im `install.sh`-Pytest-Lauf: 24 failed, u. a.
+  `test_latest_zero_sample_row_does_not_win`, `test_total_samples_consistent_with_by_horizon`,
+  `test_newer_nonzero_row_replaces_older_nonzero`).
+- Fix: Zeilen werden nur noch uebersprungen, wenn `"verified"` EXPLIZIT vorhanden
+  UND `<= 0` ist. Fehlt das Feld komplett, wird die Zeile wie vor B336 behandelt
+  (nur `mae_km is None`-Pruefung greift). `verified` im Ausgabe-Dict ist in diesem
+  Fall `None` statt eines erfundenen Werts.
+- Dateien: `tools/diagnose_forecast_quality.py`, `tests/test_b336_model_usage_verified_filter.py`.
+- Test: `tests/test_b336_model_usage_verified_filter.py` (neuer Fall
+  `test_model_usage_keeps_legacy_row_without_verified_field`),
+  `tests/test_b294_model_usage_aggregation.py` (Regressionsschutz, unveraendert).
+- Phasen-Status (Hailo): unveraendert; Korrektur einer eigenen Regression aus B336,
+  keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
