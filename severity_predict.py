@@ -17,7 +17,7 @@ import importlib.util
 from datetime import datetime
 
 from debug_utils import debug_log
-from config import SAVE_PATHS
+from config import SAVE_PATHS, HAIL_VIOLET_RATIO_SATURATION
 from dataset_builder import _frame_features
 from severity_dataset import _rain_mm_h, _gust_kmh
 
@@ -64,18 +64,32 @@ def _hail_index(obj):
     Physikalischer Hagel-Index (transparent, keine ML-Pseudolabels).
     SHIP ~2 gilt als signifikant; niedrige Gefriergrenze laesst Hagel den Boden erreichen;
     Overshooting Top und hohe core_ratio/VIL erhoehen die Wahrscheinlichkeit.
+
+    B339: core_violet_ratio (P72, reine >=57-dBZ-Pixel) fliesst zusaetzlich als
+    Floor ein - identische Logik zu main.py._compute_hail_warning()s
+    hail_prob_violet, hier auf den severity-Anzeigepfad angewendet. Ohne
+    diesen Floor blieb hail_cat bei kompakten Violett-Kernen faelschlich
+    "keiner", weil core_ratio Rot+Violett undifferenziert zusammenfasst und
+    SHIP bei geringem CAPE niedrig bleibt, obwohl das Radar bereits >=57 dBZ
+    zeigt (Diskrepanz reproduziert: core_ratio=0.48, CAPE=362 J/kg -> hail_prob
+    ~5%, obwohl die Zelle einen deutlich sichtbaren violetten Kern hatte).
     """
     ship = _f(obj.get("ship_index"))
     fl   = _f(obj.get("arome_fl_height"))            # m MSL
     core = min(max(_f(obj.get("core_ratio")), 0.0), 1.0)
     vil  = min(_f(obj.get("vil_proxy")), 1.0)
     oz   = 1.0 if _f(obj.get("overshooting_top")) >= 0.5 else 0.0
+    violet = min(max(_f(obj.get("core_violet_ratio")), 0.0), 1.0)
 
     base = min(ship / 2.0, 1.0)
     fl_factor = min(max((3500.0 - fl) / 2000.0, 0.0), 1.0) if fl > 0 else 0.5
     score = 0.50 * base + 0.20 * core + 0.15 * vil + 0.15 * oz
     score *= (0.6 + 0.4 * fl_factor)
-    prob = round(min(max(score, 0.0), 1.0), 3)
+    violet_floor = (
+        min(violet / HAIL_VIOLET_RATIO_SATURATION, 1.0)
+        if HAIL_VIOLET_RATIO_SATURATION > 0 else 0.0
+    )
+    prob = round(min(max(max(score, violet_floor), 0.0), 1.0), 3)
     if prob < 0.25:
         cat = "keiner"
     elif prob < 0.55:

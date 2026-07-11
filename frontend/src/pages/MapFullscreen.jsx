@@ -832,15 +832,6 @@ export default function MapFullscreen() {
                   <Tooltip permanent direction="top" offset={[0,-14]}>⊕</Tooltip>
                 </CircleMarker>
               )}
-
-              {o.hail_warning && o.lat && o.lon && (
-                <CircleMarker center={[o.lat, o.lon]} radius={18}
-                  pathOptions={{ color:'#dc2626', weight:3, fillOpacity:0, dashArray:'6,3' }}>
-                  <Tooltip permanent direction="top" offset={[0,-18]}>
-                    🧊 Hagel {o.hail_prob != null ? (o.hail_prob*100).toFixed(0)+'%' : ''}
-                  </Tooltip>
-                </CircleMarker>
-              )}
             </React.Fragment>
           )
         })}
