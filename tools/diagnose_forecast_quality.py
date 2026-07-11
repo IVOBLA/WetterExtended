@@ -141,13 +141,23 @@ def _model_usage_from_accuracy_history(rows: list[dict]) -> dict:
         samples = int(_f(row.get("samples")) or 0)
         if samples <= 0:
             continue
+        # B336: ein Horizont ohne jede Verifikation (verified<=0, z. B. weil die
+        # Ziel-Radarframes im Auswertezeitraum fehlten) darf nicht im
+        # model_usage-Report auftauchen — samples allein (=n_total, zaehlt auch
+        # no_target_frame/frame_empty/missed) reicht als Filter nicht aus.
+        verified = int(_f(row.get("verified")) or 0)
+        mae_km = _f(row.get("mae_km"))
+        if verified <= 0 or mae_km is None:
+            continue
         hk = str(horizon)
         ts = _row_ts(row)
         if hk not in best_ts_by_horizon or ts >= best_ts_by_horizon[hk]:
             best_ts_by_horizon[hk] = ts
             best_by_horizon[hk] = {
                 "samples": samples,
-                "mae_km": _f(row.get("mae_km")),
+                "verified": verified,
+                "coverage_rate": _f(row.get("coverage_rate")),
+                "mae_km": mae_km,
                 "hit_rate": _f(row.get("hit_rate")),
             }
 
