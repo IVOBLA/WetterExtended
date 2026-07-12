@@ -805,7 +805,12 @@ def _record_match_diagnostics(candidates: list[dict], radar_objects: list[dict],
     if not bool(_cfg("IR_RADAR_MATCH_DIAGNOSTICS_ENABLED", True)):
         return
     try:
-        eligible_radar = sum(1 for r in (radar_objects or []) if not _real_cell_id((r or {}).get("cell_id")))
+        # B342: Kriterium an den TATSAECHLICHEN Skip in select_ir_radar_matches()
+        # angleichen (Zeile "if robj.get('lineage_status') == 'radar_confirmed'").
+        # Vorher wurde faelschlich _real_cell_id(cell_id) geprueft, was seit B263
+        # (JEDES Radar-Objekt hat eine WX-ID) fast immer False->0 ergab, unabhaengig
+        # vom tatsaechlichen Match-Ergebnis.
+        eligible_radar = sum(1 for r in (radar_objects or []) if (r or {}).get("lineage_status") != "radar_confirmed")
         reason_counts: dict[str, int] = {}
         decision_counts: dict[str, int] = {}
         for m in candidates:
@@ -830,6 +835,37 @@ def _record_match_diagnostics(candidates: list[dict], radar_objects: list[dict],
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     except Exception as exc:
         _debug(f"[CELL-LINEAGE] Match-Diagnostics konnte nicht geschrieben werden: {exc}")
+
+
+_IR_LINEAGE_FALLBACK_FILE = "ir_radar_lineage_fallback_events.jsonl"
+
+
+def _lineage_fallback_path() -> Path:
+    return _state_dir() / str(_cfg("IR_RADAR_LINEAGE_FALLBACK_FILE", _IR_LINEAGE_FALLBACK_FILE))
+
+
+def record_lineage_fallback_error(exc: Exception, *, timestamp: str | None = None) -> None:
+    """B342: Wird von main.py aufgerufen, wenn _score_match_ir_radar_lineage()
+    eine Exception wirft und main.py silent auf
+    _legacy_ir_radar_distance_match() zurueckfaellt (die KEIN
+    ir_to_radar_confirmation-Event/Positiv-Label schreibt). Vorher nur per
+    debug_log() protokolliert und dadurch im Debug-Export nicht
+    nachvollziehbar."""
+    try:
+        import traceback as _tb
+        rec = {
+            "ts_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "timestamp": _timestamp_str(timestamp),
+            "exception_type": type(exc).__name__,
+            "exception_message": str(exc),
+            "traceback": "".join(_tb.format_exception(type(exc), exc, exc.__traceback__))[-4000:],
+        }
+        path = _lineage_fallback_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception as _log_exc:
+        _debug(f"[CELL-LINEAGE] Fallback-Error-Logging fehlgeschlagen: {_log_exc}")
 
 
 def select_ir_radar_matches(radar_objects: list[dict], ir_tracks: list[dict], *, timestamp: str | None = None, weather_context: dict | None = None) -> tuple[list[dict], dict]:

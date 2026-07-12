@@ -4611,3 +4611,32 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Test: `tests/test_b341_outlook_time_anchor.py`.
 - Phasen-Status (Hailo): unverändert; reine Vorhersagezeitraum-Korrektur,
   keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
+
+### B342 — IR->Radar-Score-Matching fiel bei Exception still auf Legacy-Matching zurueck ✅ erledigt
+- Korrektur zur Original-KI-Analyse: der gemeldete Fehlerort main.py:536-559
+  war falsch (Groessen-Regressor-Code) — der tatsaechliche Silent-Fallback
+  liegt main.py:577-606 (try/except um `_score_match_ir_radar_lineage()`).
+- Ursache: Wirft `_score_match_ir_radar_lineage()`
+  (-> `cell_lineage.update_cell_lineage()` -> `apply_ir_radar_lineage_match()`)
+  eine Exception, wurde dies nur per `debug_log()` protokolliert (nicht im
+  Debug-Export enthalten) und STILL auf `_legacy_ir_radar_distance_match()`
+  zurueckgefallen, die kein `ir_to_radar_confirmation`-Event/Positiv-Label
+  schreibt. Erklaert strukturell, warum 24 selektierte Strong-Matches im
+  Export zu 0 persistierten Confirmations fuehrten (sofern der
+  Score-Matching-Zweig tatsaechlich eine Exception wirft).
+- Fix: Neue Funktion `cell_lineage.record_lineage_fallback_error()`
+  persistiert Exception-Typ/-Message/-Traceback nach
+  `ir_radar_lineage_fallback_events.jsonl`; `main.py` ruft sie im
+  Except-Zweig auf. Zusaetzlich unabhaengig gefundenen Diagnose-Zaehlfehler
+  behoben: `radar_eligible_count` (cell_lineage.py) nutzte
+  `_real_cell_id(cell_id)` statt des tatsaechlichen Skip-Kriteriums
+  `lineage_status == "radar_confirmed"` aus `select_ir_radar_matches()` —
+  seit B263 hat jedes Radar-Objekt eine WX-ID, wodurch der Zaehler
+  systematisch nahe 0 blieb.
+- Naechster Schritt (separater Prompt, erst nach neuem Export mit
+  gefuellter `ir_radar_lineage_fallback_events.jsonl`): konkrete
+  Exception-Ursache anhand des Tracebacks beheben.
+- Dateien: `cell_lineage.py`, `main.py`.
+- Test: `tests/test_b342_ir_radar_lineage_fallback.py`.
+- Phasen-Status (Hailo): unveraendert; reine Diagnose-/Fehlersichtbarkeits-
+  Korrektur, keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).

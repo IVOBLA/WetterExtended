@@ -602,7 +602,15 @@ def main_loop():
                     except Exception as exc:
                         debug_log(f"[CELL-LINEAGE] Split/Merge-Lineage fehlgeschlagen: {exc}")
                 except Exception as _lin_exc:
-                    debug_log(f"[CELL-LINEAGE] Score-Matching fehlgeschlagen, nutze Legacy-IR-Matching: {_lin_exc}")
+                    debug_log(
+                        f"[CELL-LINEAGE] Score-Matching fehlgeschlagen ({type(_lin_exc).__name__}), "
+                        f"nutze Legacy-IR-Matching: {_lin_exc}"
+                    )
+                    try:
+                        from cell_lineage import record_lineage_fallback_error
+                        record_lineage_fallback_error(_lin_exc, timestamp=timestamp)
+                    except Exception as _log_exc:
+                        debug_log(f"[CELL-LINEAGE] Fallback-Error-Logging fehlgeschlagen: {_log_exc}")
                     objects, _ir_tracks, _matched_ir_ids = _legacy_ir_radar_distance_match(objects, _ir_tracks)
 
                 # IR-Cells OHNE Radar-Match: ir_only_precursor = 1.0
