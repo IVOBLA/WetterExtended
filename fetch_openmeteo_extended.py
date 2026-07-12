@@ -125,7 +125,7 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
         from http_retry import retry_get
         _t0_a = _ta_ext.monotonic()
         try:
-            r = retry_get(url_a, service="openmeteo_extended_15min", timeout=_TIMEOUT)
+            r = retry_get(url_a, service="openmeteo_extended_15min", timeout=_TIMEOUT, breaker_service="openmeteo_forecast")
             _dur_a = (_ta_ext.monotonic() - _t0_a) * 1000
             data_a = r.json()
             log_http_response("openmeteo_extended_arome", "GET", r, _dur_a)
@@ -152,7 +152,7 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
         from http_retry import retry_get
         _t0_b = _tb_ext.monotonic()
         try:
-            r = retry_get(url_b, service="openmeteo_extended_pressure", timeout=_TIMEOUT)
+            r = retry_get(url_b, service="openmeteo_extended_pressure", timeout=_TIMEOUT, breaker_service="openmeteo_forecast")
             _dur_b = (_tb_ext.monotonic() - _t0_b) * 1000
             data_b = r.json()
             log_http_response("openmeteo_extended_pressure", "GET", r, _dur_b)
@@ -179,7 +179,7 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
         from http_retry import retry_get
         _t0_c = _tc_ext.monotonic()
         try:
-            r = retry_get(url_c, service="openmeteo_extended_lpi", timeout=_TIMEOUT)
+            r = retry_get(url_c, service="openmeteo_extended_lpi", timeout=_TIMEOUT, breaker_service="openmeteo_forecast")
             _dur_c = (_tc_ext.monotonic() - _t0_c) * 1000
             data_c = r.json()
             # Antwort normalisieren: minutely_15 → hourly-kompatible Struktur für Parser
@@ -213,7 +213,7 @@ def assign_extended_openmeteo(objects: list, timestamp: str) -> list:
         from http_retry import retry_get
         _t0_d = _td_ext.monotonic()
         try:
-            r = retry_get(url_d, service="openmeteo_extended_gfs_conv", timeout=_TIMEOUT)
+            r = retry_get(url_d, service="openmeteo_extended_gfs_conv", timeout=_TIMEOUT, breaker_service="openmeteo_forecast")
             _dur_d = (_td_ext.monotonic() - _t0_d) * 1000
             data_d = r.json()
             log_http_response("openmeteo_extended_gfs", "GET", r, _dur_d)
