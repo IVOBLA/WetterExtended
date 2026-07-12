@@ -4577,3 +4577,20 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Test: `tests/test_b339_severity_hail_violet_floor.py`.
 - Phasen-Status (Hailo): unveraendert; reine UI-/Anzeigekorrektur, keine
   Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
+
+### B340 — Open-Meteo-Fetcher nicht an Circuit-Breaker angebunden ✅ erledigt
+- Ursache: `http_retry.retry_get()`s Circuit-Breaker ist vollständig auf
+  `if breaker_service and api_circuit_breaker ...` gegated
+  (`http_retry.py:148/168/183/236`). Fünf volumenstärkste Open-Meteo-Fetcher
+  (`fetch_synoptic_features.py:123`, `fetch_openmeteo_extended.py:128/155/182/216`)
+  übergaben `service=` (nur Logging) aber kein `breaker_service`, wodurch der
+  Breaker für diese Dienste nie öffnete. Debug-Export 2026-07-11: 196
+  wiederholte HTTP-429 in ~3,3 h ohne Breaker-Schutz.
+- Fix: `breaker_service="openmeteo_forecast"` (ein gemeinsamer Key,
+  providerweites Rate-Limit) an allen fünf Aufrufstellen ergänzt. Bestehende
+  `except`-Fallbacks unverändert (fangen `CircuitOpenError` bereits ab, da
+  Subklasse von `RequestException`).
+- Dateien: `fetch_synoptic_features.py`, `fetch_openmeteo_extended.py`.
+- Test: `tests/test_b340_openmeteo_breaker_service.py`.
+- Phasen-Status (Hailo): unverändert; reine API-Resilienz-Korrektur, keine
+  Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).

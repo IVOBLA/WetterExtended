@@ -120,7 +120,7 @@ def assign_synoptic_features(objects, timestamp):
             import time as _t_syn
             _t0_syn = _t_syn.monotonic()
             from http_retry import retry_get as _rg_syn
-            r = _rg_syn(url, timeout=_TIMEOUT, service="Open-Meteo-synoptic")
+            r = _rg_syn(url, timeout=_TIMEOUT, service="Open-Meteo-synoptic", breaker_service="openmeteo_forecast")
             _dur_syn = (_t_syn.monotonic() - _t0_syn) * 1000
             r.raise_for_status()
             data = r.json()
