@@ -218,9 +218,21 @@ def compute_outlook():
         la += step
 
     n_hours = min(p_len for p_len in [len(p.get("series", [])) for p in points]) if points else 0
+
+    # B341: offset_h/valid relativ zur aktuellen Uhrzeit neu ankern statt
+    # 1:1 aus dem Serien-Index zu uebernehmen. `valid` ist naive
+    # Europe/Vienna-Lokalzeit (fetch_outlook_series.py), daher Vergleich
+    # gegen datetime.now() (im Projekt durchgaengig naive lokale Zeit).
+    _now_local_str = datetime.now().strftime("%Y-%m-%dT%H:%M")
     hours_out = []
-    for h in range(1, min(n_hours, 13)):   # +1..+12 h
+    _offset_out = 0
+    for h in range(1, min(n_hours, 13)):   # +1..+12 h (Serien-Index)
         valid = points[0]["series"][h].get("valid", "")
+        if valid and valid < _now_local_str:
+            # Bereits verstrichene Stunde (z. B. veralteter 429-Fallback aus
+            # fetch_outlook_series.py._load_fallback) — nicht ausgeben.
+            continue
+        _offset_out += 1
         month = int(valid[5:7]) if len(valid) >= 7 else datetime.now().month
         cells = []
         for (la, lo) in grid:
@@ -239,7 +251,13 @@ def compute_outlook():
                 continue
             cells.append({"lat": la, "lon": lo, "risk": risk,
                           "color": _RISK_COLORS[risk], "severity": sev, "info": info})
-        hours_out.append({"offset_h": h, "valid": valid, "cells": cells})
+        hours_out.append({"offset_h": _offset_out, "valid": valid, "cells": cells})
+
+    if not hours_out:
+        # B341: Serie vollstaendig veraltet (alle Stunden liegen bereits in
+        # der Vergangenheit) — bestehenden outlook_12h.json NICHT mit einem
+        # leeren/irrefuehrenden Payload ueberschreiben.
+        return {"hours": [], "stale": True}
 
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),

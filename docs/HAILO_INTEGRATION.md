@@ -4594,3 +4594,20 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Test: `tests/test_b340_openmeteo_breaker_service.py`.
 - Phasen-Status (Hailo): unverändert; reine API-Resilienz-Korrektur, keine
   Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
+
+### B341 — 12h-Outlook zeigte bei veraltetem 429-Fallback bereits vergangene Stunden ✅ erledigt
+- Ursache: `convective_outlook.py:compute_outlook()` übernahm `offset_h`
+  und `valid` 1:1 aus dem Serien-Index (Zeilen 222/223/242), ohne Bezug zur
+  aktuellen Uhrzeit. Ist `atmosphere_timeseries.json` ein veralteter
+  429-Fallback (`fetch_outlook_series.py:_load_fallback`, Zeilen 61-70),
+  blieben bereits verstrichene `valid`-Zeitstempel erhalten. Debug-Export
+  2026-07-11: `outlook_12h.json` (generated_at 21:58:25Z) zeigte
+  `offset_h=1..3` mit `valid` 19:00/20:00/21:00 — bereits vergangen.
+- Fix: Stunden mit `valid` vor der aktuellen Uhrzeit werden verworfen,
+  `offset_h` wird nach dem Filtern ab 1 neu durchnummeriert. Ist die
+  gesamte Serie veraltet, wird `{"hours": [], "stale": true}`
+  zurückgegeben statt eines irreführenden leeren/veralteten Payloads.
+- Dateien: `convective_outlook.py`.
+- Test: `tests/test_b341_outlook_time_anchor.py`.
+- Phasen-Status (Hailo): unverändert; reine Vorhersagezeitraum-Korrektur,
+  keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
