@@ -248,6 +248,29 @@ def check_ml_readiness(write_json=True, model_dir=None):
     elif not promoted:
         fallback_reason = f"current_model_not_promoted:{promotion_status}"
 
+    # B343: Regressions-Erkennung — vergleicht den NEU ermittelten Stand
+    # gegen die zuletzt persistierte evaluation/ml_readiness.json (dieselbe
+    # Datei, die diese Funktion selbst schreibt), BEVOR sie ueberschrieben
+    # wird. Unterscheidet einen echten Cold-Start (noch nie Artefakte
+    # vorhanden) von einer Regression (Artefakte waren da, sind jetzt weg).
+    _readiness_json_path = os.path.join(evaluation_dir, "ml_readiness.json")
+    regression_alert = False
+    regression_reason = None
+    try:
+        if os.path.exists(_readiness_json_path):
+            with open(_readiness_json_path, encoding="utf-8") as _f_prev:
+                _prev_readiness = json.load(_f_prev)
+            if bool(_prev_readiness.get("ml_artifacts_available")) and not ml_artifacts_available:
+                regression_alert = True
+                regression_reason = (
+                    f"ml_artifacts_available wechselte von true (zuletzt geprueft "
+                    f"{_prev_readiness.get('checked_at_utc', 'unbekannt')}) auf false "
+                    f"— fallback_reason={fallback_reason}"
+                )
+    except Exception as _reg_exc:
+        from debug_utils import debug_log as _debug_log_reg
+        _debug_log_reg(f"[ML-READINESS] Regressions-Vergleich fehlgeschlagen: {_reg_exc}")
+
     result = _clean_json_value({
         "checked_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "status": status,
@@ -258,12 +281,17 @@ def check_ml_readiness(write_json=True, model_dir=None):
         "ml_available": ml_available,
         "ml_artifacts_available": ml_artifacts_available,
         "fallback_reason": fallback_reason,
+        "regression_alert": regression_alert,
+        "regression_reason": regression_reason,
         "scaler_status": scaler_status, "lstm_status": lstm_status, "lgbm_status_by_horizon": lgbm_status_by_horizon,
         "active_horizons": active_horizons, "missing_files": sorted(set(missing_files)), "model_dir": model_dir,
         "training_meta_path": meta_path, "training_meta": meta,
         "dataset_sequences": _dataset_sequences(dataset_path), "feature_layout_ok": feature_layout_ok, "horizon_layout_ok": horizon_layout_ok,
         "expected_num_features": int(ML_NUM_FEATURES), "expected_horizons": horizons,
     })
+    if regression_alert:
+        from debug_utils import debug_log as _debug_log_alarm
+        _debug_log_alarm(f"[ML-ALARM] {regression_reason}")
     if write_json:
         os.makedirs(evaluation_dir, exist_ok=True)
         with open(os.path.join(evaluation_dir, "ml_readiness.json"), "w", encoding="utf-8") as f:

@@ -4640,3 +4640,25 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Test: `tests/test_b342_ir_radar_lineage_fallback.py`.
 - Phasen-Status (Hailo): unveraendert; reine Diagnose-/Fehlersichtbarkeits-
   Korrektur, keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
+
+### B343 — ML-Artefakt-Wegfall (Scaler/Modell) loeste keinen sichtbaren Alarm aus ✅ erledigt
+- Ursache: `ml_readiness.check_ml_readiness()` ermittelt
+  `ml_artifacts_available=false` (z. B. nach Quarantaene fehlender/invalider
+  Scaler) und schreibt dies nur nach `evaluation/ml_readiness.json` — es gab
+  KEINEN Mechanismus, der einen Uebergang "Modell war aktiv" -> "Modell
+  fehlt jetzt" von einem echten Cold-Start unterscheidet. Debug-Export
+  2026-07-11: `fallback_reason="missing_or_invalid_scalers"`, obwohl bis
+  2026-07-05 ein promoviertes Modell operativ war (2495 ML-Samples).
+- Fix: `check_ml_readiness()` vergleicht bei jedem Aufruf gegen die zuletzt
+  persistierte `ml_readiness.json` (dieselbe Datei, die die Funktion selbst
+  schreibt) und setzt bei einem Uebergang `true`->`false` das neue Feld
+  `regression_alert`=true + `regression_reason`. Wird automatisch ueber
+  `/api/ml_readiness` und `/api/admin/forecast-runtime-status`
+  durchgereicht (keine Endpunkt-Aenderung nötig). Kinematischer Fallback
+  und Shadow-Scoring bewusst UNVERAENDERT (nur Sichtbarkeit ergaenzt).
+- Offen (separater Prompt nach Rücksprache): sichtbares Warn-Badge im
+  Admin-Frontend bei `regression_alert=true`.
+- Dateien: `ml_readiness.py`.
+- Test: `tests/test_b343_ml_readiness_regression_alert.py`.
+- Phasen-Status (Hailo): unveraendert; reine Beobachtbarkeits-Korrektur,
+  keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
