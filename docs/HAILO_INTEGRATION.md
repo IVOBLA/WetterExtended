@@ -4662,3 +4662,25 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Test: `tests/test_b343_ml_readiness_regression_alert.py`.
 - Phasen-Status (Hailo): unveraendert; reine Beobachtbarkeits-Korrektur,
   keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
+
+### B342-Korrektur — debug_log-Wortlaut und radar_eligible_count zurückgesetzt ✅ erledigt
+- Nach Anwendung von B342 traten zwei Testfehlschläge auf:
+  1. `test_1l2_ir_radar_score_matching.py::test_legacy_fallback_still_available`
+     prüft den Original-Wortlaut der debug_log-Nachricht im Except-Zweig
+     (main.py) — B342 hatte ihn um eine Typangabe erweitert und dadurch den
+     geprüften Substring zerstört. Wortlaut wiederhergestellt; die
+     Exception-Typ-Info ist weiterhin im `exception_type`-Feld von
+     `record_lineage_fallback_error()` vorhanden.
+  2. `test_b310_ir_radar_match_diagnostics.py::
+     test_diagnostics_excludes_radar_objects_with_real_cell_id` zeigte,
+     dass die B342-Umstellung von `radar_eligible_count` auf das
+     `lineage_status`-Kriterium fachlich falsch war: `_real_cell_id(cell_id)`
+     ist die bewusst gewählte, eigenständige Diagnose-Semantik (zählt
+     Objekte ohne etablierte reale cell_id) und NICHT identisch mit dem
+     Matching-Skip-Kriterium in `select_ir_radar_matches()`. War kein Bug —
+     Änderung vollständig zurückgenommen.
+- Die sichtbare Fehler-Persistenz aus B342
+  (`cell_lineage.record_lineage_fallback_error()` + Aufruf in `main.py`)
+  bleibt unverändert bestehen.
+- Dateien: `main.py`, `cell_lineage.py`, `tests/test_b342_ir_radar_lineage_fallback.py`.
+- Phasen-Status (Hailo): unverändert.
