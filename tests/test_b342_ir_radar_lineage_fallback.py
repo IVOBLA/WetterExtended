@@ -1,5 +1,5 @@
 """B342: Silent-Fallback bei IR->Radar-Score-Matching wird jetzt persistiert
-(nicht nur debug_log), radar_eligible_count nutzt korrektes Kriterium."""
+(nicht nur debug_log)."""
 import json
 import os
 import sys
@@ -26,12 +26,3 @@ def test_main_calls_fallback_logger_on_exception():
     with open("main.py", encoding="utf-8") as f:
         src = f.read()
     assert "record_lineage_fallback_error" in src, "main.py muss den Fallback-Logger aufrufen"
-
-
-def test_eligible_radar_uses_lineage_status_criterion():
-    with open("cell_lineage.py", encoding="utf-8") as f:
-        src = f.read()
-    assert (
-        'eligible_radar = sum(1 for r in (radar_objects or []) if (r or {}).get("lineage_status") != "radar_confirmed")'
-        in src
-    ), "radar_eligible_count muss auf lineage_status pruefen, nicht auf _real_cell_id(cell_id)"

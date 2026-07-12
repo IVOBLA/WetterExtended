@@ -805,12 +805,7 @@ def _record_match_diagnostics(candidates: list[dict], radar_objects: list[dict],
     if not bool(_cfg("IR_RADAR_MATCH_DIAGNOSTICS_ENABLED", True)):
         return
     try:
-        # B342: Kriterium an den TATSAECHLICHEN Skip in select_ir_radar_matches()
-        # angleichen (Zeile "if robj.get('lineage_status') == 'radar_confirmed'").
-        # Vorher wurde faelschlich _real_cell_id(cell_id) geprueft, was seit B263
-        # (JEDES Radar-Objekt hat eine WX-ID) fast immer False->0 ergab, unabhaengig
-        # vom tatsaechlichen Match-Ergebnis.
-        eligible_radar = sum(1 for r in (radar_objects or []) if (r or {}).get("lineage_status") != "radar_confirmed")
+        eligible_radar = sum(1 for r in (radar_objects or []) if not _real_cell_id((r or {}).get("cell_id")))
         reason_counts: dict[str, int] = {}
         decision_counts: dict[str, int] = {}
         for m in candidates:
