@@ -4873,3 +4873,19 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Test: `tests/test_b352_config_get_excludes_non_editable.py` (inkl.
   Kern-Test: kompletter GET-Response als POST-Payload muss immer 200 liefern).
 - Phasen-Status (Hailo): unverändert.
+
+### B353 — Per-Objekt-Services im Admin-Dashboard fälschlich als „überfällig“ markiert ✅ erledigt
+- Ursache: `api_cache_status()` berechnet `next_fetch_ts`/STALE-Status TTL-basiert für
+  alle Namespaces identisch. Für die acht Per-Objekt-Services (`openmeteo_icon_d2`,
+  `openmeteo_icon_eu_li`, `openmeteo_icon_global`, `openmeteo_synoptic_500`,
+  `openmeteo_extended_15min/_pressure/_lpi/_gfs_conv`, plus `geosphere_cape`,
+  `geosphere_nowcast`), die nur bei aktiv getrackten Sturmzellen einen Fetch auslösen,
+  führt das bei 0 Objekten über längere Zeit zuverlässig zu einer irreführenden
+  orangen „(fällig)“-Anzeige im Admin-Dashboard, obwohl kein Fehler vorliegt.
+- Fix: `app.py::api_cache_status()` liefert je Namespace zusätzlich `per_object: bool`.
+  `Dashboard.jsx` zeigt für Per-Objekt-Namespaces bei Überfälligkeit statt der orangen
+  „(fällig)“-Warnung einen neutralen Hinweis „bei Bedarf (kein aktuelles Objekt)“.
+  Kontinuierlich geplante Services (z. B. `geosphere_tawes_all`) sind unverändert.
+- Dateien: `app.py`, `frontend/src/pages/Dashboard.jsx`.
+- Test: `tests/test_b353_per_object_cache_status_flag.py`.
+- Phasen-Status (Hailo): unverändert.
