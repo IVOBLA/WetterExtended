@@ -2862,3 +2862,15 @@ Geschwindigkeit 30 km/h), schlägt das Admin-Panel Alarm. So wird sichtbar, ob
 eine schlechte Trefferquote von einer falschen Zugrichtung oder einer falschen
 Zuggeschwindigkeit herrührt. Die Schwellwerte sind in der Konfiguration
 anpassbar.
+
+---
+
+## Letzter Datenexport immer verfügbar (Logs-Seite)
+
+Auf der **Logs**-Seite wird jetzt der zuletzt erstellte 24h-Datenexport
+dauerhaft angezeigt — unabhängig davon, ob er manuell über den Button
+„Datenexport letzte 24h herunterladen" oder automatisiert (nächtlicher
+GitHub-Export) erstellt wurde. Eine Kennzeile zeigt Erstellungszeitpunkt,
+Anzahl der ZIP-Teile und Gesamtgröße an; über **⬇ Letzten Export
+herunterladen** lässt sich dieser Stand jederzeit erneut laden, ohne einen
+neuen (zeitaufwändigen) Export-Build anzustoßen.

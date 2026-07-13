@@ -1083,6 +1083,17 @@ def _poll_export_build(token):
             info["manifest"] = data.get("manifest", {})
             info["status"] = "ready"
             debug_log(f"[ADMIN-EXPORT] build fertig: {len(info['parts'])} Teil(e)")
+            # B350: Kopie an stabilem Ort ablegen, damit die Logs-Seite den
+            # zuletzt erstellten Export IMMER anbieten kann (auch nach TTL-
+            # Cleanup dieses Temp-Ordners). Fehler hier duerfen den bereits
+            # erfolgreichen Build nicht als "error" markieren.
+            try:
+                debug_export.persist_latest_export(
+                    info["parts"], info["manifest"], save_paths=SAVE_PATHS,
+                    base_dir=_resolve_debug_export_base_dir(SAVE_PATHS),
+                )
+            except Exception as _persist_exc:
+                debug_log(f"[ADMIN-EXPORT] Persistenz des letzten Exports fehlgeschlagen: {_persist_exc}")
         except Exception as exc:
             info["status"] = "error"
             info["detail"] = f"Manifest-Parsefehler: {exc}"
@@ -1209,6 +1220,50 @@ def api_admin_export_last_24h_zip():
                    "Status über /api/admin/export/status?token=… pollen, dann "
                    "?token=…&part=N herunterladen."),
     }), 400
+
+
+@app.route("/api/admin/export/latest/meta")
+def api_admin_export_latest_meta():
+    """B350: Metadaten des zuletzt persistierten Exports (egal ob manuell oder
+    automatisiert erstellt) fuer die Logs-Seite. Kein Build wird angestossen."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "unauthorized"}), 401
+    if ROLE_LEVEL.get(user.get("role", "viewer"), 0) < ROLE_LEVEL.get("admin", 99):
+        return jsonify({"error": "forbidden"}), 403
+    meta = debug_export.load_latest_export_meta(
+        save_paths=SAVE_PATHS, base_dir=_resolve_debug_export_base_dir(SAVE_PATHS)
+    )
+    if not meta:
+        return jsonify({"available": False})
+    return jsonify({"available": True, **meta})
+
+
+@app.route("/api/admin/export/latest.zip")
+def api_admin_export_latest_zip():
+    """B350: Liefert ein Teil des zuletzt PERSISTIERTEN Exports direkt aus,
+    ohne einen neuen Build anzustossen."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "unauthorized"}), 401
+    if ROLE_LEVEL.get(user.get("role", "viewer"), 0) < ROLE_LEVEL.get("admin", 99):
+        return jsonify({"error": "forbidden"}), 403
+    part = request.args.get("part", default=1, type=int)
+    base_dir = _resolve_debug_export_base_dir(SAVE_PATHS)
+    meta = debug_export.load_latest_export_meta(save_paths=SAVE_PATHS, base_dir=base_dir)
+    if not meta:
+        return jsonify({"error": "no_export_available"}), 404
+    part_path = debug_export.latest_export_part_path(part, save_paths=SAVE_PATHS, base_dir=base_dir)
+    if part_path is None:
+        return jsonify({"error": "invalid_part"}), 404
+    names = meta.get("part_files") or []
+    response = send_file(
+        part_path, mimetype="application/zip", as_attachment=True,
+        download_name=names[part - 1], max_age=0,
+    )
+    response.headers["X-Export-Part"] = str(part)
+    response.headers["X-Export-Part-Count"] = str(len(names))
+    return response
 
 
 @app.route("/api/download/logs")

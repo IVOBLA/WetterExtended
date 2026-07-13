@@ -926,3 +926,83 @@ def _extract_locations_count(base_dir: Path) -> int:
         return len(value) if isinstance(value, list) else 0
     except Exception:
         return 0
+
+
+# ---------------------------------------------------------------------------
+# B350: Persistenter "letzter Export" fuer die Admin-Logs-Seite.
+# Unabhaengig davon, ob der Export manuell (Admin-Button) oder automatisiert
+# (tools/publish_latest_debug_export_branch.py) erstellt wurde, wird hier
+# IMMER eine Kopie an einem stabilen Ort abgelegt (ueberschreibt die vorherige),
+# damit die Logs-Seite jederzeit einen fertigen Download anbieten kann, ohne
+# einen neuen Build anzustossen.
+# ---------------------------------------------------------------------------
+_LATEST_EXPORT_DIRNAME = "latest_export"
+_LATEST_EXPORT_META_NAME = "latest_export_meta.json"
+
+
+def _latest_export_base_dir(save_paths: dict | None, base_dir: "str | Path | None") -> Path:
+    paths = save_paths or {}
+    ev = Path(paths.get("evaluation", "train_data/evaluation"))
+    if not ev.is_absolute() and base_dir:
+        ev = Path(base_dir) / ev
+    return ev
+
+
+def persist_latest_export(
+    parts: "list[tuple[Path, str]]",
+    manifest: dict,
+    save_paths: dict | None = None,
+    base_dir: "str | Path | None" = None,
+) -> dict:
+    """B350: Kopiert die zuletzt erstellten Export-Volumes an einen stabilen,
+    server-lokalen Ort. Atomarer Wechsel ueber Tmp-Verzeichnis + rename, damit
+    ein gleichzeitiger Lesezugriff nie einen halb kopierten Stand sieht."""
+    ev = _latest_export_base_dir(save_paths, base_dir)
+    dest_dir = ev / _LATEST_EXPORT_DIRNAME
+    tmp_dest = ev / f"{_LATEST_EXPORT_DIRNAME}.tmp"
+    shutil.rmtree(tmp_dest, ignore_errors=True)
+    tmp_dest.mkdir(parents=True, exist_ok=True)
+    part_names = []
+    try:
+        for path, name in parts:
+            shutil.copy2(path, tmp_dest / name)
+            part_names.append(name)
+        meta = {
+            "created_at_utc": manifest.get("created_at") or datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "part_count": len(part_names),
+            "part_files": part_names,
+            "total_bytes": sum((tmp_dest / n).stat().st_size for n in part_names),
+            "export_reason": manifest.get("export_reason", "unknown"),
+        }
+        (tmp_dest / _LATEST_EXPORT_META_NAME).write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        shutil.rmtree(dest_dir, ignore_errors=True)
+        tmp_dest.rename(dest_dir)
+        return meta
+    except Exception:
+        shutil.rmtree(tmp_dest, ignore_errors=True)
+        raise
+
+
+def load_latest_export_meta(save_paths: dict | None = None, base_dir: "str | Path | None" = None) -> dict | None:
+    ev = _latest_export_base_dir(save_paths, base_dir)
+    meta_path = ev / _LATEST_EXPORT_DIRNAME / _LATEST_EXPORT_META_NAME
+    if not meta_path.exists():
+        return None
+    try:
+        return json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def latest_export_part_path(part_index: int, save_paths: dict | None = None, base_dir: "str | Path | None" = None) -> "Path | None":
+    meta = load_latest_export_meta(save_paths, base_dir)
+    if not meta:
+        return None
+    names = meta.get("part_files") or []
+    if part_index < 1 or part_index > len(names):
+        return None
+    ev = _latest_export_base_dir(save_paths, base_dir)
+    candidate = ev / _LATEST_EXPORT_DIRNAME / names[part_index - 1]
+    return candidate if candidate.exists() else None

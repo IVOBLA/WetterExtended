@@ -35,6 +35,7 @@ function Logs() {
   const [physicalPurge, setPhysicalPurge] = useState(false)
   const [exporting,    setExporting]    = useState(false)
   const [exportMsg,    setExportMsg]    = useState(null)
+  const [latestExport, setLatestExport] = useState(null)   // B350: zuletzt persistierter Export
   const exportingRef = useRef(false)
 
   async function loadLogs() {
@@ -45,6 +46,15 @@ function Logs() {
     try {
       const caps = await api.get('/api/logs/capabilities')
       setAllowPhysicalPurge(Boolean(caps.allow_physical_purge))
+    } catch (e) { console.error(e) }
+  }
+
+  async function loadLatestExport() {
+    // B350: zeigt den zuletzt PERSISTIERTEN Export (egal ob manuell oder
+    // automatisiert erstellt) an — ohne einen neuen Build anzustoßen.
+    try {
+      const meta = await api.get('/api/admin/export/latest/meta')
+      setLatestExport(meta?.available ? meta : null)
     } catch (e) { console.error(e) }
   }
 
@@ -149,6 +159,7 @@ function Logs() {
       })
       exportingRef.current = false
       await loadLogs()
+      await loadLatestExport()   // B350: gerade erstellter Export ist jetzt der "letzte"
     } catch (e) {
       const is502 = String(e.message || '').includes('502')
       setExportMsg({
@@ -164,9 +175,43 @@ function Logs() {
     }
   }
 
+  async function downloadLatestExport() {
+    // B350: laedt den zuletzt PERSISTIERTEN Export direkt herunter — ohne
+    // einen neuen Build anzustoßen (kein Polling nötig).
+    if (!latestExport) return
+    exportingRef.current = true
+    setExporting(true)
+    setExportMsg({ ok: true, text: 'Letzter Export wird geladen...' })
+    try {
+      const partCount = latestExport.part_count || 1
+      for (let i = 1; i <= partCount; i++) {
+        setExportMsg({ ok: true, text: `Lade Teil ${i}/${partCount} …` })
+        const { blob, filename } = await api.download(
+          `/api/admin/export/latest.zip?part=${i}`
+        )
+        const url = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = filename
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        window.URL.revokeObjectURL(url)
+      }
+      setExportMsg({ ok: true, text: 'Letzter Export wurde heruntergeladen.' })
+    } catch (e) {
+      setExportMsg({ ok: false, text: `Download fehlgeschlagen: ${e.message}` })
+    } finally {
+      exportingRef.current = false
+      setExporting(false)
+      setTimeout(() => setExportMsg(null), 6000)
+    }
+  }
+
   useEffect(() => {
     loadLogs()
     loadCapabilities()
+    loadLatestExport()   // B350
     const t = setInterval(() => {
       if (!exportingRef.current) loadLogs()
     }, 30000)
@@ -253,6 +298,26 @@ function Logs() {
             ? 'bg-green-50 border border-green-300 text-green-800'
             : 'bg-red-50  border border-red-300  text-red-800'}`}>
           {exportMsg.text}
+        </div>
+      )}
+
+      {/* B350: zuletzt erstellter Export (manuell oder automatisiert) — immer
+          direkt herunterladbar, ohne neuen Build. */}
+      {latestExport && (
+        <div className="mb-3 px-3 py-2 rounded text-sm bg-slate-50 border border-slate-200 flex items-center gap-3 flex-wrap">
+          <span className="text-gray-600">
+            📦 Letzter Export: {new Date(latestExport.created_at_utc).toLocaleString('de-AT', {
+              day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+            })}
+            {' '}· {latestExport.part_count} Teil{latestExport.part_count === 1 ? '' : 'e'}
+            {' '}· {(latestExport.total_bytes / 1024 / 1024).toFixed(1)} MB
+          </span>
+          <button
+            onClick={downloadLatestExport}
+            disabled={exporting}
+            className="btn-secondary text-emerald-700 border-emerald-300 hover:bg-emerald-50 disabled:opacity-50 text-xs px-2">
+            ⬇ Letzten Export herunterladen
+          </button>
         </div>
       )}
 

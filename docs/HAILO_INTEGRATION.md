@@ -4823,3 +4823,19 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   `export_diagnosis.py`, `debug_export.py`.
 - Test: `tests/test_b349_kinematic_acceleration_diagnosis.py`.
 - Phasen-Status (Hailo): unverändert.
+
+### B350 — Letzter Export immer auf der Logs-Seite verfügbar ✅ erledigt (Fach-Feature)
+- Ziel: Export-ZIPs wurden bisher nur im Moment der Erstellung zum Browser
+  gestreamt und danach aus dem Temp-Ordner gelöscht — keine persistente,
+  jederzeit abrufbare Kopie auf dem Server.
+- Fix: `debug_export.persist_latest_export()` legt nach jedem erfolgreichen
+  Build eine Kopie an einem stabilen Ort ab (atomarer Wechsel via
+  Tmp-Verzeichnis + rename). Neue Endpunkte
+  `/api/admin/export/latest/meta` und `/api/admin/export/latest.zip`
+  liefern Metadaten bzw. Datei OHNE neuen Build. `Logs.jsx` zeigt den
+  zuletzt persistierten Export mit Zeitstempel/Größe/Teileanzahl an und
+  bietet direkten Download.
+- Dateien: `debug_export.py`, `app.py`, `frontend/src/pages/Logs.jsx`.
+- Test: `tests/test_b350_latest_export_download.py`.
+- Frontend-Build lokal angestoßen; in dieser Umgebung blockiert die fehlende Rollup-Optional-Dependency `@rollup/rollup-linux-x64-gnu` den Abschluss.
+- Phasen-Status (Hailo): unverändert.
