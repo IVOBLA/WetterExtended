@@ -46,7 +46,12 @@ _DEFAULT = {
 # STEERING_BLEND_MIN_WIND_KMH (10.0 km/h, config.py) und wuerde ohne diesen
 # Marker in prediction.py::_steering_motion_vector_from_obj() unbemerkt als
 # gueltiger Steuerstrom-Kandidat durchgehen (siehe B345).
-_FALLBACK_MARKERS_SYNOPTIC = {"wind_500_speed_fallback": 1}
+_FALLBACK_MARKERS_SYNOPTIC = {
+    "wind_500_speed_fallback": 1,
+    "z500_dam_fallback": 1,
+    "wind_500_dir_cos_fallback": 1,
+    "wind_500_dir_sin_fallback": 1,
+}
 
 
 def _nearest_hour(ref_ts_str: str | None = None) -> str:

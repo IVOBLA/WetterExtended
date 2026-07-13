@@ -4751,3 +4751,38 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Test: `tests/test_b345_steering_fallback_guard.py`.
 - Phasen-Status (Hailo): unveraendert; reine Forecast-Robustheits-Korrektur,
   keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
+
+### B346 — Restliche Open-Meteo-Fallback-Felder ohne Marker ✅ erledigt
+- Ursache: B344 hatte bewusst nur die neun von
+  `tools/diagnose_forecast_quality.py` ueberwachten Wetter-Features markiert.
+  `fetch_openmeteo_extended.py` und `fetch_synoptic_features.py` liefern
+  jedoch weitere Felder (`wind_gust_10m_kmh`, `wind_speed_850hPa`,
+  `wind_dir_850_cos/sin`, `wind_dir_500_cos/sin`, `t500_c`, `t700_c`, `lpi`,
+  `cin`, `pw`, `z500_dam`, `wind_500_dir_cos/sin`) mit demselben
+  unmarkierten 0.0-Fallback-Muster.
+- Fix: dieselbe Marker-Konvention (`<feld>_fallback=1`) auf alle vier
+  Request-Bloecke in `fetch_openmeteo_extended.py::_apply()` sowie auf
+  `fetch_synoptic_features.py::_FALLBACK_MARKERS_SYNOPTIC` ausgeweitet.
+- Bewusst NICHT Teil dieses Fixes: Diese Felder werden aktuell NICHT in
+  `accuracy_tracker.py`/`forecast_error_details.jsonl` mitgeschrieben
+  (verifiziert). Die Marker liegen vorerst nur auf dem `obj`-Dict zur
+  Vorbereitung; eine ML-Trainingspfad-Maskierung/-Imputation ist eine
+  separate, groessere Entscheidung und nicht Teil dieses Prompts.
+- Dateien: `fetch_openmeteo_extended.py`, `fetch_synoptic_features.py`.
+- Test: `tests/test_b346_extended_fallback_markers.py`.
+- Phasen-Status (Hailo): unveraendert.
+
+### B347 — forecast_error_diagnosis.py::_read_jsonl uebernahm Zeilen ohne Zeitstempel immer ins Fenster ✅ erledigt
+- Ursache: `_read_jsonl()` behandelte Zeilen mit unparsbarem/fehlendem
+  Zeitstempel als "immer im Fenster" statt sie auszuschliessen —
+  inkonsistent zu `drift_detector._parse_ts()` (dort: unparsbar =
+  ausgeschlossen). Aktuell wahrscheinlich folgenlos, da
+  `accuracy_tracker._detail_record()` alle Zeitstempelfelder zuverlaessig
+  schreibt (verifiziert), aber bei Altbestand/Formataenderungen ein
+  latentes Risiko fuer dauerhaft verzerrte 24h-Fenster in der
+  Root-Cause-Diagnose.
+- Fix: unparsbare/fehlende Zeitstempel werden jetzt konsistent
+  ausgeschlossen.
+- Dateien: `forecast_error_diagnosis.py`.
+- Test: `tests/test_b347_read_jsonl_ts_exclusion.py`.
+- Phasen-Status (Hailo): unveraendert.
