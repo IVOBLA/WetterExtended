@@ -4726,3 +4726,28 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Test: `tests/test_b344_openmeteo_fallback_markers.py`.
 - Phasen-Status (Hailo): unveraendert; reine Diagnose-/Feature-Qualitaets-
   Korrektur, keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
+
+### B345 — Open-Meteo-Fallback-Wind (500hPa) unbemerkt als Steuerstrom genutzt ✅ erledigt
+- Ursache: `prediction.py::_steering_motion_vector_from_obj()` nutzt
+  `wind_500_speed` als Steuerstrom-Kandidat fuer junge/bewegungsunsichere
+  Zellen (STEERING_BLEND_*). Der Open-Meteo-Fallback-Default fuer diesen
+  Wert (`fetch_synoptic_features.py`, 20.0 km/h, konstante Richtung 270°)
+  liegt UEBER dem Schwellwert `STEERING_BLEND_MIN_WIND_KMH` (10.0 km/h) und
+  wurde dadurch bei API-Ausfall unbemerkt als gueltiger Steuerstrom
+  verwendet, statt verworfen zu werden. Verifiziert aktiv in Produktion:
+  Debug-Export zeigt reale Forecast-Zeilen mit
+  `kinematic_source="...+steering"` und `steering_blend_applied=1`.
+- Fix: Kandidat wird verworfen, wenn der B344-Marker
+  `wind_500_speed_fallback` gesetzt ist; Funktion faellt in diesem Fall auf
+  den 700hpa-Kandidaten zurueck (oder `None`, wenn auch dieser fehlt).
+- Bewusst NICHT Teil dieses Fixes: der 700hpa-Kandidat
+  (`wind_700hpa`, Quelle `fetch_atmospheric_snapshot.py`) hat noch kein
+  aequivalentes Fallback-Marker-Feld — separater Prompt nach Verifikation.
+- Nicht bestaetigt: ob der Synoptic-API-Ausfall im urspruenglich analysierten
+  Debug-Zeitfenster (2026-07-11) tatsaechlich vorlag — dazu fehlte das
+  Journal-Log fuer diesen Zeitraum im verfuegbaren Export. Der Fix behebt
+  den Mechanismus unabhaengig davon.
+- Dateien: `prediction.py`.
+- Test: `tests/test_b345_steering_fallback_guard.py`.
+- Phasen-Status (Hailo): unveraendert; reine Forecast-Robustheits-Korrektur,
+  keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).
