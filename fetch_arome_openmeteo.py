@@ -54,6 +54,12 @@ _DEFAULT = {
     "arome_fl_height": 0.0,
 }
 
+# B344: Marker fuer 0.0-Fallback (API-Fehler/fehlender Zeitslot). Siehe
+# fetch_700hpa_wind_per_object_slim.py::_FALLBACK_MARKERS_700 fuer denselben
+# Zweck. arome_li_fallback wird zusaetzlich unabhaengig in
+# _apply_data_to_objects() gesetzt (icon_eu-Fallback hat eigenen Pfad).
+_FALLBACK_MARKERS_AROME = {"arome_t2m_fallback": 1, "arome_li_fallback": 1}
+
 
 def _nearest_hour_str(ref_ts_str: str | None = None) -> str:
     """
@@ -137,6 +143,7 @@ def assign_arome_to_objects(objects: list, timestamp: str) -> list:
     for i, obj in enumerate(objects):
         if i not in valid_idxs:
             obj.update(_DEFAULT)
+            obj.update(_FALLBACK_MARKERS_AROME)
 
     if not valid:
         debug_log("[AROME] Keine Objekte mit Koordinaten — kein API-Call.")
@@ -179,6 +186,7 @@ def assign_arome_to_objects(objects: list, timestamp: str) -> list:
         debug_log(f"[AROME] Alle Versuche fehlgeschlagen: {exc} — Default-Werte.")
         for _, obj in valid:
             obj.update(_DEFAULT)
+            obj.update(_FALLBACK_MARKERS_AROME)
         _save_results({}, timestamp)
         return objects
 
@@ -205,15 +213,19 @@ def _apply_data_to_objects(data, valid, objects, timestamp, bulk_url):
     for loc_idx, (_, obj) in enumerate(valid):
         if loc_idx >= len(data):
             obj.update(_DEFAULT)
+            obj.update(_FALLBACK_MARKERS_AROME)
             # LI-Injection auch im Fehlerfall (falls icon_eu separat geliefert hat)
             if obj.get("id") in li_map:
                 obj["arome_li"] = li_map[obj.get("id")]
+                obj["arome_li_fallback"] = 0
             debug_log(f"[AROME] Fehlende Response für Objekt {obj.get('id')} — Default.")
             continue
         arome_vals = _parse_location_response(data[loc_idx], target_time)
         # arome_li aus icon_eu injizieren (Default 0.0 bleibt bei Fehlschlag)
-        arome_vals["arome_li"] = li_map.get(obj.get("id"), 0.0)
+        li_value = li_map.get(obj.get("id"))
+        arome_vals["arome_li"] = li_value if li_value is not None else 0.0
         obj.update(arome_vals)
+        obj["arome_li_fallback"] = 0 if li_value is not None else 1
         results[obj.get("id")] = arome_vals
 
     # Stille Datenfehler: wenn ALLE Objekte 0.0 für T2m → API liefert keinen Ziel-Zeitslot

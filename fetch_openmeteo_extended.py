@@ -303,6 +303,11 @@ def _apply(data_a, data_b, data_c, data_d, valid: list, objects: list) -> None:
                     "t700_c": round(_v(t700, h_idx), 2),
                 }
             )
+        else:
+            # B344: kein Response-Slot fuer Request B (icon_global 500/850hPa)
+            # -> result bleibt bei _DEFAULT (0.0). Marker fuer Monitoring und
+            # nachgeschaltete Verbraucher (siehe B345, prediction.py Steering).
+            result["wind_speed_500hPa_fallback"] = 1
 
         # ── CIN/PW aus hourly GFS (Request D) ───────────────────────────
         if idx < len(entries_d):
