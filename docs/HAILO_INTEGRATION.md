@@ -4889,3 +4889,25 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Dateien: `app.py`, `frontend/src/pages/Dashboard.jsx`.
 - Test: `tests/test_b353_per_object_cache_status_flag.py`.
 - Phasen-Status (Hailo): unverändert.
+
+### B354 — X-Achse der Accuracy-Charts zeigte unbeschrifteten Lauf-Index statt Messzeitpunkt ✅ erledigt
+- Ursache: Die drei Zeitreihen-Charts auf „Vorhersagegenauigkeit (Closed-Loop)“ (MAE,
+  Hit-Rate, ML-Lernfortschritt) nutzten `dataKey="idx"` (reiner Lauf-Index 1..N) ohne
+  Achsenbeschriftung und ohne Zeitbezug im Tooltip, obwohl `/api/accuracy`
+  (`timestamp_utc`) und `/api/ml_quality` (`ts`) den echten Messzeitpunkt bereits
+  liefern — er wurde beim Aufbau der Frontend-Datenserien nur nie übernommen.
+  Zusätzlich fehlte der Hit-Rate-Y-Achse die Einheit „%“.
+- Fix: Neue Utility `frontend/src/utils/chartTime.js`
+  (`formatChartTimestamp`, `buildIdxTimestampMap`). `Accuracy.jsx` übernimmt `ts`
+  in alle drei Datenserien und zeigt auf allen drei Charts den formatierten
+  Messzeitpunkt als Achsen-Tick-Label und Tooltip-Titel (Fallback `#<idx>` ohne
+  Zeitstempel). Hit-Rate-Y-Achse hat jetzt das Label „%“.
+- Hinweis (nicht mitgefixt, separater Root Cause): `/api/accuracy` lädt die
+  Historie unabhängig vom „Zeitraum“-Filter immer mit mindestens 7 Tagen
+  (`load_history(since_hours=max(since, 24*7))`) — bei Auswahl „24 Stunden“
+  werden dadurch bis zu 7× mehr Punkte angezeigt als erwartet. Kandidat für
+  einen eigenen B-Nummer-Prompt.
+- Dateien: `frontend/src/pages/Accuracy.jsx`, `frontend/src/utils/chartTime.js`
+  (neu), `frontend/src/utils/chartTime.test.js` (neu).
+- Test: `tests/test_b354_accuracy_chart_axis_timestamps.py`.
+- Phasen-Status (Hailo): unverändert.

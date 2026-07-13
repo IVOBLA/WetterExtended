@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import api from '../api.js'
+import { formatChartTimestamp, buildIdxTimestampMap } from '../utils/chartTime.js'
 
 export default function Accuracy() {
   const [hours, setHours] = useState(24)
@@ -28,7 +29,7 @@ export default function Accuracy() {
   const speedAlarm = driftStatus.speed_drift_alarm === true
 
   const seriesKm = data.history.map((rec, i) => {
-    const row = { idx: i + 1 }
+    const row = { idx: i + 1, ts: rec.timestamp_utc || null }
     horizons.forEach(h => {
       const e = rec.horizons?.find(x => x.horizon === h)
       row[`+${h}m`] = e?.mae_km
@@ -36,16 +37,20 @@ export default function Accuracy() {
     return row
   })
   const seriesHit = data.history.map((rec, i) => {
-    const row = { idx: i + 1 }
+    const row = { idx: i + 1, ts: rec.timestamp_utc || null }
     horizons.forEach(h => {
       const e = rec.horizons?.find(x => x.horizon === h)
       row[`+${h}m`] = e?.hit_rate != null ? (e.hit_rate * 100) : null
     })
     return row
   })
+  // B354: idx -> ts Lookup je Serie, fuer Achsen-Ticks und Tooltip-Titel.
+  const seriesKmTsMap = buildIdxTimestampMap(seriesKm)
+  const seriesHitTsMap = buildIdxTimestampMap(seriesHit)
 
   const mlPoints = mlQuality.series?.[String(mlHorizon)] || []
-  const mlSeries = mlPoints.map(p => ({ idx: p.idx, Champion: p.champion_mae_km, Challenger: p.challenger_mae_km }))
+  const mlSeries = mlPoints.map(p => ({ idx: p.idx, ts: p.ts || null, Champion: p.champion_mae_km, Challenger: p.challenger_mae_km }))
+  const mlSeriesTsMap = buildIdxTimestampMap(mlSeries)
   const mlSamplesLatest = mlPoints.length ? mlPoints[mlPoints.length - 1].challenger_samples : 0
   const runtimeKin = mlQuality.runtime_kinematic_mae_by_horizon || {}
   const lastPromotion = mlQuality.last_promotion || {}
@@ -242,9 +247,14 @@ export default function Accuracy() {
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={seriesKm}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="idx" />
+            <XAxis
+              dataKey="idx"
+              type="category"
+              tickFormatter={i => formatChartTimestamp(seriesKmTsMap.get(i)) || ('#' + i)}
+              label={{ value: 'Messzeitpunkt', position: 'insideBottom', offset: -5 }}
+            />
             <YAxis label={{ value: 'km', angle: -90, position: 'insideLeft' }} />
-            <Tooltip />
+            <Tooltip labelFormatter={i => 'Messzeitpunkt: ' + (formatChartTimestamp(seriesKmTsMap.get(i)) || ('#' + i))} />
             <Legend />
             {horizons.map(h => <Line key={h} type="monotone" dataKey={`+${h}m`} dot={{ r: 2 }} connectNulls />)}
           </LineChart>
@@ -263,9 +273,14 @@ export default function Accuracy() {
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={seriesHit}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="idx" />
-            <YAxis domain={[0, 100]} />
-            <Tooltip />
+            <XAxis
+              dataKey="idx"
+              type="category"
+              tickFormatter={i => formatChartTimestamp(seriesHitTsMap.get(i)) || ('#' + i)}
+              label={{ value: 'Messzeitpunkt', position: 'insideBottom', offset: -5 }}
+            />
+            <YAxis domain={[0, 100]} label={{ value: '%', angle: -90, position: 'insideLeft' }} />
+            <Tooltip labelFormatter={i => 'Messzeitpunkt: ' + (formatChartTimestamp(seriesHitTsMap.get(i)) || ('#' + i))} />
             <Legend />
             {horizons.map(h => <Line key={h} type="monotone" dataKey={`+${h}m`} dot={{ r: 2 }} connectNulls />)}
           </LineChart>
@@ -290,9 +305,14 @@ export default function Accuracy() {
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={mlSeries}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="idx" />
+            <XAxis
+              dataKey="idx"
+              type="category"
+              tickFormatter={i => formatChartTimestamp(mlSeriesTsMap.get(i)) || ('#' + i)}
+              label={{ value: 'Messzeitpunkt', position: 'insideBottom', offset: -5 }}
+            />
             <YAxis label={{ value: 'km', angle: -90, position: 'insideLeft' }} />
-            <Tooltip />
+            <Tooltip labelFormatter={i => 'Messzeitpunkt: ' + (formatChartTimestamp(mlSeriesTsMap.get(i)) || ('#' + i))} />
             <Legend />
             <Line type="monotone" dataKey="Champion" stroke="#2563eb" dot={{ r: 2 }} connectNulls />
             <Line type="monotone" dataKey="Challenger" stroke="#ea580c" dot={{ r: 2 }} connectNulls />
