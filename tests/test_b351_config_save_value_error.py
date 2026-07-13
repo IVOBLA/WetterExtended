@@ -3,6 +3,20 @@ klaren 400 statt eines unbehandelten 500 zurueck."""
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _isolate_runtime_config(monkeypatch):
+    """Codex-Review (PR #982): verhindert echte Schreibvorgänge in
+    train_data/runtime_overrides.json und haelt runtime_config._OVERRIDES
+    pro Test isoliert. Ohne dies laufen diese Tests ueber die echte
+    app.py-Route → runtime_config.patch() → save() und persistieren echte
+    Overrides auf die Platte (gitignored, aber im Prozess/lokalen Checkout
+    wirksam) — macht die Suite ordnungsabhaengig und veraendert den
+    Arbeitsstand des Repos bei jedem Testlauf."""
+    import runtime_config as rc
+    monkeypatch.setattr(rc, "_OVERRIDES", {}, raising=False)
+    monkeypatch.setattr(rc, "save", lambda merged: None)
+
+
 def _auth(monkeypatch, role="admin"):
     import app as app_module
     import auth as auth_module
