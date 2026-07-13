@@ -261,6 +261,9 @@ def _apply(data_a, data_b, data_c, data_d, valid: list, objects: list) -> None:
                 return float(lst[i]) if i < len(lst) and lst[i] is not None else 0.0
 
             result["wind_gust_10m_kmh"] = round(_val(gusts, best_idx), 1)
+        else:
+            # B346: kein Response-Slot fuer Request A (icon_d2 minutely_15).
+            result["wind_gust_10m_kmh_fallback"] = 1
 
         # ── hourly Druckflächen ───────────────────────────────────────────
         if idx < len(entries_b):
@@ -304,10 +307,18 @@ def _apply(data_a, data_b, data_c, data_d, valid: list, objects: list) -> None:
                 }
             )
         else:
-            # B344: kein Response-Slot fuer Request B (icon_global 500/850hPa)
-            # -> result bleibt bei _DEFAULT (0.0). Marker fuer Monitoring und
-            # nachgeschaltete Verbraucher (siehe B345, prediction.py Steering).
+            # B344/B346: kein Response-Slot fuer Request B (icon_global
+            # 500/850hPa) -> result bleibt bei _DEFAULT (0.0). Marker fuer
+            # Monitoring und nachgeschaltete Verbraucher (siehe B345,
+            # prediction.py Steering).
             result["wind_speed_500hPa_fallback"] = 1
+            result["wind_dir_500_cos_fallback"] = 1
+            result["wind_dir_500_sin_fallback"] = 1
+            result["wind_speed_850hPa_fallback"] = 1
+            result["wind_dir_850_cos_fallback"] = 1
+            result["wind_dir_850_sin_fallback"] = 1
+            result["t500_c_fallback"] = 1
+            result["t700_c_fallback"] = 1
 
         # ── CIN/PW aus hourly GFS (Request D) ───────────────────────────
         if idx < len(entries_d):
@@ -327,6 +338,10 @@ def _apply(data_a, data_b, data_c, data_d, valid: list, objects: list) -> None:
                     continue
             result["cin"] = round(float(cin_vals[g_idx]) if g_idx < len(cin_vals) and cin_vals[g_idx] is not None else 0.0, 2)
             result["pw"] = round(float(pw_vals[g_idx]) if g_idx < len(pw_vals) and pw_vals[g_idx] is not None else 0.0, 2)
+        else:
+            # B346: kein Response-Slot fuer Request D (GFS CIN/PW).
+            result["cin_fallback"] = 1
+            result["pw_fallback"] = 1
 
         # ── LPI aus hourly DWD-ICON (Request C) ──────────────────────────
         if idx < len(entries_c):
@@ -338,5 +353,8 @@ def _apply(data_a, data_b, data_c, data_d, valid: list, objects: list) -> None:
             if now_hour in lpi_times:
                 lpi_idx = lpi_times.index(now_hour)
             result['lpi'] = round(float(lpi_vals[lpi_idx]) if lpi_idx < len(lpi_vals) and lpi_vals[lpi_idx] is not None else 0.0, 2)
+        else:
+            # B346: kein Response-Slot fuer Request C (DWD-ICON LPI).
+            result["lpi_fallback"] = 1
 
         obj.update(result)

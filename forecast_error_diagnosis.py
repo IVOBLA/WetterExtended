@@ -68,6 +68,12 @@ def _parse_ts(value: Any) -> datetime | None:
 
 
 def _read_jsonl(path: Path, hours: int, ts_keys: tuple[str, ...]) -> list[dict]:
+    """B347: Zeilen ohne parsbaren Zeitstempel wurden zuvor IMMER ins Fenster
+    uebernommen (unabhaengig vom Alter) -- inkonsistent zu
+    drift_detector._parse_ts(), das unparsbare Zeitstempel ausschliesst. Bei
+    Altbestand/fehlerhaften Zeilen haette das dieselben alten Zeilen
+    dauerhaft in jedes hours-Fenster gemischt. Jetzt konsistent:
+    unparsbar/fehlend -> ausgeschlossen."""
     if not path.exists():
         return []
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
@@ -80,7 +86,7 @@ def _read_jsonl(path: Path, hours: int, ts_keys: tuple[str, ...]) -> list[dict]:
         if not isinstance(rec, dict):
             continue
         ts = next((_parse_ts(rec.get(k)) for k in ts_keys if _parse_ts(rec.get(k))), None)
-        if ts is None or ts >= cutoff:
+        if ts is not None and ts >= cutoff:
             rows.append(rec)
     return rows
 
