@@ -4786,3 +4786,20 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Dateien: `forecast_error_diagnosis.py`.
 - Test: `tests/test_b347_read_jsonl_ts_exclusion.py`.
 - Phasen-Status (Hailo): unveraendert.
+
+### B348 — Diagnose-Proxy für Beschleunigungs-Validierung (Vorbereitung B349) ✅ erledigt
+- Hintergrund: B307 (Beschleunigungsterm) ist per Default deaktiviert und
+  nie gegen reale Daten validiert. Mathematische Nachrechnung zeigt: EWMA
+  unterschätzt systematisch die Geschwindigkeit beschleunigender Zellen,
+  Größenordnung deckt sich mit beobachtetem Drift-Alarm-Bias
+  (speed_error_kmh -6 bis -10 km/h).
+- Fix: `kinematic_accel_proxy_kmh` (Differenz der letzten zwei
+  Intervallgeschwindigkeiten) wird jetzt IMMER berechnet — unabhängig von
+  `KINEMATIC_ACCELERATION_ENABLED` — und zusammen mit
+  `kinematic_acceleration_applied` (ob der B307-Term tatsächlich in die
+  Projektion einging) in `forecast_error_details.jsonl` mitgeschrieben.
+- Bewusst NICHT Teil dieses Fixes: kein Verhaltens-Fix, keine automatische
+  Auswertung. Die Auswertung folgt in B349 (neues Diagnose-Skript).
+- Dateien: `prediction.py`, `accuracy_tracker.py`.
+- Test: `tests/test_b348_kinematic_accel_proxy.py`.
+- Phasen-Status (Hailo): unverändert.
