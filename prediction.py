@@ -393,13 +393,28 @@ def _wind_from_cos_sin_to_deg(cos_value, sin_value):
 
 
 def _steering_motion_vector_from_obj(obj):
-    """Lokalen 500/700-hPa-Steuerstrom als Zellbewegungsvektor ableiten; keine Requests."""
+    """Lokalen 500/700-hPa-Steuerstrom als Zellbewegungsvektor ableiten; keine Requests.
+
+    B345: Kandidaten mit gesetztem *_fallback-Marker (B344) sind Open-Meteo-
+    Platzhalterwerte nach API-Fehler/fehlendem Zeitslot, keine echte Messung,
+    und werden NICHT als Steuerstrom verwendet. Grund: der 500hPa-Fallback
+    (20.0 km/h, konstante Richtung 270°) liegt ueber
+    STEERING_BLEND_MIN_WIND_KMH (10.0 km/h) und wuerde sonst unbemerkt als
+    gueltiger Kandidat durchgehen.
+
+    Offen (nicht Teil dieses Fixes): der 700hpa-Kandidat (`wind_700hpa`,
+    Quelle fetch_atmospheric_snapshot.py) hat aktuell kein aequivalentes
+    Fallback-Marker-Feld. Bis das nachgezogen ist, wird dieser Kandidat
+    ungefiltert durchgereicht (is_fallback=False fest).
+    """
     min_wind = float(_runtime_cfg.get("STEERING_BLEND_MIN_WIND_KMH", _STATIC_STEERING_BLEND_MIN_WIND_KMH) if _runtime_cfg else _STATIC_STEERING_BLEND_MIN_WIND_KMH)
     candidates = [
-        ("500hpa", obj.get("wind_500_speed"), obj.get("wind_500_dir_cos"), obj.get("wind_500_dir_sin")),
-        ("700hpa", obj.get("wind_700hpa"), obj.get("wind_dir_cos"), obj.get("wind_dir_sin")),
+        ("500hpa", obj.get("wind_500_speed"), obj.get("wind_500_dir_cos"), obj.get("wind_500_dir_sin"), bool(obj.get("wind_500_speed_fallback"))),
+        ("700hpa", obj.get("wind_700hpa"), obj.get("wind_dir_cos"), obj.get("wind_dir_sin"), False),
     ]
-    for level, speed, c, s in candidates:
+    for level, speed, c, s, is_fallback in candidates:
+        if is_fallback:
+            continue
         speed = _safe_float(speed)
         if speed < min_wind:
             continue
