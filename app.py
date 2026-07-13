@@ -2688,6 +2688,22 @@ def api_cache_status():
         "openmeteo_extended_gfs_conv":  900,   # fetch_openmeteo_extended.py
     }
 
+    # B353: Diese acht Namespaces laufen NICHT auf festem Zeitplan, sondern nur
+    # wenn eine Sturmzelle aktiv getrackt wird (siehe Kommentarblock oben).
+    # TTL-basierte "next_fetch_ts"-Ueberfaelligkeit ist fuer sie kein Fehlersignal.
+    _PER_OBJECT_NAMESPACES = {
+        "geosphere_cape",
+        "geosphere_nowcast",
+        "openmeteo_icon_d2",
+        "openmeteo_icon_eu_li",
+        "openmeteo_icon_global",
+        "openmeteo_synoptic_500",
+        "openmeteo_extended_15min",
+        "openmeteo_extended_pressure",
+        "openmeteo_extended_lpi",
+        "openmeteo_extended_gfs_conv",
+    }
+
     try:
         from api_cache import _CACHE_DIR
     except Exception:
@@ -2750,6 +2766,7 @@ def api_cache_status():
             "next_allowed_in_s": next_allowed_s,
             "next_fetch_ts": next_fetch_ts,
             "status": status,
+            "per_object": ns in _PER_OBJECT_NAMESPACES,
         })
 
     # B272: hydro_kaernten nutzt einen eigenen Cache-Mechanismus (hydro_fetch.py,
@@ -2790,6 +2807,7 @@ def api_cache_status():
             "next_allowed_in_s": hydro_next_allowed_s,
             "next_fetch_ts": hydro_next_fetch_ts,
             "status": hydro_status,
+            "per_object": False,
             "failure_streak": hydro_circuit.get("failure_streak"),
             "cooldown_level": hydro_circuit.get("cooldown_level"),
             "suspended_until": hydro_circuit.get("suspended_until"),

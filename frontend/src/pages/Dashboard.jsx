@@ -551,6 +551,17 @@ export default function Dashboard() {
                             hour: '2-digit', minute: '2-digit', second: '2-digit'
                           })
                           const overdue = t.getTime() <= Date.now()
+                          const perObject = cs.per_object === true
+                          if (perObject && overdue) {
+                            return (
+                              <span
+                                className="text-gray-500"
+                                title="Per-Objekt-Dienst: läuft nur bei aktiver Sturmzelle, kein fester Zeitplan. Kein Ausfall."
+                              >
+                                bei Bedarf (kein aktuelles Objekt)
+                              </span>
+                            )
+                          }
                           return (
                             <span className={overdue ? 'text-orange-500 font-semibold' : 'text-green-700'}>
                               {clock}{overdue ? ' (fällig)' : ''}
