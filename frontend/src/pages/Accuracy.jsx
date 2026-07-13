@@ -13,7 +13,9 @@ export default function Accuracy() {
 
   useEffect(() => {
     api.get(`/api/accuracy?hours=${hours}`).then(setData).catch(() => {})
-    api.get(`/api/api_health?hours=${hours}`).then(setApiHealth).catch(() => {})
+    // B355: /api/api_health ignoriert hours vollstaendig (fester taeglicher Check) —
+    // der Parameter wurde bisher faelschlich mitgeschickt und suggerierte Reaktion.
+    api.get('/api/api_health').then(setApiHealth).catch(() => {})
     api.get(`/api/ml_quality?hours=${hours}`).then(setMlQuality).catch(() => {})
     api.get('/api/forecast_quality_diagnosis').then(setQualityDiagnosis).catch(() => {})
   }, [hours])
@@ -101,8 +103,12 @@ export default function Accuracy() {
 
       <div className="card mb-4">
         <h3 className="text-lg font-medium mb-2">Automatische Forecast-Qualitätsdiagnose</h3>
+        <p className="text-xs text-gray-500 mb-2">
+          Unabhängig vom „Zeitraum“-Filter oben — feste, einmal täglich erzeugte Momentaufnahme.
+        </p>
         <div className="text-sm mb-2">
           <span className="font-semibold">Zeitpunkt:</span> {qualityDiagnosis.checked_at_utc || qualityDiagnosis.timestamp_utc || '—'}
+          <span className="font-semibold ml-4">Diagnose-Fenster:</span> {qualityDiagnosis.hours != null ? `${qualityDiagnosis.hours} h` : '—'}
           <span className="font-semibold ml-4">Status:</span> {qualityDiagnosis.status || 'missing'}
         </div>
         <div className="grid md:grid-cols-2 gap-4 text-sm">
@@ -361,9 +367,14 @@ export default function Accuracy() {
       </div>
 
       <div className="card">
-        <h3 className="text-lg font-medium mb-2">API-Health (letzte {hours} h)</h3>
+        <h3 className="text-lg font-medium mb-2">API-Health (fester täglicher Check)</h3>
+        <p className="text-xs text-gray-500 mb-2">
+          Unabhängig vom „Zeitraum“-Filter oben — dieser Connectivity-Check läuft einmal täglich
+          (Scheduler-Job) und zeigt immer den zuletzt gespeicherten Stand.
+          {apiHealth.checked_at_utc && <> Letzter Check: <b>{apiHealth.checked_at_utc}</b>.</>}
+        </p>
         {apiHealth.total === 0 ? (
-          <div className="text-sm text-green-700">Keine API-Fehler im Zeitraum.</div>
+          <div className="text-sm text-green-700">Keine API-Fehler beim letzten Check.</div>
         ) : (
           <table className="w-full text-sm">
             <thead><tr className="border-b">

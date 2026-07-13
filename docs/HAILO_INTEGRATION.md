@@ -4911,3 +4911,22 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   (neu), `frontend/src/utils/chartTime.test.js` (neu).
 - Test: `tests/test_b354_accuracy_chart_axis_timestamps.py`.
 - Phasen-Status (Hailo): unverändert.
+
+### B355 — „Zeitraum“-Filter auf der Closed-Loop-Seite wirkte auf mehrere Bereiche nicht ✅ erledigt
+- Ursache: Drei getrennte Stellen im selben Code-Pfad ignorierten den vom Nutzer gewählten
+  „Zeitraum“ (`hours`) ganz oder teilweise: (1) `api_accuracy()` hob `history` künstlich auf
+  mindestens 7 Tage an (`max(since, 24*7)`), wodurch 1h/6h/24h/7d-Auswahl identische
+  Chart-Daten lieferte; (2) `api_ml_quality()` tat dasselbe für `series` und
+  `verification_coverage_by_horizon` (`max(since, 24)` bzw. `max(since, 24*7)`);
+  (3) `/api/api_health` ignoriert `hours` komplett (fester täglicher Check), das Frontend
+  suggerierte mit „API-Health (letzte {hours} h)“ dennoch Reaktion auf den Filter.
+- Fix: (1)+(2) künstliche Mindest-Klammerungen entfernt — `history`/`series`/
+  `verification_coverage_by_horizon` folgen jetzt exakt dem gewählten Zeitraum, wie es
+  `evaluate_all()`/`current` bereits tat. (3) Karten-Überschrift und Beschreibungstext
+  korrigiert, zeigt jetzt den eigenen `checked_at_utc`-Zeitpunkt statt einen irreführenden
+  `{hours}`-Bezug; Fake-Parameter aus dem Frontend-Fetch entfernt. Zusätzlich zeigt die
+  Diagnose-Kachel jetzt ihr eigenes festes Diagnose-Fenster (`hours`-Feld) mit Hinweis, dass
+  sie unabhängig vom Zeitraum-Dropdown ist.
+- Dateien: `app.py`, `frontend/src/pages/Accuracy.jsx`.
+- Test: `tests/test_b355_accuracy_zeitraum_filter.py`.
+- Phasen-Status (Hailo): unverändert.
