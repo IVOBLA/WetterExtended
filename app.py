@@ -2069,7 +2069,16 @@ def api_config_save():
             "ok": False,
             "error": f"Verbotene Schlüsselpfade (Secrets/geschützte Werte): {', '.join(forbidden)}"
         }), 400
-    runtime_config.patch(data)
+    # B351: runtime_config.patch() prueft zusaetzlich ueber
+    # validate_override_key() die QUALITY_TARGET_MAE_KM_<=30-Sperre
+    # (zieldefinition.txt) — das ist eine EIGENSTAENDIGE Regel, nicht durch
+    # forbidden_keys_in() abgedeckt. Ohne dieses try/except wirft ein
+    # verletzender Key einen unbehandelten ValueError -> nackter HTTP 500
+    # statt einer verstaendlichen Fehlermeldung.
+    try:
+        runtime_config.patch(data)
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
     return jsonify({"ok": True})
 
 
