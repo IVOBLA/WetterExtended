@@ -4684,3 +4684,18 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   bleibt unverändert bestehen.
 - Dateien: `main.py`, `cell_lineage.py`, `tests/test_b342_ir_radar_lineage_fallback.py`.
 - Phasen-Status (Hailo): unverändert.
+
+### B343-Korrektur — regression_alert verschwand nach einem Poll (Codex-Review) ✅ erledigt
+- Codex-Review (P2) zu ml_readiness.py:263-264: die Bedingung prüfte nur
+  den Uebergang true->false im selben Aufruf. Beim naechsten Poll war der
+  persistierte Vorzustand bereits false, wodurch derselbe Aufruf
+  regression_alert:false zurueckschrieb — der Alarm verschwand nach einem
+  einzigen Refresh, obwohl die Artefakte weiterhin fehlten.
+- Fix: regression_alert bleibt latched, solange ml_artifacts_available
+  false ist (uebernimmt regression_reason des urspruenglichen Uebergangs).
+  Zuruecksetzen ausschliesslich bei Recovery (ml_artifacts_available wird
+  wieder true). Kein separater Ack-Mechanismus noetig.
+- Dateien: `ml_readiness.py`.
+- Test: `tests/test_b343_ml_readiness_regression_alert.py` (ergaenzt um
+  Latch- und Recovery-Test).
+- Phasen-Status (Hailo): unveraendert.
