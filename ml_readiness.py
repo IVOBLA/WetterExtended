@@ -257,15 +257,32 @@ def check_ml_readiness(write_json=True, model_dir=None):
     regression_alert = False
     regression_reason = None
     try:
-        if os.path.exists(_readiness_json_path):
+        if ml_artifacts_available:
+            # Recovery: Artefakte wieder verfuegbar -> Alarm explizit zuruecksetzen.
+            regression_alert = False
+            regression_reason = None
+        elif os.path.exists(_readiness_json_path):
             with open(_readiness_json_path, encoding="utf-8") as _f_prev:
                 _prev_readiness = json.load(_f_prev)
-            if bool(_prev_readiness.get("ml_artifacts_available")) and not ml_artifacts_available:
+            _prev_available = bool(_prev_readiness.get("ml_artifacts_available"))
+            _prev_alert = bool(_prev_readiness.get("regression_alert"))
+            if _prev_available:
+                # Neuer Uebergang true -> false in diesem Poll.
                 regression_alert = True
                 regression_reason = (
                     f"ml_artifacts_available wechselte von true (zuletzt geprueft "
                     f"{_prev_readiness.get('checked_at_utc', 'unbekannt')}) auf false "
                     f"— fallback_reason={fallback_reason}"
+                )
+            elif _prev_alert:
+                # B343-Korrektur: Alarm bleibt latched, solange Artefakte
+                # weiterhin fehlen, statt nach einem Poll zu verschwinden
+                # (Codex-Review). regression_reason des vorherigen Polls
+                # uebernehmen, damit der urspruengliche Uebergangs-Zeitpunkt
+                # sichtbar bleibt.
+                regression_alert = True
+                regression_reason = _prev_readiness.get("regression_reason") or (
+                    f"ml_artifacts_available weiterhin false — fallback_reason={fallback_reason}"
                 )
     except Exception as _reg_exc:
         from debug_utils import debug_log as _debug_log_reg
