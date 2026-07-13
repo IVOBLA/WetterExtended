@@ -235,6 +235,23 @@ def is_forbidden_override_key(key) -> bool:
     return any(tok in ku for tok in _FORBIDDEN_KEY_SUBSTRINGS)
 
 
+def is_editable_override_key(key) -> bool:
+    """B352: True wenn `key` grundsaetzlich als Top-Level-Runtime-Override
+    akzeptiert werden KOENNTE (unabhaengig vom konkreten Wert) — d.h. weder
+    is_forbidden_override_key() noch validate_override_key() wuerden ihn
+    ablehnen. Genutzt von GET /api/config, damit die Admin-UI keine Schluessel
+    zum Bearbeiten anzeigt, die beim Zurueckspeichern des unveraenderten
+    Gesamtstands ohnehin abgelehnt wuerden (z.B. QUALITY_TARGET_MAE_KM_FIXED,
+    QUALITY_TARGET_MAE_KM_CONFIGURABLE_DEFAULT, UPSCALE_FACTOR)."""
+    if is_forbidden_override_key(key):
+        return False
+    try:
+        validate_override_key(key)
+    except ValueError:
+        return False
+    return True
+
+
 def _find_forbidden_paths(obj, prefix: str = "") -> list:
     """
     B106: Rekursiv alle verbotenen Schlüsselpfade in obj finden.
@@ -265,6 +282,15 @@ def _strip_forbidden_keys(obj):
     if isinstance(obj, list):
         return [_strip_forbidden_keys(v) for v in obj]
     return obj
+
+
+def strip_forbidden_recursive(obj):
+    """B352: Oeffentlicher Wrapper um _strip_forbidden_keys() fuer Aufrufer
+    ausserhalb dieses Moduls (z.B. GET /api/config in app.py). Entfernt
+    verbotene Schluessel (auch verschachtelt, z.B. GITHUB_VERIFY_CONFIG.token)
+    VOLLSTAENDIG, statt sie nur zu redigieren — damit ein unveraendert
+    zurueckgeposteter GET-Response nie an B106/B351 scheitert."""
+    return _strip_forbidden_keys(obj)
 
 
 def forbidden_keys_in(partial: dict) -> list:

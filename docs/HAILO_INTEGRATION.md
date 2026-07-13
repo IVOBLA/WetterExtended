@@ -4853,3 +4853,23 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Dateien: `app.py`.
 - Test: `tests/test_b351_config_save_value_error.py`.
 - Phasen-Status (Hailo): unverändert.
+
+### B352 — GET /api/config lieferte strukturell nie-überschreibbare Keys ✅ erledigt
+- Ursache: Die Admin-UI befüllt das Overrides-Textfeld mit dem kompletten
+  `all_effective()`-Dump. Dieser enthält Schlüssel, die als Override
+  niemals akzeptiert werden können (`UPSCALE_FACTOR`,
+  `QUALITY_TARGET_MAE_KM_FIXED`/`_CONFIGURABLE_DEFAULT`) sowie maskierte
+  (aber nicht entfernte) verschachtelte Secret-Pfade wie
+  `GITHUB_VERIFY_CONFIG.token`. "Kompletten Stand kopieren, kleine Änderung
+  machen, speichern" führte dadurch zuverlässig zu einem Fehler (B351:
+  vorher 500, danach 400 — Ursache blieb).
+- Fix: `runtime_config.is_editable_override_key()` filtert Top-Level-Keys,
+  die `validate_override_key()`/`is_forbidden_override_key()` ohnehin
+  ablehnen würden; `runtime_config.strip_forbidden_recursive()` entfernt
+  verschachtelte Secret-Pfade vollständig (statt sie nur zu maskieren).
+  `GET /api/config` liefert jetzt nur noch Schlüssel, die 1:1
+  zurückgepostet werden können.
+- Dateien: `runtime_config.py`, `app.py`.
+- Test: `tests/test_b352_config_get_excludes_non_editable.py` (inkl.
+  Kern-Test: kompletter GET-Response als POST-Payload muss immer 200 liefern).
+- Phasen-Status (Hailo): unverändert.

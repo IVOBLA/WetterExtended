@@ -2043,12 +2043,20 @@ def api_config_get():
     Gibt die vollständige aktive Konfiguration zurück (Secrets entfernt).
     Finding #3 Fix: PX_TO_KMH explizit ergänzen falls nicht in runtime_config.
     Frontend darf keine eigene PX_TO_KMH-Formel haben.
+
+    B352: Schluessel, die als Runtime-Override ohnehin nie akzeptiert wuerden
+    (z.B. UPSCALE_FACTOR, QUALITY_TARGET_MAE_KM_FIXED/CONFIGURABLE_DEFAULT),
+    werden hier herausgefiltert. Sonst fuehrt "kompletten Stand kopieren,
+    kleine Aenderung machen, unveraendert zurueckspeichern" ueber die
+    Admin-UI zuverlaessig zu einem Fehler (siehe B351).
     """
     from config import PX_TO_KMH as _PX_DEFAULT
     raw = runtime_config.all_effective()
     # PX_TO_KMH immer explizit mitliefern — Frontend Single Source of Truth
     if "PX_TO_KMH" not in raw:
         raw["PX_TO_KMH"] = runtime_config.get("PX_TO_KMH", _PX_DEFAULT)
+    raw = {k: v for k, v in raw.items() if runtime_config.is_editable_override_key(k)}
+    raw = runtime_config.strip_forbidden_recursive(raw)
     return jsonify(_redact_secrets(raw))
 
 
