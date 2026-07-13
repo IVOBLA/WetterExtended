@@ -4839,3 +4839,17 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Test: `tests/test_b350_latest_export_download.py`.
 - Frontend-Build lokal angestoßen; in dieser Umgebung blockiert die fehlende Rollup-Optional-Dependency `@rollup/rollup-linux-x64-gnu` den Abschluss.
 - Phasen-Status (Hailo): unverändert.
+
+### B351 — /api/config lieferte HTTP 500 statt 400 bei QUALITY_TARGET_MAE_KM_<=30 ✅ erledigt
+- Ursache: `api_config_save()` fing nur `forbidden_keys_in()`-Verstöße
+  (Secrets/UPSCALE_FACTOR) ab. Die unabhängige Sperre für
+  `QUALITY_TARGET_MAE_KM_<=30` (zieldefinition.txt) wird erst innerhalb von
+  `runtime_config.patch()` via `validate_override_key()` geprüft und wirft
+  dort einen `ValueError` — unbehandelt, daher HTTP 500. Reproduziert im
+  Live-Betrieb beim Speichern von Runtime-Overrides über das Admin-Panel.
+- Fix: `runtime_config.patch(data)`-Aufruf in `api_config_save()` in
+  try/except gekapselt; `ValueError` wird als HTTP 400 mit der
+  ursprünglichen, bereits verständlichen Fehlermeldung ausgeliefert.
+- Dateien: `app.py`.
+- Test: `tests/test_b351_config_save_value_error.py`.
+- Phasen-Status (Hailo): unverändert.
