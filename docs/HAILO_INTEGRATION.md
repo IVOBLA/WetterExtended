@@ -4699,3 +4699,30 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Test: `tests/test_b343_ml_readiness_regression_alert.py` (ergaenzt um
   Latch- und Recovery-Test).
 - Phasen-Status (Hailo): unveraendert.
+
+### B344 — Open-Meteo-Fallback-Werte waren unmarkiert (ununterscheidbar von echten Nullwerten) ✅ erledigt
+- Ursache: Vier Open-Meteo-Fetcher (`fetch_700hpa_wind_per_object_slim.py`,
+  `fetch_arome_openmeteo.py`, `fetch_openmeteo_extended.py`,
+  `fetch_synoptic_features.py`) fallen bei API-Fehler/fehlendem Zeitslot auf
+  feste Default-Werte zurueck, ohne dies zu markieren. Ein frueherer
+  automatisierter Analyse-Report hatte nur zwei der vier betroffenen Module
+  zitiert (und den Code-Ref fuer `wind_speed_500hPa` falsch zugeordnet — die
+  tatsaechliche Quelle ist `fetch_openmeteo_extended.py`, nicht die zitierten
+  Dateien). Zusaetzlich identifiziert: `fetch_synoptic_features.py` faellt
+  nicht auf 0.0 zurueck, sondern auf einen plausiblen Klimamittelwert
+  (`wind_500_speed=20.0`), wodurch selbst eine `zero_ratio`-Pruefung den
+  Ausfall nicht erkennen wuerde.
+- Fix: Alle vier Module setzen bei Fallback zusaetzlich `<feature>_fallback=1`
+  auf dem Objekt. `accuracy_tracker._detail_record()` schreibt diese Marker
+  in `forecast_error_details.jsonl`. `tools/diagnose_forecast_quality.py`
+  benoetigte keine Aenderung (`fallback_ratio` liest bereits `<name>_fallback`).
+- Bewusst NICHT geaendert: Fallback-WERTE selbst, Verhalten des
+  kinematischen Forecasts. Die Konsum-Seite (`prediction.py::
+  _steering_motion_vector_from_obj()`, nutzt `wind_500_speed` als
+  Steuerstrom-Kandidat) wird in einem separaten Prompt (B345) behandelt.
+- Dateien: `fetch_700hpa_wind_per_object_slim.py`, `fetch_arome_openmeteo.py`,
+  `fetch_openmeteo_extended.py`, `fetch_synoptic_features.py`,
+  `accuracy_tracker.py`.
+- Test: `tests/test_b344_openmeteo_fallback_markers.py`.
+- Phasen-Status (Hailo): unveraendert; reine Diagnose-/Feature-Qualitaets-
+  Korrektur, keine Auswirkung auf Phase B (Hailo-U-Net-Nowcasting).

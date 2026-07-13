@@ -333,6 +333,16 @@ def _detail_record(obj: dict, ts: datetime, target_ts: datetime, horizon_min: in
         "arome_li":              _safe_float(obj.get("arome_li")),
         "arome_t2m":             _safe_float(obj.get("arome_t2m")),
         "wind_speed_500hPa":     _safe_float(obj.get("wind_speed_500hPa")),
+        # B344: Fallback-Marker fuer Open-Meteo-0.0-Platzhalter (API-Fehler/
+        # fehlender Zeitslot) -- macht Ausfaelle fuer
+        # tools/diagnose_forecast_quality.py::_feature_stats (fallback_ratio)
+        # sichtbar, statt ununterscheidbar von echten Nullwerten zu sein.
+        "wind_speed_700hPa_fallback": bool(obj.get("wind_speed_700hPa_fallback")),
+        "wind_dir_cos_fallback":      bool(obj.get("wind_dir_cos_fallback")),
+        "wind_dir_sin_fallback":      bool(obj.get("wind_dir_sin_fallback")),
+        "arome_t2m_fallback":         bool(obj.get("arome_t2m_fallback")),
+        "arome_li_fallback":          bool(obj.get("arome_li_fallback")),
+        "wind_speed_500hPa_fallback": bool(obj.get("wind_speed_500hPa_fallback")),
         "nowcast_rr_mm15":       _safe_float(obj.get("nowcast_rr_mm15")),
         "lightning_count_10km":  _safe_float(obj.get("lightning_count_10km")),
         "kinematic_speed_kmh":   _safe_float(obj.get("kinematic_speed_kmh")),

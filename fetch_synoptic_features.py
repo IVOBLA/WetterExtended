@@ -41,6 +41,13 @@ _DEFAULT = {
     "wind_500_dir_sin": 1.0,
 }
 
+# B344: Marker fuer Fallback-Nutzung. WICHTIG: der Fallback-Wert fuer
+# wind_500_speed (20.0 km/h) liegt UEBER dem Standard-Schwellwert
+# STEERING_BLEND_MIN_WIND_KMH (10.0 km/h, config.py) und wuerde ohne diesen
+# Marker in prediction.py::_steering_motion_vector_from_obj() unbemerkt als
+# gueltiger Steuerstrom-Kandidat durchgehen (siehe B345).
+_FALLBACK_MARKERS_SYNOPTIC = {"wind_500_speed_fallback": 1}
+
 
 def _nearest_hour(ref_ts_str: str | None = None) -> str:
     """
@@ -98,6 +105,7 @@ def assign_synoptic_features(objects, timestamp):
     for i, o in enumerate(objects):
         if i not in valid_idx:
             o.update(_DEFAULT)
+            o.update(_FALLBACK_MARKERS_SYNOPTIC)
 
     if not valid:
         debug_log("[SYNOPTIC] Keine Koordinaten — kein API-Call.")
@@ -130,18 +138,23 @@ def assign_synoptic_features(objects, timestamp):
             log_api_failure("Open-Meteo-synoptic", url, "timeout", fallback_used=True)
             for _, o in valid:
                 o.update(_DEFAULT)
+                o.update(_FALLBACK_MARKERS_SYNOPTIC)
             return objects
         except Exception as exc:
             log_api_failure("Open-Meteo-synoptic", url,
                             f"{type(exc).__name__}: {exc}", fallback_used=True)
             for _, o in valid:
                 o.update(_DEFAULT)
+                o.update(_FALLBACK_MARKERS_SYNOPTIC)
             return objects
 
     if isinstance(data, dict):
         data = [data]
     for i, (_, o) in enumerate(valid):
-        o.update(_parse(data[i] if i < len(data) else {}, t))
+        parsed = _parse(data[i] if i < len(data) else {}, t)
+        o.update(parsed)
+        if parsed == _DEFAULT:
+            o.update(_FALLBACK_MARKERS_SYNOPTIC)
 
     debug_log(f"[SYNOPTIC] {len(valid)} Objekte mit 500-hPa versehen.")
     return objects

@@ -37,6 +37,16 @@ _DEFAULT_WIND = {
     "geopotential_300hPa": 0.0,
 }
 
+# B344: Marker-Felder fuer 0.0-Fallback (API-Fehler/fehlender Zeitslot).
+# Ermoeglichen tools/diagnose_forecast_quality.py::_feature_stats einen
+# echten fallback_ratio statt konstant 0.0 auszuweisen (vorher war der
+# Fallback nicht von einem echten Messwert 0.0 unterscheidbar).
+_FALLBACK_MARKERS_700 = {
+    "wind_speed_700hPa_fallback": 1,
+    "wind_dir_cos_fallback": 1,
+    "wind_dir_sin_fallback": 1,
+}
+
 
 def _nearest_hour_str(ref_ts_str: str | None = None) -> str:
     """
@@ -134,6 +144,7 @@ def fetch_and_assign_700hpa_wind(objects: list, timestamp: str) -> list:
     for i, obj in enumerate(objects):
         if i not in valid_idxs:
             obj.update(_DEFAULT_WIND)
+            obj.update(_FALLBACK_MARKERS_700)
 
     if not valid:
         debug_log("[WIND] Keine Objekte mit Koordinaten — kein API-Call.")
@@ -178,6 +189,7 @@ def fetch_and_assign_700hpa_wind(objects: list, timestamp: str) -> list:
                          duration_ms=(_t_wind.monotonic() - _t0_wind) * 1000)
             for _, obj in valid:
                 obj.update(_DEFAULT_WIND)
+                obj.update(_FALLBACK_MARKERS_700)
             return objects
         except requests.exceptions.HTTPError as exc:
             status = getattr(exc.response, "status_code", None)
@@ -185,12 +197,14 @@ def fetch_and_assign_700hpa_wind(objects: list, timestamp: str) -> list:
                             f"http-{status}", fallback_used=True, http_status=status)
             for _, obj in valid:
                 obj.update(_DEFAULT_WIND)
+                obj.update(_FALLBACK_MARKERS_700)
             return objects
         except Exception as exc:
             log_api_failure("Open-Meteo-icon_global", bulk_url,
                             f"{type(exc).__name__}: {exc}", fallback_used=True)
             for _, obj in valid:
                 obj.update(_DEFAULT_WIND)
+                obj.update(_FALLBACK_MARKERS_700)
             return objects
 
     # Response normalisieren
@@ -203,10 +217,13 @@ def fetch_and_assign_700hpa_wind(objects: list, timestamp: str) -> list:
     for loc_idx, (_, obj) in enumerate(valid):
         if loc_idx >= len(data):
             obj.update(_DEFAULT_WIND)
+            obj.update(_FALLBACK_MARKERS_700)
             debug_log(f"[WIND] Fehlende Response für Objekt {obj.get('id')} — Default.")
             continue
         wind_vals = _parse_wind_response(data[loc_idx], target_time)
         obj.update(wind_vals)
+        if wind_vals == _DEFAULT_WIND:
+            obj.update(_FALLBACK_MARKERS_700)
         wind_records.append({"id": obj.get("id"), **wind_vals})
 
     # Stille Datenfehler: wenn ALLE Objekte Default-Windwerte haben →
