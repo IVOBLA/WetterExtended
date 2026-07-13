@@ -4803,3 +4803,23 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Dateien: `prediction.py`, `accuracy_tracker.py`.
 - Test: `tests/test_b348_kinematic_accel_proxy.py`.
 - Phasen-Status (Hailo): unverändert.
+
+### B349 — Beschleunigungs-Validierung automatisch im 24h-Export ✅ erledigt
+- Ziel: Die Drift-Root-Cause-Hypothese (EWMA unterschätzt Geschwindigkeit
+  beschleunigender Zellen, B307/B348) automatisch bei jedem Export prüfen,
+  statt manuell per Ad-hoc-Skript.
+- Fix: Neues Skript `tools/diagnose_kinematic_acceleration.py` (analog
+  `diagnose_forecast_quality.py`), gruppiert `forecast_error_details.jsonl`
+  nach Beschleunigungs-Proxy-Bucket, berechnet signierten Speed-Error
+  (actual − forecast) und eine Pearson-Korrelation. Wird über
+  `export_diagnosis.run_kinematic_acceleration_diagnosis_before_export()`
+  automatisch vor jedem 24h-Export ausgeführt (analog
+  `run_forecast_quality_diagnosis_before_export`), Ergebnis landet als
+  `kinematic_acceleration_validation_latest.json` im Export.
+- Bewusst NICHT Teil dieses Fixes: kein Verhaltens-Fix an der Forecast-Logik.
+  Aktivierung von `KINEMATIC_ACCELERATION_ENABLED` bleibt eine manuelle
+  Entscheidung von Horst anhand der Diagnose-Ergebnisse.
+- Dateien: `tools/diagnose_kinematic_acceleration.py` (neu),
+  `export_diagnosis.py`, `debug_export.py`.
+- Test: `tests/test_b349_kinematic_acceleration_diagnosis.py`.
+- Phasen-Status (Hailo): unverändert.
