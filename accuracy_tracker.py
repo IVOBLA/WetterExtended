@@ -346,6 +346,9 @@ def _detail_record(obj: dict, ts: datetime, target_ts: datetime, horizon_min: in
         "nowcast_rr_mm15":       _safe_float(obj.get("nowcast_rr_mm15")),
         "lightning_count_10km":  _safe_float(obj.get("lightning_count_10km")),
         "kinematic_speed_kmh":   _safe_float(obj.get("kinematic_speed_kmh")),
+        # B348: Diagnose-Proxy fuer die Drift-Root-Cause-Validierung (B349).
+        "kinematic_accel_proxy_kmh":      _safe_float(obj.get("kinematic_accel_proxy_kmh")),
+        "kinematic_acceleration_applied": bool(obj.get("kinematic_acceleration_applied")),
         "core_ratio":            _safe_float(obj.get("core_ratio")),
         "area":                  _safe_float(obj.get("area")),
     }

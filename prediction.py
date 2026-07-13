@@ -456,6 +456,33 @@ def _compute_acceleration_px_per_min2(history: list) -> tuple[float, float] | No
         return None
 
 
+def _recent_speed_delta_kmh(history: list) -> float | None:
+    """B348: Differenz der letzten zwei Intervallgeschwindigkeiten in km/h
+    (positiv = Zelle beschleunigt, negativ = verzoegert). Rein diagnostisch,
+    unabhaengig von KINEMATIC_ACCELERATION_ENABLED. Nutzt dieselbe
+    History-Basis wie _compute_acceleration_px_per_min2()."""
+    pts = [h for h in (history or []) if h.get("timestamp") and "x" in h and "y" in h]
+    if len(pts) < 3:
+        return None
+    try:
+        speeds_kmh = []
+        for i in range(1, len(pts)):
+            t0 = datetime.strptime(pts[i - 1]["timestamp"], "%Y-%m-%d_%H-%M-%S")
+            t1 = datetime.strptime(pts[i]["timestamp"], "%Y-%m-%d_%H-%M-%S")
+            dt_min = (t1 - t0).total_seconds() / 60.0
+            if dt_min < 0.5:
+                continue
+            dx = pts[i]["x"] - pts[i - 1]["x"]
+            dy = pts[i]["y"] - pts[i - 1]["y"]
+            speed_px_min = ((dx / dt_min) ** 2 + (dy / dt_min) ** 2) ** 0.5
+            speeds_kmh.append(speed_px_min / float(_UF or 1.0) * 60.0)
+        if len(speeds_kmh) < 2:
+            return None
+        return round(speeds_kmh[-1] - speeds_kmh[-2], 3)
+    except Exception:
+        return None
+
+
 def _bounded_acceleration_displacement(vx: float, vy: float, accel, horizon_min: float) -> tuple[float, float]:
     """B307: 2nd-Order-Verschiebungsanteil (0.5*a*t^2) aus der Beschleunigung,
     hart begrenzt auf einen konfigurierbaren Anteil der linearen (1st-Order)
@@ -757,9 +784,18 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
 
     # B307: Beschleunigung einmalig vor der Horizont-Schleife berechnen (nicht pro
     # Horizont neu), gleiche History-Basis wie avg_vx/avg_vy (inkl. Merge-Guard).
+    # B348: Diagnose-Proxy IMMER berechnen (unabhaengig vom Feature-Flag), damit
+    # die Validierung (B349) auch VOR einer Aktivierung von
+    # KINEMATIC_ACCELERATION_ENABLED Evidenz sammeln kann. Die tatsaechliche
+    # Projektion bleibt weiterhin an das Flag gebunden (kein Verhaltens-Fix).
+    _accel_enabled_flag = bool(_runtime_bool_value("KINEMATIC_ACCELERATION_ENABLED", _STATIC_ACCEL_ENABLED))
+    obj["kinematic_accel_proxy_kmh"] = None if _merge_guard_applied else _recent_speed_delta_kmh(history)
+    obj["kinematic_acceleration_applied"] = 0
     _accel = None
-    if bool(_runtime_bool_value("KINEMATIC_ACCELERATION_ENABLED", _STATIC_ACCEL_ENABLED)) and not _merge_guard_applied:
+    if _accel_enabled_flag and not _merge_guard_applied:
         _accel = _compute_acceleration_px_per_min2(history)
+        if _accel is not None:
+            obj["kinematic_acceleration_applied"] = 1
 
     for horizon in _get_horizons():
         # EINHEITEN (Fix P01 + P26):
