@@ -2243,7 +2243,9 @@ def api_accuracy():
         drift_status = {}
     return jsonify({
         "current": evaluate_all(horizons, since_hours=since),
-        "history": load_history(since_hours=max(since, 24 * 7)),
+        # B355: kein künstlicher 7-Tage-Floor mehr — history folgt dem Zeitraum-Filter
+        # exakt wie "current", statt für 1h/6h/24h/7d identische Daten zu liefern.
+        "history": load_history(since_hours=since),
         "drift_status": drift_status,
     })
 
@@ -2272,7 +2274,8 @@ def api_ml_quality():
             }
     except Exception as exc:
         debug_log(f"[API][B277] ml_quality Promotion-Meta nicht lesbar: {exc}")
-    _recent_hist = _lh(since_hours=max(since, 24))
+    # B355: kein künstlicher Mindest-Floor mehr — folgt dem gewählten Zeitraum exakt.
+    _recent_hist = _lh(since_hours=since)
     # B284: ml_usage_ratio MUSS auf delivered_mode_counts basieren, NICHT auf
     # breakdown_by_forecast_mode — letzteres enthaelt in by_mode["ml"] zusaetzlich
     # Schatten-Bewertungen (_accumulate_ml_shadow, P53/P54) fuer Forecasts, die
@@ -2296,7 +2299,8 @@ def api_ml_quality():
         debug_log(f"[API][P69] Gate-Gruende nicht lesbar: {exc}")
     return jsonify({
         "horizons": [int(h) for h in horizons],
-        "series": _mqs(_lh(since_hours=max(since, 24 * 7)), horizons),
+        # B355: kein künstlicher 7-Tage-Floor mehr — folgt dem gewählten Zeitraum exakt.
+        "series": _mqs(_lh(since_hours=since), horizons),
         "runtime_kinematic_mae_by_horizon": _grk(),
         "last_promotion": last_promotion,
         "forecast_mode_counts": _mode_counts,
