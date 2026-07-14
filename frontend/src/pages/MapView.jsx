@@ -129,14 +129,14 @@ const lineageColor = {
 const CELL_POLYGON_COLOR = '#0b1f5e'
 const CELL_POLYGON_FILL_OPACITY = 0.25
 
-// B118: Merged-Zellen deutlich hervorheben. Alle aktuellen Zellpolygone nutzen
-// dieselbe dunkelblaue Farbe; lineage bleibt nur über Strichstärke/-muster sichtbar.
-// merged → dicker (4) + auffällig gestrichelt; split → 3 + fein gestrichelt;
-// new/continued → unverändert durchgezogen (2).
-function cellStroke(lineage, trackingState) {
+// B378: identisch zu MapFullscreen.cellStroke — Darstellung folgt origin_type
+// (Dauerzustand) statt lineage (seit B375 ein Ereignis).
+function cellStroke(originType, trackingState, lineage) {
+  const origin = originType || (lineage === 'merged' ? 'created_by_merge'
+                             : lineage === 'split'  ? 'created_by_split' : 'new')
   if (trackingState === 'inactive_rain') return { color: CELL_POLYGON_COLOR, weight: 2, dashArray: '7,6', opacity: 0.55, fillOpacity: 0.10 }
-  if (lineage === 'merged') return { color: CELL_POLYGON_COLOR, weight: 4, dashArray: '10,6', opacity: 1, fillOpacity: CELL_POLYGON_FILL_OPACITY }
-  if (lineage === 'split')  return { color: CELL_POLYGON_COLOR, weight: 3, dashArray: '4,4', opacity: 1, fillOpacity: CELL_POLYGON_FILL_OPACITY }
+  if (origin === 'created_by_merge') return { color: CELL_POLYGON_COLOR, weight: 4, dashArray: '10,6', opacity: 1, fillOpacity: CELL_POLYGON_FILL_OPACITY }
+  if (origin === 'created_by_split') return { color: CELL_POLYGON_COLOR, weight: 3, dashArray: '4,4', opacity: 1, fillOpacity: CELL_POLYGON_FILL_OPACITY }
   return { color: CELL_POLYGON_COLOR, weight: 2, dashArray: undefined, opacity: 1, fillOpacity: CELL_POLYGON_FILL_OPACITY }
 }
 
@@ -1173,8 +1173,10 @@ export default function MapView() {
         {objects.filter(isPublicCell).map(o => {
           if (!isPublicCell(o) || !o.contour_geo || o.contour_geo.length < 3) return null
           const outerPos    = o.contour_geo.map(p => [p[1], p[0]])
-          const stroke      = cellStroke(o.lineage, o.tracking_state)
-          const borderColor = lineageColor[o.lineage] || '#888'
+          const stroke      = cellStroke(o.origin_type, o.tracking_state, o.lineage)
+          const borderColor = lineageColor[o.origin_type === 'created_by_merge' ? 'merged'
+                                        : o.origin_type === 'created_by_split' ? 'split'
+                                        : o.lineage] || '#888'
           return (
             <React.Fragment key={'cell_' + o.id}>
               <Polygon

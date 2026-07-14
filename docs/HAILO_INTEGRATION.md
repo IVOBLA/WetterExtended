@@ -5451,3 +5451,35 @@ Mindestbeiträge, Scheinmerge einer Systemhülle abgelehnt, Bestätigung erst ab
 (Event-Dedup) ist das Abnahmekriterium „0 wiederholte Eventsignaturen in Folgeframes“ erfüllt.
 **Offen:** Segmentierung (Voronoi → adaptive Hysterese) → **B376**; Primary-Policy-Konsistenz →
 **B377**. Der Replay-Regressionstest für `1C04EV5M` (15:00–16:05) ist nach B376 zu erstellen.
+
+### B378 — Zellherkunft nach B375 nicht mehr abfragbar (Karte verlor Verbund-Kennzeichnung) ✅ erledigt
+
+**Root-Cause:** B375 stellt `lineage` korrekt von einem Dauerzustand auf ein **Ereignis** um
+(`merged` nur im Bestätigungsframe). Zwei Folgen fing B375 nicht auf:
+
+1. `origin_type` wurde pro Frame aus `lineage` neu abgeleitet. Da `lineage` ab Frame 2
+   `continued` lautet, fiel `origin_type` auf `"new"` zurück — eine aus einem Merge
+   hervorgegangene Zelle behauptete ab dem zweiten Frame, sie sei neu entstanden.
+2. Drei Frontend-Konsumenten lasen `lineage` als Dauerzustand:
+   `MapFullscreen.jsx:134–135`, `MapView.jsx:138–139` (identisches `cellStroke`-Duplikat) und
+   `LiveDaten.jsx:146–147` (⊕/⊗-Badges). Die Verbund-Kennzeichnung wäre nach einem einzigen Frame
+   verschwunden — eine 55-Minuten-Gewitterlinie hätte ab Minute 5 wie eine Einzelzelle ausgesehen.
+
+**Fix:**
+- `_resolve_origin_type()`: Herkunft wird im Ereignisframe gesetzt und in Folgeframes aus dem
+  `previous_snapshot` **fortgeschrieben**. Ein neues Ereignis überschreibt die alte Herkunft.
+- Karte und Live-Liste stellen auf `origin_type` (Dauerzustand) um. **Die Optik bleibt exakt
+  identisch** — nur die Datenquelle ist korrekt. Fallback auf `lineage` hält die Anzeige während
+  eines Rolling-Deployments lesbar, solange Objekte ohne `origin_type` im Payload stehen.
+
+**Tests:** `tests/test_b378_origin_type_carryover.py` — Ereignisframes setzen die Herkunft,
+`continued` erbt sie, Herkunft überlebt eine 11-Frame-Serie (55 min), Neuereignis überschreibt,
+defensive Fälle (kein Vorgänger, ungültiger Wert, kein dict).
+
+**Phasen-Status:** Phase A — **Blocker für die Serie B370–B377 beseitigt.** Ohne B378 hätte das
+Deployment eine sichtbare Regression im Probebetrieb erzeugt.
+
+**Bekannt, bewusst offen:** `cellStroke()` existiert dupliziert in `MapFullscreen.jsx` und
+`MapView.jsx`. Beide Stellen werden identisch gepflegt; die Deduplizierung ist ein eigener
+Root-Cause und wird separat geführt. Die Darstellung von `transition_phase="candidate"`
+(gestrichelte Übergangskandidaten) ist ein Fach-Feature → **P75**.
