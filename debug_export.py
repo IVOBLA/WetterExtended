@@ -329,6 +329,8 @@ def _build_candidates_with_diagnostics(base_dir: Path, save_paths: dict | None) 
         ("external_responses/hydro", Path("train_data/external_responses/hydro"), False),
         ("admin_state", Path("train_data/system"), False),
         ("cell_lineage", Path("train_data/cell_lineage"), False),
+        # B374: Assoziations-Diagnose (Kostenmatrix, Kandidatenpaare, Ablehnungsgründe)
+        ("diagnostics", Path("train_data/association"), False),
         ("system_logs", Path("logs"), False),
         ("config", Path("config.py"), True),
         ("config", Path("runtime_overrides.json"), True),

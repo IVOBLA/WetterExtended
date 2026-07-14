@@ -1077,6 +1077,150 @@ def _seed_velocity_from_snapshot(prev_obj, cx, cy, previous_snapshot):
     return _neighbor_motion_seed(cx, cy, previous_snapshot)
 
 
+# ---------------------------------------------------------------------------
+# B374: Helfer für die globale Datenassoziation
+# ---------------------------------------------------------------------------
+_last_tracking_timestamp = None
+_KM_PER_DEG_LAT = 111.32
+
+
+def _parse_ts(ts):
+    """Robuste Timestamp-Parsung über die im Projekt verwendeten Formate."""
+    if not ts:
+        return None
+    for fmt in ("%Y-%m-%d_%H-%M-%S", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S", "%Y%m%d_%H%M%S"):
+        try:
+            return datetime.strptime(str(ts), fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _tracking_dt_minutes(timestamp):
+    """B374: TATSAECHLICHER Zeitabstand zum letzten Tracking-Lauf in Minuten.
+
+    Der bisherige Stage-2-Cap unterstellte implizit einen festen 5-Minuten-Takt.
+    Bei Radarluecken (10/15 min) war er dadurch zu eng, im Normalbetrieb zu weit.
+    Fallback 5.0 nur beim allerersten Lauf oder unparsbarem Timestamp.
+    """
+    global _last_tracking_timestamp
+    now = _parse_ts(timestamp)
+    prev = _parse_ts(_last_tracking_timestamp)
+    dt = 5.0
+    if now is not None and prev is not None:
+        delta = (now - prev).total_seconds() / 60.0
+        if 0.5 <= delta <= 60.0:
+            dt = float(delta)
+        else:
+            debug_log(f"[B374] dt={delta:.1f}min ausserhalb [0.5,60] — Fallback 5.0min")
+    if now is not None:
+        _last_tracking_timestamp = timestamp
+    return dt
+
+
+def _latlon_to_km(lat, lon):
+    """Lokale, aequidistante Projektion für Kärnten. Ausreichend für Gate-Distanzen."""
+    return (float(lon) * _KM_PER_DEG_LAT * _math_ot.cos(_math_ot.radians(float(lat))),
+            float(lat) * _KM_PER_DEG_LAT)
+
+
+def _is_within_bbox_values(lat, lon, bbox):
+    return (
+        bbox["south"] <= lat <= bbox["north"] and
+        bbox["west"] <= lon <= bbox["east"]
+    )
+
+
+def _build_detection_candidate(c_idx, contour, hsv, bbox_live, filter_config):
+    """B374: Kontur → DetectionCandidate. Filter IDENTISCH zur Hauptschleife.
+
+    Wichtig: Wenn hier andere Filter griffen als unten, verschöben sich die
+    Indizes und die globale Zuordnung liefe ins Leere.
+    """
+    from tracking.association import DetectionCandidate
+    M = cv2.moments(contour)
+    if M["m00"] == 0:
+        return None
+    cx_f = M["m10"] / M["m00"]
+    cy_f = M["m01"] / M["m00"]
+    area, _ = calculate_shape_features(contour)
+    core_info = calculate_core_ratio(hsv, contour)
+    core_ratio = float(core_info.get("core_ratio", 0.0) or 0.0) if isinstance(core_info, dict) else float(core_info or 0.0)
+    if area < filter_config["min_object_area"] and core_ratio < 0.05:
+        return None
+    lat, lon = pixel_to_geo(cx_f, cy_f)
+    if _is_in_exclusion_zone(lat, lon, _rc.get("STATIC_EXCLUSION_ZONES", _DEFAULT_EXCLUSION_ZONES)):
+        return None
+    if not _is_within_bbox_values(lat, lon, bbox_live):
+        return None
+    x_km, y_km = _latlon_to_km(lat, lon)
+    try:
+        poly = Polygon(contour[:, 0, :])
+    except Exception:
+        poly = None
+    return DetectionCandidate(index=c_idx, x_km=x_km, y_km=y_km,
+                              area_px=float(area), core_ratio=core_ratio, polygon=poly)
+
+
+def _build_track_candidates(previous_snapshot, pred_polys, pred_centroids):
+    """B374: previous_snapshot → TrackCandidate-Liste in km/kmh."""
+    from tracking.association import TrackCandidate
+    out = []
+    for oid, obj in (previous_snapshot or {}).items():
+        if not isinstance(obj, dict):
+            continue
+        lat, lon = obj.get("lat"), obj.get("lon")
+        if lat is None or lon is None:
+            continue
+        x_km, y_km = _latlon_to_km(lat, lon)
+        try:
+            from config import PX_TO_KMH as _P2K
+        except Exception:
+            _P2K = 4.0
+        # kf.x[2]/[3] sind Original-px pro Frame → km/h über PX_TO_KMH.
+        vx_kmh = float(obj.get("vx", 0.0) or 0.0) * float(_P2K)
+        vy_kmh = float(obj.get("vy", 0.0) or 0.0) * float(_P2K)
+        out.append(TrackCandidate(
+            track_id=str(oid), pred_x_km=x_km, pred_y_km=y_km,
+            vx_kmh=vx_kmh, vy_kmh=-vy_kmh,   # Bildkoordinaten y wächst nach Süden
+            area_px=float(obj.get("area", 0.0) or 0.0),
+            core_ratio=float(obj.get("core_ratio", 0.0) or 0.0),
+            age_frames=int(obj.get("total_active_frames", 0) or 0),
+            missing=int(obj.get("missing", 0) or 0),
+            polygon=pred_polys.get(oid),
+        ))
+    return out
+
+
+def _persist_association_diagnosis(result, timestamp, dt_minutes):
+    """B374: Kandidaten, Kosten und Ablehnungsgründe pro Frame persistieren.
+
+    Erfüllt das Abnahmekriterium „Exportierte Kandidaten-/Kosten-Diagnosen: 100 %
+    der aktiven Frames“. Ohne diese Datei ist jede Fehlzuordnung im Nachhinein
+    nicht rekonstruierbar.
+    """
+    try:
+        from pathlib import Path
+        import json as _json
+        out_dir = Path(str(_rc.get("ASSOCIATION_DIAGNOSIS_DIR", "train_data/association")))
+        out_dir.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "timestamp": str(timestamp),
+            "dt_minutes": round(float(dt_minutes), 2),
+            "method": result.method,
+            "matches": {str(k): v for k, v in result.matches.items()},
+            "unmatched_detections": list(result.unmatched_detections),
+            "unmatched_tracks": list(result.unmatched_tracks),
+            "candidate_pairs": result.candidate_pairs,
+            "cost_matrix": result.cost_matrix,
+            "rejected_matches": result.rejected_matches,
+        }
+        (out_dir / f"{timestamp}.json").write_text(
+            _json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as exc:
+        debug_log(f"[B374] Assoziations-Diagnose nicht geschrieben: {exc}")
+
+
 def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_mask=None):
     FILTER_CONFIG = _get_filter_config_live()
     # was_active-Schwellwert — runtime-überschreibbar über Admin-Panel
@@ -1168,7 +1312,55 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
 
     assigned_old_to_new = {}
 
-    for contour in contours:
+    # ========================================================================
+    # B374: globale 1:1-Zuordnung statt greedy Stage-1/2/3
+    # ------------------------------------------------------------------------
+    # Vorher entschied die OpenCV-Konturreihenfolge ueber die Zellidentitaet:
+    # `for contour in contours` verarbeitete Konturen nacheinander und entfernte
+    # vergebene IDs ueber used_ids aus allen folgenden Kandidatenlisten.
+    # Gegenfall: X passt gut zu A und etwas schlechter zu B, Y passt nur zu A.
+    # Greedy (X zuerst) -> X=A, Y=new. Global optimal -> X=B, Y=A.
+    # Jetzt: alle zulaessigen Paare werden zuerst bewertet, dann wird EINMAL
+    # global optimal zugeordnet (Hungarian).
+    # ========================================================================
+    _dt_minutes = _tracking_dt_minutes(timestamp)
+    _detections = []
+    _det_by_contour_idx = {}
+    for _c_idx, _c in enumerate(contours):
+        _det = _build_detection_candidate(_c_idx, _c, hsv, _BBOX_LIVE, FILTER_CONFIG)
+        if _det is None:
+            continue          # identische Filter wie in der Hauptschleife
+        _detections.append(_det)
+        _det_by_contour_idx[_c_idx] = _det
+
+    _track_candidates = _build_track_candidates(previous_snapshot, pred_polys, pred_centroids)
+
+    try:
+        from tracking.association import solve_global_assignment as _solve_assoc
+        _assoc_result = _solve_assoc(
+            _track_candidates, _detections,
+            dt_minutes=_dt_minutes,
+            max_speed_kmh=float(_rc.get("MAX_CELL_SPEED_KMH", 150.0)),
+        )
+        debug_log(
+            f"[B374] Globale Zuordnung: {len(_assoc_result.matches)} Matches, "
+            f"{len(_assoc_result.unmatched_detections)} neue Detektionen, "
+            f"{len(_assoc_result.unmatched_tracks)} unmatched Tracks, dt={_dt_minutes:.1f}min"
+        )
+    except Exception as _assoc_exc:
+        # Kein stiller Fallback auf greedy: das waere genau der Defekt, den B374
+        # behebt. Ein leeres Ergebnis erzeugt ausschliesslich neue IDs -- das ist
+        # im Debugexport sofort sichtbar statt unbemerkt falsch.
+        debug_log(f"[B374] KRITISCH: globale Zuordnung fehlgeschlagen: {_assoc_exc}")
+        from tracking.association import AssociationResult as _AR
+        _assoc_result = _AR(method="failed")
+        _assoc_result.unmatched_detections = [d.index for d in _detections]
+        _assoc_result.unmatched_tracks = [t.track_id for t in _track_candidates]
+
+    _persist_association_diagnosis(_assoc_result, timestamp, _dt_minutes)
+    _unmatched_track_ids = set(_assoc_result.unmatched_tracks)
+
+    for _c_idx, contour in enumerate(contours):
         M = cv2.moments(contour)
         if M["m00"] == 0:
             continue
@@ -1216,81 +1408,37 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
         _cy_s = float(np.mean(contour[:, 0, 1]))
         area_new = max(current_poly.area, 1e-6)
 
-        # === Stage 1: IoU mit KALMAN-VORHERGESAGTER Position =================
-        # Verschiebt altes Polygon um Kalman-Versatz (vx*UF, vy*UF).
-        # Kernfix: schnell bewegte Zellen haben 0% Overlap mit ALTER, aber hohen
-        # Overlap mit VORHERGESAGTER Position → gleiche ID bleibt erhalten.
+        # === B374: Ergebnis der GLOBALEN 1:1-Zuordnung ========================
+        # Stage 1/2/3 sind ersatzlos entfallen. Die Zuordnung wurde bereits vor
+        # dieser Schleife fuer ALLE Konturen gleichzeitig optimal geloest.
+        # Der Score 1.0 markiert einen bestaetigten globalen 1:1-Match; die
+        # tatsaechlichen Kosten stehen in der Diagnose (association_diagnosis).
         overlaps = []
-        for _oid1, _ppoly1 in pred_polys.items():
-            if _oid1 in used_ids or _ppoly1 is None:
-                continue
-            try:
-                _inter1 = current_poly.intersection(_ppoly1).area
-                _union1 = current_poly.union(_ppoly1).area
-                _iou1   = _inter1 / max(_union1, 1e-6)      # IoU
-                _rcl1   = _inter1 / area_new                 # Recall
-                _s1     = max(_iou1, _rcl1 * 0.7)           # kombinierter Score
-                if _s1 >= 0.10:
-                    overlaps.append((_oid1, _s1))
-            except Exception:
-                continue
-        overlaps.sort(key=lambda t: t[1], reverse=True)
+        _global_match_id = _assoc_result.matches.get(_c_idx)
+        if _global_match_id and _global_match_id not in used_ids:
+            overlaps.append((_global_match_id, 1.0))
 
-        # === Stage 2: Centroid-Distanz zur vorhergesagten Position ============
-        # Fallback wenn Stage 1 leer (z.B. Zelle wächst/schrumpft stark +
-        # bewegt sich gleichzeitig → Polygon-Overlap unter Schwelle trotz Nähe).
-        if not overlaps:
-            _best2_d   = _STAGE2_MAX_DIST
-            _best2_id  = None
-            _best2_cap = _STAGE2_MAX_DIST
-            for _oid2, (_pcx2, _pcy2) in pred_centroids.items():
-                if _oid2 in used_ids:
-                    continue
-                # B365: schwache/sterbende Ursprungszelle → engerer Cap ohne Puffer.
-                _prev_core2 = float(previous_snapshot.get(_oid2, {}).get("core_ratio", 0.0) or 0.0)
-                _cap2 = _STAGE2_MAX_DIST_WEAK if _prev_core2 < _was_active_threshold else _STAGE2_MAX_DIST
-                _d2 = _math.hypot(_cx_s - _pcx2, _cy_s - _pcy2)
-                if _d2 < _best2_d and _d2 <= _cap2:
-                    _prev_a2  = float(previous_snapshot.get(_oid2, {}).get("area", area_new))
-                    _aratio2  = min(area_new, _prev_a2) / max(area_new, _prev_a2, 1.0)
-                    if _aratio2 >= 0.10:   # max ~10× Größenänderung erlaubt
-                        _best2_d   = _d2
-                        _best2_id  = _oid2
-                        _best2_cap = _cap2
-            if _best2_id is not None:
-                _score2 = max(0.01, 1.0 - _best2_d / _best2_cap)
-                overlaps = [(_best2_id, _score2)]
-                debug_log(
-                    f"[TRACK] Stage-2-Match: {_best2_id} "
-                    f"dist={_best2_d:.1f}px score={_score2:.2f}"
-                )
+        # B374: Stage 2 (Centroid-Distanz in Pixeln) und Stage 3 (IoU mit
+        # Originalposition) sind ersatzlos entfallen. Beide Faelle deckt die
+        # globale Kostenmatrix vollstaendig ab:
+        #   - Stage-2-Fall (starke Groessenaenderung + Bewegung): Kostenkomponente
+        #     c_pos + c_area, gegatet ueber die Suchellipse in echten km.
+        #   - Stage-3-Fall (statische Zelle, vx=vy=0): isotroper Suchkreis, da
+        #     _search_radii_km() bei speed<1 km/h auf den engen Radius zurueckfaellt.
+        # B365 (STAGE2_WEAK_CELL_MAX_SPEED_KMH) ist in den physikalischen Gates
+        # aufgegangen und wird durch c_age/c_core verallgemeinert.
 
-        # === Stage 3: IoU mit URSPRÜNGLICHER Position (statische Zellen) ======
-        # Klassischer Overlap für Zellen mit vx=vy≈0 (kein Versatz → pred=orig).
-        # Wird nur erreicht wenn Stage 1+2 leer sind.
-        if not overlaps:
-            for _oid3, _opoly3 in prev_polys:
-                if _oid3 in used_ids:
-                    continue
-                try:
-                    _r3 = current_poly.intersection(_opoly3).area / area_new
-                    if _r3 >= 0.30:
-                        overlaps.append((_oid3, _r3))
-                except Exception:
-                    continue
-            overlaps.sort(key=lambda t: t[1], reverse=True)
-
-        # === Merge-Fallback: Abdeckung der ALTEN Parent-Fläche ===============
-        # Große Merge-Konturen verwässern IoU und inter/area_new: ein alter
-        # Parent kann fast vollständig in der neuen Kontur liegen, aber wegen
-        # der großen neuen Fläche trotzdem unter den bisherigen Schwellen bleiben.
-        # Deshalb prüfen wir nach Stage 1/2/3 alle vorherigen Konturen und
-        # bewerten zusätzlich inter/old_area. Ab 30% alter Abdeckung zählt die
-        # Zelle als Merge-Parent; bei >=2 Parents wird unten lineage="merged".
         _overlap_by_id = {oid: score for oid, score in overlaps}
         _old_area_by_id = {}
         for _oid_m, _opoly_m in prev_polys:
             if _oid_m in used_ids or _oid_m not in previous_snapshot:
+                continue
+            # B374: Ein Track, der bereits global 1:1 einer ANDEREN Detektion
+            # zugeordnet wurde, darf hier nicht mehr als Merge-Parent auftauchen.
+            # Genau das erzeugte bisher Scheinmerges: eine grosse Systemkontur
+            # "sammelte" Parents ein, die in Wahrheit eigenstaendig weiterlebten.
+            # Merge-Kandidaten sind ausschliesslich UNMATCHED alte Zellen.
+            if _oid_m not in _unmatched_track_ids and _oid_m != _global_match_id:
                 continue
             try:
                 _old_area_m = max(float(_opoly_m.area), 1e-6)
