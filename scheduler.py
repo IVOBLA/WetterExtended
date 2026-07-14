@@ -46,6 +46,7 @@ import api_circuit_breaker
 import size_regressor as _size_reg_mod
 from accuracy_tracker import evaluate_all, append_history_point
 from cpu_monitor import append_cpu_sample
+from mem_monitor import append_mem_sample
 
 
 # ---------------------------------------------------------------------------
@@ -560,6 +561,14 @@ def run_cpu_monitor_job():
         debug_log(f"[SCHEDULER] Job cpu_monitor Fehler: {exc}")
 
 
+def run_mem_monitor_job():
+    """B358: RAM-Auslastung sampeln und in mem_history.jsonl speichern."""
+    try:
+        append_mem_sample()
+    except Exception as exc:
+        debug_log(f"[SCHEDULER] Job mem_monitor Fehler: {exc}")
+
+
 
 def run_skywarn_export_snapshot_job():
     """Daily Skywarn snapshot for the 24h debug export only."""
@@ -742,6 +751,13 @@ def create_scheduler() -> BlockingScheduler:
         run_cpu_monitor_job,
         trigger=IntervalTrigger(minutes=5),
         id="cpu_monitor", max_instances=1, coalesce=True,
+    )
+
+    # --- immer aktiv: RAM-Monitoring (alle 5 Min, B358) ---
+    sched.add_job(
+        run_mem_monitor_job,
+        trigger=IntervalTrigger(minutes=5),
+        id="mem_monitor", max_instances=1, coalesce=True,
     )
 
     # --- Hydro-Live/Verifikation: TTL im Fetch verhindert unnötige Fremdrequests ---

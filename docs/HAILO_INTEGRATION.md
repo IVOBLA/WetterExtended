@@ -4977,3 +4977,25 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   `debug_export.py`, `tools/diagnose_convlstm_training.py` (neu).
 - Test: `tests/test_b357_convlstm_training_telemetry.py`.
 - Phasen-Status (Hailo): unverändert.
+
+### B358 — RAM-Verlauf im Dashboard + ConvLSTM-Trainingsstatus im Admin Panel ✅ erledigt (Fach-Feature)
+- Ziel: B356 (dynamisches RLIMIT_AS) und B357 (Trainings-Telemetrie) waren
+  bisher nur im 24h-Debug-Export sichtbar. Horst wollte den ConvLSTM-
+  Trainingsstatus direkt im Admin Panel sehen, zusammen mit einem
+  allgemeinen Arbeitsspeicher-Verlauf, um beurteilen zu können, wie knapp
+  der RAM tatsächlich wird.
+- Fix Teil A: Neues `mem_monitor.py` (analog `cpu_monitor.py`) sampelt RAM
+  alle 5 Min via psutil, speichert `train_data/system/mem_history.jsonl`
+  (max. 288 Einträge/24h). Neuer Endpoint `/api/mem_history`, neue
+  `MemChart`-Komponente im Dashboard (analog `CpuChart`).
+- Fix Teil B: Neuer Endpoint `/api/admin/convlstm/status` liest die letzten
+  Einträge aus `convlstm_training_runs.jsonl` (B357) über die neue Funktion
+  `radar_convlstm.get_recent_training_runs()`. Neue `ConvlstmStatusCard`-
+  Komponente auf der Training-Seite zeigt Ergebnis, verwendete `batch_size`
+  und ggf. OOM-/Timeout-Warnung des letzten Laufs direkt neben den
+  bestehenden Zeitplan-Einstellungen.
+- Dateien: `mem_monitor.py` (neu), `scheduler.py`, `app.py`,
+  `radar_convlstm.py`, `frontend/src/pages/Dashboard.jsx`,
+  `frontend/src/pages/Training.jsx`.
+- Test: `tests/test_b358_ram_verlauf_und_convlstm_status.py`.
+- Phasen-Status (Hailo): unverändert.
