@@ -63,6 +63,13 @@ _ALWAYS_INCLUDE_NAMES = {
     "convlstm_training_runs.jsonl",
     "forecast_bias_status.json",
     "radar_ingest_gaps.json",
+    # B372: Lineage-Nachweiskette immer exportieren — unabhaengig vom 24h-mtime-Fenster.
+    # Der Export vom 14.07.2026 enthielt weder den Eventledger noch den State, obwohl
+    # 160 Objekte ein von record_cell_merge() gesetztes lineage_status trugen. Ohne
+    # diese Dateien ist jede Merge/Split-Analyse blind.
+    "cell_lineage_events.jsonl",
+    "cell_lineage_state.json",
+    "cell_lineage_write_status.json",
     "config.py",
 }
 _EXCLUDED_NAMES = {".admin_password"}

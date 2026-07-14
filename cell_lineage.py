@@ -216,14 +216,64 @@ def save_lineage_state(state: dict) -> None:
         _debug(f"[CELL-LINEAGE] State konnte nicht gespeichert werden ({path}): {exc}")
 
 
-def append_lineage_event(event: dict) -> None:
+def _write_status_path() -> Path:
+    """B372: Statusdatei neben dem Eventledger — beweist Erfolg ODER Fehler."""
+    return _state_dir() / "cell_lineage_write_status.json"
+
+
+def _record_write_status(ok: bool, path: str, error: str | None = None) -> None:
+    """B372: Persistenter, exportierter Nachweis ueber den letzten Schreibversuch.
+
+    Vorher wurde jeder Schreibfehler ausschliesslich in eine debug_log-Zeile geschluckt.
+    Da das systemd-Journal im Debug-Export zeitlich abgeschnitten wird, war ein
+    Totalausfall der Event-Persistenz nicht nachweisbar: der Export vom 14.07.2026
+    enthielt weder cell_lineage_events.jsonl noch cell_lineage_state.json, obwohl
+    160 Objekte ein von record_cell_merge() gesetztes lineage_status trugen.
+    """
     try:
-        path = _events_path()
+        status_path = _write_status_path()
+        status_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            prev = json.loads(status_path.read_text(encoding="utf-8"))
+        except Exception:
+            prev = {}
+        status = {
+            "last_attempt_utc": datetime.now(timezone.utc).isoformat(),
+            "resolved_events_path": str(path),
+            "cwd": os.getcwd(),
+            "last_result": "ok" if ok else "error",
+            "ok_count": int(prev.get("ok_count", 0)) + (1 if ok else 0),
+            "error_count": int(prev.get("error_count", 0)) + (0 if ok else 1),
+            "last_error": error if error else prev.get("last_error"),
+            "last_error_utc": (
+                datetime.now(timezone.utc).isoformat() if error else prev.get("last_error_utc")
+            ),
+        }
+        status_path.write_text(
+            json.dumps(status, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
+        )
+    except Exception:
+        pass  # Statusschreibung darf den Radarzyklus niemals stoppen
+
+
+def append_lineage_event(event: dict) -> None:
+    """B372: schreibt den Eventledger unter ABSOLUTEM Pfad und macht Fehler sichtbar.
+
+    `_state_dir()` liefert einen RELATIVEN Pfad (Default "train_data/cell_lineage").
+    Damit haengt das Ziel vom CWD des systemd-Dienstes ab. resolve() macht den Pfad
+    eindeutig und protokolliert ihn in der Statusdatei, sodass ein abweichendes
+    Arbeitsverzeichnis im Debug-Export sofort erkennbar ist.
+    """
+    path = None
+    try:
+        path = _events_path().resolve()
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
+        _record_write_status(True, str(path))
     except Exception as exc:
         _debug(f"[CELL-LINEAGE] Event konnte nicht geschrieben werden: {exc}")
+        _record_write_status(False, str(path) if path else "<unresolved>", f"{type(exc).__name__}: {exc}")
 
 
 def _timestamp_str(timestamp: str | None = None) -> str:
