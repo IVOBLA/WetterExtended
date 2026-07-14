@@ -173,6 +173,11 @@ MULTI_CORE_MIN_CHILD_AREA_PX: int = 800
 # anhand des Debug-Exports 2026-06-30 17:35 (I45JTRXI/9WMB6Q7Q: 0/100 Samples
 # außerhalb der Maske über die volle 18,9-km-Verbindungslinie).
 MULTI_CORE_MIN_GAP_PX: float = 2.0
+# B376: Mindest-Intensitaetssattel zwischen zwei Kernen fuer einen Split (0..1).
+# 0.0 = kein Einschnitt (durchgehende Struktur), 1.0 = vollstaendige Trennung.
+# 0.35 = die Verbindung muss auf mindestens 35 % unter das schwaechere Kernmaximum
+# einbrechen. Ersetzt die 2-px-Luecke, die auf Quantisierungsrauschen ansprach.
+MULTI_CORE_MIN_SADDLE_RATIO: float = 0.35
 
 # --------------------------------------
 # Tracking-Parameter

@@ -553,8 +553,108 @@ def _core_path_gap_px(cell_mask, p1, p2, step_px=1.0):
     return max_run * length_px / (n_samples - 1)
 
 
+def _intensity_field(hsv, cell_mask):
+    """B376: Reflektivitaets-Proxy aus HSV. Hoeher = konvektiv staerker.
+
+    Die Radarfarbskala laeuft von gruen ueber gelb/rot nach violett. Value und
+    Saturation steigen mit der Intensitaet; das Produkt ist ein robuster Proxy,
+    ohne die Farbskala explizit invertieren zu muessen.
+    """
+    v = hsv[:, :, 2].astype(np.float32) / 255.0
+    s = hsv[:, :, 1].astype(np.float32) / 255.0
+    field = (v * s * 255.0).astype(np.uint8)
+    return cv2.bitwise_and(field, field, mask=cell_mask)
+
+
+def _core_saddle_ratio(field, cell_mask, p1, p2, n_samples=64):
+    """B376: Intensitaets-Sattel zwischen zwei Kernen (0..1).
+
+    0.0 = kein Einschnitt (durchgehend starke Struktur, z. B. elongierte
+    Boeenlinie mit mehreren Maxima -> NICHT splitten).
+    1.0 = vollstaendige Trennung (Verbindung verlaeuft durch Nullintensitaet).
+
+    Ersetzt die 2-Pixel-Luecken-Pruefung auf der Geraden, die auf reines
+    Quantisierungs-/JPEG-Rauschen ansprach.
+    """
+    x1, y1 = float(p1[0]), float(p1[1])
+    x2, y2 = float(p2[0]), float(p2[1])
+    h, w = field.shape[:2]
+    vals = []
+    for i in range(n_samples):
+        t = i / float(max(n_samples - 1, 1))
+        x = int(round(x1 + t * (x2 - x1)))
+        y = int(round(y1 + t * (y2 - y1)))
+        if 0 <= x < w and 0 <= y < h:
+            vals.append(0.0 if cell_mask[y, x] == 0 else float(field[y, x]))
+        else:
+            vals.append(0.0)
+    if not vals:
+        return 0.0
+    peak = max(vals[0], vals[-1])
+    if peak <= 1e-6:
+        return 0.0
+    valley = min(vals)
+    return max(0.0, min(1.0, 1.0 - (valley / peak)))
+
+
+def _watershed_split(hsv, contour, core_centers, min_child_area_px):
+    """B376: Marker-gesteuerte Watershed-Expansion statt euklidischer Voronoi.
+
+    Vorher wurde jeder Pixel der gesamten Aussenkontur dem euklidisch naechsten
+    Kernzentrum zugeordnet. Das erzeugte gerade/keilfoermige Grenzen, die quer
+    durch starke rote/violette Flaechen schnitten, und liess den Schwerpunkt bei
+    minimalen Markerbewegungen springen.
+
+    Jetzt folgen die Grenzen den Reflektivitaetsminima: Watershed auf dem
+    invertierten Intensitaetsfeld -- die Wasserscheide bildet sich im Sattel
+    zwischen zwei Kernen, also physikalisch dort, wo die Zellen tatsaechlich
+    getrennt sind (AINT-Prinzip, arXiv:2509.02929).
+    """
+    h, w = hsv.shape[:2]
+    cell_mask = np.zeros((h, w), dtype=np.uint8)
+    cv2.drawContours(cell_mask, [contour], -1, 255, -1)
+    if cv2.countNonZero(cell_mask) == 0:
+        return [contour]
+
+    field = _intensity_field(hsv, cell_mask)
+    # Watershed "flutet" von Minima aus -> invertieren, damit die Kerne die
+    # Taeler sind und die Wasserscheide im Intensitaetssattel entsteht.
+    inverted = cv2.bitwise_not(field)
+    inverted = cv2.bitwise_and(inverted, inverted, mask=cell_mask)
+    topo = cv2.cvtColor(inverted, cv2.COLOR_GRAY2BGR)
+
+    markers = np.zeros((h, w), dtype=np.int32)
+    for idx, (cx, cy, _area) in enumerate(core_centers, start=1):
+        xi, yi = int(round(cx)), int(round(cy))
+        if 0 <= xi < w and 0 <= yi < h:
+            cv2.circle(markers, (xi, yi), 2, idx, -1)
+    markers[cell_mask == 0] = len(core_centers) + 1   # Hintergrund
+
+    cv2.watershed(topo, markers)
+
+    result_contours = []
+    for idx in range(1, len(core_centers) + 1):
+        region_mask = np.zeros((h, w), dtype=np.uint8)
+        region_mask[markers == idx] = 255
+        region_mask = cv2.bitwise_and(region_mask, cell_mask)
+        region_cnts, _ = cv2.findContours(region_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not region_cnts:
+            continue
+        largest = max(region_cnts, key=cv2.contourArea)
+        if cv2.contourArea(largest) >= min_child_area_px:
+            result_contours.append(largest.astype(np.int32))
+
+    if len(result_contours) < 2:
+        return [contour]
+    return result_contours
+
+
 def _voronoi_split(hsv_shape, contour, core_centers, min_child_area_px):
-    """Teilt eine Zell-Kontur via Voronoi-Partitionierung auf."""
+    """DEPRECATED (B376): nur noch als Notfall-Fallback, wenn Watershed scheitert.
+
+    Rein euklidische Zuweisung ohne Bezug zum Intensitaetsfeld -- erzeugt
+    kuenstliche Teilgrenzen. Nicht mehr im regulaeren Pfad.
+    """
     h, w = hsv_shape[:2]
     cell_mask = np.zeros((h, w), dtype=np.uint8)
     cv2.drawContours(cell_mask, [contour], -1, 255, -1)
@@ -616,29 +716,42 @@ def split_multi_core_contours(contours, hsv):
         cell_mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
         cv2.drawContours(cell_mask, [contour], -1, 255, -1)
 
-        eligible = False
+        # B376: Split-Freigabe ueber einen INTENSITAETSSATTEL statt einer 2-px-
+        # Luecke auf der Geraden. Zwei Pixel koennen reines Quantisierungs- oder
+        # JPEG-Farbrauschen sein; ausserdem ist die Gerade kein topologisch
+        # robuster Trennpfad (eine gekruemmte Verbindung wird nicht gesehen).
+        # Zusaetzlich: ALLE Kernpaare muessen den Sattel erfuellen -- bisher gab
+        # ein einziges geeignetes Paar den gesamten Mehrkernkomplex frei.
+        _field = _intensity_field(hsv, cell_mask)
+        _min_saddle = float(_rc.get("MULTI_CORE_MIN_SADDLE_RATIO", 0.35))
+        _pairs_checked = 0
+        _pairs_ok = 0
         for i in range(len(cores)):
             for j in range(i + 1, len(cores)):
                 dx = cores[i][0] - cores[j][0]
                 dy = cores[i][1] - cores[j][1]
                 if _math_ot.sqrt(dx * dx + dy * dy) < min_dist_px:
                     continue
-                # B275: Nur splitten, wenn die Verbindungslinie zwischen den
-                # beiden Kernen die Zell-Maske tatsaechlich verlaesst (echte
-                # Luecke). Bleibt sie komplett innerhalb, ist es eine einzige
-                # zusammenhaengende Struktur trotz mehrerer Kerne.
-                gap_px = _core_path_gap_px(cell_mask, cores[i][:2], cores[j][:2])
-                if gap_px >= min_gap_px:
-                    eligible = True
-                    break
-            if eligible:
-                break
+                _pairs_checked += 1
+                _saddle = _core_saddle_ratio(_field, cell_mask, cores[i][:2], cores[j][:2])
+                _gap_px = _core_path_gap_px(cell_mask, cores[i][:2], cores[j][:2])
+                # Echte Luecke ODER ausgepraegter Intensitaetseinschnitt.
+                if _saddle >= _min_saddle or _gap_px >= min_gap_px:
+                    _pairs_ok += 1
+
+        # Alle geprueften Paare muessen trennbar sein. Eine elongierte Boeenlinie
+        # mit mehreren Maxima ohne Sattel bleibt damit EINE Zelle.
+        eligible = _pairs_checked > 0 and _pairs_ok == _pairs_checked
 
         if not eligible:
             result.append(contour)
             continue
 
-        sub_contours = _voronoi_split(hsv.shape, contour, cores, min_child_area)
+        try:
+            sub_contours = _watershed_split(hsv, contour, cores, min_child_area)
+        except Exception as _ws_exc:
+            debug_log(f"[B376] Watershed fehlgeschlagen, Voronoi-Fallback: {_ws_exc}")
+            sub_contours = _voronoi_split(hsv.shape, contour, cores, min_child_area)
         result.extend(sub_contours)
         if len(sub_contours) > 1:
             debug_log(
