@@ -465,6 +465,13 @@ MAX_CELL_SPEED_KMH: float = 150.0
 # Maximale Geschwindigkeitsänderung pro 5-min-Zyklus (km/h). Verhindert
 # Kalman-Sprünge bei Mess-Artefakten (Plausibilitätsprüfung F14).
 MAX_SPEED_CHANGE_PER_CYCLE_KMH: float = 60.0
+# B365: Stage-2-Fallback-Cap (object_tracking.py) für Zellen, deren
+# core_ratio in der Vorperiode unter WAS_ACTIVE_CORE_RATIO_THRESHOLD liegt
+# (= fast aufgelöst). Ohne den sonst üblichen ×1.5-Puffer, da die
+# Positionsevidenz einer fast aufgelösten Zelle bereits unsicher ist.
+# Verhindert Fehlzuordnung an unabhängige, weiter entfernte Zellen
+# (siehe B365-Analyse: 16,9 km Sprung in 5 Min bei core_ratio 0.0 → 0.073).
+STAGE2_WEAK_CELL_MAX_SPEED_KMH: float = 60.0
 # B273: Max. Abweichung (Grad) zwischen der zuletzt beobachteten Zugrichtung
 # (direction_deg) und einem einzelnen ML-Forecast-Horizontpunkt. Da jeder
 # Horizont (10/20/30/40/60 min) ein unabhaengig trainiertes Modell hat (P58),

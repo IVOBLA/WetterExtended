@@ -5124,3 +5124,28 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   `tests/test_hydro_runtime_config_contract.py`.
 - Test: `tests/test_b364_runtime_config_test_isolation.py`.
 - Phasen-Status (Hailo): unverändert.
+
+### B365 — Stage-2-Fallback-Matching erlaubte Fehlzuordnung an unabhängige Zellen bei fast aufgelöster Ursprungszelle ✅ erledigt
+- Ursache: Die Distanzschwelle des Stage-2-Centroid-Fallbacks
+  (`_STAGE2_MAX_DIST` = `MAX_CELL_SPEED_KMH / PX_TO_KMH × UPSCALE_FACTOR ×
+  1.5` ≈ 18,75 km) galt unabhaengig vom Zustand der Ursprungszelle. Anhand
+  echter Debug-Export-Daten (2026-07-14) verifiziert: Zelle `MSAXMF9K`
+  wurde bei `core_ratio = 0.0` (praktisch aufgeloest) faelschlich mit
+  einer 16,9 km entfernten, unabhaengigen Zelle fortgesetzt (Sprung in
+  einem 5-Min-Frame, Richtung drehte von 100° ESE auf 315° NW). `lineage`
+  blieb durchgehend "continued", kein Merge/Split. Kalman-Geschwindigkeit
+  und -Richtung wurden dadurch korrumpiert und in der Live-Karte falsch
+  angezeigt.
+- Fix: Neue Konstante `STAGE2_WEAK_CELL_MAX_SPEED_KMH` (60 km/h, kein
+  1.5×-Puffer) greift, wenn `core_ratio` der Vorperiode unter
+  `WAS_ACTIVE_CORE_RATIO_THRESHOLD` liegt. Aktive/kraeftige Zellen sind
+  unveraendert vom bisherigen, grosszuegigeren Cap betroffen.
+- Dateien: `config.py`, `object_tracking.py`.
+- Test: `tests/test_b365_stage2_weak_cell_match_cap.py`.
+- Phasen-Status (Hailo): unveraendert — reiner Tracking-Genauigkeits-Fix,
+  keine Hailo-Auswirkung. Hinweis fuer MAE-Drift-Untersuchung: dieser Bug
+  ist ein potenzieller (bisher nicht dokumentierter) weiterer Beitrag zur
+  MAE-Drift, da falsche Zugrichtung/-geschwindigkeit direkt in Kinematik-
+  Fallback und ML-Features (vx/vy, core_ratio-Serie) einfliesst. Sollte in
+  der naechsten Drift-Analyse gegen die drift_detector.py-Historie
+  beruecksichtigt werden.
