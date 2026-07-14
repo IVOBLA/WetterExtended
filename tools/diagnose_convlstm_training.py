@@ -100,6 +100,18 @@ def main() -> int:
                     "CONVLSTM_MAX_FRAMES senken, Modellgroesse/Aufloesung reduzieren, oder "
                     "convlstm_weekly auf ein Zeitfenster mit weniger Fremdlast legen."
                 )
+            elif str(outcome).startswith("child_aborted_signal_"):
+                _sig = str(outcome).rsplit("_", 1)[-1]
+                important_findings.append(
+                    f"Letzter Lauf (batch_size={last_run.get('batch_size_used')}) wurde durch "
+                    f"Signal {_sig} beendet — typischerweise std::bad_alloc (nativer C++-Allocator, "
+                    "fuer Python nicht abfangbar). B360-Eltern-Kaskade hat ggf. bereits kleinere "
+                    "batch_size probiert, siehe recent_runs."
+                )
+                recommendations.append(
+                    "Falls dies bei batch_size=1 auftrat: CONVLSTM_MAX_FRAMES senken oder "
+                    "Modellgroesse/Aufloesung reduzieren."
+                )
             elif outcome == "timeout":
                 important_findings.append("Letzter Lauf wurde durch CONVLSTM_TRAIN_TIMEOUT_S abgebrochen.")
                 recommendations.append("Timeout oder Epochenzahl pruefen, falls das Training regelmaessig zu lange braeuchte.")
