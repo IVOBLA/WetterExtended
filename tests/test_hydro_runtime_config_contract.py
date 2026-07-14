@@ -106,6 +106,9 @@ def test_runtime_patch_does_not_persist_forbidden_keys_or_nested_secrets(monkeyp
     written = {}
     monkeypatch.setattr(runtime_config, "_OVERRIDES", {"OLD_SECRET": "drop", "SAFE": {"token": "drop", "value": 1}}, raising=False)
     monkeypatch.setattr(runtime_config, "save", lambda merged: written.update({"data": merged}))
+    # B364: siehe test_b351_config_save_value_error.py — reload_overrides()
+    # (seit B362 erste Zeile von patch()) muss ebenfalls gemockt werden.
+    monkeypatch.setattr(runtime_config, "reload_overrides", lambda: None)
 
     runtime_config.patch({"HYDRO_ENABLED": False, "GITHUB_TOKEN": "drop", "NESTED": {"api_key": "drop", "value": 2}})
 

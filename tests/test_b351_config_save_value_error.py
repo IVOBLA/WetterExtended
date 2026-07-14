@@ -15,6 +15,11 @@ def _isolate_runtime_config(monkeypatch):
     import runtime_config as rc
     monkeypatch.setattr(rc, "_OVERRIDES", {}, raising=False)
     monkeypatch.setattr(rc, "save", lambda merged: None)
+    # B364: B362 fuegte reload_overrides() als erste Zeile von patch() ein
+    # (korrekt, schliesst eine Cross-Process-Race) — das ueberschreibt ohne
+    # diesen Mock den bewusst gesetzten leeren Testzustand sofort wieder mit
+    # dem Inhalt der ECHTEN runtime_overrides.json von der Platte.
+    monkeypatch.setattr(rc, "reload_overrides", lambda: None)
 
 
 def _auth(monkeypatch, role="admin"):
