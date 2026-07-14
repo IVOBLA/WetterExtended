@@ -1647,7 +1647,12 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
                         _po_policy["id"] = _oid_p
                         _parent_objs.append(_po_policy)
                 _policy = str(_rc.get("CELL_LINEAGE_PRIMARY_MERGE_POLICY", "continuity_score"))
-                _primary_parent = _select_primary_parent(_parent_objs, policy=_policy, id_key="id")
+                _primary_parent = _select_primary_parent(
+                    _parent_objs,
+                    policy=_policy,
+                    survivor_id=_global_match_id,
+                    id_key="id",
+                )
                 _primary_oid = (_primary_parent or {}).get("id")
                 if _primary_oid is not None:
                     _primary_scores[_primary_oid] = 1.0
