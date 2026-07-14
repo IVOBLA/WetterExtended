@@ -102,6 +102,79 @@ function CpuChart({ data }) {
   )
 }
 
+
+/** B358: Arbeitsspeicher-Verlaufsdiagramm fuer Dashboard (analog CpuChart) */
+function MemChart({ data }) {
+  if (!data || data.length === 0) {
+    return (
+      <div className="text-sm text-gray-400 italic py-4 text-center">
+        Noch keine RAM-Daten — erster Sample erscheint nach dem naechsten
+        Scheduler-Zyklus (max. 5 Min nach Neustart).
+      </div>
+    )
+  }
+
+  const fmtTs = (ts) => {
+    try {
+      return new Date(ts).toLocaleTimeString('de-AT', {
+        hour: '2-digit', minute: '2-digit', hour12: false,
+      })
+    } catch {
+      return ts.substring(11, 16)
+    }
+  }
+
+  const chartData = data.map((s) => ({
+    t: fmtTs(s.ts_utc),
+    available_gb: s.available_gb,
+    used_pct: s.used_pct,
+  }))
+  const last = data[data.length - 1]
+  const totalGb = last?.total_gb ?? '—'
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-2 text-xs text-gray-500">
+        <span>Gesamt: {totalGb} GB</span>
+        <span className="text-gray-400">
+          · Letzter Wert: {last?.available_gb ?? '—'} GB frei ({last?.used_pct ?? '—'}% belegt)
+        </span>
+      </div>
+      <ResponsiveContainer width="100%" height={200}>
+        <LineChart data={chartData} margin={{ top: 4, right: 12, bottom: 4, left: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+          <XAxis
+            dataKey="t"
+            tick={{ fontSize: 10 }}
+            interval="preserveStartEnd"
+            minTickGap={40}
+          />
+          <YAxis
+            tickFormatter={(v) => `${v} GB`}
+            tick={{ fontSize: 10 }}
+            width={48}
+          />
+          <Tooltip
+            formatter={(v, name) => name === 'used_pct' ? [`${v} %`, 'Belegt'] : [`${v} GB`, 'Frei verfügbar']}
+            labelStyle={{ fontSize: 11 }}
+            contentStyle={{ fontSize: 11 }}
+          />
+          <Legend wrapperStyle={{ fontSize: 11 }} />
+          <Line
+            type="monotone"
+            dataKey="available_gb"
+            name="Frei verfügbar (GB)"
+            stroke="#3b82f6"
+            strokeWidth={2}
+            dot={false}
+            activeDot={{ r: 3 }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
 function Card({ title, value, subtitle, colorClass }) {
   return (
     <div className={`card ${colorClass || ''}`}>
@@ -327,6 +400,7 @@ export default function Dashboard() {
   const [selectedService, setSelectedService] = useState('')
   const [cacheStatus, setCacheStatus] = useState([])
   const [cpuHistory, setCpuHistory]   = useState([])
+  const [memHistory, setMemHistory]   = useState([])
 
   useEffect(() => {
     Promise.all([
@@ -340,6 +414,7 @@ export default function Dashboard() {
       api.get('/api/dem_status').then(setDemStatus).catch(() => {}),
       api.get('/api/cache_status').then(d => setCacheStatus(d.services || [])).catch(() => {}),
       api.get('/api/cpu_history?hours=24').then(d => setCpuHistory(d.samples || [])).catch(() => {}),
+      api.get('/api/mem_history?hours=24').then(d => setMemHistory(d.samples || [])).catch(() => {}),
     ])
   }, [])
 
@@ -469,6 +544,19 @@ export default function Dashboard() {
           )}
         </h2>
         <CpuChart data={cpuHistory} />
+      </div>
+
+      {/* RAM-Verlauf 24h (B358) */}
+      <div className="card mt-4">
+        <h2 className="text-base font-semibold mb-2">
+          💾 Arbeitsspeicher-Verlauf (24h)
+          {memHistory.length > 0 && (
+            <span className="ml-2 text-xs font-normal text-gray-400">
+              5-Minuten-Takt · {memHistory.length} Messpunkte
+            </span>
+          )}
+        </h2>
+        <MemChart data={memHistory} />
       </div>
 
       {/* 24h-Statistiktabelle — Anfragen / Fehler / Fehlerrate */}

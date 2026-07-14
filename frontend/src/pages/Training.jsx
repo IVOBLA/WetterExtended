@@ -1,6 +1,55 @@
 import React, { useEffect, useState } from 'react'
 import api from '../api.js'
 
+/** B358: Zeigt den letzten ConvLSTM-Trainingslauf (B357-Telemetrie) im Admin Panel. */
+function ConvlstmStatusCard({ status }) {
+  const last = status?.last_run
+
+  if (!status) {
+    return <div className="text-sm text-gray-400 italic">Lade ConvLSTM-Status…</div>
+  }
+  if (!last) {
+    return (
+      <div className="text-sm text-gray-500">
+        Noch kein ConvLSTM-Trainingslauf mit Telemetrie erfasst (B357). Erscheint nach
+        dem nächsten planmäßigen Lauf.
+      </div>
+    )
+  }
+
+  const outcome = last.outcome
+  const isOom = outcome === 'system_oom_kill'
+  const isTimeout = outcome === 'timeout'
+  const isSuccess = outcome === 'success'
+  const isException = outcome === 'exception'
+
+  const label = isSuccess
+    ? `✅ Erfolgreich (batch_size=${last.batch_size_used ?? '—'}${
+        last.batch_size_cascade_attempts > 1 ? `, ${last.batch_size_cascade_attempts} Versuche` : ''
+      })`
+    : isOom
+      ? '⚠ System-OOM-Kill (auch mit dynamischem RLIMIT_AS, B356)'
+      : isTimeout
+        ? '⚠ Timeout (CONVLSTM_TRAIN_TIMEOUT_S überschritten)'
+        : isException
+          ? `⚠ Fehler: ${last.error_type || 'Exception'}`
+          : String(outcome || 'unbekannt')
+
+  const colorClass = isSuccess ? 'text-green-700' : (isOom || isTimeout || isException) ? 'text-orange-700' : 'text-gray-700'
+
+  return (
+    <div className="bg-gray-50 border border-gray-200 rounded p-3">
+      <div className="text-sm font-semibold mb-1">ConvLSTM — letzter Trainingslauf</div>
+      <div className={`text-sm ${colorClass}`}>{label}</div>
+      <div className="text-xs text-gray-500 mt-1">
+        {last.timestamp_utc || '—'}
+        {last.effective_mem_limit_gb != null && ` · RLIMIT_AS: ${last.effective_mem_limit_gb} GB`}
+        {last.duration_s != null && ` · Dauer: ${last.duration_s}s`}
+      </div>
+    </div>
+  )
+}
+
 export default function Training() {
   const [rebuild, setRebuild] = useState(60)
   const [s, setS] = useState({
@@ -25,6 +74,7 @@ export default function Training() {
   const [backupStatus, setBackupStatus] = useState(null)
   const [resetStatus, setResetStatus] = useState(null)
   const [resetJobId, setResetJobId] = useState(null)
+  const [convlstmStatus, setConvlstmStatus] = useState(null)
   const backupRunning = Boolean(backupStatus?.running)
   const resetRunning = Boolean(resetStatus?.running)
   const mlActionsDisabled = mlBusy || backupRunning || resetRunning
@@ -53,9 +103,12 @@ export default function Training() {
       api.get('/api/admin/ml/backup/status').then(setBackupStatus).catch(() => {})
       api.get('/api/admin/ml/reset/status').then(setResetStatus).catch(() => {})
     }
+    const fetchConvlstmStatus = () =>
+      api.get('/api/admin/convlstm/status').then(setConvlstmStatus).catch(() => {})
     fetchReadiness()
     fetchTrainingStatus()
     fetchMl()
+    fetchConvlstmStatus()
     const _rdTimer = setInterval(fetchReadiness, 60_000)
     const _statusTimer = setInterval(fetchTrainingStatus, 5_000)
     const _mlTimer = setInterval(fetchMl, 60_000)
@@ -609,6 +662,10 @@ export default function Training() {
           </p>
         </div>
         <div></div>
+
+        <div className="md:col-span-3">
+          <ConvlstmStatusCard status={convlstmStatus} />
+        </div>
 
         <div>
           <label className="label">ConvLSTM Tag</label>

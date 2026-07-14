@@ -3962,6 +3962,35 @@ def api_atmosphere():
         return jsonify({"error": str(exc), "locations": []}), 500
 
 
+@app.route("/api/mem_history")
+def api_mem_history():
+    """
+    B358: RAM-Auslastungs-Zeitreihe der letzten N Stunden.
+
+    Query-Parameter:
+        hours (int, default 24): Zeitfenster in Stunden (max. 48)
+
+    Response:
+        {
+            "samples": [
+                {"ts_utc": "2026-07-14T11:00:00Z", "total_gb": 15.6, "available_gb": 9.2, "used_pct": 41.0},
+                ...
+            ],
+            "hours": 24
+        }
+    """
+    try:
+        hours = min(int(request.args.get("hours", "24")), 48)
+    except (ValueError, TypeError):
+        hours = 24
+    try:
+        from mem_monitor import get_mem_history
+        samples = get_mem_history(hours=hours)
+    except Exception as exc:
+        return jsonify({"error": str(exc), "samples": [], "hours": hours}), 500
+    return jsonify({"samples": samples, "hours": hours})
+
+
 @app.route("/api/cpu_history")
 def api_cpu_history():
     """
@@ -4056,6 +4085,25 @@ def api_training_start():
     except Exception as exc:
         debug_log(f"[API] Manueller Trainingsstart Fehler: {exc}\n{traceback.format_exc()}")
         return jsonify({"started": False, "message": f"Training konnte nicht gestartet werden: {exc}"}), 500
+
+
+@app.route("/api/admin/convlstm/status")
+def api_admin_convlstm_status():
+    """B358: ConvLSTM-Trainings-Status fuer das Admin Panel (Training.jsx).
+    Liest die letzten Eintraege aus convlstm_training_runs.jsonl (B357).
+    Getrennt von /api/training/status, das nur das In-Process-Training
+    (LightGBM/LSTM) abdeckt — ConvLSTM laeuft als isolierter Subprozess des
+    Scheduler-Dienstes (B147/B356) und ist dort nicht sichtbar."""
+    try:
+        from radar_convlstm import get_recent_training_runs
+        runs = get_recent_training_runs(n=5)
+        return jsonify({
+            "runs": runs,
+            "last_run": runs[-1] if runs else None,
+        })
+    except Exception as exc:
+        debug_log(f"[API] convlstm/status Fehler: {exc}")
+        return jsonify({"runs": [], "last_run": None, "error": str(exc)}), 500
 
 
 @app.route("/api/training/status")

@@ -344,6 +344,31 @@ def _write_training_run_record(record: dict) -> None:
         _debug_log(f"[CONVLSTM] B357: Telemetrie-Schreibfehler (nicht kritisch): {exc}")
 
 
+def get_recent_training_runs(n: int = 5) -> list:
+    """B358: Liest die letzten n Eintraege aus convlstm_training_runs.jsonl
+    (Kind- UND Eltern-Fallback-Eintraege aus B357) fuer die Admin-Panel-Anzeige
+    (siehe /api/admin/convlstm/status)."""
+    import json as _json
+    path = _training_run_record_path()
+    if not os.path.exists(path):
+        return []
+    rows: list = []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(_json.loads(line))
+                except Exception:
+                    continue
+    except Exception as exc:
+        _debug_log(f"[CONVLSTM] B358: get_recent_training_runs Lesefehler: {exc}")
+        return []
+    return rows[-n:]
+
+
 def _cli():
     import time as _time
     parser = argparse.ArgumentParser(description="ConvLSTM Radar-Modell")

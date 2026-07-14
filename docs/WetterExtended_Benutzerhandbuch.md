@@ -2874,3 +2874,17 @@ GitHub-Export) erstellt wurde. Eine Kennzeile zeigt Erstellungszeitpunkt,
 Anzahl der ZIP-Teile und Gesamtgröße an; über **⬇ Letzten Export
 herunterladen** lässt sich dieser Stand jederzeit erneut laden, ohne einen
 neuen (zeitaufwändigen) Export-Build anzustoßen.
+
+## Arbeitsspeicher-Verlauf (Dashboard)
+
+Das Dashboard zeigt unterhalb der CPU-Auslastung einen Verlauf des freien
+Arbeitsspeichers der letzten 24 Stunden (5-Minuten-Takt). Damit lässt sich
+nachvollziehen, wie knapp der RAM z. B. während des wöchentlichen
+ConvLSTM-Trainings tatsächlich wird.
+
+## ConvLSTM-Trainingsstatus (Training-Seite)
+
+Auf der Training-Seite zeigt eine Status-Karte im ConvLSTM-Bereich das
+Ergebnis des letzten wöchentlichen ConvLSTM-Trainingslaufs: Erfolg (inkl. der
+tatsächlich verwendeten Batch-Größe), oder eine Warnung bei Speichermangel
+(System-OOM trotz dynamischem Speicherlimit) bzw. Zeitüberschreitung.
