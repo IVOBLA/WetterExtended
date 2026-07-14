@@ -5049,3 +5049,21 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   `frontend/src/pages/Training.jsx`.
 - Test: `tests/test_b360_convlstm_parent_batch_cascade.py`.
 - Phasen-Status (Hailo): unverändert.
+
+### B361 — Codex-Review-Fix zu B360: batch_size=1 wurde nie wirklich versucht ✅ erledigt
+- Ursache (Codex-Review-Finding P1 zur B360-PR): `train_convlstm()` hob jeden
+  angeforderten `batch_size` unter 2 per `safe_batch_size = 2 if batch_size < 2
+  else batch_size` wieder auf 2 an. Seit B360 waehlt der Elternprozess
+  (`scheduler.py`) `batch_size=1` als expliziten, eigenstaendigen letzten
+  Rettungsversuch — dieser Clamp sorgte dafuer, dass der dritte
+  Kaskaden-Versuch faktisch batch_size=2 ein zweites Mal ausfuehrte, statt
+  echt mit batch_size=1 zu trainieren.
+- Fix: Clamp durch `safe_batch_size = max(1, int(batch_size))` ersetzt —
+  batch_size=1 wird jetzt unveraendert durchgereicht, batch_size=2/4
+  verhalten sich wie zuvor (kein Regress).
+- Zweiter Codex-Finding (P2, `_os`-Scope in `_write_convlstm_fallback_record`)
+  war beim Review bereits im committeten Code korrekt geloest — kein
+  Handlungsbedarf.
+- Dateien: `radar_convlstm.py`.
+- Test: `tests/test_b361_batch_size_one_not_clamped.py`.
+- Phasen-Status (Hailo): unverändert.
