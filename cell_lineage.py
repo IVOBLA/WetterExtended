@@ -217,8 +217,14 @@ def save_lineage_state(state: dict) -> None:
 
 
 def _write_status_path() -> Path:
-    """B372: Statusdatei neben dem Eventledger — beweist Erfolg ODER Fehler."""
-    return _state_dir() / "cell_lineage_write_status.json"
+    """B372/B378: Statusdatei ausserhalb des Eventledgers.
+
+    Wenn ``train_data/cell_lineage`` selbst nicht angelegt oder beschrieben werden
+    kann, darf der Fehlernachweis nicht im selben kaputten Verzeichnis landen.
+    ``train_data/system`` wird als separater Admin-State-Pfad exportiert und ist
+    damit ein unabhaengiger Ort fuer den letzten Lineage-Schreibstatus.
+    """
+    return Path("train_data/system/cell_lineage_write_status.json")
 
 
 def _record_write_status(ok: bool, path: str, error: str | None = None) -> None:
