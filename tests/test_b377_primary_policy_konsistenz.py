@@ -94,3 +94,12 @@ def test_all_valid_policies_are_selectable():
     b = _parent("B", area=2000.0, core=0.2)
     for policy in VALID_POLICIES:
         assert select_primary_parent([a, b], policy=policy) is not None
+
+
+def test_object_tracking_passes_global_survivor_to_survivor_first_policy():
+    """Radar-Ebene muss den globalen Survivor an survivor_first weiterreichen."""
+    source = __import__("pathlib").Path("object_tracking.py").read_text(encoding="utf-8")
+    call_start = source.index("_primary_parent = _select_primary_parent(")
+    call_end = source.index(")", call_start)
+    call = source[call_start:call_end]
+    assert "survivor_id=_global_match_id" in call
