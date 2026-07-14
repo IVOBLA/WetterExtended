@@ -1196,6 +1196,30 @@ def _build_track_candidates(previous_snapshot, pred_polys, pred_centroids):
     return out
 
 
+def _resolve_origin_type(lineage, prev_obj):
+    """B378: Herkunft einer Zelle als Dauerzustand (Carry-over ueber Frames).
+
+    Regeln:
+      - Ereignisframe (lineage merged/split): Herkunft wird NEU gesetzt.
+      - Folgeframe (continued): Herkunft des Vorgaengers wird uebernommen.
+      - Echte Neuzelle (new): "new".
+
+    Ohne diese Fortschreibung waere origin_type nach B375 ab dem zweiten Frame
+    immer "new", weil `lineage` dann "continued" lautet.
+    """
+    if lineage == "merged":
+        return "created_by_merge"
+    if lineage == "split":
+        return "created_by_split"
+    if lineage == "new":
+        return "new"
+    prev = prev_obj if isinstance(prev_obj, dict) else {}
+    inherited = prev.get("origin_type")
+    if inherited in ("created_by_merge", "created_by_split", "new"):
+        return inherited
+    return "new"
+
+
 def _persist_association_diagnosis(result, timestamp, dt_minutes):
     """B374: Kandidaten, Kosten und Ablehnungsgründe pro Frame persistieren.
 
@@ -1673,11 +1697,12 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
             # im Ereignisframe gesetzt; in Folgeframes null -> das Objekt ist
             # `continued`, auch wenn seine Herkunft ein Merge war.
             "track_state": "active",
-            "origin_type": (
-                "created_by_merge" if lineage == "merged"
-                else "created_by_split" if lineage == "split"
-                else "new" if lineage == "new" else "new"
-            ),
+            # B378: origin_type ist ein DAUERZUSTAND und muss fortgeschrieben werden.
+            # `lineage` ist seit B375 ein Ereignis und ab dem Folgeframe "continued".
+            # Ohne Carry-over fiele origin_type dann auf "new" zurueck -- eine aus
+            # einem Merge hervorgegangene Zelle wuerde ab Frame 2 behaupten, sie sei
+            # neu entstanden, und die Karte verloere die Verbund-Kennzeichnung.
+            "origin_type": _resolve_origin_type(lineage, previous_snapshot.get(obj_id)),
             "transition_event": (
                 _frame_transitions[_c_idx].kind
                 if _c_idx in _frame_transitions and _frame_transitions[_c_idx].phase == "confirmed"

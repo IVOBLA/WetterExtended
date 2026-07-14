@@ -124,15 +124,19 @@ const lineageColor = {
 const CELL_POLYGON_COLOR = '#0b1f5e'
 const CELL_POLYGON_FILL_OPACITY = 0.25
 
-// B118: Merged-Zellen deutlich hervorheben (identisch zu MapView.cellStroke).
-// Alle aktuellen Zellpolygone nutzen dieselbe dunkelblaue Farbe; lineage bleibt
-// nur über Strichstärke/-muster sichtbar.
-// merged → dicker (4) + auffällig gestrichelt; split → 3 + fein gestrichelt;
-// new/continued → unverändert durchgezogen (2).
-function cellStroke(lineage, trackingState) {
+// B378: Die Darstellung folgt jetzt origin_type (Dauerzustand) statt lineage
+// (seit B375 ein EREIGNIS, das nur im Bestaetigungsframe gesetzt ist). Ohne diese
+// Umstellung verschwaende die Verbund-Kennzeichnung nach einem einzigen Frame --
+// eine 55-Minuten-Gewitterlinie saehe ab Minute 5 wie eine Einzelzelle aus.
+// Die Optik ist unveraendert; nur die Datenquelle ist korrekt.
+// Fallback auf lineage haelt die Karte waehrend eines Rolling-Deployments lesbar,
+// solange noch Objekte ohne origin_type im Payload stehen.
+function cellStroke(originType, trackingState, lineage) {
+  const origin = originType || (lineage === 'merged' ? 'created_by_merge'
+                             : lineage === 'split'  ? 'created_by_split' : 'new')
   if (trackingState === 'inactive_rain') return { color: CELL_POLYGON_COLOR, weight: 2, dashArray: '7,6', opacity: 0.55, fillOpacity: 0.10 }
-  if (lineage === 'merged') return { color: CELL_POLYGON_COLOR, weight: 4, dashArray: '10,6', opacity: 1, fillOpacity: CELL_POLYGON_FILL_OPACITY }
-  if (lineage === 'split')  return { color: CELL_POLYGON_COLOR, weight: 3, dashArray: '4,4', opacity: 1, fillOpacity: CELL_POLYGON_FILL_OPACITY }
+  if (origin === 'created_by_merge') return { color: CELL_POLYGON_COLOR, weight: 4, dashArray: '10,6', opacity: 1, fillOpacity: CELL_POLYGON_FILL_OPACITY }
+  if (origin === 'created_by_split') return { color: CELL_POLYGON_COLOR, weight: 3, dashArray: '4,4', opacity: 1, fillOpacity: CELL_POLYGON_FILL_OPACITY }
   return { color: CELL_POLYGON_COLOR, weight: 2, dashArray: undefined, opacity: 1, fillOpacity: CELL_POLYGON_FILL_OPACITY }
 }
 
@@ -717,8 +721,10 @@ export default function MapFullscreen() {
         {objects.filter(isPublicCell).map(o => {
           if (!isPublicCell(o) || !o.contour_geo || o.contour_geo.length < 3) return null
           const outerPos    = o.contour_geo.map(p => [p[1], p[0]])
-          const stroke      = cellStroke(o.lineage, o.tracking_state)
-          const borderColor = lineageColor[o.lineage] || '#888'
+          const stroke      = cellStroke(o.origin_type, o.tracking_state, o.lineage)
+          const borderColor = lineageColor[o.origin_type === 'created_by_merge' ? 'merged'
+                                        : o.origin_type === 'created_by_split' ? 'split'
+                                        : o.lineage] || '#888'
           return (
             <React.Fragment key={'cell_' + o.id}>
               <Polygon
@@ -728,7 +734,11 @@ export default function MapFullscreen() {
                 pane="tooltipPane"
               >
                 <Popup autoPan={true} keepInView={true}>
-                  <div><b>{o.id}</b> ({o.lineage})</div>
+                  {/* B378: Herkunft (Dauerzustand) statt Ereignis anzeigen.
+                      `lineage` steht seit B375 nur noch im Ereignisframe. */}
+                  <div><b>{o.id}</b> ({o.origin_type === 'created_by_merge' ? 'aus Verbund'
+                                     : o.origin_type === 'created_by_split' ? 'aus Teilung'
+                                     : o.lineage})</div>
                   {o.tracking_state === 'inactive_rain' && (
                     <div style={{fontSize:'0.85em',color:'#0b1f5e',marginTop:3}}>
                       Status: stille Regen-Weiterführung<br />

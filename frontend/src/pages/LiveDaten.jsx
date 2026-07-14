@@ -143,8 +143,10 @@ function CellTableRow({ o, isInactive, selected, onSelect }) {
         >
           {o.id}
         </button>
-        {o.lineage === 'merged' && <span className="ml-1 text-xs px-1 rounded font-normal bg-orange-100 text-orange-700">⊕</span>}
-        {o.lineage === 'split'  && <span className="ml-1 text-xs px-1 rounded font-normal bg-purple-100 text-purple-700">⊗</span>}
+        {/* B378: origin_type (Dauerzustand) statt lineage (seit B375 ein Ereignis,
+            nur im Bestaetigungsframe gesetzt). Fallback fuer Rolling-Deployment. */}
+        {(o.origin_type === 'created_by_merge' || (!o.origin_type && o.lineage === 'merged')) && <span className="ml-1 text-xs px-1 rounded font-normal bg-orange-100 text-orange-700">⊕</span>}
+        {(o.origin_type === 'created_by_split' || (!o.origin_type && o.lineage === 'split')) && <span className="ml-1 text-xs px-1 rounded font-normal bg-purple-100 text-purple-700">⊗</span>}
       </td>
 
       {/* SEIT / ZULETZT */}
