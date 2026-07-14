@@ -5382,3 +5382,35 @@ Richtungsgate, Gating in der Matrix, leere Eingaben, Diagnosevollständigkeit.
 **Phasen-Status:** Phase A — Assoziationsbibliothek steht und ist isoliert getestet.
 `object_tracking.py` ist **noch unverändert**; die Umstellung des Live-Pfads erfolgt in **B374**,
 der Merge/Split-Resolver in **B375**.
+
+### B374 — Greedy-Zuordnung im Live-Pfad durch globale 1:1-Optimierung ersetzt ✅ erledigt
+
+**Root-Cause:** `update_tracking_memory()` vergab Track-IDs greedy und konturweise
+(`for contour in contours` + `used_ids`). Die OpenCV-Konturreihenfolge entschied über die
+Zellidentität; Stage-2 gatete in skalierten Pixeln bei implizit angenommenem 5-Minuten-Takt.
+
+**Fix:**
+- Vorschleife baut alle Detektionen auf (Filter identisch zur Hauptschleife: `min_object_area`,
+  Ausschlusszonen, BBOX) → genau **ein** `solve_global_assignment()`-Aufruf pro Frame.
+- Stage 1/2/3 ersatzlos entfallen; beide Sonderfälle deckt die Kostenmatrix ab (Stage-2-Fall über
+  `c_pos`+`c_area`, Stage-3-Fall über den isotropen Suchkreis bei `speed<1 km/h`).
+- **Merge-Fallback greift nur noch auf unmatched Tracks** — ein global 1:1 zugeordneter Track kann
+  nicht mehr zusätzlich Merge-Parent einer anderen Kontur werden. Das war die Hauptquelle der
+  Scheinmerges (160/724 Beobachtungen, alle mit eigener Track-ID in `parents`).
+- `_tracking_dt_minutes()` liefert den **tatsächlichen** Zeitabstand (Fallback 5.0 nur beim ersten
+  Lauf oder bei implausiblem Delta) — Radarlücken von 10/15 min werden korrekt behandelt.
+- Kein stiller Greedy-Fallback bei Fehlern: ein Fehlschlag ist im Debugexport sichtbar
+  (`method="failed"`), statt unbemerkt falsch zu laufen.
+- Neue Diagnose `train_data/association/<timestamp>.json` (Kostenmatrix, Kandidatenpaare inkl.
+  Einzelkomponenten, Ablehnungsgründe, dt) — erfüllt das Abnahmekriterium „Exportierte
+  Kandidaten-/Kosten-Diagnosen: 100 % der aktiven Frames“. Im Debug-Export unter `diagnostics/`.
+
+**Tests:** `tests/test_b374_globales_matching_integration.py` — dt-Ermittlung inkl.
+Implausibilitäts- und Rückwärtsschutz, km-Projektion, Nachweis der Stage-Entfernung,
+Diagnose-Persistenz und Fehlertoleranz, Export-Abdeckung.
+
+**Phasen-Status:** Phase A — Zuordnung ist global optimal und reihenfolgeinvariant.
+**Offen:** `lineage` ist weiterhin ein Dauerzustand und der Split-Pfad bleibt durch `used_ids`
+blockiert → **B375** (Transition-Resolver, Event/State-Trennung). Die Kostengewichte
+(`ASSOC_W_*`) sind noch mit den B373-Defaults belegt und **gegen den nächsten realen Debug-Export
+zu kalibrieren** (Replay `1C04EV5M`, 15:00–16:05).
