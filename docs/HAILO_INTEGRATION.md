@@ -5193,3 +5193,26 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   `tests/test_ir_wms_time_logic.py`.
 - Test: kein neuer Test noetig, bestehende Tests korrigiert.
 - Phasen-Status (Hailo): unveraendert.
+
+### B367 — save_tracking_snapshot() lief vor Enrichment-Schleife (first_seen/total_active_frames/history fehlten im persistierten Snapshot) ✅ erledigt
+- Ursache: In `update_tracking_memory()` wurde `save_tracking_snapshot()`
+  VOR der Enrichment-Schleife aufgerufen, die `first_seen`,
+  `total_active_frames`, `history` und P-S01-Lifecycle-Akkumulatoren erst
+  setzt. Anhand echter Debug-Export-Daten (2026-07-14, 13:50) verifiziert:
+  im persistierten `tracking_memory_snapshot.json` hatten alle aktiv
+  erkannten Zellen (`missing==0`, z. B. `LEPRY15Q`) `first_seen: null`
+  und `total_active_frames: null`, obwohl sie laut `cells_log.jsonl`
+  durchgehend seit mehreren Frames getrackt wurden. Nach jedem
+  Service-Neustart verloren dadurch alle zu diesem Zeitpunkt aktiven
+  Zellen ihr echtes Alter und ihre History (Live-Karte zeigte falsche
+  "Erstmals"-Zeiten, ML-Trainingssequenzen wurden verkuerzt).
+- Fix: `save_tracking_snapshot()` ans Ende von `update_tracking_memory()`
+  verschoben (direkt vor `return objects`), nachdem alle Felder gesetzt
+  sind.
+- Dateien: `object_tracking.py`.
+- Test: `tests/test_b367_snapshot_save_order.py`.
+- Phasen-Status (Hailo): unveraendert — reiner Tracking-Genauigkeits-Fix.
+  Hinweis fuer MAE-Drift-Untersuchung: verlorene History nach
+  Service-Neustarts ist ein weiterer potenzieller (bisher nicht
+  dokumentierter) Beitrag zur MAE-Drift und sollte in der naechsten
+  Drift-Analyse gegen drift_detector.py-Historie beruecksichtigt werden.

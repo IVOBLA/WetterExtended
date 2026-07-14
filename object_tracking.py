@@ -1743,9 +1743,13 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
                 obj_clean.setdefault("direction_deg", None)
             _suppress_inactive_rain_warning_fields(obj_clean)
             objects.append({"id": obj_id, **obj_clean})
-    # B121/P73: Erst nach dem Lifecycle-Carry-over snapshotten, damit
-    # persistente Track-Felder (u.a. last_station_encounter) auch bei
-    # Service-Restarts aus dem letzten Zyklus erhalten bleiben.
+    # B367: Snapshot ERST NACH der Enrichment-Schleife persistieren — sonst
+    # fehlen first_seen/total_active_frames/history/P-S01-Akkumulatoren im
+    # gespeicherten Zustand für alle in diesem Zyklus aktiv erkannten Zellen
+    # (missing==0). Zellen mit missing>0 durchlaufen die Schleife nicht neu
+    # und sind vom Zeitpunkt der Speicherung nicht betroffen.
+    # B121: Nach jedem Tracking-Zyklus Snapshot persistieren.
+    # Wird beim nächsten Service-Start via load_tracking_snapshot() geladen.
     save_tracking_snapshot()
     return objects
 
