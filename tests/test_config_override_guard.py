@@ -35,6 +35,10 @@ def test_patch_strips_forbidden(monkeypatch):
     written = {}
     monkeypatch.setattr(rc, "save", lambda merged: written.update({"m": dict(merged)}))
     monkeypatch.setattr(rc, "_OVERRIDES", {}, raising=False)
+    # B364: siehe test_b351_config_save_value_error.py — reload_overrides()
+    # (seit B362 erste Zeile von patch()) muss ebenfalls gemockt werden,
+    # sonst wird der leere Testzustand durch die echte Datei ueberschrieben.
+    monkeypatch.setattr(rc, "reload_overrides", lambda: None)
     rc.patch({"UPSCALE_FACTOR": 9, "SLOW_CELL_MAX_KMH": 20})
     assert "UPSCALE_FACTOR" not in written["m"]
     assert written["m"].get("SLOW_CELL_MAX_KMH") == 20
@@ -45,6 +49,8 @@ def test_patch_strips_nested_forbidden(monkeypatch):
     written = {}
     monkeypatch.setattr(rc, "save", lambda merged: written.update({"m": dict(merged)}))
     monkeypatch.setattr(rc, "_OVERRIDES", {}, raising=False)
+    # B364: siehe test_b351_config_save_value_error.py.
+    monkeypatch.setattr(rc, "reload_overrides", lambda: None)
     rc.patch({"AI_ANALYSIS_CONFIG": {"api_key": "sk-x"}, "SLOW_CELL_MAX_KMH": 20})
     assert "AI_ANALYSIS_CONFIG" not in written["m"]
     assert written["m"].get("SLOW_CELL_MAX_KMH") == 20
@@ -134,6 +140,8 @@ def test_b119_ai_analysis_config_with_max_tokens_saveable(monkeypatch):
     written = {}
     monkeypatch.setattr(rc, "save", lambda merged: written.update({"m": dict(merged)}))
     monkeypatch.setattr(rc, "_OVERRIDES", {}, raising=False)
+    # B364: siehe test_b351_config_save_value_error.py.
+    monkeypatch.setattr(rc, "reload_overrides", lambda: None)
     payload = {
         "AI_ANALYSIS_CONFIG": {
             "enabled": True,

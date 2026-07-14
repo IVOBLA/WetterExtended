@@ -5106,3 +5106,21 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Dateien: `tests/test_b357_convlstm_training_telemetry.py`.
 - Test: kein neuer Test noetig, bestehender Test korrigiert.
 - Phasen-Status (Hailo): unverändert.
+
+### B364 — B362 durchbrach Test-Isolationsmuster (reload_overrides() ungemockt) ✅ erledigt
+- Ursache: B362 fuegte `reload_overrides()` als erste Zeile von
+  `runtime_config.patch()`/`patch_exact_key()` ein (korrekt, schliesst die
+  Cross-Process-Race). Mehrere Tests isolierten sich bislang nur ueber
+  `monkeypatch.setattr(rc, "_OVERRIDES", {...})` + `monkeypatch.setattr(rc,
+  "save", ...)`, ohne `reload_overrides()` zu mocken — seit B362 ueberschreibt
+  dieser Aufruf den bewusst gesetzten Testzustand mit dem Inhalt der ECHTEN
+  `train_data/runtime_overrides.json` von der Platte. Kein Regressionsfehler
+  im Produktivcode, reiner Testisolationsbruch.
+- Fix: Alle betroffenen `patch()`-aufrufenden Tests mocken jetzt zusaetzlich
+  `reload_overrides` als No-Op. Tests, die nur `get()`/GET-Requests nutzen
+  (kein `patch()`-Aufruf), sind unveraendert, da nicht betroffen.
+- Dateien: `tests/test_b351_config_save_value_error.py`,
+  `tests/test_config_override_guard.py`,
+  `tests/test_hydro_runtime_config_contract.py`.
+- Test: `tests/test_b364_runtime_config_test_isolation.py`.
+- Phasen-Status (Hailo): unverändert.
