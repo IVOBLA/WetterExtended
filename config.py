@@ -843,6 +843,12 @@ TAWES_GUST_STATION_IDS = (
 # Überschreibbar via runtime_overrides.json (Key: TAWES_PARAMS).
 TAWES_PARAMS = "RR,DD,FF,FFX,GLOW,P,RF,TL,TP"
 
+# B368: TTL für den Stationsnamen-Metadaten-Cache (GeoSphere
+# /v1/station/current/tawes-v1-10min/metadata). Stationsnamen ändern sich
+# praktisch nie -> lange TTL (Default 24h). Überschreibbar via
+# runtime_overrides.json (Key: TAWES_STATION_METADATA_TTL_SECONDS).
+TAWES_STATION_METADATA_TTL_SECONDS = 86400
+
 # Beschriftungen der HSV-Bänder, damit das Adminpanel sie zeigen kann.
 HSV_BAND_LABELS = ["leichter_regen", "regen", "starkregen"]
 
