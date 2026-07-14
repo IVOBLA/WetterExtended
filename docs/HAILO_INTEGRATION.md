@@ -5514,3 +5514,49 @@ Primary-Policy-Konsistenz → **B377**. Die Trennung von `support_mask` (Systemh
 Closing) und `core_tracking_mask` (Zellkerne, feines Closing) ist ein **Architektur-Feature**
 (System-/Zellhierarchie `system_id`/`cell_id`) und wird als eigener P-Prompt geführt — erst
 danach ist der Replay-Regressionstest `1C04EV5M` (15:00–16:05) sinnvoll aufsetzbar.
+
+### B377 — Radar-Track-Policy und fachliche Cell-Policy widersprachen sich ✅ erledigt
+
+**Root-Cause:** Bei einem Merge entschieden zwei verschiedene Regeln, welche Identität überlebt —
+und die im Admin-Panel konfigurierte Policy steuerte die primäre Identität **nicht**:
+- **Radar-Ebene** (`object_tracking.py:1259–1263`): `_primary_s = _old_area_s` — der
+  flächengrößte Parent behielt die Radar-ID. `core_ratio` spielte keine Rolle.
+- **Fach-Ebene** (`cell_lineage.py:1168–1174`): der B268-Survivor-Vorrang überstimmte
+  `CELL_LINEAGE_PRIMARY_MERGE_POLICY = highest_core_ratio` im Normalfall vollständig; die Policy
+  griff nur im `else`-Zweig (Survivor ohne etablierte `cell_id`).
+
+Fachliche Folge: Bei einer zerfallenden Systemhülle gewann die **Fläche** statt des konvektiv
+aktiven Kerns. Die de-facto-Regel war nirgends dokumentiert.
+
+**Fix:** Neues Modul `tracking/primary_policy.py` als **einzige Quelle der Wahrheit**; beide
+Ebenen rufen dieselbe Auswahl auf.
+- Neue Default-Policy **`continuity_score`**: gewichteter Score aus Trackalter (0.30),
+  Kernstärke (0.30), relativem Flächenbeitrag (0.25) und absoluter Kernfläche (0.15), mit
+  Alterssättigung bei `PRIMARY_AGE_SATURATION_FRAMES` (12).
+- Die bisherigen Verhalten bleiben als Policy-Optionen wählbar: `highest_core_ratio` (altes
+  Fach-Verhalten), `largest_area` (altes Radar-Verhalten), `survivor_first` (B268-Verhalten).
+- B268 ist damit eine bewusste Wahl statt einer unausweichlichen Regel; das Admin-Panel steuert
+  jetzt tatsächlich die primäre Identität — auf beiden Ebenen konsistent.
+- Auswahl ist deterministisch (Index als letzter Tiebreak).
+
+**Tests:** `tests/test_b377_primary_policy_konsistenz.py` — Flächen-Dominanz aufgehoben, alle vier
+Policies wählbar und wirksam, Trackalter zählt, Score beschränkt, Determinismus bei Gleichstand,
+Fallback bei ungültiger Policy, Delegation der Fachebene an die gemeinsame Policy.
+
+**Phasen-Status:** Phase A — **Tracking-Sanierungsserie B370–B377 abgeschlossen.**
+Segmentierungs-Determinismus (B370), Ereignissemantik (B371/B375), Beobachtbarkeit (B372),
+globale Zuordnung (B373/B374), intensitätsbasierte Segmentierung (B376) und Policy-Konsistenz
+(B377) stehen.
+
+**Offen (bewusst nicht in dieser Serie):**
+- **P-Prompt System-/Zellhierarchie** (`system_id`/`cell_id`, `support_mask` vs.
+  `core_tracking_mask`) — Architektur-Feature, user-facing → mit Benutzerhandbuch-Eintrag.
+- **P-Prompt Übergangskandidaten auf der Karte** (gestrichelte Darstellung) — user-facing.
+- **P-Prompt feldbasierter probabilistischer Hazard-Nowcast** — entkoppelt Warnungen von der
+  Zell-ID (Phase B, Hailo-8/U-Net).
+- **Replay-Regressionstest `1C04EV5M`** (15:00–16:05) — erst nach der System-/Zellhierarchie
+  sinnvoll aufsetzbar.
+- **ML-Schutz:** Frames mit `transition_event != null` dürfen nicht als normale
+  Translationslabels ins Training (`transition_mask`) — eigener Prompt nach der ML-Reaktivierung.
+- **Kalibrierung:** Die Gewichte aus B373/B375/B376/B377 sind gegen den ersten Debug-Export mit
+  aktiver Serie nachzujustieren.
