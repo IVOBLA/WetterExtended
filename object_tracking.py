@@ -1082,6 +1082,10 @@ def _seed_velocity_from_snapshot(prev_obj, cx, cy, previous_snapshot):
 # ---------------------------------------------------------------------------
 _last_tracking_timestamp = None
 _KM_PER_DEG_LAT = 111.32
+# B375: frameuebergreifender Kandidatenspeicher (Signatur -> frames_seen).
+# Ein Uebergang gilt erst nach TRANSITION_CONFIRM_FRAMES konsistenten Frames
+# als bestaetigt; bis dahin bleibt die Identitaet unveraendert.
+_pending_transitions = {}
 
 
 def _parse_ts(ts):
@@ -1360,6 +1364,39 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
     _persist_association_diagnosis(_assoc_result, timestamp, _dt_minutes)
     _unmatched_track_ids = set(_assoc_result.unmatched_tracks)
 
+    # ========================================================================
+    # B375: Merge/Split werden NACH dem globalen 1:1-Matching aus dem
+    # verbleibenden bipartiten Ueberlappungsgraphen abgeleitet -- nicht mehr
+    # frameweise waehrend der Schleife. Ein Uebergang wird erst nach
+    # TRANSITION_CONFIRM_FRAMES konsistenten Frames bestaetigt.
+    # ========================================================================
+    global _pending_transitions
+    _frame_transitions = {}
+    try:
+        from tracking.transition_resolver import (
+            confirm_candidates, find_merge_candidates, find_split_candidates,
+        )
+        _unmatched_polys = {
+            tid: pred_polys.get(tid) for tid in _unmatched_track_ids if pred_polys.get(tid) is not None
+        }
+        _det_polys = {d.index: d.polygon for d in _detections if d.polygon is not None}
+        _cands = (
+            find_merge_candidates(_unmatched_polys, _det_polys, _assoc_result.matches)
+            + find_split_candidates(_unmatched_polys, _det_polys, _assoc_result.matches)
+        )
+        _confirmed, _still, _reverted, _pending_transitions = confirm_candidates(
+            _cands, _pending_transitions
+        )
+        for _c in _confirmed + _still:
+            for _child in _c.children:
+                _frame_transitions[_child] = _c
+        debug_log(
+            f"[B375] Uebergaenge: {len(_confirmed)} bestaetigt, {len(_still)} Kandidaten, "
+            f"{len(_reverted)} verworfen"
+        )
+    except Exception as _tr_exc:
+        debug_log(f"[B375] Transition-Resolver fehlgeschlagen: {_tr_exc}")
+
     for _c_idx, contour in enumerate(contours):
         M = cv2.moments(contour)
         if M["m00"] == 0:
@@ -1487,7 +1524,11 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
         best_id = None
         obj_id = None
 
-        if len(overlaps) >= 2:
+        _transition = _frame_transitions.get(_c_idx)
+        if _transition is not None and _transition.phase == "confirmed" and len(overlaps) >= 2:
+            # B375: `merged` NUR im bestaetigten Ereignisframe. In Folgeframes ist
+            # das Objekt `continued` -- auch wenn seine Herkunft ein Merge war.
+            # Vorher meldete jeder Frame erneut ein Merge (23 Serien, bis 11 Frames).
             lineage = "merged"
             parents = [oid for oid, _ in overlaps]
             # B117: Merge-Zelle ERBT die ID des dominanten Parents (groesster
@@ -1628,6 +1669,27 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
             "reactivated_at": (timestamp if previous_snapshot.get(obj_id, {}).get("tracking_state") == "inactive_rain" else None),
             "support_pixels": 0, "support_overlap": 0.0,
             "lineage": lineage, "parents": parents, "children": [], "lineage_end": None,
+            # B375: Zustand und Ereignis sind getrennt. `transition_event` ist NUR
+            # im Ereignisframe gesetzt; in Folgeframes null -> das Objekt ist
+            # `continued`, auch wenn seine Herkunft ein Merge war.
+            "track_state": "active",
+            "origin_type": (
+                "created_by_merge" if lineage == "merged"
+                else "created_by_split" if lineage == "split"
+                else "new" if lineage == "new" else "new"
+            ),
+            "transition_event": (
+                _frame_transitions[_c_idx].kind
+                if _c_idx in _frame_transitions and _frame_transitions[_c_idx].phase == "confirmed"
+                else None
+            ),
+            "transition_phase": (
+                _frame_transitions[_c_idx].phase if _c_idx in _frame_transitions else None
+            ),
+            "transition_signature": (
+                _frame_transitions[_c_idx].signature if _c_idx in _frame_transitions else None
+            ),
+            "association_method": _assoc_result.method,
         }
         for parent_id in parents:
             assigned_old_to_new.setdefault(parent_id, []).append(obj_id)

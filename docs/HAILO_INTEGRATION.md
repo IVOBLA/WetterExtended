@@ -5414,3 +5414,40 @@ Diagnose-Persistenz und Fehlertoleranz, Export-Abdeckung.
 blockiert → **B375** (Transition-Resolver, Event/State-Trennung). Die Kostengewichte
 (`ASSOC_W_*`) sind noch mit den B373-Defaults belegt und **gegen den nächsten realen Debug-Export
 zu kalibrieren** (Replay `1C04EV5M`, 15:00–16:05).
+
+### B375 — `lineage` war ein Dauerzustand, der Split-Pfad war strukturell blockiert ✅ erledigt
+
+**Root-Cause:** `lineage` vermischte Zustand und Ereignis. `object_tracking.py:1276` setzte
+`lineage="merged"`, solange die Geometrie einen Verbund zeigte — in jedem Frame neu. Aus demselben
+Defekt folgte die Split-Blockade: der Split-Zweig (Zeile 1421–1426) verlangt, dass dieselbe alte
+ID mehreren neuen Objekten zugeordnet wird — genau das verhindert `used_ids`.
+
+**Belegt:** 0× `lineage="split"` in 724 Beobachtungen, obwohl P66 im Service-Log nachweislich
+Sub-Zellen meldet (`2→2`, `4→4`, `3→3`). Demgegenüber 160× `merged` in 23 Serien (Mittel 6.6,
+längste 11 Frames ≈ 55 min).
+
+**Fix:** Neues Modul `tracking/transition_resolver.py`. Merge/Split werden **nach** dem globalen
+1:1-Matching aus dem verbleibenden bipartiten Überlappungsgraphen abgeleitet:
+- **n:1-Merge:** nur unmatched Parents, jeder mit `TRANSITION_MERGE_MIN_PARENT_COVERAGE` (0.40)
+  Beitrag der eigenen alten Fläche; alle zusammen müssen `TRANSITION_MERGE_MIN_EXPLAINED` (0.50)
+  der neuen Fläche erklären. Der alte 0.30-Fallback ließ kleine Randtracks zu Parents werden.
+- **1:n-Split:** eine unmatched alte Zelle überdeckt ≥2 neue Zellen mit je
+  `TRANSITION_SPLIT_MIN_CHILD_SHARE` (0.15) Anteil.
+- **Zustandsautomat** `candidate → confirmed → closed` / `reverted`: Bestätigung erst nach
+  `TRANSITION_CONFIRM_FRAMES` (2) konsistenten Frames. Die Karte darf sofort `candidate` zeigen,
+  die Identität ändert sich erst bei `confirmed`.
+- Neue Objektfelder: `track_state`, `origin_type`, `transition_event` (**nur** im Ereignisframe),
+  `transition_phase`, `transition_signature`, `association_method`. In Folgeframes ist das Objekt
+  `continued`, auch wenn seine Herkunft ein Merge war.
+
+`lineage` bleibt aus Kompatibilitätsgründen befüllt (Frontend/ML), trägt aber jetzt die korrekte
+Ereignissemantik.
+
+**Tests:** `tests/test_b375_transition_resolver.py` — Split wird erkannt (Kernbefund),
+Mindestbeiträge, Scheinmerge einer Systemhülle abgelehnt, Bestätigung erst ab Frame 2,
+`reverted` bei Verschwinden, 10 Folgeframes → genau 1 Ereignissignatur, Signatur-Invarianz.
+
+**Phasen-Status:** Phase A — Ereignissemantik und Split-Pfad hergestellt. Zusammen mit B371
+(Event-Dedup) ist das Abnahmekriterium „0 wiederholte Eventsignaturen in Folgeframes“ erfüllt.
+**Offen:** Segmentierung (Voronoi → adaptive Hysterese) → **B376**; Primary-Policy-Konsistenz →
+**B377**. Der Replay-Regressionstest für `1C04EV5M` (15:00–16:05) ist nach B376 zu erstellen.
