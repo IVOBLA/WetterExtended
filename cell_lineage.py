@@ -7,6 +7,7 @@ umgesetzt.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -38,6 +39,7 @@ try:
         IR_PRECURSOR_HIDE_WHEN_RADAR_MATCHED,
         IR_LEAD_TIME_LABELS_ENABLED,
         IR_LEAD_TIME_LABELS_FILE,
+        CELL_LINEAGE_EVENT_SIGNATURE_MEMORY,
         IR_LEAD_TIME_LABELS_MAX_OPEN_MIN,
         IR_LEAD_TIME_LABELS_MIN_FINAL_AGE_MIN,
         IR_LEAD_TIME_LABELS_INCLUDE_NEGATIVES,
@@ -66,6 +68,7 @@ except Exception:  # pragma: no cover
     IR_PRECURSOR_HIDE_WHEN_RADAR_MATCHED = True
     IR_LEAD_TIME_LABELS_ENABLED = True
     IR_LEAD_TIME_LABELS_FILE = "ir_lead_time_labels.jsonl"
+    CELL_LINEAGE_EVENT_SIGNATURE_MEMORY = 2000
     IR_LEAD_TIME_LABELS_MAX_OPEN_MIN = 90.0
     IR_LEAD_TIME_LABELS_MIN_FINAL_AGE_MIN = 20.0
     IR_LEAD_TIME_LABELS_INCLUDE_NEGATIVES = True
@@ -1052,11 +1055,54 @@ def select_primary_merge_parent(parent_objects: list[dict], *, policy: str | Non
     return valid[0]
 
 
+def _event_signature(event_type: str, parent_ids: list[str], child_ids: list[str]) -> str:
+    """B371: Stabile, ZEITSTEMPELFREIE Identitaet eines Lineage-Ereignisses.
+
+    Ein Merge/Split ist ein Uebergangsereignis, kein Dauerzustand. Solange dieselbe
+    Parent-/Child-Konstellation besteht, ist es DASSELBE Ereignis -- auch wenn
+    object_tracking.py in jedem Folgeframe erneut lineage="merged" meldet.
+
+    Der Timestamp darf NICHT in die Signatur einfliessen, sonst waere jedes Frame
+    ein neues Ereignis (genau der Defekt, den B371 behebt).
+    """
+    payload = "|".join([
+        str(event_type),
+        ",".join(sorted(str(p) for p in (parent_ids or []) if p)),
+        ",".join(sorted(str(c) for c in (child_ids or []) if c)),
+    ])
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+
+def _event_already_emitted(state: dict, signature: str) -> bool:
+    """True, wenn zu dieser Signatur bereits ein Ereignis geschrieben wurde."""
+    return signature in set(state.get("emitted_event_signatures") or [])
+
+
+def _mark_event_emitted(state: dict, signature: str, timestamp: str) -> None:
+    """Merkt die Signatur im State und begrenzt das Gedaechtnis (Pi: RAM/Disk).
+
+    Begrenzung auf die letzten CELL_LINEAGE_EVENT_SIGNATURE_MEMORY Eintraege. Der Wert
+    ist grosszuegig gegenueber der beobachteten Last (24 h Konvektion: 160 Merge-Frames,
+    23 Serien) und verhindert unbegrenztes Wachstum der State-Datei.
+    """
+    sigs = state.setdefault("emitted_event_signatures", [])
+    if signature in sigs:
+        return
+    sigs.append(signature)
+    limit = int(_cfg("CELL_LINEAGE_EVENT_SIGNATURE_MEMORY", CELL_LINEAGE_EVENT_SIGNATURE_MEMORY))
+    if len(sigs) > limit:
+        del sigs[: len(sigs) - limit]
+    state.setdefault("emitted_event_last_seen", {})[signature] = str(timestamp)
+
+
 def record_cell_merge(parent_cell_ids: list[str], merged_obj: dict, *, timestamp: str | None = None, state: dict | None = None) -> dict | None:
     if not bool(_cfg("CELL_LINEAGE_SPLIT_MERGE_ENABLED", CELL_LINEAGE_SPLIT_MERGE_ENABLED)) or not isinstance(merged_obj, dict):
         return None
     own_state = state is None
-    state = load_lineage_state() if state is None else _normalize_state(state)
+    if state is None:
+        state = load_lineage_state()
+    else:
+        state.update(_normalize_state(state))
     ts = _timestamp_str(timestamp)
     parent_cell_ids = list(dict.fromkeys(str(cid) for cid in (parent_cell_ids or []) if cid))
     if not parent_cell_ids:
@@ -1081,11 +1127,23 @@ def record_cell_merge(parent_cell_ids: list[str], merged_obj: dict, *, timestamp
         if cid != primary:
             cell["merged_into_cell_id"] = primary
             cell["status"] = "merged"
-    event = {"event_type": "cell_merge", "timestamp": ts, "cell_id": primary, "merged_from_cell_ids": parent_cell_ids, "primary_cell_id": primary, "radar_track_id": rid, "parent_radar_track_ids": list(merged_obj.get("parents") or [])}
+    # B371: Ereignis-Identitaet ueber zeitstempelfreie Signatur. Solange dieselbe
+    # Parent-Konstellation auf dieselbe primary cell_id mergt, ist es DASSELBE
+    # Ereignis. Der State (last_seen, Aliase, radar_to_cell) wurde oben bereits
+    # aktualisiert und bleibt in jedem Frame aktuell -- nur das EVENT ist einmalig.
+    signature = _event_signature("cell_merge", parent_cell_ids, [primary])
+    if _event_already_emitted(state, signature):
+        state.setdefault("emitted_event_last_seen", {})[signature] = ts
+        if own_state:
+            save_lineage_state(state)
+        return None
+
+    event = {"event_type": "cell_merge", "timestamp": ts, "cell_id": primary, "merged_from_cell_ids": parent_cell_ids, "primary_cell_id": primary, "radar_track_id": rid, "parent_radar_track_ids": list(merged_obj.get("parents") or []), "event_signature": signature}
     if merged_obj.get("unresolved_parent_ids"):
         event["unresolved_parent_ids"] = list(merged_obj.get("unresolved_parent_ids") or [])
     _append_unique(pcell.setdefault("lineage_events", []), event)
     append_lineage_event(event)
+    _mark_event_emitted(state, signature, ts)
     if own_state:
         save_lineage_state(state)
     return event
@@ -1095,7 +1153,10 @@ def record_cell_split(parent_cell_id: str, child_objects: list[dict], *, timesta
     if not bool(_cfg("CELL_LINEAGE_SPLIT_MERGE_ENABLED", CELL_LINEAGE_SPLIT_MERGE_ENABLED)) or not parent_cell_id:
         return []
     own_state = state is None
-    state = load_lineage_state() if state is None else _normalize_state(state)
+    if state is None:
+        state = load_lineage_state()
+    else:
+        state.update(_normalize_state(state))
     ts = _timestamp_str(timestamp)
     children = [c for c in (child_objects or []) if isinstance(c, dict)]
     if len(children) < 2:
@@ -1130,9 +1191,19 @@ def record_cell_split(parent_cell_id: str, child_objects: list[dict], *, timesta
     _append_unique(parent.setdefault("split_into_cell_ids", []), child_cell_ids)
     _append_unique(parent.setdefault("child_cell_ids", []), child_cell_ids)
     parent["status"] = "split"
-    event = {"event_type": "cell_split", "timestamp": ts, "parent_cell_id": str(parent_cell_id), "child_cell_ids": child_cell_ids, "primary_child_cell_id": primary_child.get("cell_id") if primary_child else None, "parent_radar_track_id": (children[0].get("parents") or [None])[0], "child_radar_track_ids": [_obj_track_id(c) for c in children]}
+    # B371: identische Ereignis-Semantik wie beim Merge -- ein Split ist ein
+    # Uebergang, kein Dauerzustand.
+    signature = _event_signature("cell_split", [str(parent_cell_id)], child_cell_ids)
+    if _event_already_emitted(state, signature):
+        state.setdefault("emitted_event_last_seen", {})[signature] = ts
+        if own_state:
+            save_lineage_state(state)
+        return []
+
+    event = {"event_type": "cell_split", "timestamp": ts, "parent_cell_id": str(parent_cell_id), "child_cell_ids": child_cell_ids, "primary_child_cell_id": primary_child.get("cell_id") if primary_child else None, "parent_radar_track_id": (children[0].get("parents") or [None])[0], "child_radar_track_ids": [_obj_track_id(c) for c in children], "event_signature": signature}
     _append_unique(parent.setdefault("lineage_events", []), event)
     append_lineage_event(event)
+    _mark_event_emitted(state, signature, ts)
     if own_state:
         save_lineage_state(state)
     return [event]

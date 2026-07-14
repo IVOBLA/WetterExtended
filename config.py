@@ -1072,6 +1072,11 @@ CELL_ID_PREFIX = "WX"
 CELL_LINEAGE_STATE_DIR = "train_data/cell_lineage"
 CELL_LINEAGE_STATE_FILE = "cell_lineage_state.json"
 CELL_LINEAGE_EVENTS_FILE = "cell_lineage_events.jsonl"
+# B371: Anzahl gemerkter Ereignis-Signaturen (Dedup-Gedaechtnis). Verhindert, dass
+# derselbe Merge/Split in jedem Folgeframe erneut als Event geschrieben wird.
+# Beobachtete 24h-Last (14.07.2026): 160 Merge-Frames in 23 Serien -> 2000 ist
+# grosszuegig und haelt die State-Datei auf dem Pi klein.
+CELL_LINEAGE_EVENT_SIGNATURE_MEMORY = 2000
 
 # 1L.4 ML-Lead-Time-Labels: offline Trainingslabels aus IR→Radar-Lineage.
 IR_LEAD_TIME_LABELS_ENABLED = True
