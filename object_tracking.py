@@ -1676,6 +1676,11 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
             obj["first_seen"]          = obj_clean["first_seen"]
             obj["active_frames"]       = obj_clean["active_frames"]
             obj["total_active_frames"] = obj_clean["total_active_frames"]
+            # B369: last_station_encounter-Carry-over fehlte hier — ohne dies
+            # ging eine bereits bestehende Begegnung sofort wieder verloren,
+            # sobald save_tracking_snapshot() lief und kein NEUER Encounter
+            # im selben Zyklus gemeldet wurde (Normalfall).
+            obj["last_station_encounter"] = obj_clean["last_station_encounter"]
             # P-S01: Lifecycle-Akkumulatoren ebenfalls persistieren, damit sie im
             # nächsten Frame als previous_snapshot[obj_id] verfügbar sind und beim
             # Track-Tod von write_track_end gelesen werden können.

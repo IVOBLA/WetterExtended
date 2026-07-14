@@ -5216,3 +5216,24 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   Service-Neustarts ist ein weiterer potenzieller (bisher nicht
   dokumentierter) Beitrag zur MAE-Drift und sollte in der naechsten
   Drift-Analyse gegen drift_detector.py-Historie beruecksichtigt werden.
+
+### B369 — last_station_encounter-Carry-over wurde nie nach tracking_memory zurückgeschrieben (Testfund nach B367) ✅ erledigt
+- Ursache: `update_tracking_memory()` übernahm `last_station_encounter`
+  aus der Vorperiode korrekt in `obj_clean`, schrieb den Wert aber im
+  B117-Write-back-Block nicht zurück nach `obj`/`tracking_memory[obj_id]`
+  (fehlte in der Feldliste neben `first_seen`/`active_frames`/
+  `total_active_frames`). Der Wert existierte dadurch nur im an den
+  Aufrufer zurückgegebenen `objects`-Ergebnis, nicht in `tracking_memory`
+  selbst — ging beim naechsten `save_tracking_snapshot()` verloren,
+  sobald in einem Zyklus keine NEUE Begegnung gemeldet wurde (Normalfall).
+  Aufgedeckt durch den nach B367 (PR #1001) und der parallelen PR #1000
+  hinzugekommenen Test
+  `test_update_tracking_memory_snapshots_after_station_encounter_carry_over`.
+  Bug existierte bereits vor B367, unabhaengig von der Snapshot-Save-
+  Position.
+- Fix: `last_station_encounter` in die B117-Write-back-Zeilenliste
+  aufgenommen.
+- Dateien: `object_tracking.py`.
+- Test: bereits vorhanden (`tests/test_object_tracking_regression.py::test_update_tracking_memory_snapshots_after_station_encounter_carry_over`), kein neuer Test noetig.
+- Phasen-Status (Hailo): unveraendert — reiner Tracking-Genauigkeits-Fix,
+  keine Hailo-Auswirkung.
