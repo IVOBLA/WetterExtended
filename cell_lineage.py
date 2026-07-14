@@ -1095,14 +1095,26 @@ def select_primary_child(children: list[dict], *, policy: str | None = None) -> 
     return valid[0]
 
 
-def select_primary_merge_parent(parent_objects: list[dict], *, policy: str | None = None) -> dict | None:
+def select_primary_merge_parent(parent_objects: list[dict], *, policy: str | None = None, survivor_cell_id: str | None = None) -> dict | None:
+    """B377: delegiert an die gemeinsame Policy (tracking/primary_policy.py).
+
+    Vorher entschied hier `highest_core_ratio`, waehrend object_tracking.py die
+    Radar-ID nach groesster alter Polygonflaeche vergab -- zwei widersprechende
+    Regeln. Jetzt ist tracking/primary_policy.py die einzige Quelle der Wahrheit
+    fuer beide Ebenen.
+    """
     valid = [p for p in (parent_objects or []) if isinstance(p, dict)]
     if not valid:
         return None
     policy = policy or str(_cfg("CELL_LINEAGE_PRIMARY_MERGE_POLICY", CELL_LINEAGE_PRIMARY_MERGE_POLICY))
-    if policy == "highest_core_ratio":
-        return max(enumerate(valid), key=lambda it: (_num(it[1], "core_ratio"), _num(it[1], "area", "area_px", "area_km2"), -it[0]))[1]
-    return valid[0]
+    try:
+        from tracking.primary_policy import select_primary_parent
+        return select_primary_parent(valid, policy=policy, survivor_id=survivor_cell_id, id_key="cell_id")
+    except Exception as exc:
+        _debug(f"[B377] Primary-Policy nicht verfügbar, Legacy-Auswahl: {exc}")
+        if policy == "highest_core_ratio":
+            return max(enumerate(valid), key=lambda it: (_num(it[1], "core_ratio"), _num(it[1], "area", "area_px", "area_km2"), -it[0]))[1]
+        return valid[0]
 
 
 def _event_signature(event_type: str, parent_ids: list[str], child_ids: list[str]) -> str:
@@ -1288,11 +1300,14 @@ def update_split_merge_lineage(radar_objects: list[dict], previous_objects: dict
                 # die Identitaet einer etablierten, laenger getrackten Zelle.
                 _own_rid = _obj_track_id(obj)
                 _own_cid = state.get("radar_to_cell", {}).get(str(_own_rid)) if _own_rid else None
-                if _own_cid and _own_cid in parent_cids:
-                    obj["cell_id"] = _own_cid
-                else:
-                    primary_parent = select_primary_merge_parent(parent_objs)
-                    obj["cell_id"] = (primary_parent or {}).get("cell_id") or parent_cids[0]
+                # B377: Der B268-Survivor-Vorrang ist jetzt eine POLICY-OPTION
+                # ("survivor_first"), nicht mehr die unausweichliche Regel. Vorher
+                # ueberstimmte er die konfigurierte Policy im Normalfall komplett --
+                # das Admin-Panel suggerierte Einfluss, den die Einstellung nicht hatte.
+                primary_parent = select_primary_merge_parent(
+                    parent_objs, survivor_cell_id=(_own_cid if _own_cid in parent_cids else None)
+                )
+                obj["cell_id"] = (primary_parent or {}).get("cell_id") or parent_cids[0]
             if unresolved:
                 obj["unresolved_parent_ids"] = unresolved
             ev = record_cell_merge(parent_cids, obj, timestamp=timestamp, state=state) if parent_cids else None

@@ -5,13 +5,15 @@ import zipfile
 import pytest
 
 
-def _patch_state(monkeypatch, tmp_path):
+def _patch_state(monkeypatch, tmp_path, extra_vals=None):
     import runtime_config
     vals = {
         "CELL_LINEAGE_STATE_DIR": str(tmp_path / "cell_lineage"),
         "CELL_LINEAGE_STATE_FILE": "cell_lineage_state.json",
         "CELL_LINEAGE_EVENTS_FILE": "cell_lineage_events.jsonl",
     }
+    if extra_vals:
+        vals.update(extra_vals)
     monkeypatch.setattr(runtime_config, "get", lambda name, default=None: vals.get(name, default))
 
 
@@ -45,12 +47,13 @@ def test_merge_selects_primary_by_core_ratio(monkeypatch, tmp_path):
 
 
 def test_merge_keeps_survivors_own_established_cell_id(monkeypatch, tmp_path):
-    """B268: Der fortgeführte Tracking-Survivor (obj['id'] == einer der Parents,
-    B117-Kontinuität) behält seine EIGENE etablierte cell_id, auch wenn der
-    andere (frisch entstandene) Merge-Parent einen höheren core_ratio hat.
-    Reproduziert den Live-Bug vom 2026-06-29 (8ZAOEUFJ verlor WX-...-0209 an
-    die 5 Minuten alte Zelle LM6J8G22/WX-...-0216)."""
-    _patch_state(monkeypatch, tmp_path)
+    """B377: B268-Survivor-Vorrang bleibt als survivor_first-Policy verfügbar.
+
+    Der fortgeführte Tracking-Survivor (obj['id'] == einer der Parents,
+    B117-Kontinuität) behält damit seine EIGENE etablierte cell_id, auch wenn
+    der andere Merge-Parent einen höheren core_ratio hat.
+    """
+    _patch_state(monkeypatch, tmp_path, {"CELL_LINEAGE_PRIMARY_MERGE_POLICY": "survivor_first"})
     import cell_lineage
     state = {"cells": {"WX-A": {"cell_id": "WX-A"}, "WX-B": {"cell_id": "WX-B"}}, "radar_to_cell": {"1": "WX-A", "2": "WX-B"}}
     # obj["id"] == "1": der Survivor IST der etablierte Parent (analog 8ZAOEUFJ).

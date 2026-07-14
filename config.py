@@ -321,7 +321,17 @@ IR_PRECURSOR_RESHOW_COOLDOWN_MIN = 15.0
 # Radar-Lineage (parents/children/lineage) zusätzlich auf fachlicher cell_id-Ebene.
 CELL_LINEAGE_SPLIT_MERGE_ENABLED = True
 CELL_LINEAGE_PRIMARY_CHILD_POLICY = "strongest_core"
-CELL_LINEAGE_PRIMARY_MERGE_POLICY = "highest_core_ratio"
+# B377: EINE Policy für Radar-Track-ID und fachliche cell_id (tracking/primary_policy.py).
+# Vorher entschied auf Radar-Ebene die groesste alte Polygonflaeche und auf Fach-Ebene
+# der B268-Survivor-Vorrang — die hier konfigurierte Policy griff nur im Ausnahmefall.
+# Gueltig: continuity_score | highest_core_ratio | largest_area | survivor_first
+CELL_LINEAGE_PRIMARY_MERGE_POLICY = "continuity_score"
+PRIMARY_POLICY = "continuity_score"
+PRIMARY_W_AGE = 0.30           # Trackalter
+PRIMARY_W_CORE = 0.30          # Kernstaerke (core_ratio)
+PRIMARY_W_AREA = 0.25          # relativer Flaechenbeitrag
+PRIMARY_W_CORE_AREA = 0.15     # absolute Kernflaeche
+PRIMARY_AGE_SATURATION_FRAMES = 12
 CELL_LINEAGE_KEEP_PARENT_CELL_ID_ON_SPLIT_PRIMARY = True
 CELL_LINEAGE_CREATE_CHILD_CELL_IDS = True
 CELL_LINEAGE_RECORD_ALIAS_IDS = True

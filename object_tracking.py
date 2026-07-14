@@ -1630,6 +1630,41 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
                     1.0 + _old_coverage_m,
                 )
 
+        # B377: Primary-Scores EINMAL pro Kontur über die gemeinsame Policy
+        # (tracking/primary_policy.py) berechnen — identisch zur Fachebene.
+        _primary_scores = {}
+        if len(_overlap_by_id) >= 2:
+            try:
+                from tracking.primary_policy import continuity_score as _cont_score
+                from tracking.primary_policy import select_primary_parent as _select_primary_parent
+                _cands = []
+                _parent_objs = []
+                for _oid_p in _overlap_by_id:
+                    _po = previous_snapshot.get(_oid_p)
+                    if isinstance(_po, dict):
+                        _cands.append((_oid_p, _po))
+                        _po_policy = dict(_po)
+                        _po_policy["id"] = _oid_p
+                        _parent_objs.append(_po_policy)
+                _policy = str(_rc.get("CELL_LINEAGE_PRIMARY_MERGE_POLICY", "continuity_score"))
+                _primary_parent = _select_primary_parent(_parent_objs, policy=_policy, id_key="id")
+                _primary_oid = (_primary_parent or {}).get("id")
+                if _primary_oid is not None:
+                    _primary_scores[_primary_oid] = 1.0
+                if _policy == "continuity_score":
+                    _max_a = max((float(o.get("area", 0.0) or 0.0) for _, o in _cands), default=0.0)
+                    _max_ca = max(
+                        (float(o.get("core_area_px", 0.0) or 0.0)
+                         or float(o.get("core_ratio", 0.0) or 0.0) * float(o.get("area", 0.0) or 0.0)
+                         for _, o in _cands),
+                        default=0.0,
+                    )
+                    for _oid_p, _po in _cands:
+                        _primary_scores[_oid_p] = _cont_score(_po, max_area=_max_a, max_core_area=_max_ca)
+            except Exception as _pp_exc:
+                debug_log(f"[B377] Primary-Policy fehlgeschlagen, Score-Fallback: {_pp_exc}")
+                _primary_scores = {}
+
         if _overlap_by_id:
             def _merge_sort_key(_item):
                 _oid_s, _score_s = _item
@@ -1645,7 +1680,12 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
                         else 0.0
                     )
                 if len(_overlap_by_id) >= 2:
-                    _primary_s = _old_area_s
+                    # B377: Nicht mehr "groesste alte Flaeche gewinnt". Diese Regel
+                    # war nirgends dokumentiert und widersprach der konfigurierten
+                    # CELL_LINEAGE_PRIMARY_MERGE_POLICY. Bei einer zerfallenden
+                    # Systemhuelle gewann die Flaeche statt des aktiven Kerns.
+                    # Jetzt entscheidet dieselbe Policy wie auf der Fachebene.
+                    _primary_s = _primary_scores.get(_oid_s, 0.0)
                 else:
                     _primary_s = _score_s
                 return (_primary_s, _score_s)
