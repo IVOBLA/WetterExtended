@@ -5092,3 +5092,17 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Dateien: `runtime_config.py`.
 - Test: `tests/test_b362_runtime_config_cross_process_race.py`.
 - Phasen-Status (Hailo): unverändert.
+
+### B363 — Veralteter B357-Test nach B360-Refactor korrigiert ✅ erledigt
+- Ursache: B360 ersetzte die feste Zeile `outcome="system_oom_kill"` in
+  `run_convlstm_weekly_job()` durch eine Fallunterscheidung, die zusaetzlich
+  `child_aborted_signal_N` (SIGABRT/std::bad_alloc, siehe B360) abdeckt —
+  bewusste, korrekte Aenderung. Der aeltere B357-Test pruefte aber noch
+  wortwoertlich auf die alte, feste Aufruf-Form und schlug dadurch fehl.
+  Kein Funktionsfehler im Produktivcode.
+- Fix: Testassertion an die neue Struktur angepasst (prueft jetzt auf das
+  `outcome`-Literal, `child_aborted_signal_`-Praefix und `outcome=outcome`
+  statt auf die feste alte Zeile).
+- Dateien: `tests/test_b357_convlstm_training_telemetry.py`.
+- Test: kein neuer Test noetig, bestehender Test korrigiert.
+- Phasen-Status (Hailo): unverändert.
