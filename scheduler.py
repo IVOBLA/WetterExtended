@@ -115,13 +115,42 @@ def run_convlstm_weekly_job():
         _mem_gb = 12
     _mem_gb = int(runtime_config.get("CONVLSTM_TRAIN_MEM_LIMIT_GB", _mem_gb))
 
+    try:
+        from config import CONVLSTM_TRAIN_MEM_SAFETY_MARGIN_GB as _margin_gb
+    except Exception:
+        _margin_gb = 1.5
+    _margin_gb = float(runtime_config.get("CONVLSTM_TRAIN_MEM_SAFETY_MARGIN_GB", _margin_gb))
+
+    # B356: CONVLSTM_TRAIN_MEM_LIMIT_GB ist nur die statische Obergrenze. Ist der
+    # tatsächlich freie RAM (andere Dienste laufen waehrend des bis zu 2h dauernden
+    # Trainings weiter) kleiner als dieser Wert, greift der system-weite OOM-Killer
+    # VOR dem eigenen RLIMIT_AS des Kindes — der geplante, abfangbare MemoryError-
+    # Pfad (siehe radar_convlstm.train_convlstm Batch-Size-Kaskade) wird dann nie
+    # erreicht. Deshalb wird das tatsächlich gesetzte Limit dynamisch auf den
+    # aktuell freien RAM (minus Sicherheitsmarge) gedeckelt.
+    _effective_mem_gb = float(_mem_gb)
+    try:
+        import psutil
+        _available_gb = psutil.virtual_memory().available / (1024 ** 3)
+        _dynamic_cap_gb = max(1.0, _available_gb - _margin_gb)
+        _effective_mem_gb = min(float(_mem_gb), _dynamic_cap_gb)
+    except Exception as _exc:
+        debug_log(
+            f"[SCHEDULER] convlstm_weekly: psutil-Messung fehlgeschlagen ({_exc}), "
+            f"nutze statisches Limit {_mem_gb} GB"
+        )
+    _effective_mem_bytes = int(_effective_mem_gb * 1024 * 1024 * 1024)
+    debug_log(
+        f"[SCHEDULER] convlstm_weekly: effektives RLIMIT_AS={_effective_mem_gb:.2f} GB "
+        f"(statische Obergrenze={_mem_gb} GB, Sicherheitsmarge={_margin_gb} GB)"
+    )
+
     project_root = _os.path.dirname(_os.path.abspath(__file__))
 
     def _limit_mem():
         try:
             import resource
-            soft = _mem_gb * 1024 * 1024 * 1024
-            resource.setrlimit(resource.RLIMIT_AS, (soft, soft))
+            resource.setrlimit(resource.RLIMIT_AS, (_effective_mem_bytes, _effective_mem_bytes))
         except Exception:
             pass
 

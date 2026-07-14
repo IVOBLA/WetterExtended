@@ -237,14 +237,32 @@ def train_convlstm(batch_size: int = 4, epochs: int = 30):
         return model, hist
 
     safe_batch_size = 2 if batch_size < 2 else batch_size
-    try:
-        model, history = _run(safe_batch_size)
-    except Exception as exc:
-        if "ResourceExhausted" in str(exc) and safe_batch_size > 2:
-            _debug_log("[CONVLSTM] Speichermangel erkannt, neuer Versuch mit batch_size=2")
-            model, history = _run(2)
-        else:
-            raise
+    # B356: Kaskadierender Retry bei Speichermangel. Faengt sowohl TF
+    # ResourceExhausted ALS AUCH Python MemoryError ab — letzteres wird geworfen,
+    # wenn das RLIMIT_AS des isolierten Subprozesses greift (siehe
+    # scheduler.run_convlstm_weekly_job). Kaskadiert bis batch_size=1, statt nach
+    # einem einzigen Rueckfall aufzugeben, damit das Training auch bei knappem
+    # Speicher noch erfolgreich abschliesst.
+    _candidates = []
+    for _b in (safe_batch_size, 2, 1):
+        if _b <= safe_batch_size and _b not in _candidates:
+            _candidates.append(_b)
+
+    model = history = None
+    for _i, _bs in enumerate(_candidates):
+        try:
+            model, history = _run(_bs)
+            break
+        except Exception as exc:
+            _is_oom = isinstance(exc, MemoryError) or "ResourceExhausted" in str(exc)
+            _is_last = _i == len(_candidates) - 1
+            if not _is_oom or _is_last:
+                raise
+            _next_bs = _candidates[_i + 1]
+            _debug_log(
+                f"[CONVLSTM] Speichermangel erkannt ({type(exc).__name__}) bei "
+                f"batch_size={_bs}, neuer Versuch mit batch_size={_next_bs}"
+            )
 
     model.save(effective_model_path)
     _debug_log(f"[CONVLSTM] Modell gespeichert unter {effective_model_path}")

@@ -4930,3 +4930,26 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Dateien: `app.py`, `frontend/src/pages/Accuracy.jsx`.
 - Test: `tests/test_b355_accuracy_zeitraum_filter.py`.
 - Phasen-Status (Hailo): unverändert.
+
+### B356 — ConvLSTM-Wochentraining: RLIMIT_AS wurde vom System-OOM-Killer unterlaufen ✅ erledigt
+- Ursache: `CONVLSTM_TRAIN_MEM_LIMIT_GB` (statisch 12 GB) wurde 1:1 als RLIMIT_AS
+  des isolierten Trainings-Subprozesses gesetzt, ohne den tatsächlich freien RAM
+  zum Trainingszeitpunkt zu berücksichtigen. Laufen `wetterprojekt`,
+  `wetterprojekt-scheduler`, `wetterprojekt-admin` und nginx parallel weiter, kann
+  der real freie RAM unter 12 GB liegen — dann greift der system-weite
+  Kernel-OOM-Killer (SIGKILL, rc=-9) BEVOR der Prozess selbst an sein eigenes
+  Adressraum-Limit stößt. Der beabsichtigte planbare, abfangbare
+  MemoryError-Pfad (inkl. Batch-Size-Retry) wurde dadurch nie erreicht. Zusätzlich
+  fing der bisherige Retry nur `"ResourceExhausted" in str(exc)` ab (TF-spezifisch),
+  nicht ein rohes `MemoryError`, und kaskadierte nur einmal (4→2), nicht bis 1.
+- Fix: `scheduler.run_convlstm_weekly_job()` berechnet das effektive RLIMIT_AS jetzt
+  dynamisch als `min(CONVLSTM_TRAIN_MEM_LIMIT_GB, aktuell_frei_GB via psutil -
+  CONVLSTM_TRAIN_MEM_SAFETY_MARGIN_GB)` (neue Konfig-Konstante, Default 1.5 GB) und
+  loggt den berechneten Wert. `radar_convlstm.train_convlstm()` kaskadiert bei
+  Speichermangel jetzt über `batch_size → 2 → 1` und fängt sowohl `MemoryError`
+  als auch `ResourceExhausted` ab.
+- Bewusst NICHT Teil dieses Fixes: keine Änderung an der Streaming-Sequence (B147)
+  oder am Frame-Cap (`CONVLSTM_MAX_FRAMES`) — die Datenhaltung war nicht die Ursache.
+- Dateien: `config.py`, `scheduler.py`, `radar_convlstm.py`.
+- Test: `tests/test_b356_convlstm_mem_cascade.py`.
+- Phasen-Status (Hailo): unverändert.
