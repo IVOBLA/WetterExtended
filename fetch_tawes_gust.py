@@ -57,6 +57,80 @@ def _extract_param(params_raw: dict, key: str):
     return v
 
 
+def _fetch_station_name_map() -> dict:
+    """
+    B368: Liefert {station_id: stationsname} aus dem GeoSphere-Metadata-
+    Endpunkt. Der /current-Datenendpunkt (tawes-v1-10min) liefert laut
+    API-Spezifikation KEINEN Stationsnamen in den Feature-properties —
+    nur die Stations-ID und die Parameter-Metadaten. Stationsnamen kommen
+    ausschliesslich aus dem separaten /metadata-Endpunkt.
+
+    Cached lange (TAWES_STATION_METADATA_TTL_SECONDS, Default 24h), da
+    sich Stationsnamen praktisch nie aendern. Bei jedem Fehler wird ein
+    leeres Dict zurueckgegeben — Aufrufer muessen auf f"Station {id}"
+    zurueckfallen, niemals crashen.
+    """
+    try:
+        import runtime_config
+        from config import TAWES_STATION_METADATA_TTL_SECONDS
+        ttl = int(runtime_config.get(
+            "TAWES_STATION_METADATA_TTL_SECONDS",
+            TAWES_STATION_METADATA_TTL_SECONDS,
+        ))
+    except Exception:
+        ttl = 86400
+
+    ck = cache_key("geosphere:tawes_station_metadata", _get_station_ids())
+    cached = cache_get(ck, ttl_seconds=ttl)
+    if cached is not None:
+        debug_log(f"[TAWES-META] Cache-HIT — {len(cached)} Stationsnamen, kein HTTP-Request")
+        return cached
+
+    url = f"{_BASE_URL}/metadata"
+    try:
+        import time as _t_meta
+        from http_retry import retry_get
+        _t0_meta = _t_meta.monotonic()
+        r = retry_get(url, service="geosphere_tawes_metadata",
+                      breaker_service="geosphere_tawes_metadata",
+                      timeout=_TIMEOUT, headers={"Accept": "application/json"})
+        data = r.json()
+        log_api_call("geosphere_tawes_metadata", url, r.status_code,
+                     duration_ms=(_t_meta.monotonic() - _t0_meta) * 1000,
+                     method="GET", response_payload=data,
+                     content_type=r.headers.get("content-type"))
+    except Exception as exc:
+        debug_log(f"[TAWES-META] Fallback (leer): {type(exc).__name__}: {exc}")
+        return {}
+
+    # B368: Defensive Struktur-Erkennung — exakte Feldnamen der /metadata-
+    # Antwort waren aus dieser Umgebung nicht per Live-Request verifizierbar.
+    name_map: dict = {}
+    try:
+        raw_stations = data.get("stations") if isinstance(data, dict) else None
+        if raw_stations is None and isinstance(data, dict):
+            raw_stations = data.get("features")  # GeoJSON-Variante
+        for entry in (raw_stations or []):
+            if not isinstance(entry, dict):
+                continue
+            props = entry.get("properties", entry)  # GeoJSON- oder Flach-Struktur
+            sid = props.get("id") or props.get("station") or props.get("station_id")
+            name = props.get("name") or props.get("station_name") or props.get("shortname")
+            if sid and name:
+                name_map[str(sid)] = str(name)
+    except Exception as exc:
+        debug_log(f"[TAWES-META] Parse-Fehler, leere Namensliste: {exc}")
+        return {}
+
+    if not name_map:
+        debug_log("[TAWES-META] Metadata-Antwort enthielt keine erkennbaren Stationsnamen — unbekannte Struktur?")
+    else:
+        debug_log(f"[TAWES-META] {len(name_map)} Stationsnamen aus Metadata geladen und gecacht")
+
+    cache_set(ck, name_map)
+    return name_map
+
+
 def fetch_tawes_stations() -> list:
     """
     Holt alle konfigurierten Kärntner TAWES-Stationen von GeoSphere.
@@ -103,6 +177,10 @@ def fetch_tawes_stations() -> list:
         debug_log(f"[TAWES] Fallback (leer): {type(exc).__name__}: {exc}")
         return []
 
+    # B368: Stationsnamen kommen NICHT aus dem /current-Response (liefert
+    # laut API-Spec keinen Namen), sondern separat gecacht aus /metadata.
+    _station_names = _fetch_station_name_map()
+
     out = []
     for feat in data.get("features", []):
         props  = feat.get("properties", {})
@@ -111,7 +189,11 @@ def fetch_tawes_stations() -> list:
         pr     = props.get("parameters", {})
 
         station_id   = str(props.get("station", "?"))
-        station_name = str(props.get("name", f"Station {station_id}"))
+        station_name = (
+            _station_names.get(station_id)
+            or props.get("name")
+            or f"Station {station_id}"
+        )
         lon          = float(coords[0]) if coords else 0.0
         lat          = float(coords[1]) if len(coords) > 1 else 0.0
 

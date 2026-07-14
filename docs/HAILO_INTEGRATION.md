@@ -5237,3 +5237,32 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Test: bereits vorhanden (`tests/test_object_tracking_regression.py::test_update_tracking_memory_snapshots_after_station_encounter_carry_over`), kein neuer Test noetig.
 - Phasen-Status (Hailo): unveraendert — reiner Tracking-Genauigkeits-Fix,
   keine Hailo-Auswirkung.
+
+### B368 — Live-Karte zeigte „Station 11086“ statt echtem Stationsnamen bei last_station_encounter ✅ erledigt
+- Ursache: `fetch_tawes_stations()` las den Stationsnamen aus
+  `props.get("name", ...)` der `/current/tawes-v1-10min`-Response. Laut
+  GeoSphere-API-Spezifikation enthalten die Feature-`properties` dieses
+  Endpunkts jedoch KEINEN Stationsnamen (nur `station`-ID und
+  `parameters`-Metadaten je Messgroesse) — der Fallback
+  `f"Station {station_id}"` griff daher fuer JEDE Station, nicht nur
+  fuer Station 11086 aus dem gemeldeten Fall. Echte Namen liefert nur
+  der separate `/metadata`-Endpunkt.
+- Fix: Neue Funktion `_fetch_station_name_map()` ruft
+  `/v1/station/current/tawes-v1-10min/metadata` einmalig ab (gecacht,
+  Default 24h via neuer Konstante `TAWES_STATION_METADATA_TTL_SECONDS`,
+  Admin-Panel-tunbar) und liefert ein `{station_id: name}`-Mapping.
+  `fetch_tawes_stations()` nutzt dieses Mapping vorrangig, faellt bei
+  Fehler/fehlendem Eintrag weiterhin sicher auf `f"Station {id}"` zurueck.
+- Hinweis: Die exakte Feldstruktur der `/metadata`-Antwort konnte nicht
+  per Live-Request aus der Entwicklungsumgebung verifiziert werden
+  (Netzwerk-Sandbox ohne Zugriff auf dataset.api.hub.geosphere.at). Die
+  Parsing-Logik ist daher defensiv gegen mehrere plausible Strukturen
+  (flache `stations`-Liste vs. GeoJSON-`features`) und loggt bei
+  unbekannter Struktur statt zu crashen. Nach dem ersten produktiven
+  Lauf `debug_log`-Ausgabe `[TAWES-META]` pruefen, ob Namen tatsaechlich
+  aufgeloest wurden — ggf. Feldnamen in `_fetch_station_name_map()`
+  nachschaerfen.
+- Dateien: `config.py`, `fetch_tawes_gust.py`.
+- Test: `tests/test_b368_tawes_station_name.py`.
+- Phasen-Status (Hailo): unveraendert — reines Live-Karte-Anzeige-Fix
+  fuer P73 (last_station_encounter), keine Hailo-/ML-Auswirkung.
