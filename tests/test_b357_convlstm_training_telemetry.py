@@ -32,7 +32,14 @@ def test_scheduler_has_fallback_record_writer():
     src = _read("scheduler.py")
     assert "_write_convlstm_fallback_record" in src
     job = src.split("def run_convlstm_weekly_job(")[1].split("\ndef ")[0]
-    assert 'outcome="system_oom_kill"' in job
+    # B363: B360 ersetzte die feste Zeile outcome="system_oom_kill" durch eine
+    # Fallunterscheidung (deckt zusaetzlich child_aborted_signal_N fuer
+    # SIGABRT/std::bad_alloc und sonstige Signal-Tode ab). Der String
+    # "system_oom_kill" bleibt als Literal im Code vorhanden (Zuweisung an
+    # die outcome-Variable), nur nicht mehr als direktes Keyword-Argument.
+    assert '"system_oom_kill"' in job
+    assert "child_aborted_signal_" in job
+    assert "outcome=outcome" in job
     assert 'outcome="timeout"' in job
 
 
