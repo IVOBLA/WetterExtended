@@ -5315,3 +5315,36 @@ Split-Dedup, State-Fortschreibung, Gedächtnisbegrenzung.
 **Phasen-Status:** Phase A — Ereignissemantik auf Lineage-Ebene korrigiert (Analyse 14.07.2026,
 Finding 5.12). Die **Ursache** in `object_tracking.py` (`lineage` als Dauerzustand) wird in B373
 behoben; B371 ist die dauerhaft notwendige Absicherung auf der Fachschicht.
+
+### B372 — Lineage-Eventledger fehlte im Debug-Export, Schreibfehler wurden still verschluckt ✅ erledigt
+
+**Root-Cause:** Fehlende Beobachtbarkeit der Lineage-Persistenz. Der Debug-Export vom 14.07.2026
+enthielt unter `train_data/cell_lineage/` ausschließlich `ir_lead_time_labels.jsonl` — weder
+`cell_lineage_events.jsonl` noch `cell_lineage_state.json`. Das ist kein Konfigurationsfehler:
+`CELL_LINEAGE_SPLIT_MERGE_ENABLED=True`, das Verzeichnis wird exportiert (`debug_export.py`
+Zeile 324), und `record_cell_merge()` läuft nachweislich (160/724 Objekte tragen
+`lineage_status="merged"` + `merged_from_cell_ids`, beides wird nur dort gesetzt).
+
+Ursache war die stille Fehlerbehandlung in `append_lineage_event()`: jeder Schreibfehler landete
+in einer `debug_log`-Zeile. Da das Journal im Export zeitlich abgeschnitten wird (08:00–13:06;
+die Konvektionsphase 15:00–16:05 fehlt), war ein Totalausfall der Event-Persistenz nicht
+nachweisbar. `_state_dir()` liefert zudem einen **relativen** Pfad — das Ziel hängt vom CWD des
+systemd-Dienstes ab.
+
+**Fix:**
+- `append_lineage_event()` löst den Pfad über `resolve()` **absolut** auf.
+- Neue Statusdatei `cell_lineage_write_status.json` (letzter Versuch, aufgelöster Pfad, CWD,
+  ok-/error-Zähler, letzter Fehler) — Erfolg *und* Fehler sind exportiert nachweisbar.
+- `cell_lineage_events.jsonl`, `cell_lineage_state.json` und die Statusdatei stehen jetzt in
+  `_ALWAYS_INCLUDE_NAMES` und werden unabhängig vom 24-h-mtime-Fenster exportiert.
+- Persistenzfehler stoppen den Radarzyklus weiterhin nicht.
+
+**Tests:** `tests/test_b372_lineage_export_und_schreibfehler.py` — Ledger + Status bei Erfolg,
+absolute Pfadauflösung, Fehler wird protokolliert statt verschluckt, kein Exception-Durchschlag,
+Always-Include-Abdeckung, Zählerakkumulation.
+
+**Phasen-Status:** Phase A — Beobachtbarkeit der Lineage hergestellt. Voraussetzung für die
+Abnahmekriterien der Tracking-Sanierung (0 wiederholte Eventsignaturen, Analyse 14.07.2026,
+Abschnitt 10/12). **Nach dem Deployment ist der nächste Debug-Export dahingehend zu prüfen, ob
+`cell_lineage_write_status.json` `last_result="ok"` meldet** — falls `error`, liefert
+`resolved_events_path` + `cwd` die konkrete Ursache.
