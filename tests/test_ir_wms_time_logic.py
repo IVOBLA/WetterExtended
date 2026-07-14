@@ -81,7 +81,7 @@ def test_main_freshness_uses_observation_not_mtime(monkeypatch, tmp_path):
             "assign_arome_to_objects": lambda *a, **k: None, "assign_synoptic_features": lambda *a, **k: None,
             "assign_orographic_scores": lambda *a, **k: None, "assign_extended_openmeteo": lambda *a, **k: None,
             "assign_nowcast_to_objects": lambda *a, **k: None, "assign_convective_indices": lambda *a, **k: None,
-            "fetch_tawes_stations": lambda *a, **k: None, "max_gust_near": lambda *a, **k: None,
+            "fetch_tawes_stations": lambda *a, **k: None, "max_gust_near": lambda *a, **k: None, "nearest_station_wind": lambda *a, **k: None,
             "detect_ir_cells": lambda *a, **k: [],
         }))
     import main

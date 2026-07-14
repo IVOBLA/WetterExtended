@@ -5176,3 +5176,20 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Phasen-Status (Hailo): unverändert — reines Live-Karte-/Böen-
   Plausibilisierungs-Feature, keine Hailo-/ML-Auswirkung
   (`last_station_encounter` bewusst nicht in `ML_CELL_FEATURES`).
+
+### B366 — Veraltete sys.modules-Stubs für fetch_tawes_gust brachen main.py-Import seit P73 ✅ erledigt
+- Ursache: `tests/test_b262_risk_watch_retry.py`,
+  `tests/test_hydro_disabled_no_requests.py` und
+  `tests/test_ir_wms_time_logic.py` isolieren main.py-Importe ueber
+  `monkeypatch.setitem(sys.modules, "fetch_tawes_gust", <Stub>)`. Diese
+  Stubs stammen aus der Zeit vor P73 und enthielten nur
+  `fetch_tawes_stations`/`max_gust_near` — seit P73 importiert main.py
+  zusaetzlich `nearest_station_wind`, was in den Stub-Namespaces fehlte.
+  Kein Funktionsfehler im Produktivcode, reine Testnachpflege (wie B364).
+- Fix: `nearest_station_wind` als No-Op-Lambda in alle drei
+  Stub-Dicts ergaenzt.
+- Dateien: `tests/test_b262_risk_watch_retry.py`,
+  `tests/test_hydro_disabled_no_requests.py`,
+  `tests/test_ir_wms_time_logic.py`.
+- Test: kein neuer Test noetig, bestehende Tests korrigiert.
+- Phasen-Status (Hailo): unveraendert.

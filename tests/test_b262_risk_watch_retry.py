@@ -57,7 +57,7 @@ def _stub_main_dependencies(monkeypatch):
         "fetch_openmeteo_extended": {"assign_extended_openmeteo": _noop},
         "fetch_geosphere_nowcast": {"assign_nowcast_to_objects": _noop},
         "compute_convective_indices": {"assign_convective_indices": _noop},
-        "fetch_tawes_gust": {"fetch_tawes_stations": _noop, "max_gust_near": _noop},
+        "fetch_tawes_gust": {"fetch_tawes_stations": _noop, "max_gust_near": _noop, "nearest_station_wind": _noop},
         "ir_cell_detection": {"detect_ir_cells": _noop},
         "ir_cell_tracking": {"mark_radar_matched_tracks": _noop, "update_ir_tracking": _noop},
         "climatology_features": {"enrich_objects": _noop},
