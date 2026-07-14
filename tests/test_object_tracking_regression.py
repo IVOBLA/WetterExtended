@@ -210,3 +210,48 @@ def test_merge_with_dominant_parent_without_kf_does_not_crash(monkeypatch):
     assert [obj["id"] for obj in objects] == ["DOM"]
     assert object_tracking.tracking_memory["DOM"]["lineage"] == "merged"
     assert "kf" in object_tracking.tracking_memory["DOM"]
+
+
+def test_update_tracking_memory_snapshots_after_station_encounter_carry_over(monkeypatch):
+    pytest.importorskip("cv2")
+    pytest.importorskip("shapely")
+    pytest.importorskip("filterpy")
+    np = pytest.importorskip("numpy")
+    _require_real_numpy(np)
+
+    import object_tracking
+
+    contour = _square(np, 30, 30, 120, 120)
+    encounter = {
+        "timestamp": "2026-07-14_12-00-00",
+        "station_name": "Villach",
+        "distance_km": 3.2,
+        "wind_kmh": 22.0,
+        "gust_kmh": 48.0,
+        "direction_deg": 225.0,
+    }
+    previous = _snapshot_obj("CELL1", contour)
+    previous["last_station_encounter"] = encounter
+    object_tracking.tracking_memory = {"CELL1": previous}
+    _patch_tracking_dependencies(monkeypatch, object_tracking)
+
+    snapshotted = {}
+
+    def fake_save_tracking_snapshot():
+        snapshotted.update(
+            {
+                oid: dict(obj)
+                for oid, obj in object_tracking.tracking_memory.items()
+            }
+        )
+
+    monkeypatch.setattr(object_tracking, "save_tracking_snapshot", fake_save_tracking_snapshot)
+
+    object_tracking.update_tracking_memory(
+        np.zeros((180, 180, 3), dtype=np.uint8),
+        [contour],
+        {},
+        "2026-06-09_00-05-00",
+    )
+
+    assert snapshotted["CELL1"]["last_station_encounter"] == encounter

@@ -1531,9 +1531,6 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
     # Orographische Scores werden in main.py nach assign_cape gesetzt
     # (brauchen CAPE-Werte die hier noch nicht verfügbar sind).
     tracking_memory = new_memory
-    # B121: Nach jedem Tracking-Zyklus Snapshot persistieren.
-    # Wird beim nächsten Service-Start via load_tracking_snapshot() geladen.
-    save_tracking_snapshot()
     for obj_id, obj in new_memory.items():
         if obj.get("missing", 0) == 0 or obj.get("tracking_state") == "inactive_rain":
             if obj.get("missing", 0) == 0:
@@ -1746,6 +1743,10 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
                 obj_clean.setdefault("direction_deg", None)
             _suppress_inactive_rain_warning_fields(obj_clean)
             objects.append({"id": obj_id, **obj_clean})
+    # B121/P73: Erst nach dem Lifecycle-Carry-over snapshotten, damit
+    # persistente Track-Felder (u.a. last_station_encounter) auch bei
+    # Service-Restarts aus dem letzten Zyklus erhalten bleiben.
+    save_tracking_snapshot()
     return objects
 
 

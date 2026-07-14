@@ -45,7 +45,11 @@ def test_accumulate_station_encounter_persists_and_survives_absence(monkeypatch)
     import types
     import track_statistics
 
-    object_tracking = types.SimpleNamespace(tracking_memory={})
+    saved = []
+    object_tracking = types.SimpleNamespace(
+        tracking_memory={},
+        save_tracking_snapshot=lambda: saved.append(True),
+    )
     monkeypatch.setitem(sys.modules, "object_tracking", object_tracking)
     object_tracking.tracking_memory = {
         "CELL1": {"id": "CELL1", "last_station_encounter": None},
@@ -60,6 +64,7 @@ def test_accumulate_station_encounter_persists_and_survives_absence(monkeypatch)
     )
 
     assert object_tracking.tracking_memory["CELL1"]["last_station_encounter"] == encounter
+    assert saved == [True]
 
     # Naechster Zyklus: keine neue Begegnung (encounter=None) -> alter Wert bleibt.
     track_statistics.accumulate_station_encounter(
@@ -67,6 +72,7 @@ def test_accumulate_station_encounter_persists_and_survives_absence(monkeypatch)
     )
 
     assert object_tracking.tracking_memory["CELL1"]["last_station_encounter"] == encounter
+    assert saved == [True]
 
 
 def test_accumulate_station_encounter_ignores_unknown_id(monkeypatch):
