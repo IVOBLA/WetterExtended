@@ -271,6 +271,10 @@ def train_convlstm(batch_size: int = 4, epochs: int = 30):
         "model_path": effective_model_path,
         "epochs_ran": len(history.history.get("loss", [])),
         "windows": len(starts),
+        # B357: fuer strukturierte Trainings-Telemetrie (siehe _write_training_run_record).
+        "batch_size_used": _bs,
+        "batch_size_cascade_attempts": _i + 1,
+        "batch_size_requested": batch_size,
     }
 
 
@@ -313,18 +317,68 @@ def predict_radar_convlstm(latest_4_frames: List[Any]):
     return np.array(restored)
 
 
+# B357: Strukturierte Trainings-Telemetrie (JSONL, append-only). Wird vom
+# taeglichen Debug-Export/KI-Befund automatisch ausgewertet (siehe
+# tools/diagnose_convlstm_training.py). SIGKILL-Faelle (System-OOM, Timeout)
+# koennen hier NICHT erfasst werden — der Kind-Prozess bekommt keine Chance
+# mehr, Code auszufuehren. Dafuer schreibt scheduler.run_convlstm_weekly_job()
+# einen Fallback-Eintrag im Eltern-Prozess (siehe dort).
+def _training_run_record_path() -> str:
+    from config import SAVE_PATHS as _SP
+    ev_dir = _SP.get("evaluation", "train_data/evaluation")
+    return os.path.join(ev_dir, "convlstm_training_runs.jsonl")
+
+
+def _write_training_run_record(record: dict) -> None:
+    import json as _json
+    from datetime import datetime as _dt, timezone as _tz
+    record = dict(record)
+    record.setdefault("timestamp_utc", _dt.now(_tz.utc).isoformat(timespec="seconds").replace("+00:00", "Z"))
+    record.setdefault("source", "child")
+    try:
+        path = _training_run_record_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(_json.dumps(record, ensure_ascii=False, default=str) + "\n")
+    except Exception as exc:
+        _debug_log(f"[CONVLSTM] B357: Telemetrie-Schreibfehler (nicht kritisch): {exc}")
+
+
 def _cli():
+    import time as _time
     parser = argparse.ArgumentParser(description="ConvLSTM Radar-Modell")
     parser.add_argument("--train", action="store_true", help="ConvLSTM trainieren")
     parser.add_argument("--batch-size", type=int, default=4, help="Batch-Größe (Pi: 4 oder 2)")
     parser.add_argument("--epochs", type=int, default=30, help="Anzahl Epochen")
     args = parser.parse_args()
 
-    if args.train:
+    if not args.train:
+        parser.print_help()
+        return
+
+    _started = _time.perf_counter()
+    try:
         result = train_convlstm(batch_size=args.batch_size, epochs=args.epochs)
         _debug_log(f"[CONVLSTM] Trainingsergebnis: {result}")
-    else:
-        parser.print_help()
+        outcome = "success" if result.get("trained") else f"skipped_{result.get('reason', 'unknown')}"
+        _write_training_run_record({
+            "outcome": outcome,
+            "duration_s": round(_time.perf_counter() - _started, 1),
+            "batch_size_requested": args.batch_size,
+            "batch_size_used": result.get("batch_size_used"),
+            "batch_size_cascade_attempts": result.get("batch_size_cascade_attempts"),
+            "epochs_ran": result.get("epochs_ran"),
+            "windows": result.get("windows"),
+        })
+    except Exception as exc:
+        _write_training_run_record({
+            "outcome": "exception",
+            "duration_s": round(_time.perf_counter() - _started, 1),
+            "batch_size_requested": args.batch_size,
+            "error_type": type(exc).__name__,
+            "error": str(exc)[:500],
+        })
+        raise
 
 
 if __name__ == "__main__":

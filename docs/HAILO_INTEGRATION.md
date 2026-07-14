@@ -4953,3 +4953,27 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Dateien: `config.py`, `scheduler.py`, `radar_convlstm.py`.
 - Test: `tests/test_b356_convlstm_mem_cascade.py`.
 - Phasen-Status (Hailo): unverändert.
+
+### B357 — ConvLSTM-Trainingsergebnis strukturiert erfassen (Diagnose zu B356) ✅ erledigt
+- Ziel: Nach B356 (dynamisches RLIMIT_AS + Batch-Size-Kaskade bis 1) automatisch
+  sichtbar machen, ob ein Trainingslauf erfolgreich war, mit welcher batch_size
+  er lief, oder ob er trotzdem vom System-OOM-Killer/Timeout beendet wurde —
+  ohne dafür manuell im journal-Export nach Freitext-Logzeilen suchen zu müssen.
+- Fix: `radar_convlstm.py` schreibt bei jedem Trainingslauf (Erfolg, Skip,
+  Exception) einen strukturierten Eintrag in
+  `train_data/evaluation/convlstm_training_runs.jsonl`. Für die beiden Fälle,
+  in denen der Kind-Prozess keine Chance mehr dazu hat (System-OOM-Kill,
+  Timeout), schreibt `scheduler.run_convlstm_weekly_job()` selbst einen
+  Fallback-Eintrag mit den nur dort bekannten Werten (effektives RLIMIT_AS,
+  statisches Limit). Neues Skript `tools/diagnose_convlstm_training.py`
+  (analog `diagnose_kinematic_acceleration.py`) fasst die letzten Läufe
+  zusammen und landet automatisch vor jedem Export als
+  `convlstm_training_diagnosis_latest.json` im Export.
+- Bewusst NICHT Teil dieses Fixes: keine Änderung an der Trainingslogik selbst
+  (B356 bleibt unverändert), keine automatische Reaktion auf wiederholte
+  OOM-Kills (z. B. automatisches Absenken von `CONVLSTM_MAX_FRAMES`) — das
+  bleibt eine manuelle Entscheidung von Horst anhand der Diagnose-Ergebnisse.
+- Dateien: `radar_convlstm.py`, `scheduler.py`, `export_diagnosis.py`,
+  `debug_export.py`, `tools/diagnose_convlstm_training.py` (neu).
+- Test: `tests/test_b357_convlstm_training_telemetry.py`.
+- Phasen-Status (Hailo): unverändert.
