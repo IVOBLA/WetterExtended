@@ -1086,11 +1086,19 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
             continue
 
     # Max. Stage-2-Distanzschwelle: MAX_CELL_SPEED_KMH / PX_TO_KMH × UPSCALE × 1.5
+    # B365: Für schwache/sterbende Zellen (core_ratio < was_active-Schwelle)
+    # gilt ein engerer, ungepufferter Cap — verhindert Fehlzuordnung an
+    # unabhängige, weiter entfernte Zellen bei fast aufgelöster Ursprungszelle.
     try:
-        from config import MAX_CELL_SPEED_KMH as _MSPD, PX_TO_KMH as _P2K_MATCH
+        from config import (
+            MAX_CELL_SPEED_KMH as _MSPD, PX_TO_KMH as _P2K_MATCH,
+            STAGE2_WEAK_CELL_MAX_SPEED_KMH as _MSPD_WEAK,
+        )
         _STAGE2_MAX_DIST = (_MSPD / _P2K_MATCH) * UPSCALE_FACTOR * 1.5
+        _STAGE2_MAX_DIST_WEAK = (_MSPD_WEAK / _P2K_MATCH) * UPSCALE_FACTOR
     except Exception:
         _STAGE2_MAX_DIST = 80.0
+        _STAGE2_MAX_DIST_WEAK = 30.0
 
     assigned_old_to_new = {}
 
@@ -1166,20 +1174,25 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
         # Fallback wenn Stage 1 leer (z.B. Zelle wächst/schrumpft stark +
         # bewegt sich gleichzeitig → Polygon-Overlap unter Schwelle trotz Nähe).
         if not overlaps:
-            _best2_d  = _STAGE2_MAX_DIST
-            _best2_id = None
+            _best2_d   = _STAGE2_MAX_DIST
+            _best2_id  = None
+            _best2_cap = _STAGE2_MAX_DIST
             for _oid2, (_pcx2, _pcy2) in pred_centroids.items():
                 if _oid2 in used_ids:
                     continue
+                # B365: schwache/sterbende Ursprungszelle → engerer Cap ohne Puffer.
+                _prev_core2 = float(previous_snapshot.get(_oid2, {}).get("core_ratio", 0.0) or 0.0)
+                _cap2 = _STAGE2_MAX_DIST_WEAK if _prev_core2 < _was_active_threshold else _STAGE2_MAX_DIST
                 _d2 = _math.hypot(_cx_s - _pcx2, _cy_s - _pcy2)
-                if _d2 < _best2_d:
+                if _d2 < _best2_d and _d2 <= _cap2:
                     _prev_a2  = float(previous_snapshot.get(_oid2, {}).get("area", area_new))
                     _aratio2  = min(area_new, _prev_a2) / max(area_new, _prev_a2, 1.0)
                     if _aratio2 >= 0.10:   # max ~10× Größenänderung erlaubt
-                        _best2_d  = _d2
-                        _best2_id = _oid2
+                        _best2_d   = _d2
+                        _best2_id  = _oid2
+                        _best2_cap = _cap2
             if _best2_id is not None:
-                _score2 = max(0.01, 1.0 - _best2_d / _STAGE2_MAX_DIST)
+                _score2 = max(0.01, 1.0 - _best2_d / _best2_cap)
                 overlaps = [(_best2_id, _score2)]
                 debug_log(
                     f"[TRACK] Stage-2-Match: {_best2_id} "
