@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from export_security import redact_json_text, redact_text
-from export_diagnosis import run_forecast_quality_diagnosis_before_export, run_kinematic_acceleration_diagnosis_before_export
+from export_diagnosis import run_forecast_quality_diagnosis_before_export, run_kinematic_acceleration_diagnosis_before_export, run_convlstm_training_diagnosis_before_export
 
 # DIAGNOSE B115: Export-Absturz-Analyse
 # Wahrscheinliche Ursache: unbehandelte Exception oder OOM beim Log-Read.
@@ -58,6 +58,9 @@ _ALWAYS_INCLUDE_NAMES = {
     "forecast_quality_diagnosis_error.json",
     "kinematic_acceleration_validation_latest.json",
     "kinematic_acceleration_validation_error.json",
+    "convlstm_training_diagnosis_latest.json",
+    "convlstm_training_diagnosis_error.json",
+    "convlstm_training_runs.jsonl",
     "forecast_bias_status.json",
     "radar_ingest_gaps.json",
     "config.py",
@@ -773,6 +776,9 @@ def create_debug_export_zip(
     # Export erzeugen, analog zur Forecast-Qualitaetsdiagnose. Blockiert den
     # Export nicht (Fehler werden persistiert, siehe export_diagnosis.py).
     kinematic_acceleration_diagnosis = run_kinematic_acceleration_diagnosis_before_export(hours=hours, base_dir=base_dir, save_paths=save_paths)
+    # B357: ConvLSTM-Trainings-Telemetrie (B356-Kaskade + Fallback) automatisch
+    # vor jedem Export zusammenfassen. Blockiert den Export nicht.
+    convlstm_training_diagnosis = run_convlstm_training_diagnosis_before_export(hours=hours, base_dir=base_dir, save_paths=save_paths)
     candidates, diagnostics = _build_candidates_with_diagnostics(base_dir, save_paths)
     included_roots: set[str] = set()
     excluded_files: list[str] = []
@@ -901,6 +907,7 @@ def create_debug_export_zip(
                 "hydro_export": hydro_info,
                 "forecast_quality_diagnosis": forecast_quality_diagnosis,
                 "kinematic_acceleration_diagnosis": kinematic_acceleration_diagnosis,
+                "convlstm_training_diagnosis": convlstm_training_diagnosis,
             }
             manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
             zf.writestr(f"{root_name}/manifest.json", manifest_bytes)

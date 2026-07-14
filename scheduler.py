@@ -91,6 +91,32 @@ def run_retrain_job(job_name: str):
         debug_log(f"[SCHEDULER] Job {job_name} Fehler: {exc}")
 
 
+def _write_convlstm_fallback_record(*, outcome: str, effective_mem_gb: float, static_mem_gb: int) -> None:
+    """B357: Telemetrie-Fallback fuer Faelle, in denen der ConvLSTM-Trainings-
+    Subprozess keine Chance hatte, selbst einen JSONL-Eintrag zu schreiben
+    (System-OOM-Kill, Timeout). Nutzt dieselbe Datei/dasselbe Schema wie
+    radar_convlstm._write_training_run_record, damit tools/diagnose_convlstm_training.py
+    beide Quellen einheitlich auswerten kann."""
+    import json as _json
+    from datetime import datetime as _dt, timezone as _tz
+    try:
+        from config import SAVE_PATHS as _SP
+        ev_dir = _SP.get("evaluation", "train_data/evaluation")
+        path = _os.path.join(ev_dir, "convlstm_training_runs.jsonl")
+        record = {
+            "timestamp_utc": _dt.now(_tz.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+            "source": "parent_fallback",
+            "outcome": outcome,
+            "effective_mem_limit_gb": round(effective_mem_gb, 2),
+            "static_mem_limit_gb": static_mem_gb,
+        }
+        _os.makedirs(_os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(_json.dumps(record, ensure_ascii=False, default=str) + "\n")
+    except Exception as exc:
+        debug_log(f"[SCHEDULER] B357: Fallback-Telemetrie-Schreibfehler (nicht kritisch): {exc}")
+
+
 def run_convlstm_weekly_job():
     """B147: ConvLSTM-Training läuft als ISOLIERTER Subprozess. Ein OOM/Crash (auch ein
     nicht abfangbares SIGKILL des Kindes) beendet NUR das Kind — der Scheduler-Dienst
@@ -169,10 +195,23 @@ def run_convlstm_weekly_job():
                 "[SCHEDULER] Job convlstm_weekly: Kind getötet (OOM/SIGKILL, "
                 f"rc={proc.returncode}) — Scheduler läuft weiter. {tail}"
             )
+            # B357: Kind-Prozess hatte bei SIGKILL keine Chance, selbst einen
+            # Telemetrie-Eintrag zu schreiben — Fallback im Eltern-Prozess, MIT
+            # den nur hier bekannten Werten (effektives RLIMIT_AS, freier RAM).
+            _write_convlstm_fallback_record(
+                outcome="system_oom_kill",
+                effective_mem_gb=_effective_mem_gb,
+                static_mem_gb=_mem_gb,
+            )
         else:
             debug_log(f"[SCHEDULER] Job convlstm_weekly Fehler (rc={proc.returncode}). {tail}")
     except _sp.TimeoutExpired:
         debug_log(f"[SCHEDULER] Job convlstm_weekly Timeout (> {_timeout}s) — abgebrochen.")
+        _write_convlstm_fallback_record(
+            outcome="timeout",
+            effective_mem_gb=_effective_mem_gb,
+            static_mem_gb=_mem_gb,
+        )
     except Exception as exc:
         debug_log(f"[SCHEDULER] Job convlstm_weekly Fehler beim Start: {exc}")
 
