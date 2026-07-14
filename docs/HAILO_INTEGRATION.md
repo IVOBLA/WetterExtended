@@ -5266,3 +5266,24 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Test: `tests/test_b368_tawes_station_name.py`.
 - Phasen-Status (Hailo): unveraendert — reines Live-Karte-Anzeige-Fix
   fuer P73 (last_station_encounter), keine Hailo-/ML-Auswirkung.
+
+### B370 — merge_close_contours() war nicht transitiv (reihenfolgeabhängige Zellgruppierung) ✅ erledigt
+
+**Root-Cause:** Die innere Schleife verglich ausschließlich gegen die Startkontur `cnt1`. Neu zur
+Gruppe hinzugefügte Konturen wurden nie selbst als Nachbarschaftsquelle genutzt. Bei A–B, B–C,
+aber nicht A–C entstand je nach OpenCV-Konturreihenfolge `{A,B}+{C}` oder `{A,B,C}`.
+
+**Wirkung:** Derselbe Gewitterkomplex wurde in aufeinanderfolgenden Frames unterschiedlich
+gruppiert → fluktuierende Außenkonturen → ID-Switches, Schwerpunktsprünge, Forecast-Fehler.
+
+**Fix:** Nachbarschaft als Graph (Knoten = Kontur, Kante = Berührung), Zusammenhangskomponenten
+per Union-Find mit Pfadkompression und Union-by-Rank. Ergebnis per Konstruktion
+reihenfolgeinvariant. Bounding-Box-Pruning (`_bboxes_can_touch`) vor dem Maskenvergleich hält die
+Laufzeit auf dem Pi 5 stabil. Die Buffer-Union-Unbuffer-Semantik aus B276 bleibt unverändert.
+
+**Tests:** `tests/test_b370_merge_close_contours_transitiv.py` — transitive Kette, Invarianz über
+alle 6 Permutationen, disjunkte Konturen, Leereingabe, BBox-Gate vs. echte Berührung.
+
+**Phasen-Status:** Phase A (Stabilität) — Segmentierungs-Determinismus hergestellt. Erster Schritt
+der Tracking-Sanierung (Analyse 14.07.2026, Finding 5.1). Folgeprompts: B371 (Event-Dedup),
+B372 (Diagnose-Export), B373–B375 (globales Matching), B376 (adaptive Subcell-Segmentierung).
