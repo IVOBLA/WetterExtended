@@ -1178,7 +1178,17 @@ CONVLSTM_MAX_FRAMES: int = 6000
 CONVLSTM_TRAIN_TIMEOUT_S: int = 7200
 # Adressraum-Limit (GB) des Trainings-Subprozesses → planbares Scheitern statt
 # system-weitem OOM-Kill (schützt die übrigen Dienste auf dem Pi).
+# WICHTIG: Dies ist nur die STATISCHE OBERGRENZE. Das tatsächlich gesetzte Limit
+# wird in scheduler.run_convlstm_weekly_job() dynamisch auf den aktuell freien
+# RAM gedeckelt (siehe B356) — ansonsten greift bei knappem freien RAM der
+# system-weite OOM-Killer, bevor dieses Limit selbst erreicht wird.
 CONVLSTM_TRAIN_MEM_LIMIT_GB: int = 12
+# B356: Sicherheitsmarge (GB), die von der DYNAMISCHEN Berechnung des ConvLSTM-
+# Trainings-Speicherlimits vom aktuell freien RAM abgezogen wird, damit die
+# übrigen Dienste (Flask/Scheduler/Admin/nginx) waehrend des Trainings nicht
+# verhungern. Effektives Limit = min(CONVLSTM_TRAIN_MEM_LIMIT_GB,
+# aktuell_frei_GB - CONVLSTM_TRAIN_MEM_SAFETY_MARGIN_GB).
+CONVLSTM_TRAIN_MEM_SAFETY_MARGIN_GB: float = 1.5
 # B146: Kulanzfenster für verpasste Scheduler-Jobs (Sekunden). Wird ein Cron-Job zum
 # geplanten Zeitpunkt verpasst (Scheduler-Neustart/Downtime), läuft er bis zu so vielen
 # Sekunden später noch nach (coalesced) statt erst am Folgetag. Default 1 h.
