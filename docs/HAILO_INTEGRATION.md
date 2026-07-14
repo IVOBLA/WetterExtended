@@ -4999,3 +4999,28 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   `frontend/src/pages/Training.jsx`.
 - Test: `tests/test_b358_ram_verlauf_und_convlstm_status.py`.
 - Phasen-Status (Hailo): unverändert.
+
+### B359 — sys.modules-Kontamination von accuracy_tracker verwaiste app.py-Referenzen ✅ erledigt
+- Ursache: Vier Testdateien riefen `sys.modules.pop("accuracy_tracker", None)`
+  auf, um vor dem Import ein gestubtes `debug_utils` einzuschleusen. Das
+  erzeugt bei jedem Aufruf ein neues Modul-Objekt in `sys.modules` — `app.py`s
+  bereits beim ersten Import gebundene Referenzen (`evaluate_all`,
+  `load_history`) zeigten danach für den Rest der Testsession auf das ALTE,
+  verwaiste Modul-Objekt. Dadurch schlug
+  `test_b355_accuracy_zeitraum_filter.py::test_history_respects_narrow_window_without_7day_floor`
+  fehl, sobald eine der vier Dateien vorher lief (alphabetische
+  Collection-Reihenfolge) — `monkeypatch.setattr(accuracy_tracker, "HISTORY_FILE", ...)`
+  patchte ein Modul-Objekt, das `app.py` gar nicht mehr verwendete, wodurch
+  echte Produktions-/Testdaten statt der Fixture-Daten gelesen wurden. Kein
+  Zusammenhang mit B355 selbst oder mit B356/B357/B358.
+- Fix: `sys.modules.pop("accuracy_tracker", ...)` in allen vier Dateien
+  entfernt. Statt eines gestubten `debug_utils`-Moduls vor dem Reimport wird
+  jetzt das bereits importierte, session-weit EINE `accuracy_tracker`-Modul
+  direkt per `monkeypatch.setattr(at, "debug_log", ...)` gepatcht (automatisches
+  Teardown durch pytest, kein `sys.modules` wird mehr verändert).
+- Dateien: `tests/test_b296_nn_threshold_and_median.py`,
+  `tests/test_b335_accuracy_tracker_verified_zero_none.py`,
+  `tests/test_accuracy_tracker_horizon_mode.py`,
+  `tests/test_c1_dashboard_forecast_mode.py`.
+- Test: `tests/test_b359_accuracy_tracker_no_sys_modules_pop.py`.
+- Phasen-Status (Hailo): unverändert.

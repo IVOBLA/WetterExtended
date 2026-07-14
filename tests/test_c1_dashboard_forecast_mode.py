@@ -182,13 +182,12 @@ def test_p69_existing_quality_endpoints_expose_transparency_fields(monkeypatch, 
 
 def test_evaluate_for_horizon_separates_shadow_ml_from_delivered_counts(monkeypatch, tmp_path):
     import json
-    import sys
-    import types
     from datetime import datetime, timedelta
 
-    sys.modules.pop("accuracy_tracker", None)
-    monkeypatch.setitem(sys.modules, "debug_utils", types.SimpleNamespace(debug_log=lambda *args, **kwargs: None))
+    # B359: siehe test_b296_nn_threshold_and_median.py — kein sys.modules.pop
+    # mehr, direktes Patchen des bereits importierten Moduls.
     import accuracy_tracker
+    monkeypatch.setattr(accuracy_tracker, "debug_log", lambda *args, **kwargs: None, raising=False)
 
     ev = tmp_path / "evaluation"
     ev.mkdir()
@@ -227,13 +226,12 @@ def test_evaluate_for_horizon_separates_shadow_ml_from_delivered_counts(monkeypa
 
 def test_evaluate_for_horizon_counts_delivered_mode_without_target_frame(monkeypatch, tmp_path):
     import json
-    import sys
-    import types
     from datetime import datetime
 
-    sys.modules.pop("accuracy_tracker", None)
-    monkeypatch.setitem(sys.modules, "debug_utils", types.SimpleNamespace(debug_log=lambda *args, **kwargs: None))
+    # B359: siehe test_b296_nn_threshold_and_median.py — kein sys.modules.pop
+    # mehr, direktes Patchen des bereits importierten Moduls.
     import accuracy_tracker
+    monkeypatch.setattr(accuracy_tracker, "debug_log", lambda *args, **kwargs: None, raising=False)
 
     ev = tmp_path / "evaluation"
     ev.mkdir()
