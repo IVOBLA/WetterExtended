@@ -5149,3 +5149,30 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   Fallback und ML-Features (vx/vy, core_ratio-Serie) einfliesst. Sollte in
   der naechsten Drift-Analyse gegen die drift_detector.py-Historie
   beruecksichtigt werden.
+
+### P73 — Letzte Stationsbegegnung der Zelle zur Abschätzung zu erwartender Böen ✅ erledigt
+- Feature: Neues Feld `last_station_encounter` hält fest, was an Wind
+  (FF), Böe (FFX) und Richtung (DD) gemessen wurde, als die Zelle
+  ZULETZT im engen Bereich (Default 10 km, `STATION_ENCOUNTER_MAX_KM`,
+  Admin-Panel-tunbar) einer TAWES-Station war — bleibt über den
+  gesamten weiteren Lebenszyklus der Zelle erhalten, auch nachdem die
+  Zelle die Station wieder verlassen hat. Ziel: reale Ist-Messung zur
+  Abschätzung/Plausibilisierung zu erwartender Böen. Anzeige im
+  Zell-Popup der Live-Karte, Archivierung im Track-Ende-Record
+  (`track_ends.jsonl`).
+- Persistenz: `update_tracking_memory()` liefert NEUE, von
+  `tracking_memory` unabhängige Dicts zurück (verifiziert) — daher folgt
+  die Implementierung exakt dem bereits etablierten
+  `accumulate_severity_maxima()`-Muster (explizites Write-back per ID
+  aus main.py via neuer Funktion `accumulate_station_encounter()`).
+- Keine neue externe API-Anbindung — nutzt ausschließlich bereits
+  vorhandene `fetch_tawes_stations()`-Daten (GeoSphere tawes-v1-10min).
+- Dateien: `config.py`, `init_runtime_overrides.py`, `fetch_tawes_gust.py`
+  (neue Funktion `nearest_station_wind`), `object_tracking.py`,
+  `track_statistics.py` (neue Funktion `accumulate_station_encounter`,
+  Erweiterung `write_track_end`), `main.py`,
+  `frontend/src/pages/MapView.jsx`.
+- Test: `tests/test_p73_last_station_encounter.py`.
+- Phasen-Status (Hailo): unverändert — reines Live-Karte-/Böen-
+  Plausibilisierungs-Feature, keine Hailo-/ML-Auswirkung
+  (`last_station_encounter` bewusst nicht in `ML_CELL_FEATURES`).

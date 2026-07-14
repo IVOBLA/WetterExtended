@@ -188,3 +188,43 @@ def max_gust_near(lat: float, lon: float,
         if dist_km <= radius_km:
             max_gust = max(max_gust, s.get("ffx_kmh", 0.0))
     return max_gust
+
+
+def nearest_station_wind(lat: float, lon: float,
+                         stations: list, radius_km: float = 30.0):
+    """
+    P73: Liefert die gemessene mittlere Windgeschwindigkeit (FF) samt
+    Boe (FFX) und Windrichtung (DD) der NAECHSTGELEGENEN TAWES-Station
+    innerhalb radius_km.
+
+    Rueckgabe: dict mit station_name/distance_km/wind_kmh/gust_kmh/
+    direction_deg, oder None wenn keine Station im Radius liegt.
+    direction_deg folgt der meteorologischen Konvention (Richtung,
+    AUS der der Wind weht) — NICHT identisch mit der Zugrichtungs-
+    Konvention (direction_deg der Zelle = Richtung, IN die die Zelle
+    zieht).
+    """
+    best = None
+    best_dist = radius_km
+    for s in stations:
+        slat = s.get("lat", 0.0)
+        slon = s.get("lon", 0.0)
+        dlat = math.radians(slat - lat)
+        dlon = math.radians(slon - lon)
+        a    = (math.sin(dlat / 2) ** 2
+                + math.cos(math.radians(lat))
+                * math.cos(math.radians(slat))
+                * math.sin(dlon / 2) ** 2)
+        dist_km = 6371 * 2 * math.asin(math.sqrt(a))
+        if dist_km <= best_dist:
+            best_dist = dist_km
+            best = s
+    if best is None:
+        return None
+    return {
+        "station_name":  best.get("name", "?"),
+        "distance_km":   round(best_dist, 1),
+        "wind_kmh":      best.get("ff_kmh", 0.0),
+        "gust_kmh":      best.get("ffx_kmh", 0.0),
+        "direction_deg": best.get("DD"),
+    }

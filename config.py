@@ -465,6 +465,12 @@ MAX_CELL_SPEED_KMH: float = 150.0
 # Maximale Geschwindigkeitsänderung pro 5-min-Zyklus (km/h). Verhindert
 # Kalman-Sprünge bei Mess-Artefakten (Plausibilitätsprüfung F14).
 MAX_SPEED_CHANGE_PER_CYCLE_KMH: float = 60.0
+# P73: Radius (km), innerhalb dessen eine Zelle als "im Bereich" einer
+# TAWES-Station gilt. Deutlich enger als der allgemeine 30-km-Suchradius
+# von max_gust_near() — soll eine tatsaechliche Naeherung an die Station
+# abbilden, nicht nur "irgendeine Station in der Umgebung". Ueber Admin-
+# Panel/runtime_config anpassbar.
+STATION_ENCOUNTER_MAX_KM: float = 10.0
 # B365: Stage-2-Fallback-Cap (object_tracking.py) für Zellen, deren
 # core_ratio in der Vorperiode unter WAS_ACTIVE_CORE_RATIO_THRESHOLD liegt
 # (= fast aufgelöst). Ohne den sonst üblichen ×1.5-Puffer, da die

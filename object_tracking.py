@@ -1627,6 +1627,11 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
                             "max_hail_prob", "max_lightning_10km"):
                     if _mx in _prev_t:
                         obj_clean[_mx] = _prev_t[_mx]
+                # P73: letzte Stationsbegegnung carry-over (Wert selbst setzt
+                # main.py via track_statistics.accumulate_station_encounter).
+                # Bleibt unveraendert, bis main.py eine NEUE, engere
+                # Begegnung feststellt — daher unconditional (auch None).
+                obj_clean["last_station_encounter"] = _prev_t.get("last_station_encounter")
                 # Pfadpunkt anhängen (gekappt)
                 obj_clean["path_points"].append([float(obj_clean["lat"]), float(obj_clean["lon"])])
                 if len(obj_clean["path_points"]) > _path_pts_max:

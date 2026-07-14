@@ -2888,3 +2888,18 @@ Auf der Training-Seite zeigt eine Status-Karte im ConvLSTM-Bereich das
 Ergebnis des letzten wöchentlichen ConvLSTM-Trainingslaufs: Erfolg (inkl. der
 tatsächlich verwendeten Batch-Größe), oder eine Warnung bei Speichermangel
 (System-OOM trotz dynamischem Speicherlimit) bzw. Zeitüberschreitung.
+
+### Letzte Stationsmessung in Zellnähe zur Böen-Abschätzung (P73)
+
+Im Popup einer Zelle wird — sobald die Zelle einmal im Bereich
+(Standard: 10 km) einer TAWES-Wetterstation war — die dort **zuletzt**
+tatsächlich gemessene Wind- und Böengeschwindigkeit angezeigt:
+
+📡 Letzte Stationsmessung in Zellnähe: *Stationsname* (*Distanz* km, vor *X* min): Wind *W* km/h, Böe *B* km/h aus *Himmelsrichtung*
+
+Diese Angabe bleibt erhalten, auch wenn die Zelle die Station längst
+wieder verlassen hat — sie zeigt die letzte reale Messung, mit der sich
+abschätzen lässt, mit welchen Böen bei dieser Zelle aktuell zu rechnen
+ist. Die Windrichtung folgt der meteorologischen Konvention (Richtung,
+**aus** der der Wind weht — nicht zu verwechseln mit der Zugrichtung 🧭
+der Zelle selbst).

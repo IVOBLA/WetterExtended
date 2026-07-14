@@ -158,6 +158,36 @@ def accumulate_severity_maxima(objects) -> None:
             t["max_lightning_10km"] = ln
 
 
+def accumulate_station_encounter(objects) -> None:
+    """
+    P73: Schreibt die letzte "Stationsbegegnung" (Zelle war im engen
+    Bereich einer TAWES-Station, siehe STATION_ENCOUNTER_MAX_KM) ZURUECK
+    in tracking_memory, damit sie ueber den gesamten Lebenszyklus der
+    Zelle erhalten bleibt — auch nachdem die Zelle die Station laengst
+    wieder verlassen hat. Ziel: abschaetzen, mit welchen Boeen bei der
+    Zelle zu rechnen ist, anhand der letzten tatsaechlichen Messung in
+    ihrer Naehe.
+
+    Wird in main.py NACH der TAWES-Anreicherung aufgerufen (Feld
+    obj["last_station_encounter"] existiert erst dort). Explizites
+    Write-back per ID — keine Annahme über Dict-Referenzen (siehe
+    accumulate_severity_maxima()).
+    """
+    try:
+        import object_tracking as _ot
+        mem = _ot.tracking_memory
+    except Exception as exc:
+        debug_log(f"[P73] accumulate_station_encounter übersprungen: {exc}")
+        return
+    for obj in objects or []:
+        oid = obj.get("id")
+        if not oid or oid not in mem:
+            continue
+        encounter = obj.get("last_station_encounter")
+        if encounter is not None:
+            mem[oid]["last_station_encounter"] = encounter
+
+
 def write_track_end(obj: dict, end_reason: str, end_detected_ts: str) -> bool:
     """
     Schreibt den abschließenden Lifecycle-Datensatz für einen Track.
@@ -232,6 +262,9 @@ def write_track_end(obj: dict, end_reason: str, end_detected_ts: str) -> bool:
         "lineage":             obj.get("lineage"),
         "parents":             list(obj.get("parents") or []),
         "children":            list(obj.get("children") or []),
+        # P73: letzte Stationsbegegnung (Wind/Böe/Richtung real gemessen,
+        # als die Zelle zuletzt im Bereich einer TAWES-Station war).
+        "last_station_encounter": obj.get("last_station_encounter"),
     }
 
     path = track_ends_path()

@@ -31,7 +31,7 @@ from orographic_module import assign_orographic_scores
 from fetch_openmeteo_extended import assign_extended_openmeteo
 from fetch_geosphere_nowcast import assign_nowcast_to_objects
 from compute_convective_indices import assign_convective_indices
-from fetch_tawes_gust import fetch_tawes_stations, max_gust_near
+from fetch_tawes_gust import fetch_tawes_stations, max_gust_near, nearest_station_wind
 from ir_cell_detection import detect_ir_cells
 from ir_cell_tracking import mark_radar_matched_tracks, update_ir_tracking
 from climatology_features import enrich_objects as _clim_enrich
@@ -740,18 +740,30 @@ def main_loop():
             from severity_predict import assign_severity
             _severity_ts = _severity_datetime.strptime(timestamp, "%Y-%m-%d_%H-%M-%S") if timestamp else None
             objects = assign_severity(objects, weather_data, _severity_ts)
+            from config import STATION_ENCOUNTER_MAX_KM as _SEMK_CFG
+            _station_encounter_max_km = float(runtime_config.get("STATION_ENCOUNTER_MAX_KM", _SEMK_CFG))
             _tawes_stations = fetch_tawes_stations()
             for _obj in objects:
                 if _obj.get("lat") is not None and _obj.get("lon") is not None:
                     _measured_gust = max_gust_near(_obj["lat"], _obj["lon"], _tawes_stations, 30.0)
                     _obj["tawes_max_gust_kmh"] = _measured_gust
+                    # P73: Enge Stationsnaehe pruefen — nur bei Treffer wird
+                    # last_station_encounter aktualisiert, sonst bleibt der
+                    # ueber object_tracking.py carry-over bereits vorhandene
+                    # letzte Wert unveraendert erhalten.
+                    _close_station = nearest_station_wind(
+                        _obj["lat"], _obj["lon"], _tawes_stations, _station_encounter_max_km
+                    )
+                    if _close_station is not None:
+                        _obj["last_station_encounter"] = {"timestamp": timestamp, **_close_station}
                     _obj["gust_warning"] = float(_obj.get("nowcast_ffx_kmh",0.0)) >= GUST_WARN_KMH or _measured_gust >= GUST_WARN_KMH
                     _obj["heavy_rain_warning"] = float(_obj.get("nowcast_rain_rate_1h",0.0)) >= HEAVY_RAIN_WARN_MM_PER_H
             # P-S01: Schwere-/Hagel-/Blitz-Maxima in tracking_memory akkumulieren
             # (severity_level etc. existieren erst nach assign_severity, daher hier).
             try:
-                from track_statistics import accumulate_severity_maxima
+                from track_statistics import accumulate_severity_maxima, accumulate_station_encounter
                 accumulate_severity_maxima(objects)
+                accumulate_station_encounter(objects)
             except Exception as _e_sevacc:
                 debug_log(f"[P-S01] accumulate_severity_maxima Fehler: {_e_sevacc}")
 

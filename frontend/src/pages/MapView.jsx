@@ -1256,6 +1256,27 @@ export default function MapView() {
                   {o.heavy_rain_warning && <div className="font-bold text-blue-700">🌧 Starkregen ({o.nowcast_rain_rate_1h} mm/h)</div>}
                   {o.lpi > 5 && <div className="text-yellow-600">⚡ LPI: {o.lpi?.toFixed(1)}</div>}
                   {o.tawes_max_gust_kmh > 30 && <div className="text-gray-500 text-xs">Station-Böe: {o.tawes_max_gust_kmh} km/h</div>}
+                  {o.last_station_encounter && (
+                    <div className="text-gray-500 text-xs">
+                      📡 Letzte Stationsmessung in Zellnähe: {o.last_station_encounter.station_name}
+                      {' '}({o.last_station_encounter.distance_km} km
+                      {(() => {
+                        try {
+                          const t = parseViennaLocalTimestamp(o.last_station_encounter.timestamp)
+                          const diffMin = Math.round((Date.now() - t.getTime()) / 60000)
+                          if (diffMin >= 0 && diffMin < 1440) return `, vor ${diffMin} min`
+                        } catch (_) {}
+                        return ''
+                      })()}
+                      ): Wind {o.last_station_encounter.wind_kmh} km/h, Böe {o.last_station_encounter.gust_kmh} km/h
+                      {o.last_station_encounter.direction_deg != null && (
+                        ' aus ' + ['N','NNO','NO','ONO','O','OSO','SO','SSO',
+                                'S','SSW','SW','WSW','W','WNW','NW','NNW'][
+                          Math.round(o.last_station_encounter.direction_deg / 22.5) % 16
+                        ]
+                      )}
+                    </div>
+                  )}
                   <CellTendency obj={o} />
                 </Popup>
               </Polygon>
