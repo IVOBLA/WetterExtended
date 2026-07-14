@@ -308,10 +308,19 @@ def patch_exact_key(top_key: str, value) -> dict:
     """B244: Ersetzt einen Top-Level-Schlüssel vollständig ohne _deep_merge.
     Verwenden statt patch() wenn ein verschachteltes Dict komplett neu gesetzt
     werden soll und _deep_merge das Löschen von Unter-Schlüsseln verhindern würde
-    (z. B. Löschen von mark_q_m3s in HYDRO_STATION_OVERRIDES[sid])."""
+    (z. B. Löschen von mark_q_m3s in HYDRO_STATION_OVERRIDES[sid]).
+
+    B362: Laedt den Stand unmittelbar vor dem Merge frisch von der Platte.
+    wetterprojekt/wetterprojekt-scheduler/wetterprojekt-admin laufen als
+    unabhaengige Prozesse mit je eigenem In-Memory-Cache (_OVERRIDES) — ohne
+    diesen Reload wuerde ein veralteter Cache-Stand beim naechsten save()
+    zwischenzeitliche Schreibvorgaenge ANDERER Prozesse lautlos ueberschreiben
+    (siehe Analyse zum LOCATIONS_WATCHLIST-Datenverlust)."""
     validate_override_key(top_key)
     if is_forbidden_override_key(top_key):
+        reload_overrides()
         return dict(_OVERRIDES)
+    reload_overrides()
     with _LOCK:
         merged = dict(_OVERRIDES)
         merged[top_key] = _strip_forbidden_keys(value) if isinstance(value, (dict, list)) else value
@@ -329,7 +338,18 @@ def patch(partial: dict) -> dict:
     werden defensiv entfernt. Defense-in-Depth: patch() bereinigt unabhängig vom
     aufrufenden Endpunkt. Die öffentliche API (/api/config) lehnt bei verbotenen
     Pfaden mit HTTP 400 ab (vor patch()-Aufruf).
+
+    B362: Laedt den Stand unmittelbar vor dem Merge frisch von der Platte
+    (reload_overrides()), statt sich auf den moeglicherweise veralteten
+    In-Memory-Cache des aufrufenden Prozesses zu verlassen. Ohne diesen
+    Reload konnte ein Prozess (z. B. wetterprojekt-admin waehrend eines
+    Trainingslaufs, training_control.py) beim naechsten patch()-Aufruf
+    fuer einen VOELLIG ANDEREN Key zwischenzeitliche Schreibvorgaenge eines
+    ANDEREN Prozesses (z. B. LOCATIONS_WATCHLIST-Speicherung ueber das Admin
+    Panel) lautlos überschreiben — siehe Analyse zum beobachteten
+    Datenverlust.
     """
+    reload_overrides()
     if isinstance(partial, dict):
         for _key in partial:
             validate_override_key(_key)
