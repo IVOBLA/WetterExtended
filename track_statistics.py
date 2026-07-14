@@ -179,13 +179,18 @@ def accumulate_station_encounter(objects) -> None:
     except Exception as exc:
         debug_log(f"[P73] accumulate_station_encounter übersprungen: {exc}")
         return
+    changed = False
     for obj in objects or []:
         oid = obj.get("id")
         if not oid or oid not in mem:
             continue
         encounter = obj.get("last_station_encounter")
         if encounter is not None:
-            mem[oid]["last_station_encounter"] = encounter
+            if mem[oid].get("last_station_encounter") != encounter:
+                mem[oid]["last_station_encounter"] = encounter
+                changed = True
+    if changed and hasattr(_ot, "save_tracking_snapshot"):
+        _ot.save_tracking_snapshot()
 
 
 def write_track_end(obj: dict, end_reason: str, end_detected_ts: str) -> bool:
