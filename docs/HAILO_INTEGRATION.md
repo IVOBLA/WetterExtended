@@ -5067,3 +5067,28 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
 - Dateien: `radar_convlstm.py`.
 - Test: `tests/test_b361_batch_size_one_not_clamped.py`.
 - Phasen-Status (Hailo): unverändert.
+
+### B362 — Cross-Process-Race verursachte stillen Verlust von Runtime-Overrides ✅ erledigt
+- Ursache: LOCATIONS_WATCHLIST (inkl. E-Mail/WhatsApp je Ort) verschwand
+  nachweislich zwischen zwei install.sh-Laeufen aus runtime_overrides.json,
+  ohne dass install.sh oder ein Speichern ueber die Admin-Oberflaeche dafuer
+  ursaechlich war. Root Cause: `wetterprojekt`, `wetterprojekt-scheduler` und
+  `wetterprojekt-admin` laufen als unabhaengige Prozesse mit je eigenem
+  In-Memory-Cache (runtime_config._OVERRIDES). `patch()`/`patch_exact_key()`
+  mergten gegen diesen moeglicherweise veralteten Cache statt gegen den
+  tatsaechlichen Platteninhalt und schrieben danach die GESAMTE Datei zurueck
+  — ein `patch()`-Aufruf fuer einen VOELLIG ANDEREN Key aus einem Prozess mit
+  veraltetem Cache konnte dadurch zwischenzeitliche Schreibvorgaenge eines
+  ANDEREN Prozesses lautlos ueberschreiben.
+- Fix: `patch()` und `patch_exact_key()` rufen jetzt unmittelbar vor dem
+  Merge `reload_overrides()` auf — laden also den aktuellen Platteninhalt,
+  statt sich auf den In-Memory-Cache zu verlassen. Schliesst das Race-Fenster
+  auf die kurze Spanne zwischen Reload und Save (dateibasiert per fcntl.flock
+  bereits geschuetzt), ohne die Aufrufer-API zu aendern.
+- Bewusst NICHT Teil dieses Fixes: eine vollstaendige cross-process
+  Transaktion ueber den gesamten Reload-Merge-Save-Zyklus (echter
+  Exclusive-Lock ueber die gesamte Operation) — falls der Verlust danach
+  nochmal auftritt, ist das der naechste Schritt.
+- Dateien: `runtime_config.py`.
+- Test: `tests/test_b362_runtime_config_cross_process_race.py`.
+- Phasen-Status (Hailo): unverändert.
