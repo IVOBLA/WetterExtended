@@ -5483,3 +5483,34 @@ Deployment eine sichtbare Regression im Probebetrieb erzeugt.
 `MapView.jsx`. Beide Stellen werden identisch gepflegt; die Deduplizierung ist ein eigener
 Root-Cause und wird separat geführt. Die Darstellung von `transition_phase="candidate"`
 (gestrichelte Übergangskandidaten) ist ein Fach-Feature → **P75**.
+
+### B376 — Euklidische Voronoi-Teilung erzeugte künstliche Zellgrenzen quer durch Kernflächen ✅ erledigt
+
+**Root-Cause:** Der P66-Multi-Core-Split trennte geometrisch statt physikalisch — das
+Intensitätsfeld ging nirgends ein.
+- `_core_path_gap_px()` prüfte nur die **gerade** Verbindungslinie (kein topologisch robuster
+  Trennpfad); `MULTI_CORE_MIN_GAP_PX=2.0` ließ zwei Pixel Quantisierungs-/JPEG-Rauschen genügen;
+  ein **einziges** geeignetes Kernpaar gab den gesamten Mehrkernkomplex frei (`break`/`break`).
+- `_voronoi_split()` ordnete jeden Pixel der Außenkontur dem euklidisch nächsten Kernzentrum zu →
+  gerade/keilförmige Grenzen quer durch starke rote/violette Flächen, Schwerpunktsprünge bei
+  minimalen Markerbewegungen.
+
+**Fix (AINT-Prinzip, arXiv:2509.02929):**
+- `_intensity_field()`: Reflektivitäts-Proxy aus HSV (V×S).
+- `_core_saddle_ratio()`: Split nur bei echtem **Intensitätseinschnitt** zwischen zwei Kernen
+  (`MULTI_CORE_MIN_SADDLE_RATIO`, Default 0.35) — eine elongierte Böenlinie mit mehreren Maxima
+  ohne Sattel bleibt **eine** Zelle.
+- **Alle** geprüften Kernpaare müssen trennbar sein, nicht nur eines.
+- `_watershed_split()`: marker-gesteuerte Watershed-Expansion auf dem invertierten
+  Intensitätsfeld — die Grenzen folgen den Reflektivitätsminima statt der euklidischen Mitte.
+- `_voronoi_split()` bleibt als Notfall-Fallback (als DEPRECATED markiert), falls Watershed wirft.
+
+**Tests:** `tests/test_b376_adaptive_subcell_segmentierung.py` — kein Sattel bei durchgehender
+Struktur, Sattel bei schwacher Brücke, 2 Sub-Zellen, Grenze folgt dem Tal, Einzelkern-Passthrough,
+`min_child_area`-Respektierung, Config-Default, Fallback-Verfügbarkeit.
+
+**Phasen-Status:** Phase A — Segmentierung folgt dem Intensitätsfeld. **Offen:**
+Primary-Policy-Konsistenz → **B377**. Die Trennung von `support_mask` (Systemhülle, großzügiges
+Closing) und `core_tracking_mask` (Zellkerne, feines Closing) ist ein **Architektur-Feature**
+(System-/Zellhierarchie `system_id`/`cell_id`) und wird als eigener P-Prompt geführt — erst
+danach ist der Replay-Regressionstest `1C04EV5M` (15:00–16:05) sinnvoll aufsetzbar.
