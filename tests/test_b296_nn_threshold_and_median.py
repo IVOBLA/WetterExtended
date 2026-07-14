@@ -1,14 +1,17 @@
 """B296: NN-Akzeptanzschwellen h30/h40/h60 verschärft + median_km-Kennzahl."""
 import json
-import sys
-import types
 from datetime import datetime, timedelta
 
 
 def _import_accuracy_tracker(monkeypatch, tmp_path):
-    sys.modules.pop("accuracy_tracker", None)
-    monkeypatch.setitem(sys.modules, "debug_utils", types.SimpleNamespace(debug_log=lambda *a, **k: None))
-    at = __import__("accuracy_tracker")
+    # B359: KEIN sys.modules.pop mehr — das erzeugt bei jedem Aufruf ein neues
+    # Modul-Objekt und verwaist app.py's bereits gebundene Referenzen
+    # (evaluate_all/load_history), die weiterhin auf das ALTE Modul-Objekt
+    # zeigen. Stattdessen wird das bereits importierte, session-weit EINE
+    # accuracy_tracker-Modul direkt gepatcht (monkeypatch reverted automatisch
+    # nach dem Test) — so bleiben alle Referenzen im Prozess konsistent.
+    import accuracy_tracker as at
+    monkeypatch.setattr(at, "debug_log", lambda *a, **k: None, raising=False)
     ev = tmp_path / "evaluation"
     ev.mkdir(exist_ok=True)
     monkeypatch.setattr(at, "EVAL_DIR", str(ev), raising=False)

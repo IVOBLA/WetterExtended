@@ -1,13 +1,12 @@
 import json
-import sys
-import types
 from datetime import datetime, timedelta
 
 
 def _import_accuracy_tracker(monkeypatch, tmp_path):
-    sys.modules.pop("accuracy_tracker", None)
-    monkeypatch.setitem(sys.modules, "debug_utils", types.SimpleNamespace(debug_log=lambda *args, **kwargs: None))
-    at = __import__("accuracy_tracker")
+    # B359: siehe test_b296_nn_threshold_and_median.py — kein sys.modules.pop
+    # mehr, direktes Patchen des bereits importierten Moduls.
+    import accuracy_tracker as at
+    monkeypatch.setattr(at, "debug_log", lambda *args, **kwargs: None, raising=False)
     ev = tmp_path / "evaluation"
     ev.mkdir(exist_ok=True)
     monkeypatch.setattr(at, "EVAL_DIR", str(ev), raising=False)
