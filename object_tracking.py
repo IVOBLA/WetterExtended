@@ -386,24 +386,90 @@ def calculate_shape_features(contour):
     eccentricity = max(0.0, min(1.0, eccentricity))
     return float(area), float(eccentricity)
 
+def _uf_find(parent, i):
+    """Union-Find: Wurzel von i mit Pfadkompression (iterativ, kein Rekursionslimit)."""
+    root = i
+    while parent[root] != root:
+        root = parent[root]
+    while parent[i] != root:
+        parent[i], i = root, parent[i]
+    return root
+
+
+def _uf_union(parent, rank, a, b):
+    """Union-Find: vereinigt die Komponenten von a und b (Union by Rank)."""
+    ra, rb = _uf_find(parent, a), _uf_find(parent, b)
+    if ra == rb:
+        return
+    if rank[ra] < rank[rb]:
+        ra, rb = rb, ra
+    parent[rb] = ra
+    if rank[ra] == rank[rb]:
+        rank[ra] += 1
+
+
+def _bbox_of(cnt):
+    """Achsenparallele Bounding-Box (x_min, y_min, x_max, y_max) einer Kontur."""
+    xs = cnt[:, 0, 0]
+    ys = cnt[:, 0, 1]
+    return (int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max()))
+
+
+def _bboxes_can_touch(b1, b2, slack):
+    """Schnelltest: koennen sich zwei Konturen bei gegebenem Puffer ueberhaupt beruehren?
+    Nur wenn die um `slack` erweiterten Bounding-Boxen ueberlappen. Spart auf dem Pi den
+    teuren Vollbild-Maskenvergleich fuer weit entfernte Konturpaare."""
+    return not (
+        b1[2] + slack < b2[0] or b2[2] + slack < b1[0]
+        or b1[3] + slack < b2[1] or b2[3] + slack < b1[1]
+    )
+
+
 def merge_close_contours(contours, image_shape, min_touch=3, dilate_px=0):
-    merged = []
-    used = [False] * len(contours)
+    """B370: Gruppiert benachbarte Konturen TRANSITIV ueber Connected Components.
 
-    for i, cnt1 in enumerate(contours):
-        if used[i]:
-            continue
+    Vorher wurde nur gegen die jeweilige Startkontur `cnt1` geprueft. Damit war das
+    Ergebnis reihenfolgeabhaengig: bei A-B, B-C, aber nicht A-C entstand je nach
+    OpenCV-Konturreihenfolge {A,B}+{C} oder {A,B,C}. Konsequenz waren fluktuierende
+    Aussenkonturen zwischen zwei Frames und dadurch ID-Switches im Tracking.
 
-        group = [cnt1]
-        used[i] = True
+    Jetzt: alle Paarbeziehungen bilden einen Graphen, dessen Zusammenhangskomponenten
+    per Union-Find bestimmt werden. Das Ergebnis ist per Konstruktion invariant gegen
+    die Eingabereihenfolge.
 
-        for j, cnt2 in enumerate(contours):
-            if used[j] or i == j:
+    Die Buffer-Union-Unbuffer-Semantik aus B276 bleibt unveraendert erhalten.
+    """
+    n = len(contours)
+    if n == 0:
+        return []
+
+    parent = list(range(n))
+    rank = [0] * n
+    bboxes = [_bbox_of(c) for c in contours]
+    # Puffer: beide Konturraender werden je um dilate_px dilatiert -> 2*dilate_px
+    # plus 1px Toleranz fuer die Rasterisierung der Konturlinie selbst.
+    slack = 2 * int(dilate_px) + 1
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if _uf_find(parent, i) == _uf_find(parent, j):
+                continue  # bereits in derselben Komponente -> Maskenvergleich sparen
+            if not _bboxes_can_touch(bboxes[i], bboxes[j], slack):
                 continue
+            if are_contours_touching_edges(
+                contours[i], contours[j], image_shape,
+                min_touch=min_touch, dilate_px=dilate_px,
+            ):
+                _uf_union(parent, rank, i, j)
 
-            if are_contours_touching_edges(cnt1, cnt2, image_shape, min_touch=min_touch, dilate_px=dilate_px):
-                group.append(cnt2)
-                used[j] = True
+    components = {}
+    for i in range(n):
+        components.setdefault(_uf_find(parent, i), []).append(i)
+
+    merged = []
+    # Deterministische Ausgabereihenfolge: nach kleinstem Member-Index der Komponente.
+    for root in sorted(components, key=lambda r: min(components[r])):
+        group = [contours[i] for i in sorted(components[root])]
 
         # B276 (Korrektur zu B274): are_contours_touching_edges() mit
         # dilate_px>0 kann zwei Konturen mit einer winzigen echten
