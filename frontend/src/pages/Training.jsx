@@ -19,6 +19,7 @@ function ConvlstmStatusCard({ status }) {
 
   const outcome = last.outcome
   const isOom = outcome === 'system_oom_kill'
+  const isSignalAbort = typeof outcome === 'string' && outcome.startsWith('child_aborted_signal_')
   const isTimeout = outcome === 'timeout'
   const isSuccess = outcome === 'success'
   const isException = outcome === 'exception'
@@ -28,14 +29,16 @@ function ConvlstmStatusCard({ status }) {
         last.batch_size_cascade_attempts > 1 ? `, ${last.batch_size_cascade_attempts} Versuche` : ''
       })`
     : isOom
-      ? '⚠ System-OOM-Kill (auch mit dynamischem RLIMIT_AS, B356)'
-      : isTimeout
-        ? '⚠ Timeout (CONVLSTM_TRAIN_TIMEOUT_S überschritten)'
-        : isException
-          ? `⚠ Fehler: ${last.error_type || 'Exception'}`
-          : String(outcome || 'unbekannt')
+      ? `⚠ System-OOM-Kill (batch_size=${last.batch_size_used ?? '—'}, B360-Kaskade ausgeschöpft)`
+      : isSignalAbort
+        ? `⚠ Abbruch durch Signal ${outcome.split('_').pop()} (batch_size=${last.batch_size_used ?? '—'}, meist std::bad_alloc — B360)`
+        : isTimeout
+          ? '⚠ Timeout (CONVLSTM_TRAIN_TIMEOUT_S überschritten)'
+          : isException
+            ? `⚠ Fehler: ${last.error_type || 'Exception'}`
+            : String(outcome || 'unbekannt')
 
-  const colorClass = isSuccess ? 'text-green-700' : (isOom || isTimeout || isException) ? 'text-orange-700' : 'text-gray-700'
+  const colorClass = isSuccess ? 'text-green-700' : (isOom || isSignalAbort || isTimeout || isException) ? 'text-orange-700' : 'text-gray-700'
 
   return (
     <div className="bg-gray-50 border border-gray-200 rounded p-3">

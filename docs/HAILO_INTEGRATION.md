@@ -5024,3 +5024,28 @@ Root-Cause-Analysen in Phase B (Hailo-Training).
   `tests/test_c1_dashboard_forecast_mode.py`.
 - Test: `tests/test_b359_accuracy_tracker_no_sys_modules_pop.py`.
 - Phasen-Status (Hailo): unverändert.
+
+### B360 — std::bad_alloc (SIGABRT) umging die kindseitige Batch-Size-Kaskade komplett ✅ erledigt
+- Ursache: Realer Testlauf zeigte `rc=-6` mit `terminate called after throwing
+  an instance of 'std::bad_alloc'`. TensorFlows nativer C++-Allocator wirft
+  bei Erreichen von RLIMIT_AS (B356) keine abfangbare Python-Exception,
+  sondern beendet den Prozess per SIGABRT via std::terminate() — die
+  kindseitige Batch-Size-Kaskade (B356, train_convlstm) erreicht dabei
+  nie einen try/except. Zusaetzlich schrieb `scheduler.run_convlstm_weekly_job()`
+  nur fuer rc in (-9, 137) einen Fallback-Telemetrie-Eintrag (B357) — rc=-6
+  und andere Signal-Tode blieben unsichtbar in `convlstm_training_runs.jsonl`,
+  die ConvlstmStatusCard (B358) zeigte weiterhin "noch kein Lauf".
+- Fix: `scheduler.run_convlstm_weekly_job()` kaskadiert jetzt selbst ueber
+  `--batch-size 4 → 2 → 1`, sobald das Kind durch ein Signal (rc < 0) stirbt —
+  nur der Elternprozess kann jeden Tod des Kindes zuverlaessig erkennen.
+  `_write_convlstm_fallback_record()` erweitert um `batch_size`/`attempt`;
+  jeder Signal-Tod (nicht nur SIGKILL) erzeugt jetzt einen Telemetrie-Eintrag
+  (`system_oom_kill` fuer -9/137, generisch `child_aborted_signal_<N>` fuer
+  andere Signale wie SIGABRT). Diagnose-Skript und ConvlstmStatusCard erklaeren
+  den neuen Outcome-Typ verstaendlich.
+- Bewusst NICHT Teil dieses Fixes: die kindseitige B356-Kaskade bleibt
+  bestehen (Defense-in-Depth fuer abfangbare Faelle) und wird nicht entfernt.
+- Dateien: `scheduler.py`, `tools/diagnose_convlstm_training.py`,
+  `frontend/src/pages/Training.jsx`.
+- Test: `tests/test_b360_convlstm_parent_batch_cascade.py`.
+- Phasen-Status (Hailo): unverändert.

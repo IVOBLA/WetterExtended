@@ -92,13 +92,20 @@ def run_retrain_job(job_name: str):
         debug_log(f"[SCHEDULER] Job {job_name} Fehler: {exc}")
 
 
-def _write_convlstm_fallback_record(*, outcome: str, effective_mem_gb: float, static_mem_gb: int) -> None:
-    """B357: Telemetrie-Fallback fuer Faelle, in denen der ConvLSTM-Trainings-
-    Subprozess keine Chance hatte, selbst einen JSONL-Eintrag zu schreiben
-    (System-OOM-Kill, Timeout). Nutzt dieselbe Datei/dasselbe Schema wie
-    radar_convlstm._write_training_run_record, damit tools/diagnose_convlstm_training.py
-    beide Quellen einheitlich auswerten kann."""
+def _write_convlstm_fallback_record(
+    *, outcome: str, effective_mem_gb: float, static_mem_gb: int,
+    batch_size: int | None = None, attempt: int | None = None,
+) -> None:
+    """B357/B360: Telemetrie-Fallback fuer Faelle, in denen der ConvLSTM-
+    Trainings-Subprozess keine Chance hatte, selbst einen JSONL-Eintrag zu
+    schreiben (System-OOM-Kill, SIGABRT durch std::bad_alloc, Timeout). Nutzt
+    dieselbe Datei/dasselbe Schema wie radar_convlstm._write_training_run_record,
+    damit tools/diagnose_convlstm_training.py beide Quellen einheitlich
+    auswerten kann. B360: batch_size/attempt ergaenzt, damit bei der neuen
+    Eltern-Kaskade (mehrere Versuche mit sinkender batch_size) jeder Versuch
+    nachvollziehbar ist."""
     import json as _json
+    import os as _os
     from datetime import datetime as _dt, timezone as _tz
     try:
         from config import SAVE_PATHS as _SP
@@ -110,6 +117,8 @@ def _write_convlstm_fallback_record(*, outcome: str, effective_mem_gb: float, st
             "outcome": outcome,
             "effective_mem_limit_gb": round(effective_mem_gb, 2),
             "static_mem_limit_gb": static_mem_gb,
+            "batch_size_used": batch_size,
+            "batch_size_cascade_attempts": attempt,
         }
         _os.makedirs(_os.path.dirname(path), exist_ok=True)
         with open(path, "a", encoding="utf-8") as f:
@@ -181,40 +190,74 @@ def run_convlstm_weekly_job():
         except Exception:
             pass
 
-    cmd = [_sys.executable, _os.path.join(project_root, "radar_convlstm.py"), "--train"]
-    try:
-        proc = _sp.run(
-            cmd, cwd=project_root, timeout=_timeout,
-            stdout=_sp.PIPE, stderr=_sp.STDOUT, text=True,
-            preexec_fn=_limit_mem if _os.name == "posix" else None,
-        )
+    cmd_base = [_sys.executable, _os.path.join(project_root, "radar_convlstm.py"), "--train"]
+    # B360: std::bad_alloc (TensorFlows nativer C++-Allocator) wird bei
+    # Erreichen von RLIMIT_AS NICHT als abfangbare Python-Exception geworfen,
+    # sondern beendet den Prozess per SIGABRT (rc=-6) via std::terminate() —
+    # noch bevor die kindseitige Batch-Size-Kaskade (B356, train_convlstm)
+    # ueberhaupt einen try/except erreicht. Nur der Elternprozess kann JEDEN
+    # Tod des Kindes zuverlaessig erkennen (auch signalbasierte). Deshalb
+    # kaskadiert jetzt AUCH der Elternprozess ueber sinkende --batch-size,
+    # sobald das Kind durch ein Signal (rc < 0) stirbt.
+    _batch_size_cascade = (4, 2, 1)
+    for _i, _bs in enumerate(_batch_size_cascade):
+        cmd = cmd_base + ["--batch-size", str(_bs)]
+        _is_last_attempt = _i == len(_batch_size_cascade) - 1
+        try:
+            proc = _sp.run(
+                cmd, cwd=project_root, timeout=_timeout,
+                stdout=_sp.PIPE, stderr=_sp.STDOUT, text=True,
+                preexec_fn=_limit_mem if _os.name == "posix" else None,
+            )
+        except _sp.TimeoutExpired:
+            debug_log(
+                f"[SCHEDULER] Job convlstm_weekly Timeout (> {_timeout}s, "
+                f"batch_size={_bs}) — abgebrochen."
+            )
+            _write_convlstm_fallback_record(
+                outcome="timeout", effective_mem_gb=_effective_mem_gb,
+                static_mem_gb=_mem_gb, batch_size=_bs, attempt=_i + 1,
+            )
+            return
+        except Exception as exc:
+            debug_log(f"[SCHEDULER] Job convlstm_weekly Fehler beim Start (batch_size={_bs}): {exc}")
+            return
+
         tail = (proc.stdout or "")[-2000:]
         if proc.returncode == 0:
-            debug_log(f"[SCHEDULER] Job convlstm_weekly abgeschlossen (rc=0). {tail}")
-        elif proc.returncode in (-9, 137):
             debug_log(
-                "[SCHEDULER] Job convlstm_weekly: Kind getötet (OOM/SIGKILL, "
-                f"rc={proc.returncode}) — Scheduler läuft weiter. {tail}"
+                f"[SCHEDULER] Job convlstm_weekly abgeschlossen (rc=0, "
+                f"batch_size={_bs}, Versuch {_i + 1}/{len(_batch_size_cascade)}). {tail}"
             )
-            # B357: Kind-Prozess hatte bei SIGKILL keine Chance, selbst einen
-            # Telemetrie-Eintrag zu schreiben — Fallback im Eltern-Prozess, MIT
-            # den nur hier bekannten Werten (effektives RLIMIT_AS, freier RAM).
+            return
+
+        if proc.returncode < 0:
+            # Signalbasierter Tod: SIGKILL(-9)/137 = System-OOM, SIGABRT(-6) =
+            # meist std::bad_alloc, sonstige Signale generisch benannt.
+            outcome = "system_oom_kill" if proc.returncode in (-9, 137) else f"child_aborted_signal_{-proc.returncode}"
+            debug_log(
+                f"[SCHEDULER] Job convlstm_weekly: Kind durch Signal beendet "
+                f"(rc={proc.returncode}, batch_size={_bs}, Versuch {_i + 1}/{len(_batch_size_cascade)}) — "
+                f"{'kein kleinerer Kandidat mehr, gebe auf' if _is_last_attempt else 'naechster Versuch mit kleinerer batch_size'}. {tail}"
+            )
             _write_convlstm_fallback_record(
-                outcome="system_oom_kill",
-                effective_mem_gb=_effective_mem_gb,
-                static_mem_gb=_mem_gb,
+                outcome=outcome, effective_mem_gb=_effective_mem_gb,
+                static_mem_gb=_mem_gb, batch_size=_bs, attempt=_i + 1,
             )
-        else:
-            debug_log(f"[SCHEDULER] Job convlstm_weekly Fehler (rc={proc.returncode}). {tail}")
-    except _sp.TimeoutExpired:
-        debug_log(f"[SCHEDULER] Job convlstm_weekly Timeout (> {_timeout}s) — abgebrochen.")
-        _write_convlstm_fallback_record(
-            outcome="timeout",
-            effective_mem_gb=_effective_mem_gb,
-            static_mem_gb=_mem_gb,
+            if _is_last_attempt:
+                return
+            continue
+
+        # Positiver, von Null verschiedener Exit-Code: das Kind lief bis zu
+        # einem regulaeren sys.exit/raise durch und hat (siehe B357 _cli())
+        # bereits selbst einen Telemetrie-Eintrag geschrieben. Kein Retry mit
+        # kleinerer batch_size, da eine kleinere Batch-Groesse ein nicht
+        # speicherbedingtes Problem nicht loesen wuerde.
+        debug_log(
+            f"[SCHEDULER] Job convlstm_weekly Fehler (rc={proc.returncode}, "
+            f"batch_size={_bs}, Versuch {_i + 1}/{len(_batch_size_cascade)}). {tail}"
         )
-    except Exception as exc:
-        debug_log(f"[SCHEDULER] Job convlstm_weekly Fehler beim Start: {exc}")
+        return
 
 
 def _cells_detected_today() -> bool:
