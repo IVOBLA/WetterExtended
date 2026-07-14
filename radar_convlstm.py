@@ -236,7 +236,12 @@ def train_convlstm(batch_size: int = 4, epochs: int = 30):
         )
         return model, hist
 
-    safe_batch_size = 2 if batch_size < 2 else batch_size
+    # B361 (Codex-Review-Fix zu B360): batch_size=1 ist seit B360 ein
+    # eigenstaendiger, vom Elternprozess explizit gewaehlter letzter
+    # Rettungsversuch — der alte Floor von 2 hob diesen Wert wieder an und
+    # sorgte dafuer, dass batch_size=1 nie tatsaechlich ausgefuehrt wurde
+    # (der dritte Eltern-Kaskaden-Versuch wiederholte faktisch batch_size=2).
+    safe_batch_size = max(1, int(batch_size))
     # B356: Kaskadierender Retry bei Speichermangel. Faengt sowohl TF
     # ResourceExhausted ALS AUCH Python MemoryError ab — letzteres wird geworfen,
     # wenn das RLIMIT_AS des isolierten Subprozesses greift (siehe
