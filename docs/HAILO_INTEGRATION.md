@@ -5348,3 +5348,37 @@ Abnahmekriterien der Tracking-Sanierung (0 wiederholte Eventsignaturen, Analyse 
 Abschnitt 10/12). **Nach dem Deployment ist der nächste Debug-Export dahingehend zu prüfen, ob
 `cell_lineage_write_status.json` `last_result="ok"` meldet** — falls `error`, liefert
 `resolved_events_path` + `cwd` die konkrete Ursache.
+
+### B373 — Assoziationsbibliothek: Kostenmatrix, physikalische Gates, globale 1:1-Zuordnung ✅ erledigt
+
+**Root-Cause:** `update_tracking_memory()` vergibt Track-IDs greedy und konturweise
+(`for contour in contours` + `used_ids`). Die OpenCV-Konturreihenfolge entscheidet damit über die
+Zellidentität. Gegenfall: X passt gut zu A und etwas schlechter zu B, Y passt nur zu A — greedy
+liefert X→A und Y→`new`, global optimal wäre X→B, Y→A. Verstärkend: Stage-1-Score
+`max(IoU, recall×0.7)` ab 0.10 ohne Form/Richtung/Kernlage; Stage-2-Cap
+`(150/4)×3×1.5 = 168.75 px` in Pixeln statt Kilometern und ohne tatsächlichen Zeitabstand
+(belegte Live-Matches: 88.0, 111.7, 143.2, 151.5 px).
+
+**Fix (additiv):** Neues Paket `tracking/` mit `association.py`:
+- Gates in **echten Kilometern** und **tatsächlichem dt** (Radarlücken 10/15 min korrekt behandelt).
+- **Suchellipse** statt Suchkreis — quer zur Bewegung um Faktor `ASSOC_ELLIPSE_CROSS_FACTOR`
+  (Default 0.45) enger; Hauptquelle für Fehlzuordnungen an Nachbarzellen entfällt.
+- Zeitabhängiges Flächengate (`ASSOC_MAX_AREA_GROWTH_PER_MIN`) statt fixem 10×-Faktor.
+- Richtungsgate erst ab `ASSOC_MIN_AGE_FRAMES_FOR_DIR_GATE` (junge Tracks haben keinen Vektor).
+- Gewichtete Kostenmatrix (Position, IoU, Fläche, Richtung, Kern, Track-Alter), global gelöst mit
+  `scipy.optimize.linear_sum_assignment`; Matches über `ASSOC_MAX_COST` werden verworfen.
+- Vollständige Diagnose-Payload (Kostenmatrix, Kandidatenpaare inkl. Einzelkomponenten,
+  Ablehnungsgründe) — Grundlage für das Abnahmekriterium „Exportierte Kandidaten-/Kosten-Diagnosen“.
+
+B365 (`STAGE2_WEAK_CELL_MAX_SPEED_KMH`) bleibt gültig und wird durch die physikalischen Gates
+verallgemeinert, nicht ersetzt.
+
+**Tests:** `tests/test_b373_tracking_association.py` — Hungarian-Gegenbeispiel, Reihenfolge-
+invarianz, echte Zeit statt fixem Frame, Ellipse quer vs. längs, Flächengate, junger Track ohne
+Richtungsgate, Gating in der Matrix, leere Eingaben, Diagnosevollständigkeit.
+
+**Abhängigkeit:** `scipy>=1.11.0` bereits in `requirements.txt` — keine neue Abhängigkeit.
+
+**Phasen-Status:** Phase A — Assoziationsbibliothek steht und ist isoliert getestet.
+`object_tracking.py` ist **noch unverändert**; die Umstellung des Live-Pfads erfolgt in **B374**,
+der Merge/Split-Resolver in **B375**.
