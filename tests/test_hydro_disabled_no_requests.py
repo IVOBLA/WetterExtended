@@ -73,7 +73,7 @@ def test_main_hydro_productive_run_disabled_marks_objects_without_live_request_o
         "fetch_openmeteo_extended": {"assign_extended_openmeteo": lambda objects, *a, **k: objects},
         "fetch_geosphere_nowcast": {"assign_nowcast_to_objects": lambda objects, *a, **k: objects},
         "compute_convective_indices": {"assign_convective_indices": lambda objects, *a, **k: objects},
-        "fetch_tawes_gust": {"fetch_tawes_stations": lambda *a, **k: [], "max_gust_near": lambda *a, **k: 0},
+        "fetch_tawes_gust": {"fetch_tawes_stations": lambda *a, **k: [], "max_gust_near": lambda *a, **k: 0, "nearest_station_wind": lambda *a, **k: None},
         "ir_cell_detection": {"detect_ir_cells": lambda *a, **k: []},
         "ir_cell_tracking": {"mark_radar_matched_tracks": lambda *a, **k: None, "update_ir_tracking": lambda *a, **k: None},
         "climatology_features": {"enrich_objects": lambda objects, *a, **k: objects},
