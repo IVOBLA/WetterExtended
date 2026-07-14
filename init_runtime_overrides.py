@@ -83,6 +83,7 @@ DEFAULTS: dict = {
     "STATIONARY_RISK_MARKER_THRESHOLD": 0.60,
     "GUST_WARN_KMH":                    60,
     "HEAVY_RAIN_WARN_MM_PER_H":         25,
+    "STATION_ENCOUNTER_MAX_KM":         10,
     "MIN_MOVEMENT_FOR_ARROW_KMH":       5,
     "SLOW_CELL_MAX_KMH":                15,
     "SLOW_CELL_RADIUS_FACTOR":          1.5,
