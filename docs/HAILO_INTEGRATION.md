@@ -5287,3 +5287,31 @@ alle 6 Permutationen, disjunkte Konturen, Leereingabe, BBox-Gate vs. echte Berü
 **Phasen-Status:** Phase A (Stabilität) — Segmentierungs-Determinismus hergestellt. Erster Schritt
 der Tracking-Sanierung (Analyse 14.07.2026, Finding 5.1). Folgeprompts: B371 (Event-Dedup),
 B372 (Diagnose-Export), B373–B375 (globales Matching), B376 (adaptive Subcell-Segmentierung).
+
+### B371 — Merge/Split-Ereignisse wurden in jedem Folgeframe erneut geschrieben ✅ erledigt
+
+**Root-Cause:** Ein Merge ist ein Übergangsereignis, wurde aber als Dauerzustand protokolliert.
+`update_split_merge_lineage()` ruft für jedes Objekt mit `lineage=="merged"` erneut
+`record_cell_merge()` auf; dieses schrieb jedes Mal ein neues Event. Die vorhandene Dedup war
+wirkungslos: `append_lineage_event()` schreibt ungeprüft, und `_append_unique()` vergleicht nur
+exakte dict-Gleichheit — durch das eingebettete `timestamp`-Feld war jedes Event pro Frame
+verschieden.
+
+**Belegt (Debug-Export 14.07.2026, 258 Snapshots, 724 Beobachtungen):** 160× `lineage="merged"`,
+davon 160/160 mit eigener Track-ID in `parents`; 23 Merge-Serien, Mittel 6.6 Frames, längste 11
+Frames (≈ 55 min); 0× `lineage="split"`. Fallstudie `1C04EV5M`: 10 Frames in Folge `merged`
+(15:20–16:05) bei wechselnder Parentmenge (2–8).
+
+**Fix:** Zeitstempelfreie Ereignis-Signatur `sha1(event_type|sorted(parents)|sorted(children))`.
+Ein bestätigtes Ereignis wird genau einmal geschrieben; Folgeframes aktualisieren nur noch
+`emitted_event_last_seen`. Die Zustandspflege (`last_seen_timestamp`, Alias-IDs, `radar_to_cell`)
+läuft unverändert in jedem Frame. Signatur-Gedächtnis über
+`CELL_LINEAGE_EVENT_SIGNATURE_MEMORY` (Default 2000) begrenzt.
+
+**Tests:** `tests/test_b371_cell_lineage_event_dedup.py` — 10 Wiederholungen → 1 Event,
+Konstellationswechsel → neues Event, Reihenfolge-/Timestamp-Invarianz der Signatur,
+Split-Dedup, State-Fortschreibung, Gedächtnisbegrenzung.
+
+**Phasen-Status:** Phase A — Ereignissemantik auf Lineage-Ebene korrigiert (Analyse 14.07.2026,
+Finding 5.12). Die **Ursache** in `object_tracking.py` (`lineage` als Dauerzustand) wird in B373
+behoben; B371 ist die dauerhaft notwendige Absicherung auf der Fachschicht.
