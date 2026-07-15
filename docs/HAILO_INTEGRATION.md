@@ -6224,3 +6224,14 @@ die `closed`-Produktionslogik bleibt unverändert.
 
 **Phasen-Status:** Technisch erhaltene Übergangsparents sind nun auch aus abgeleiteten
 ML-/Umgebungsfeatures vollständig ausgeschlossen.
+
+### B398 — Volltest nach B397: vier Testregressionen und doppelte `.env`-Schlüssel ✅ erledigt
+
+Der vollständige Pi-Lauf nach B397 endete mit `1940 passed, 4 failed, 1 skipped`; die B397-Kernregressionen waren grün.
+
+- **B117:** unrealistische Quadrat-Scheinmerge-Geometrie durch erklärbare Rechteckgeometrie ersetzt.
+- **B150:** Messdaten- und Metadata-Circuit-Breaker werden getrennt und ohne Capture-Überschreibung geprüft.
+- **B391/B397:** Frame-2-State wird pro Objekt kopiert, damit Frame 3 den Test-Snapshot nicht mutiert.
+- **`.env`:** Install-/Upgrade entfernt aktive Duplikate atomar unter Erhalt des bisher effektiven letzten Werts, der Kommentare und Dateirechte; Secret-Werte werden nicht geloggt.
+
+Produktions-Tracking, Transition-Gates, TAWES-Requests und B397 wurden nicht verändert.
