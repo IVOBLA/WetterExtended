@@ -5668,3 +5668,40 @@ Split-Zweig vorhanden.
 **auftreten** (bisher 0/724). Bleibt der Wert 0, ist die Ursache in der Segmentierung (B380) oder
 den Schwellen (`TRANSITION_SPLIT_MIN_EXPLAINED`/`MIN_CHILD_SHARE`) zu suchen.
 **Offen:** Merge-Erklärung/Survivor-Fläche (B384), stabile Signaturen + `closed` (B385).
+
+### B382 — Merge-Kandidatenphase brach die ID-Kontinuität (jeder Merge erzeugte eine neue ID) ✅ erledigt
+
+**Root-Cause (P0):** Im ersten Frame eines Merges griff **kein einziger Zweig** der Objektschleife.
+`_overlap_by_id` enthält dann bereits 2 Parents (`len(overlaps) == 2`), während
+`_transition.phase` noch `"candidate"` ist (B375: `TRANSITION_CONFIRM_FRAMES=2`). Damit war weder
+der Split-Zweig, noch der Merge-Zweig (nicht `confirmed`), noch der `continued`-Zweig
+(`len(overlaps) == 1`) erfüllt. `obj_id` blieb `None` → `generate_id()` → `lineage="new"`.
+
+**Beweis (Laufzeit-Spy, Testfall B117):** Das globale Matching arbeitet einwandfrei —
+`matches={0:'VDEPFC5X'}`, `cost=0.3773`, der kleine Parent wird zu Recht gegatet
+(`area_ratio=44.4>10`). Die Objektschleife verwarf dieses Ergebnis und vergab `N04TDN6A`.
+Es war **kein** Gate-Problem: B379 hatte das Flächengate korrekt geweitet (6.25× < 10×).
+
+**Wirkung:** Bei **jedem** Merge brach die ID-Kontinuität — Kalman-Zustand, Trend-Historie,
+Lebensdauer, Warnhistorie und ML-Sequenz gingen verloren, die Zelle erschien als Neuzelle. Das ist
+gravierender als der ursprüngliche Befund (wiederholte Merge-Events), den B375 beheben sollte.
+
+**Fix — Identität sofort, Ereignis verzögert** (Analyse Abschnitt 9.5): Die Bedingung lautet jetzt
+`elif overlaps:`. Der dominante Parent (erster freier Eintrag der nach B377-Policy sortierten
+`overlaps`) behält seine ID **auch während der Kandidatenphase**; `lineage` bleibt `continued` und
+`parents` enthält nur den fortgeführten Parent. Die vollständige Parentmenge und `lineage="merged"`
+entstehen weiterhin ausschließlich im **bestätigten** Ereignisframe. B375 hatte Identität und
+Ereignisbestätigung gekoppelt — das war der Fehler.
+
+**Behobene Regressionen:** `test_b117_track_continuity::test_merge_inherits_dominant_parent_id`,
+`test_object_tracking_regression::test_merge_with_dominant_parent_without_kf_does_not_crash`.
+
+**Tests:** `tests/test_b382_kandidatenphase_id_kontinuitaet.py` — dominanter Parent behält ID im
+Kandidatenframe, Kandidat ist `continued` (nicht `merged`), höchstens ein Parent, 1:1-Fall
+unverändert, Kalman-Zustand überlebt, alte Bedingung kehrt nicht zurück.
+
+**Phasen-Status:** Phase A — ID-Kontinuität bei Merge wiederhergestellt.
+**Offen:** Segmentierung/`test_b275` (B383), `test_b365`-Testmaßstab (B384), Pre-Frame-Parent-
+Snapshot P0-2 (B385), IR-Entkopplung P1-1 (B386), Resolver-Geometrie P1-2 (B387), stabile
+Signaturen/`closed` P1-3/4/5 (B388), Hungarian-Unmatched P1-7 + Zeitbasis P2-2 (B389),
+Mehrkern-Komponentengraph P2-4 (B390).

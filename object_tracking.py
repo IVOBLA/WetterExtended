@@ -1820,11 +1820,40 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
                     debug_log(f"[P-S01] track_end merge Fehler ({merged_old_id}): {_e_te3}")
                 previous_snapshot[merged_old_id] = old_obj
                 used_ids.add(merged_old_id)
-        elif len(overlaps) == 1:
-            best_id = overlaps[0][0]
-            obj_id = best_id
-            lineage = "continued"
-            parents = [best_id]
+        elif overlaps:
+            # B382: IDENTITAET SOFORT, EREIGNIS VERZOEGERT.
+            #
+            # Vorher lautete die Bedingung `len(overlaps) == 1`. Im ERSTEN Frame eines
+            # Merges hat overlaps aber bereits 2 Parents (Merge-Fallback), waehrend
+            # _transition.phase noch "candidate" ist (TRANSITION_CONFIRM_FRAMES=2).
+            # Damit griff KEIN Zweig: nicht der Split-Zweig, nicht der Merge-Zweig
+            # (nicht confirmed) und nicht dieser (len != 1). obj_id blieb None und die
+            # Zelle bekam unten eine NEUE ID -> bei JEDEM Merge brach die
+            # ID-Kontinuitaet, inklusive Kalman-Zustand, Trend, Lebensdauer und
+            # ML-Sequenz. Das globale Matching hatte den richtigen Parent laengst
+            # gefunden (Laufzeitbeleg: matches={0:'VDEPFC5X'}, cost=0.377).
+            #
+            # Die Bestaetigung darf nur das EREIGNIS verzoegern, nicht die Identitaet:
+            # der dominante Parent behaelt seine ID auch waehrend der Kandidatenphase.
+            # `overlaps` ist bereits nach der Primary-Policy (B377) sortiert -- der
+            # erste freie Eintrag ist der dominante Parent.
+            _candidate_phase_dominant = next(
+                (oid for oid, _ in overlaps if oid not in used_ids), None
+            )
+            if _candidate_phase_dominant is not None:
+                best_id = _candidate_phase_dominant
+                obj_id = _candidate_phase_dominant
+                lineage = "continued"
+                # Nur der fortgefuehrte Parent. Die vollstaendige Parentmenge wird
+                # ausschliesslich im BESTAETIGTEN Merge-Ereignis gesetzt -- sonst
+                # entstuende in der Kandidatenphase eine Merge-Lineage ohne Ereignis.
+                parents = [_candidate_phase_dominant]
+                if len(overlaps) >= 2:
+                    debug_log(
+                        f"[B382] Merge-Kandidat: {_candidate_phase_dominant} fuehrt ID fort "
+                        f"({len(overlaps)} Parents, Phase="
+                        f"{_transition.phase if _transition is not None else 'none'})"
+                    )
 
         if obj_id and obj_id in previous_snapshot:
             used_ids.add(obj_id)
