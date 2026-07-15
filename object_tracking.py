@@ -1385,7 +1385,24 @@ def _build_track_candidates(previous_snapshot, pred_polys, pred_centroids):
             continue
         lat, lon = obj.get("lat"), obj.get("lon")
         if lat is None or lon is None:
-            continue
+            # B390: Ein Track ohne Geo-Koordinaten verschwand hier LAUTLOS aus der
+            # Assoziation -- er konnte keiner Detektion mehr zugeordnet werden, alle
+            # seine Konturen wurden `new`. Produktiv waere das ein ID-Totalverlust
+            # ohne jede Spur im Log. Fallback aus den Pixelkoordinaten, damit ein
+            # unvollstaendiger Snapshot den Track nicht aus dem Tracking wirft.
+            _px, _py = obj.get("x"), obj.get("y")
+            if _px is None or _py is None:
+                debug_log(
+                    f"[B390] Track {oid} ohne lat/lon UND ohne x/y — aus der "
+                    f"Assoziation ausgeschlossen (ID-Verlust!)"
+                )
+                continue
+            try:
+                lat, lon = pixel_to_geo(float(_px) * UPSCALE_FACTOR, float(_py) * UPSCALE_FACTOR)
+                debug_log(f"[B390] Track {oid} ohne lat/lon — aus x/y rekonstruiert")
+            except Exception as _geo_exc:
+                debug_log(f"[B390] Track {oid}: Geo-Rekonstruktion fehlgeschlagen: {_geo_exc}")
+                continue
         x_km, y_km = _latlon_to_km(lat, lon)
         try:
             from config import PX_TO_KMH as _P2K

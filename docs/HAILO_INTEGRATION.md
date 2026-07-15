@@ -5958,3 +5958,38 @@ matcht bei 10 km, schwache bleibt gegatet, absurde Distanz weiter gegatet, Skali
 **Offen:** Merge-Bestätigung mit verschwindendem Secondary-Parent (B390), bestätigte Parentmenge
 P1-4, Hungarian-Unmatched P1-7, Zeitbasis Polygon/Position P2-2, Mehrkern-Komponentengraph P2-4,
 IR-`cell_id` umgeht Merge-Policy P2-1.
+
+### B390 — Test-Snapshot nutzte konstante lat/lon, inkonsistent zum Geo-Mock ✅ erledigt
+
+**Root-Cause:** Alter Track und neue Detektion wurden aus **zwei verschiedenen Geo-Quellen**
+gespeist — durch **B384** eingeführt, kein Defekt der Gates.
+- Detektion: `pixel_to_geo` — seit B384 positionsabhängig (0.111 km/skaliertem Pixel).
+- Alter Track: `_snapshot_obj()` setzte hart `"lat": 46.7, "lon": 14.3` — **konstant**, also die
+  Koordinate von Pixel (0,0). B384 hat den Mock korrigiert, den Snapshot nicht nachgezogen.
+
+**Nachgerechnet:** Zentren (75,75) → (165,75) = 90 px = **10.0 km** (gewollt). Tatsächlich
+gemessen wurde `lon=14.3` gegen `lon=14.5399` → **20.1 km** > 14.5 km Radius → gegatet. Der alte
+Track wurde gegen den **Bildursprung** statt gegen sein Konturzentrum gemessen; der Fehler
+entspricht exakt seiner Absolutposition. **B389 ist korrekt und wirksam** (eigener Test 9/9 grün);
+der 14.5-km-Radius reicht nur nicht für eine künstlich verdoppelte Distanz.
+
+**Fix:** `_geo_from_pixel_for_test()` als **einzige** Geo-Quelle — Snapshot und `pixel_to_geo`-Mock
+verwenden dieselbe Abbildung.
+
+**Zweiter Teil desselben Root-Cause — stiller Skip:** `_build_track_candidates()` verwarf Tracks
+ohne `lat`/`lon` **lautlos** (`continue`). Produktiv wäre das ein ID-Totalverlust ohne Spur im Log:
+alle Konturen des Tracks würden `new`. Jetzt: Fallback auf Rekonstruktion aus `x`/`y` über
+`pixel_to_geo`; nur ohne **jede** Position wird ausgeschlossen — dann mit explizitem
+`[B390] … ID-Verlust!`-Logeintrag.
+
+**Behobene Regression:** `test_b365_stage2_weak_cell_match_cap::test_strong_cell_still_matches_at_same_distance`.
+
+**Tests:** `tests/test_b390_geo_konsistenz.py` — konstante Koordinate kehrt nicht zurück, 90 px =
+10 km, Track ohne lat/lon wird rekonstruiert, Track ohne jede Position wird protokolliert,
+Normalfall unverändert.
+
+**Phasen-Status:** Phase A — Geo-Quellen konsistent, ID-Verlust bei unvollständigem Snapshot
+ausgeschlossen.
+**Offen:** Merge-Bestätigung mit verschwindendem Secondary-Parent (B391), bestätigte Parentmenge
+P1-4, Hungarian-Unmatched P1-7, Zeitbasis Polygon/Position P2-2, Mehrkern-Komponentengraph P2-4,
+IR-`cell_id` umgeht Merge-Policy P2-1.
