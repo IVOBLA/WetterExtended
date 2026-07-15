@@ -5809,3 +5809,39 @@ das verschmolzene Objekt (Gegenprobe gegen `tracking_memory`), leeres Parent-Dic
 **Offen:** IR-Entkopplung P1-1 (B386), Resolver-Geometrie P1-2 (B387), stabile Signaturen/`closed`
 P1-3/4/5 (B388), Hungarian-Unmatched P1-7 + Zeitbasis P2-2 (B389), Mehrkern-Komponentengraph P2-4
 (B390), IR-`cell_id` umgeht Merge-Policy P2-1.
+
+### B386 — Radarbasierte Merge/Split-Lineage hing an der Satellitenpipeline ✅ erledigt
+
+**Root-Cause (P1):** `update_split_merge_lineage()` lag in `main.py` **doppelt verschachtelt**
+(Einrückung 25) im erfolgreichen IR-Pfad. Die Radar-Lineage wurde in drei Fällen übersprungen,
+obwohl Radartracking und Objekterkennung erfolgreich liefen:
+1. `run_ir_precursor_pipeline()` (Zeile 578) wirft — z. B. kein aktuelles EUMETView-TIFF;
+2. `_score_match_ir_radar_lineage()` (Zeile 583) wirft → `except` bei 604 → der Legacy-IR-Fallback
+   läuft, aber der Lineage-Aufruf wird nie erreicht;
+3. jeder Fehler dazwischen.
+
+Das ist eine plausible Miterklärung für den B372-Befund (weder `cell_lineage_events.jsonl` noch
+`cell_lineage_state.json` im Debug-Export vom 14.07.2026, obwohl 160 Objekte ein von
+`record_cell_merge()` gesetztes `lineage_status` trugen): In jedem Zyklus ohne aktuelles IR-TIFF
+fiel die gesamte Radar-Lineage aus.
+
+**Fix:** Die Radar-Lineage läuft als **eigenständiger Schritt mit eigener Fehlerdomäne**
+unmittelbar nach der Radar-Objekterkennung, **vor** der IR-Pipeline. Die IR→Radar-Lineage bleibt
+danach als zusätzliche Herkunfts-/Alias-Beziehung erhalten. Der Pre-Frame-Snapshot aus B385 wird
+unverändert durchgereicht.
+
+**Nebenbefund (verifiziert, mitbehoben):** `_lineage_events.extend(_split_merge_events or [])`
+(Zeile 601) war **wirkungslos** — `_lineage_events` wird nach Zeile 587 nie mehr gelesen; die
+Persistenz erfolgt über `append_lineage_event()` innerhalb von `record_cell_merge/split()`. Die
+Zeile entfiel daher ersatzlos.
+
+**Tests:** `tests/test_b386_radar_lineage_unabhaengig_von_ir.py` — Aufruf vor der IR-Pipeline,
+Einrückung ≤ 17 (nicht mehr im IR-Block), genau ein Aufruf, toter `extend` entfernt, eigener
+Exception-Handler, B385-Snapshot erhalten, `main.py` kompiliert.
+
+**Phasen-Status:** Phase A — Radar-Lineage aus der IR-Fehlerdomäne gelöst.
+**Verifikationspflicht:** Im nächsten Debug-Export muss `cell_lineage_events.jsonl` vorhanden sein
+und `cell_lineage_write_status.json` `last_result="ok"` melden (B372).
+**Offen:** Resolver-Geometrie P1-2 (B387), stabile Signaturen/`closed` P1-3/4/5 (B388),
+Hungarian-Unmatched P1-7 + Zeitbasis P2-2 (B389), Mehrkern-Komponentengraph P2-4 (B390),
+IR-`cell_id` umgeht Merge-Policy P2-1.

@@ -572,6 +572,42 @@ def main_loop():
             objects = assign_cloud_top_height(objects, weather_data=weather_data, timestamp=timestamp)
 
             # ── Phase E: IR-Sat Pre-Convection Tracking ───────────────────────
+            # ================================================================
+            # B386: RADAR-Merge/Split-Lineage — eigenstaendiger Schritt mit
+            # eigener Fehlerdomaene, unmittelbar nach der Radar-Objekterkennung.
+            #
+            # Vorher lag dieser Aufruf DOPPELT VERSCHACHTELT im erfolgreichen
+            # IR-Pfad (main.py 593-601, Einrueckung 25). Er wurde damit in drei
+            # Faellen uebersprungen, obwohl Radartracking und Objekterkennung
+            # erfolgreich waren:
+            #   1. run_ir_precursor_pipeline() wirft (kein aktuelles EUMETView-TIFF),
+            #   2. _score_match_ir_radar_lineage() wirft -> Legacy-IR-Fallback laeuft,
+            #      der Lineage-Aufruf wird nie erreicht,
+            #   3. jeder Fehler dazwischen.
+            # Eine rein radarbasierte Kernfunktion darf nicht an einer optionalen
+            # Satellitenpipeline haengen. Passt zum B372-Befund (fehlender Ledger
+            # im Debug-Export trotz aktiver Merge-Erkennung).
+            # ================================================================
+            try:
+                from cell_lineage import update_split_merge_lineage
+                import object_tracking as _ot_cell_lineage
+                # B385: PRE-FRAME-Zustand, nicht der bereits ersetzte tracking_memory.
+                _prev_for_lineage = getattr(_ot_cell_lineage, "last_previous_snapshot", None)
+                if not _prev_for_lineage:
+                    _prev_for_lineage = getattr(_ot_cell_lineage, "tracking_memory", {})
+                    debug_log("[B385] last_previous_snapshot leer — Fallback auf tracking_memory")
+                _radar_lineage_events = update_split_merge_lineage(
+                    radar_objects=objects,
+                    previous_objects=_prev_for_lineage,
+                    timestamp=timestamp,
+                ) or []
+                debug_log(
+                    f"[B386] Radar-Lineage: {len(_radar_lineage_events)} Ereignis(se) "
+                    f"(unabhaengig von der IR-Pipeline)"
+                )
+            except Exception as _radar_lin_exc:
+                debug_log(f"[B386] Radar-Split/Merge-Lineage fehlgeschlagen: {_radar_lin_exc}")
+
             # Läuft nur wenn TIFF aktuell ist (cloud_height_from_eumetview hat
             # es bereits heruntergeladen — kein zusätzlicher API-Call).
             try:
@@ -590,30 +626,11 @@ def main_loop():
                             for _ir in _ir_tracks:
                                 if (ev.get("ir_track_id") in {_ir.get("ir_track_id"), _ir.get("ir_id")}):
                                     _matched_ir_ids.add(_ir.get("ir_id"))
-                    try:
-                        from cell_lineage import update_split_merge_lineage
-                        import object_tracking as _ot_cell_lineage
-                        # B385: PRE-FRAME-Zustand uebergeben, nicht den bereits
-                        # ersetzten tracking_memory. Andernfalls bewertet die
-                        # fachliche Primary-Policy den verschmolzenen Survivor und
-                        # leere Secondary-Parent-Dicts -- und waehlt damit einen
-                        # anderen Parent als die Radar-Ebene, obwohl beide seit B377
-                        # dieselbe Funktion verwenden.
-                        # Fallback auf tracking_memory nur, falls das Attribut fehlt
-                        # (z. B. Alt-Deployment ohne B385) -- dann greift das alte,
-                        # fehlerhafte Verhalten, statt dass die Lineage ganz ausfaellt.
-                        _prev_for_lineage = getattr(_ot_cell_lineage, "last_previous_snapshot", None)
-                        if not _prev_for_lineage:
-                            _prev_for_lineage = getattr(_ot_cell_lineage, "tracking_memory", {})
-                            debug_log("[B385] last_previous_snapshot leer — Fallback auf tracking_memory")
-                        _split_merge_events = update_split_merge_lineage(
-                            radar_objects=objects,
-                            previous_objects=_prev_for_lineage,
-                            timestamp=timestamp,
-                        )
-                        _lineage_events.extend(_split_merge_events or [])
-                    except Exception as exc:
-                        debug_log(f"[CELL-LINEAGE] Split/Merge-Lineage fehlgeschlagen: {exc}")
+                    # B386: Der Radar-Lineage-Aufruf ist ersatzlos entfallen -- er
+                    # laeuft jetzt als eigenstaendiger Schritt VOR der IR-Pipeline.
+                    # `_lineage_events.extend(...)` war ohnehin wirkungslos: die Liste
+                    # wird nach Zeile 587 nie mehr gelesen; die Persistenz erfolgt
+                    # ueber append_lineage_event() innerhalb von record_cell_merge/split().
                 except Exception as _lin_exc:
                     debug_log(f"[CELL-LINEAGE] Score-Matching fehlgeschlagen, nutze Legacy-IR-Matching: {_lin_exc}")
                     try:
