@@ -6302,3 +6302,45 @@ alles gegatet, mehr Detektionen als Tracks und umgekehrt, Diagnosevollständigke
 
 **Phasen-Status:** Phase A — die Kostenfunktion hat erstmals Wirkung.
 **Offen:** Zeitbasis Polygon/Position P2-2, Mehrkern-Komponentengraph P2-4.
+
+### B401 — Fallback-Zuordnung war Brute-Force und explodierte seit B400 kombinatorisch ✅ erledigt
+
+**Root-Cause:** `_fallback_linear_sum_assignment()` löste das Zuordnungsproblem durch vollständige
+Aufzählung (`itertools.combinations` × `itertools.permutations`) — **faktorielle** Laufzeit, obwohl
+für das Problem seit 1955 ein `O(n³)`-Verfahren existiert.
+
+**B400 machte den Defekt akut:** Die Dummy-Spalten erweitern die Matrix von `n_det × n_trk` auf
+`n_det × (n_trk + n_det)`. Da `k = min(n_rows, n_cols)` weiterhin `n_det` ist, verdoppelt sich die
+Basis der Permutation:
+
+| Zellen | vor B400 | nach B400 | Faktor |
+|---:|---:|---:|---:|
+| 8 | 40.320 | **518.918.400** | 12.870× |
+| 10 | 3.628.800 | 670.442.572.800 | 184.756× |
+
+Bei der beobachteten Last von **7.78 Zellen je aktivem Frame** (Debug-Export 14.07.2026) sind das
+≈ **17 Minuten pro Frame** auf dem Pi 5 — bei 5-Minuten-Radartakt ein **Totalausfall**, keine
+Verlangsamung.
+
+**Warum es unbemerkt blieb:** Der Pfad greift nur, wenn `scipy` fehlt. `scipy>=1.11.0` steht in
+`requirements.txt` und ist in der Testsuite installiert — der Code wurde **nie ausgeführt**.
+Schlägt der scipy-Import auf dem Pi einmal fehl (defektes venv nach `install.sh --mode=upgrade`,
+ARM-Wheel-Problem), fällt das System stillschweigend auf einen Pfad zurück, der bei realer
+Zellzahl nicht terminiert: kein Fehler, kein Log, nur ein hängender Radarzyklus.
+
+**Korrektheit war nicht das Problem** — die Aufzählung lieferte das richtige Ergebnis (verifiziert
+an einer rechteckigen 2×4-Matrix: `rows=[0,1] cols=[0,3]`, D1→T1 mit 0.10, D2→Dummy mit 0.80). Sie
+war nur unbrauchbar langsam.
+
+**Fix:** Hungarian/Kuhn-Munkres mit Potentialen, `O(n²m)` — derselbe Algorithmus wie
+`scipy.optimize.linear_sum_assignment`. Bei 8×16 sind das ~1.000 Operationen statt 519 Millionen.
+Für `n > m` wird transponiert (der Algorithmus setzt `n ≤ m` voraus; nach B400 ist das ohnehin
+immer erfüllt). Rückgabe wie scipy: `(row_ind, col_ind)`, aufsteigend nach `row_ind`.
+
+**Tests:** `tests/test_b401_fallback_hungarian.py` — Ergebnisgleichheit mit scipy auf quadratischen,
+rechteckigen und 20 zufälligen Matrizen, konkreter B400-Dummy-Fall, mehr Zeilen als Spalten,
+Eindeutigkeit der Zuordnung, **8×16 unter 1 s** (Kernregression), 12×24 terminiert, Leereingaben,
+keine Brute-Force-Reste, `row_ind` sortiert.
+
+**Phasen-Status:** Phase A — der scipy-freie Pfad ist erstmals produktionstauglich und getestet.
+**Offen:** Zeitbasis Polygon/Position P2-2, Mehrkern-Komponentengraph P2-4.

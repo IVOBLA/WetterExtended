@@ -324,21 +324,92 @@ _INF = 1e6
 
 
 def _fallback_linear_sum_assignment(matrix: list) -> tuple[list, list]:
-    """Kleine deterministische Fallback-Zuordnung für Testumgebungen ohne scipy."""
-    n_rows = len(matrix)
-    n_cols = len(matrix[0]) if n_rows else 0
-    k = min(n_rows, n_cols)
-    best_cost = math.inf
-    best_rows: tuple[int, ...] = ()
-    best_cols: tuple[int, ...] = ()
-    for rows in itertools.combinations(range(n_rows), k):
-        for cols in itertools.permutations(range(n_cols), k):
-            cost = sum(matrix[row][col] for row, col in zip(rows, cols))
-            if cost < best_cost:
-                best_cost = cost
-                best_rows = rows
-                best_cols = cols
-    return list(best_rows), list(best_cols)
+    """B401: Hungarian/Kuhn-Munkres mit Potentialen — O(n²m) statt faktoriell.
+
+    Die vorherige Implementierung zaehlte alle Kombinationen und Permutationen
+    vollstaendig auf. Fuer das Zuordnungsproblem existiert seit 1955 ein
+    O(n^3)-Verfahren; die Aufzaehlung ist um Groessenordnungen schlechter.
+
+    B400 hat den Defekt akut gemacht: Die Matrix waechst durch die Dummy-Spalten von
+    n_det x n_trk auf n_det x (n_trk + n_det). Da k = min(n_rows, n_cols) weiterhin
+    n_det ist, verdoppelt sich die Basis der Permutation:
+        8 Zellen: 40.320 -> 518.918.400 Iterationen   (Faktor 12.870)
+       10 Zellen:            670.442.572.800
+    Bei der beobachteten Last von 7.78 Zellen je aktivem Frame (Debug 14.07.2026)
+    sind das ~17 Minuten pro Frame auf dem Pi 5 -- bei 5-Minuten-Takt ein
+    Totalausfall, kein Performanceproblem.
+
+    Der Pfad greift nur ohne scipy und war deshalb nie getestet. Schlaegt der
+    scipy-Import auf dem Pi fehl (defektes venv nach install.sh --mode=upgrade,
+    ARM-Wheel-Problem), haengt der Radarzyklus stillschweigend.
+
+    Liefert identische Ergebnisse wie scipy.optimize.linear_sum_assignment:
+    (row_ind, col_ind), aufsteigend nach row_ind. Erfordert n_rows <= n_cols --
+    das ist nach B400 immer erfuellt (n_det <= n_trk + n_det).
+    """
+    n = len(matrix)
+    m = len(matrix[0]) if n else 0
+    if n == 0 or m == 0:
+        return [], []
+    if n > m:
+        # Transponieren und Ergebnis zuruecktauschen -- der Algorithmus setzt
+        # n <= m voraus.
+        transposed = [[matrix[i][j] for i in range(n)] for j in range(m)]
+        cols_t, rows_t = _fallback_linear_sum_assignment(transposed)
+        order = sorted(range(len(rows_t)), key=lambda k: rows_t[k])
+        return [rows_t[k] for k in order], [cols_t[k] for k in order]
+
+    INF = float("inf")
+    u = [0.0] * (n + 1)        # Potentiale der Zeilen
+    v = [0.0] * (m + 1)        # Potentiale der Spalten
+    p = [0] * (m + 1)          # p[j] = der Spalte j zugeordnete Zeile (1-basiert)
+    way = [0] * (m + 1)        # Vorgaenger im alternierenden Pfad
+
+    for i in range(1, n + 1):
+        p[0] = i
+        j0 = 0
+        minv = [INF] * (m + 1)
+        used = [False] * (m + 1)
+        while True:
+            used[j0] = True
+            i0 = p[j0]
+            delta = INF
+            j1 = 0
+            for j in range(1, m + 1):
+                if used[j]:
+                    continue
+                cur = float(matrix[i0 - 1][j - 1]) - u[i0] - v[j]
+                if cur < minv[j]:
+                    minv[j] = cur
+                    way[j] = j0
+                if minv[j] < delta:
+                    delta = minv[j]
+                    j1 = j
+            if delta == INF:
+                # Keine zulaessige Erweiterung -- kann bei _INF-gesaettigten Zeilen
+                # auftreten. Der Solver bricht hier kontrolliert ab.
+                break
+            for j in range(m + 1):
+                if used[j]:
+                    u[p[j]] += delta
+                    v[j] -= delta
+                else:
+                    minv[j] -= delta
+            j0 = j1
+            if p[j0] == 0:
+                break
+        while j0:
+            j1 = way[j0]
+            p[j0] = p[j1]
+            j0 = j1
+
+    rows, cols = [], []
+    for j in range(1, m + 1):
+        if p[j] > 0:
+            rows.append(p[j] - 1)
+            cols.append(j - 1)
+    order = sorted(range(len(rows)), key=lambda k: rows[k])
+    return [rows[k] for k in order], [cols[k] for k in order]
 
 
 def build_cost_matrix(tracks: list, detections: list, dt_minutes: float,
