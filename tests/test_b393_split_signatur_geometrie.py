@@ -75,4 +75,10 @@ def test_different_geometry_does_not_inherit_pending_counter():
     assert confirmed == []
     assert len(still) == 1
     assert len(reverted) == 1
-    assert list(pending.values()) == [1]
+    # B396: pending speichert Zaehler + Phase statt einer blanken Zahl.
+    assert len(pending) == 1
+    entry = next(iter(pending.values()))
+    assert entry == {
+        "frames_seen": 1,
+        "phase": "candidate",
+    }

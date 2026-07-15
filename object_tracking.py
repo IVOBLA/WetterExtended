@@ -26,6 +26,22 @@ from config import (
 )
 
 
+def _is_neighbor_feature_eligible(obj: dict | None) -> bool:
+    """B397: Darf ein Objekt an B94-Nachbarfeatures teilnehmen?
+
+    `merge_pending` ist nur eine technische Übergangsreserve aus B391. Der
+    Secondary-Parent bleibt im Tracking-Speicher, ist aber keine eigenständige
+    fachliche Zelle und darf weder Feature-Subjekt noch Nachbar sein.
+
+    Bewusst nur `merge_pending`: Die bestehende Semantik anderer Zustände wie
+    `inactive_rain` wird in diesem Bugfix nicht verändert.
+    """
+    return (
+        isinstance(obj, dict)
+        and str(obj.get("tracking_state") or "") != "merge_pending"
+    )
+
+
 def _compute_neighbor_ahead(self_obj, all_objs, *,
                             range_km, half_angle_deg, min_speed_kmh,
                             px_to_kmh, upscale):
@@ -42,6 +58,12 @@ def _compute_neighbor_ahead(self_obj, all_objs, *,
         "neighbor_min_dist_km_ahead": 999.0,
         "strat_area_ahead_px": 0.0,
     }
+
+    # B397: Ein merge_pending-Parent ist keine eigenstaendige Zelle. Auch ein
+    # kuenftiger direkter Aufrufer darf fuer ihn keine B94-Features erzeugen.
+    if not _is_neighbor_feature_eligible(self_obj):
+        return neutral
+
     lat0 = self_obj.get("lat")
     lon0 = self_obj.get("lon")
     if lat0 is None or lon0 is None:
@@ -73,6 +95,10 @@ def _compute_neighbor_ahead(self_obj, all_objs, *,
     coslat = math.cos(math.radians(lat0)) or 1e-6
 
     for other in all_objs:
+        # B397: Technisch erhaltener Secondary-Parent darf weder Anzahl,
+        # Kernstaerke, Mindestdistanz noch stratiforme Flaeche beeinflussen.
+        if not _is_neighbor_feature_eligible(other):
+            continue
         if other is self_obj or other.get("id") == self_id:
             continue
         olat = other.get("lat")
@@ -2232,7 +2258,14 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
             PX_TO_KMH as _PX_TO_KMH_NEIGHBOR,
             UPSCALE_FACTOR as _UPSCALE_FACTOR_NEIGHBOR,
         )
-        _all = list(new_memory.values())
+        # B397: `merge_pending` lebt fuer die B391-Bestaetigung in new_memory,
+        # ist aber keine eigenstaendige Zelle und darf B94-/ML-Features nicht
+        # beeinflussen. Der Helper besitzt zusaetzlich denselben defensiven Guard.
+        _all = [
+            _o
+            for _o in new_memory.values()
+            if _is_neighbor_feature_eligible(_o)
+        ]
         for _o in _all:
             _o.update(_compute_neighbor_ahead(
                 _o, _all,
