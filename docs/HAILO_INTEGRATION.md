@@ -5595,3 +5595,39 @@ Parent.
 **Phasen-Status:** Phase A — Korrekturserie B379–B386 gestartet. **Offen:** Split-Integration
 (B381), Pre-Frame-Parent-Snapshot (B382), IR-Entkopplung (B383), Resolver-Geometrie (B384),
 stabile Signaturen/`closed` (B385), Hungarian-Unmatched + Zeitbasis (B386), Segmentierung (B380).
+
+### B380 — Intensitätsfeld der Segmentierung war nicht ordnungserhaltend (Hue ignoriert) ✅ erledigt
+
+**Root-Cause:** `_intensity_field()` (B376) nutzte `V×S` und ignorierte den **Hue-Kanal** — genau
+den Kanal, der in der ARSO-INCA-Skala die Reflektivität trägt. Da alle Radarfarben vollgesättigt
+sind (S≈255, V≈255), lieferte `V×S` für Orange (49 dBZ), Rot (54 dBZ) und Violett (57 dBZ)
+**denselben Wert**. Das Feld war innerhalb einer Zelle uniform; Watershed hatte keine Information
+und folgte bestenfalls JPEG-Artefakten. Der Legacy-Voronoi-Code konnte den Fall lösen, weil er rein
+geometrisch arbeitete — B376 ersetzte die Geometrie durch ein Intensitätsmaß, das keine Intensität
+maß.
+
+**Belegte Regression:** `test_b275_multi_core_gap_check::test_u_shape_with_two_cores_and_real_gap_is_split`
+(Baseline `a7912311` grün → rot). Zwei rote Kerne (Hue≈0, 54 dBZ), verbunden über eine orange
+U-Brücke (Hue≈15, 49 dBZ) — meteorologisch ein klarer Sattel, für `V×S` identisch.
+
+**Fix:**
+- `RADAR_DBZ_BANDS` in `config.py`: explizites, ordnungserhaltendes Band-Mapping
+  (grün 0.20 < gelb 0.35 < orange 0.55 < rot 0.80 < violett 1.00). Ein Hue-**Vergleich** wäre
+  ebenso falsch wie `V×S`, weil die Skala nicht monoton in Hue ist: Rot wrapt über 0/179, Violett
+  liegt bei 125–160. Beide Rot-Bänder (0–10, 165–179) mappen identisch.
+- `RADAR_DBZ_MIN_SAT`/`RADAR_DBZ_MIN_VAL`: Graustufen/Kartenrand liefern Intensität 0.
+- `_intensity_field()` vektorisiert über numpy-Masken; `np.maximum` sorgt dafür, dass sich bei
+  überlappenden Bändern das stärkere durchsetzt statt des zuletzt geprüften.
+- `_core_peak_intensity()`: Kernmaximum robust aus der Kernumgebung (Radius 3) statt aus einem
+  rauschanfälligen Einzelpixel.
+- `_core_saddle_ratio()`: Referenz ist jetzt das **schwächere** Kernmaximum
+  (`min(peak_1, peak_2)`) — so beschreibt es auch `MULTI_CORE_MIN_SADDLE_RATIO`. Mit dem stärkeren
+  Endwert wurde ein Nebenmaximum leichter als getrennt eingestuft.
+
+**Tests:** `tests/test_b380_dbz_intensitaetsfeld.py` — Reihenfolge grün<orange<rot<violett,
+Rot/Orange unterscheidbar, Rot-Wrap konsistent, ungesättigte Pixel = 0, Maskenrespektierung,
+rauschrobustes Kernmaximum, Sattelreferenz am schwächeren Kern, B275-U-Form.
+
+**Phasen-Status:** Phase A — Segmentierung misst wieder Intensität. Voraussetzung für **B381**
+(Split-Integration): ohne funktionierende Sub-Zellen gibt es keine Split-Kandidaten.
+**Offen:** Mehrkern-Komponentengraph („alles oder nichts", P2-4) → **B387**.
