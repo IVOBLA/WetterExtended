@@ -593,9 +593,22 @@ def main_loop():
                     try:
                         from cell_lineage import update_split_merge_lineage
                         import object_tracking as _ot_cell_lineage
+                        # B385: PRE-FRAME-Zustand uebergeben, nicht den bereits
+                        # ersetzten tracking_memory. Andernfalls bewertet die
+                        # fachliche Primary-Policy den verschmolzenen Survivor und
+                        # leere Secondary-Parent-Dicts -- und waehlt damit einen
+                        # anderen Parent als die Radar-Ebene, obwohl beide seit B377
+                        # dieselbe Funktion verwenden.
+                        # Fallback auf tracking_memory nur, falls das Attribut fehlt
+                        # (z. B. Alt-Deployment ohne B385) -- dann greift das alte,
+                        # fehlerhafte Verhalten, statt dass die Lineage ganz ausfaellt.
+                        _prev_for_lineage = getattr(_ot_cell_lineage, "last_previous_snapshot", None)
+                        if not _prev_for_lineage:
+                            _prev_for_lineage = getattr(_ot_cell_lineage, "tracking_memory", {})
+                            debug_log("[B385] last_previous_snapshot leer — Fallback auf tracking_memory")
                         _split_merge_events = update_split_merge_lineage(
                             radar_objects=objects,
-                            previous_objects=getattr(_ot_cell_lineage, "tracking_memory", {}),
+                            previous_objects=_prev_for_lineage,
                             timestamp=timestamp,
                         )
                         _lineage_events.extend(_split_merge_events or [])
