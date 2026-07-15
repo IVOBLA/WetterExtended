@@ -131,6 +131,28 @@ CORE_HSV_RANGES = [
 CORE_VIOLET_HUE_MIN: int = 100
 CORE_VIOLET_HUE_MAX: int = 160
 
+# B380: Ordnungserhaltendes Intensitaetsmapping fuer die Segmentierung.
+# Die ARSO-INCA-Skala kodiert die Reflektivitaet ueber den HUE-Kanal. Alle Baender
+# sind vollgesaettigt (S~255, V~255) -- das bisherige Mass V*S lieferte deshalb fuer
+# Orange, Rot UND Violett denselben Wert und machte das Feld innerhalb einer Zelle
+# uniform. Watershed hatte damit keine Information (siehe B275-Regression).
+# Die Skala ist NICHT monoton in Hue (Rot wrapt ueber 0/179, Violett liegt bei
+# 125-160) -- deshalb ein explizites Band-Mapping statt eines Hue-Vergleichs.
+# Format: (hue_min, hue_max, intensity_proxy 0..1, dbz_referenz, name)
+# Die Reihenfolge ist irrelevant; das erste passende Band gewinnt.
+RADAR_DBZ_BANDS = [
+    (125, 160, 1.00, 57.0, "violett"),
+    (  0,  10, 0.80, 54.0, "rot"),
+    (165, 179, 0.80, 54.0, "rot_wrap"),
+    ( 10,  27, 0.55, 49.5, "orange"),
+    ( 28,  55, 0.35, 45.0, "gelb"),
+    ( 55,  92, 0.20, 38.5, "gruen"),
+]
+# Mindestsaettigung/-helligkeit, ab der ein Pixel ueberhaupt als Radarecho gilt.
+# Darunter -> Intensitaet 0 (Hintergrund, Graustufen, Kartenrand).
+RADAR_DBZ_MIN_SAT: int = 50
+RADAR_DBZ_MIN_VAL: int = 60
+
 # Stratiforme Umgebungsbänder (36–47 dBZ).
 # Werden NICHT getrackt / angezeigt, nur als ML-Kontext-Features genutzt.
 # ARSO INCA Farbskala:

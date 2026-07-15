@@ -6,7 +6,7 @@ from radar_download import get_acquisition_timestamp
 from filterpy.kalman import KalmanFilter
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
-from config import UPSCALE_FACTOR, FILTER_CONFIG as _DEFAULT_FILTER_CONFIG, CORE_HSV_RANGES as _DEFAULT_CORE_HSV_RANGES, BBOX_KAERNTEN_EXTENDED as BBOX, CORE_VIOLET_HUE_MIN, CORE_VIOLET_HUE_MAX
+from config import UPSCALE_FACTOR, FILTER_CONFIG as _DEFAULT_FILTER_CONFIG, CORE_HSV_RANGES as _DEFAULT_CORE_HSV_RANGES, BBOX_KAERNTEN_EXTENDED as BBOX, CORE_VIOLET_HUE_MIN, CORE_VIOLET_HUE_MAX, RADAR_DBZ_BANDS as _DEFAULT_RADAR_DBZ_BANDS
 import math as _math_ot
 import runtime_config as _rc
 from geo_utils import pixel_to_geo
@@ -554,16 +554,56 @@ def _core_path_gap_px(cell_mask, p1, p2, step_px=1.0):
 
 
 def _intensity_field(hsv, cell_mask):
-    """B376: Reflektivitaets-Proxy aus HSV. Hoeher = konvektiv staerker.
+    """B380: ORDNUNGSERHALTENDER Reflektivitaets-Proxy ueber die ARSO-Farbbaender.
 
-    Die Radarfarbskala laeuft von gruen ueber gelb/rot nach violett. Value und
-    Saturation steigen mit der Intensitaet; das Produkt ist ein robuster Proxy,
-    ohne die Farbskala explizit invertieren zu muessen.
+    B376 nutzte v*s. Da alle Radarfarben vollgesaettigt sind (S~255, V~255), lieferte
+    das fuer Orange (49 dBZ), Rot (54 dBZ) und Violett (57 dBZ) denselben Wert -- das
+    Feld war innerhalb einer Zelle uniform und Watershed hatte keine Information.
+    Belegt durch die B275-Regression: zwei rote Kerne ueber eine orange Bruecke
+    verbunden liessen sich nicht trennen, obwohl das meteorologisch ein klarer
+    Sattel ist.
+
+    Die Skala ist NICHT monoton in Hue (Rot wrapt ueber 0/179, Violett liegt bei
+    125-160), daher ein explizites Band-Mapping aus RADAR_DBZ_BANDS.
+
+    Vektorisiert ueber numpy-Masken -- auf dem Pi 5 kein messbarer Mehraufwand
+    gegenueber der alten Multiplikation.
     """
-    v = hsv[:, :, 2].astype(np.float32) / 255.0
-    s = hsv[:, :, 1].astype(np.float32) / 255.0
-    field = (v * s * 255.0).astype(np.uint8)
+    bands = _rc.get("RADAR_DBZ_BANDS", _DEFAULT_RADAR_DBZ_BANDS)
+    min_sat = int(_rc.get("RADAR_DBZ_MIN_SAT", 50))
+    min_val = int(_rc.get("RADAR_DBZ_MIN_VAL", 60))
+
+    h = hsv[:, :, 0]
+    s = hsv[:, :, 1]
+    v = hsv[:, :, 2]
+    valid = (s >= min_sat) & (v >= min_val)
+
+    field = np.zeros(hsv.shape[:2], dtype=np.uint8)
+    for band in bands:
+        hue_min, hue_max, proxy = int(band[0]), int(band[1]), float(band[2])
+        sel = valid & (h >= hue_min) & (h <= hue_max)
+        # np.maximum: ueberlappende Baender gewinnen mit dem hoeheren Proxy,
+        # statt vom zuletzt geprueften Band ueberschrieben zu werden.
+        np.maximum(field, np.uint8(round(proxy * 255.0)), out=field, where=sel)
+
     return cv2.bitwise_and(field, field, mask=cell_mask)
+
+
+def _core_peak_intensity(field, cell_mask, center, radius=3):
+    """B380: robustes Kernmaximum aus der Kernumgebung statt aus einem Einzelpixel.
+
+    Der Zentrumspixel allein ist rauschanfaellig (JPEG-Artefakte, Farbraender).
+    """
+    h, w = field.shape[:2]
+    cx, cy = int(round(center[0])), int(round(center[1]))
+    x0, x1 = max(cx - radius, 0), min(cx + radius + 1, w)
+    y0, y1 = max(cy - radius, 0), min(cy + radius + 1, h)
+    if x0 >= x1 or y0 >= y1:
+        return 0.0
+    patch = field[y0:y1, x0:x1]
+    mask_patch = cell_mask[y0:y1, x0:x1]
+    vals = patch[mask_patch > 0]
+    return float(vals.max()) if vals.size else 0.0
 
 
 def _core_saddle_ratio(field, cell_mask, p1, p2, n_samples=64):
@@ -590,7 +630,14 @@ def _core_saddle_ratio(field, cell_mask, p1, p2, n_samples=64):
             vals.append(0.0)
     if not vals:
         return 0.0
-    peak = max(vals[0], vals[-1])
+    # B380: Referenz ist das SCHWAECHERE der beiden Kernmaxima -- so beschreibt es
+    # auch MULTI_CORE_MIN_SADDLE_RATIO. Mit dem staerkeren Endwert (vorher
+    # `max(vals[0], vals[-1])`) wurde ein Nebenmaximum leichter als getrennt
+    # eingestuft. Die Kernmaxima kommen robust aus der Kernumgebung statt aus
+    # einem einzelnen, rauschanfaelligen Zentrumspixel.
+    peak_1 = _core_peak_intensity(field, cell_mask, p1)
+    peak_2 = _core_peak_intensity(field, cell_mask, p2)
+    peak = min(peak_1, peak_2)
     if peak <= 1e-6:
         return 0.0
     valley = min(vals)
