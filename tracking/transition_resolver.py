@@ -375,10 +375,37 @@ def find_split_candidates(all_tracks: dict, detections: dict, matched: dict) -> 
     return out
 
 
-def confirm_candidates(candidates: list, pending: dict) -> tuple:
-    """Zustandsautomat: candidate -> confirmed nach N konsistenten Frames.
+def _pending_entry(raw) -> dict:
+    """B396: liest den Pending-State abwaerts-kompatibel.
 
-    `pending` ist der frameuebergreifende Speicher (Signatur -> frames_seen).
+    Vor B396 war der Wert eine blanke Zahl (frames_seen). Nach einem Deployment
+    ohne Neustart koennen beide Formen im Speicher liegen.
+    """
+    if isinstance(raw, dict):
+        return {"frames_seen": int(raw.get("frames_seen", 0) or 0),
+                "phase": str(raw.get("phase") or "candidate")}
+    return {"frames_seen": int(raw or 0), "phase": "candidate"}
+
+
+def confirm_candidates(candidates: list, pending: dict) -> tuple:
+    """Zustandsautomat: candidate -> confirmed -> closed, oder -> reverted.
+
+    B396: `confirmed` wird GENAU EINMAL ausgegeben -- beim Uebergang von
+    `candidate`. Danach ist der Uebergang `closed`.
+
+    Vorher schrieb die Funktion jede Signatur zurueck in new_pending, auch die
+    bereits bestaetigten. frames_seen wuchs unbegrenzt weiter und blieb >= need,
+    sodass derselbe Uebergang in JEDEM Folgeframe erneut als `confirmed` gemeldet
+    wurde -- ein Zustand, der als EREIGNIS gemeint war. Das ist strukturell
+    derselbe Defekt, den B371 auf der Fachschicht behoben hat, nur eine Ebene
+    tiefer: B371 dedupliziert den Ledger, die Transition-Logik meldete weiter.
+
+    `closed` heisst: die Konstellation besteht geometrisch fort, aber das Ereignis
+    ist abgeschlossen. Die Objektschleife prueft `phase == "confirmed"` und setzt
+    lineage="merged" damit automatisch nur noch im Ereignisframe.
+
+    `pending` ist der frameuebergreifende Speicher
+    (Signatur -> {"frames_seen": int, "phase": str}).
     Rueckgabe: (confirmed, still_candidate, reverted_signatures, neues pending)
     """
     need = int(_cfg("TRANSITION_CONFIRM_FRAMES"))
@@ -386,14 +413,21 @@ def confirm_candidates(candidates: list, pending: dict) -> tuple:
     new_pending, confirmed, still = {}, [], []
 
     for c in candidates:
-        c.frames_seen = int((pending or {}).get(c.signature, 0)) + 1
-        if c.frames_seen >= need:
+        prev = _pending_entry((pending or {}).get(c.signature))
+        c.frames_seen = prev["frames_seen"] + 1
+
+        if prev["phase"] in ("confirmed", "closed"):
+            # Bereits bestaetigt -> das Ereignis ist abgeschlossen. Die Geometrie
+            # zeigt den Verbund weiterhin, aber es ist kein neues Ereignis mehr.
+            c.phase = "closed"
+        elif c.frames_seen >= need:
             c.phase = "confirmed"
             confirmed.append(c)
         else:
             c.phase = "candidate"
             still.append(c)
-        new_pending[c.signature] = c.frames_seen
+
+        new_pending[c.signature] = {"frames_seen": c.frames_seen, "phase": c.phase}
 
     reverted = [sig for sig in (pending or {}) if sig not in seen_now]
     return confirmed, still, reverted, new_pending

@@ -94,7 +94,14 @@ def test_repeated_merge_confirms_once_not_every_frame():
         cands = find_merge_candidates(tracks, detections, matched={})
         confirmed, _, _, pending = confirm_candidates(cands, pending)
         signatures.extend(c.signature for c in confirmed)
+    # B396: Der Test prueefte bisher nur, dass die Signatur GLEICH BLEIBT -- zehn
+    # identische Bestaetigungen erfuellten `len(set(...)) == 1` ebenso wie eine
+    # einzige. Er war damit fuer seinen eigentlichen Zweck blind.
     assert len(set(signatures)) == 1, "Es darf nur EINE Ereignissignatur geben"
+    assert len(signatures) == 1, (
+        f"Der Uebergang wurde {len(signatures)}x als bestaetigt gemeldet — "
+        "erwartet genau 1 (danach `closed`)"
+    )
 
 
 def test_signature_is_order_invariant():
