@@ -5745,3 +5745,35 @@ unzugeordneten Pixel, Einzelkern, Marker außerhalb der Maske, keine skimage-Abh
 
 **Phasen-Status:** Phase A — Segmentierung trennt Sub-Zellen wieder zuverlässig. Voraussetzung
 dafür, dass B381 (Split-Integration) im Livebetrieb überhaupt Kandidaten sieht.
+
+### B384 — Drei Bestandstests kodierten die vor-B373-Architektur ✅ erledigt
+
+**Root-Cause:** Kein Code-Defekt. Drei Tests prüften Annahmen, welche die Sanierungsserie bewusst
+und begründet geändert hat. Ohne Anpassung bliebe die Suite dauerhaft rot und verdeckte echte
+Regressionen. **Nur Testdateien geändert, kein Produktivcode.**
+
+**Klasse 1 — Merge im Kandidatenframe erwartet** (`test_b117_track_continuity`,
+`test_object_tracking_regression`): B375 bestätigt einen Übergang erst im zweiten konsistenten
+Frame (`TRANSITION_CONFIRM_FRAMES=2`); B382 hält die **Identität** sofort. Der Zweck beider Tests
+war bereits erfüllt — im `test_object_tracking_regression` ist die entscheidende Zeile
+`assert [obj["id"] …] == ["DOM"]` grün; nur die Folgezeile prüfte `lineage == "merged"` im
+Kandidatenframe. Beide Tests prüfen jetzt: Frame 2 = `continued` **mit erhaltener ID**, Frame 3 =
+`merged` **ohne ID-Wechsel** und mit vollständiger Parentmenge. Damit decken sie die neue Semantik
+strenger ab als zuvor.
+
+**Klasse 2 — positionsloser Geo-Mock** (`test_b365_stage2_weak_cell_match_cap`): Der Mock lieferte
+`lambda x, y: (46.7, 14.3)` — konstant. Jede Kontur bekam dieselbe Koordinate, die Distanz war
+immer 0 km, jedes km-Gate prinzipiell wirkungslos. Bis B374 folgenlos, weil Stage 2 in skalierten
+Pixeln aus Konturmomenten rechnete und `pixel_to_geo` nicht benutzte. Der B379-Schwach-Cap ist
+nachweislich korrekt und isoliert getestet (grün) — er greift bei 0 km korrekterweise nicht.
+Neuer Mock mit aus `config.py` abgeleitetem Maßstab: `PX_TO_KMH=4.0` → 0.333 km/Original-Pixel,
+`UPSCALE_FACTOR=3` → **0.111 km/skaliertem Pixel**; die 90-px-Testdistanz entspricht damit ≈ 10 km.
+
+**Tests:** `tests/test_b384_testsemantik_und_massstab.py` — Maßstab aus der Config ableitbar,
+90 px ≈ 10 km, Schwach-Cap greift bei 10 km und nicht bei 0 km, `TRANSITION_CONFIRM_FRAMES=2`,
+konstanter Mock kehrt nicht zurück, B117 prüft Frame 3.
+
+**Phasen-Status:** Phase A — Testsuite prüft wieder die tatsächliche Architektur.
+**Offen:** Pre-Frame-Parent-Snapshot P0-2 (B385), IR-Entkopplung P1-1 (B386), Resolver-Geometrie
+P1-2 (B387), stabile Signaturen/`closed` P1-3/4/5 (B388), Hungarian-Unmatched P1-7 + Zeitbasis
+P2-2 (B389), Mehrkern-Komponentengraph P2-4 (B390).

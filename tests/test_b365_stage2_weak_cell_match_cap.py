@@ -1,8 +1,33 @@
+import math
+
 import pytest
 
 
 def _patch_tracking_dependencies(monkeypatch, object_tracking):
-    monkeypatch.setattr(object_tracking, "pixel_to_geo", lambda x, y: (46.7, 14.3))
+    # B384: REALISTISCHER Geo-Mock statt konstanter Koordinate.
+    #
+    # Vorher lieferte der Mock fuer JEDE Kontur (46.7, 14.3) -- die Distanz zwischen
+    # altem Track und neuer Detektion war immer 0 km. Bis B374 war das folgenlos, weil
+    # Stage 2 in skalierten Pixeln aus Konturmomenten rechnete und pixel_to_geo gar
+    # nicht benutzte. Seit B373/B374 rechnen alle Gates in echten Kilometern aus
+    # lat/lon -- ein konstanter Mock macht jedes Distanzgate wirkungslos.
+    #
+    # Massstab aus config.py abgeleitet:
+    #   PX_TO_KMH = 4.0   -> 1 Original-Pixel/5-min-Frame = 4.0 * (5/60) = 0.333 km
+    #   UPSCALE_FACTOR = 3 -> 1 skalierter Pixel = 0.333 / 3 = 0.111 km
+    # Die Konturen dieses Tests liegen in skalierten Pixeln.
+    _KM_PER_SCALED_PX = 0.111
+    _KM_PER_DEG_LAT = 111.32
+    _LAT0, _LON0 = 46.7, 14.3
+    _KM_PER_DEG_LON = _KM_PER_DEG_LAT * math.cos(math.radians(_LAT0))
+    monkeypatch.setattr(
+        object_tracking,
+        "pixel_to_geo",
+        lambda x, y: (
+            _LAT0 - (float(y) * _KM_PER_SCALED_PX) / _KM_PER_DEG_LAT,   # y waechst nach Sueden
+            _LON0 + (float(x) * _KM_PER_SCALED_PX) / _KM_PER_DEG_LON,
+        ),
+    )
     monkeypatch.setattr(object_tracking, "save_tracking_snapshot", lambda: None)
     monkeypatch.setattr(object_tracking, "calculate_core_ratio", lambda hsv, contour: 0.2)
     monkeypatch.setattr(

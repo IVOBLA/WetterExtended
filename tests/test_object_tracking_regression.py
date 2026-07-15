@@ -208,7 +208,23 @@ def test_merge_with_dominant_parent_without_kf_does_not_crash(monkeypatch):
     )
 
     assert [obj["id"] for obj in objects] == ["DOM"]
-    assert object_tracking.tracking_memory["DOM"]["lineage"] == "merged"
+    # B384: Frame 2 ist der Kandidatenframe (B375: TRANSITION_CONFIRM_FRAMES=2).
+    # Der Zweck dieses Tests -- der dominante Parent "DOM" fuehrt die ID fort und
+    # der fehlende Kalman-Filter fuehrt nicht zum Absturz -- wird durch die
+    # vorstehende ID-Assertion vollstaendig abgedeckt. Die Lineage ist hier
+    # korrekterweise `continued`; das Merge-EREIGNIS erscheint im Folgeframe.
+    assert object_tracking.tracking_memory["DOM"]["lineage"] == "continued"
+
+    objects_f3 = object_tracking.update_tracking_memory(
+        np.zeros((240, 240, 3), dtype=np.uint8),
+        [merged],
+        {},
+        "2026-06-09_00-10-00",
+    )
+    assert [obj["id"] for obj in objects_f3] == ["DOM"], "ID wechselte bei der Bestaetigung"
+    assert object_tracking.tracking_memory["DOM"]["lineage"] == "merged", (
+        "Frame 3 muss den bestaetigten Merge melden"
+    )
     assert "kf" in object_tracking.tracking_memory["DOM"]
 
 
