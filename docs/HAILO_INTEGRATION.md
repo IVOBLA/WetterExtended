@@ -5885,3 +5885,43 @@ Einzelparent, unzureichende Erklärung, Leereingaben.
 **Offen:** Stabile Signaturen P1-3, `closed`-Zustand P1-5, bestätigte Parentmenge P1-4 (B388),
 Hungarian-Unmatched P1-7 + Zeitbasis P2-2 (B389), Mehrkern-Komponentengraph P2-4 (B390),
 IR-`cell_id` umgeht Merge-Policy P2-1.
+
+### B388 — Transition-Signaturen enthielten frameweise Detektionsindizes ✅ erledigt
+
+**Root-Cause (P1):** Eine frameübergreifende Identität wurde aus frameweise gültigen Daten
+gebildet. `transition_signature("merge", parents, [str(det_idx)])` bzw.
+`("split", [tid], [str(c) for c in children])` enthielten **Detektionsindizes** — Positionen in der
+Rückgabeliste von `cv2.findContours()`, gültig nur innerhalb eines Frames.
+
+`confirm_candidates()` führt den Bestätigungszähler über die Signatur. Wechselte sie bei
+**unveränderter Geometrie**, war `pending.get(signature)` leer → `frames_seen=1` → der Kandidat
+fiel zurück und wurde **nie bestätigt**; gleichzeitig galt die alte Signatur als `reverted`.
+
+Besonders tückisch: Bei einem Merge ändert sich die Konturanzahl per Definition (2 Zellen → 1
+Kontur), die Indizes verschieben sich im Bestätigungsframe also **regelmäßig**. B370 hat die
+*Gruppierung* reihenfolgeinvariant gemacht, nicht die *Indizierung*. Folge: Mit
+`TRANSITION_CONFIRM_FRAMES=2` entstand oft **gar kein** Ereignis — kein `merged`, kein `split`,
+kein Ledger-Eintrag; die Kandidatenphase (B382) lief endlos weiter.
+
+**Fix — Identität aus frameübergreifend stabilen Größen:**
+- **Merge:** `sha1("merge" | sorted(parent_ids))`. Die Kindmenge ist implizit — dieselben Parents
+  verschmelzen zu **einer** Zelle; der Detektionsindex trägt keine Information (`_stable_merge_key`).
+- **Split:** `sha1("split" | parent_id | "n=<anzahl>")`. Die Kinder haben noch keine Track-IDs;
+  die **Anzahl** ist stabil und trennt einen 2er- von einem 3er-Split desselben Parents
+  (`_stable_child_key`).
+- `TransitionCandidate.children` bleibt für die Objektschleife erhalten, geht aber nicht mehr in
+  die Identität ein.
+
+Damit ist das Abnahmekriterium „Übergänge bestätigen unabhängig von der Konturreihenfolge"
+erfüllt. Die zeitstempelfreie Ereignis-Signatur in `cell_lineage.py` (B371) ist unberührt — sie
+arbeitet bereits nur mit `cell_id`s.
+
+**Tests:** `tests/test_b388_stabile_transition_signaturen.py` — Merge/Split-Signatur überlebt
+Indexwechsel, Bestätigung erfolgt trotz Indexverschiebung ohne falsches `reverted`,
+unterschiedliche Kinderanzahl = anderes Ereignis, andere Parentmenge = andere Signatur,
+Parent-Reihenfolge irrelevant, Indizes kehren nicht zurück, `children` bleibt nutzbar.
+
+**Phasen-Status:** Phase A — Übergänge bestätigen reihenfolgeunabhängig.
+**Offen:** `closed`-Zustand P1-5 (B389), bestätigte Parentmenge P1-4 (B390),
+Hungarian-Unmatched P1-7 + Zeitbasis P2-2, Mehrkern-Komponentengraph P2-4,
+IR-`cell_id` umgeht Merge-Policy P2-1.
