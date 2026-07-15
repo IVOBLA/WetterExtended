@@ -644,18 +644,73 @@ def _core_saddle_ratio(field, cell_mask, p1, p2, n_samples=64):
     return max(0.0, min(1.0, 1.0 - (valley / peak)))
 
 
+def _geodesic_priority_assign(cell_mask, field, core_centers, max_iter_per_band=10000):
+    """B383: Band-priorisierte geodaetische Multi-Source-Flutung.
+
+    Ersetzt cv2.watershed(). Dessen Meyer-Algorithmus arbeitet auf Gradienten und
+    versagt, wenn der Verbindungsweg in sich uniform ist -- der Normalfall bei einer
+    durchgehend gleich starken Regenbruecke. Messung an der U-Form aus B275:
+    cv2.watershed lieferte [3910, 342] px statt zweier ausgewogener Haelften; mit
+    MULTI_CORE_MIN_CHILD_AREA_PX=800 fiel das zweite Kind heraus und der Split
+    entfiel komplett.
+
+    Verfahren (AINT-Prinzip, arXiv:2509.02929 -- geodaetische Expansion innerhalb
+    der Ursprungsregion):
+      1. Beginnend beim staerksten Intensitaetsband wachsen alle Marker gleichzeitig
+         um 1 px pro Schritt, aber nur innerhalb des aktuellen Bandes.
+      2. Erst wenn ein Band erschoepft ist, wird das naechstschwaechere freigegeben.
+
+    Daraus folgen beide Eigenschaften ohne Sonderfaelle:
+      - uniformer Verbindungsweg -> reine geodaetische Distanz, Grenze mittig,
+        Hindernisse respektiert;
+      - Intensitaetssattel vorhanden -> starke Bereiche zuerst beansprucht, Grenze
+        landet im schwaechsten Bereich.
+
+    Geodaetisch, nicht euklidisch: der Weg verlaeuft innerhalb der Maske. Genau das
+    unterscheidet das Verfahren vom alten Voronoi, bei dem der Weg durch die Luft lief.
+    """
+    labels = np.zeros(cell_mask.shape[:2], dtype=np.int32)
+    h, w = cell_mask.shape[:2]
+    for idx, core in enumerate(core_centers, start=1):
+        xi, yi = int(round(core[0])), int(round(core[1]))
+        if 0 <= xi < w and 0 <= yi < h and cell_mask[yi, xi] > 0:
+            labels[yi, xi] = idx
+    if not labels.any():
+        return labels
+
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    inside = cell_mask > 0
+    # Absteigende Bandgrenzen: stark zuerst. Aus RADAR_DBZ_BANDS abgeleitet, damit
+    # eine Aenderung der Farbskala nicht hier nachgezogen werden muss.
+    bands = _rc.get("RADAR_DBZ_BANDS", _DEFAULT_RADAR_DBZ_BANDS)
+    thresholds = sorted({int(round(float(b[2]) * 255.0)) for b in bands}, reverse=True)
+    thresholds.append(0)   # Restflaeche (z. B. Antialiasing-Raender) zuletzt
+
+    for lo in thresholds:
+        region = inside & (field >= lo)
+        for _ in range(max_iter_per_band):
+            free = region & (labels == 0)
+            if not free.any():
+                break
+            grown = cv2.dilate(labels.astype(np.uint8), kernel)
+            take = free & (grown > 0)
+            if not take.any():
+                break   # dieses Band ist von keinem Marker aus erreichbar
+            labels[take] = grown[take]
+    return labels
+
+
 def _watershed_split(hsv, contour, core_centers, min_child_area_px):
-    """B376: Marker-gesteuerte Watershed-Expansion statt euklidischer Voronoi.
+    """B383: Marker-gesteuerte geodaetische Priority-Flutung.
 
     Vorher wurde jeder Pixel der gesamten Aussenkontur dem euklidisch naechsten
     Kernzentrum zugeordnet. Das erzeugte gerade/keilfoermige Grenzen, die quer
     durch starke rote/violette Flaechen schnitten, und liess den Schwerpunkt bei
     minimalen Markerbewegungen springen.
 
-    Jetzt folgen die Grenzen den Reflektivitaetsminima: Watershed auf dem
-    invertierten Intensitaetsfeld -- die Wasserscheide bildet sich im Sattel
-    zwischen zwei Kernen, also physikalisch dort, wo die Zellen tatsaechlich
-    getrennt sind (AINT-Prinzip, arXiv:2509.02929).
+    Die Grenzen folgen nun den Reflektivitaetsbaendern: starke Kernbereiche werden
+    zuerst beansprucht, schwaechere Verbindungen erst danach. In uniformen
+    Verbindungswegen bleibt eine reine geodaetische Distanz innerhalb der Maske.
     """
     h, w = hsv.shape[:2]
     cell_mask = np.zeros((h, w), dtype=np.uint8)
@@ -664,25 +719,15 @@ def _watershed_split(hsv, contour, core_centers, min_child_area_px):
         return [contour]
 
     field = _intensity_field(hsv, cell_mask)
-    # Watershed "flutet" von Minima aus -> invertieren, damit die Kerne die
-    # Taeler sind und die Wasserscheide im Intensitaetssattel entsteht.
-    inverted = cv2.bitwise_not(field)
-    inverted = cv2.bitwise_and(inverted, inverted, mask=cell_mask)
-    topo = cv2.cvtColor(inverted, cv2.COLOR_GRAY2BGR)
-
-    markers = np.zeros((h, w), dtype=np.int32)
-    for idx, (cx, cy, _area) in enumerate(core_centers, start=1):
-        xi, yi = int(round(cx)), int(round(cy))
-        if 0 <= xi < w and 0 <= yi < h:
-            cv2.circle(markers, (xi, yi), 2, idx, -1)
-    markers[cell_mask == 0] = len(core_centers) + 1   # Hintergrund
-
-    cv2.watershed(topo, markers)
+    markers = _geodesic_priority_assign(cell_mask, field, core_centers)
 
     result_contours = []
     for idx in range(1, len(core_centers) + 1):
         region_mask = np.zeros((h, w), dtype=np.uint8)
         region_mask[markers == idx] = 255
+        # B383: kein Watershed-Grenzpixel (-1) mehr -- die geodaetische Flutung
+        # weist jeden erreichbaren Pixel genau einem Marker zu. Der frueher noetige
+        # Flaechenverlust an der Wasserscheide entfaellt.
         region_mask = cv2.bitwise_and(region_mask, cell_mask)
         region_cnts, _ = cv2.findContours(region_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not region_cnts:

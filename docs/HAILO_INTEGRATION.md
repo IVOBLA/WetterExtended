@@ -5705,3 +5705,43 @@ unverändert, Kalman-Zustand überlebt, alte Bedingung kehrt nicht zurück.
 Snapshot P0-2 (B385), IR-Entkopplung P1-1 (B386), Resolver-Geometrie P1-2 (B387), stabile
 Signaturen/`closed` P1-3/4/5 (B388), Hungarian-Unmatched P1-7 + Zeitbasis P2-2 (B389),
 Mehrkern-Komponentengraph P2-4 (B390).
+
+### B383 — cv2.watershed konnte Sub-Zellen ohne Intensitätsgradienten nicht trennen ✅ erledigt
+
+**Root-Cause:** `_watershed_split()` (B376) nutzte `cv2.watershed()`. Dessen Meyer-Algorithmus
+arbeitet auf **Gradienten** und versagt, wenn der Verbindungsweg in sich uniform ist — der
+Normalfall bei einer durchgehend gleich starken Regenbrücke.
+
+**B380 hat das nicht behoben.** Das Intensitätsfeld ist seit B380 nachweislich korrekt
+(RED→204, ORANGE→140); der Fehler lag eine Stufe später, im Flutungsalgorithmus.
+
+**Laufzeitbeleg (U-Form aus B275):** Kerne (2), `saddle=1.0`, `gap_px=79.0` — alle Vorstufen
+korrekt. `cv2.watershed` lieferte dann `[3910, 342]` px bei 4801 px Gesamtfläche. Mit dem
+produktiven `MULTI_CORE_MIN_CHILD_AREA_PX=800` fiel das zweite Kind heraus → `len < 2` → Rückfall
+auf die Originalkontur. Der Legacy-Voronoi konnte den Fall lösen, weil er rein geometrisch war.
+
+**Fix — geodätische Priority-Flutung** (AINT, arXiv:2509.02929): `_geodesic_priority_assign()`
+flutet bandweise vom stärksten Intensitätsband abwärts; alle Marker wachsen gleichzeitig um 1 px
+pro Schritt innerhalb des aktuellen Bandes. Daraus folgen beide Eigenschaften ohne Sonderfälle:
+- uniformer Verbindungsweg → reine geodätische Distanz, Grenze mittig, Hindernisse respektiert;
+- Intensitätssattel vorhanden → Grenze landet automatisch im schwächsten Bereich.
+
+Geodätisch statt euklidisch: Der Weg verläuft **innerhalb** der Maske — genau der Unterschied zum
+alten Voronoi. Bandgrenzen werden aus `RADAR_DBZ_BANDS` abgeleitet, damit eine Änderung der
+Farbskala nicht nachgezogen werden muss. Watershed-Grenzpixel (`-1`) entfallen; jeder erreichbare
+Pixel wird genau einem Kern zugewiesen.
+
+**Gemessen:** U-Form 2520/2541 px in **11 ms**; Sattelfall: Grenze exakt in der schwachen Brücke
+(x=100 bei Brücke 60–140). Identisch zu `skimage.segmentation.watershed` (2541/2520) — **ohne neue
+Abhängigkeit**; `scikit-image` steht nicht in `requirements.txt`, die Lösung nutzt nur OpenCV/numpy.
+
+**Behobene Regressionen:** `test_b275_multi_core_gap_check::test_u_shape_with_two_cores_and_real_gap_is_split`,
+`test_b380_dbz_intensitaetsfeld::test_u_shape_with_real_gap_is_still_split`.
+
+**Tests:** `tests/test_b383_geodaetische_flutung.py` — ausgewogene Teilung bei uniformer Brücke,
+2 Kinder beim **Live-Wert** 800, Grenze folgt dem Sattel, Hindernisse respektiert, keine
+unzugeordneten Pixel, Einzelkern, Marker außerhalb der Maske, keine skimage-Abhängigkeit,
+`cv2.watershed` entfernt.
+
+**Phasen-Status:** Phase A — Segmentierung trennt Sub-Zellen wieder zuverlässig. Voraussetzung
+dafür, dass B381 (Split-Integration) im Livebetrieb überhaupt Kandidaten sieht.
