@@ -124,3 +124,10 @@ def test_children_still_available_for_object_loop():
     cands = find_split_candidates(tracks, {2: _box(0, 0, 4, 10), 5: _box(6, 0, 10, 10)}, matched={2: "A"})
     assert sorted(cands[0].children) == [2, 5]
     assert cands[0].primary_child == 2
+
+
+def test_split_signature_is_not_only_parent_and_child_count():
+    tracks = {"A": _box(0, 0, 100, 100)}
+    left_right = find_split_candidates(tracks, {0: _box(0, 0, 45, 100), 1: _box(55, 0, 100, 100)}, matched={0: "A"})[0]
+    top_bottom = find_split_candidates(tracks, {5: _box(0, 0, 100, 45), 9: _box(0, 55, 100, 100)}, matched={5: "A"})[0]
+    assert left_right.signature != top_bottom.signature

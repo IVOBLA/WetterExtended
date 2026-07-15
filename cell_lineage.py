@@ -953,32 +953,264 @@ def select_ir_radar_matches(radar_objects: list[dict], ir_tracks: list[dict], *,
     return selected, {"candidates": candidates, "selected_count": len(selected)}
 
 
-def apply_ir_radar_lineage_match(radar_obj: dict, ir_track: dict, match: dict, state: dict | None = None, *, timestamp: str | None = None) -> tuple[dict, dict, dict]:
+# B392: Eine IR-Bestaetigung ist eine Sensorbestaetigung und darf ein bereits
+# bestaetigtes strukturelles Radarereignis nicht ueberschreiben.
+_STRUCTURAL_RADAR_LINEAGE_STATUSES = frozenset({
+    "merged",
+    "split",
+    "split_primary",
+    "split_child",
+})
+
+
+def has_structural_radar_lineage(radar_obj: dict | None) -> bool:
+    obj = radar_obj or {}
+    if str(obj.get("transition_event") or "") in {"merge", "split"}:
+        return True
+    if str(obj.get("lineage") or "") in {"merged", "split"}:
+        return True
+    return str(obj.get("lineage_status") or "") in _STRUCTURAL_RADAR_LINEAGE_STATUSES
+
+
+def resolve_ir_radar_cell_id(radar_obj: dict | None, ir_track: dict | None) -> str:
+    """B392: kanonische cell_id fuer einen IR↔Radar-Match.
+
+    Bei einem bereits bestaetigten Radar-Merge/Split bleibt die strukturelle
+    Radar-cell_id erhalten. Im Normalfall gilt weiterhin die etablierte
+    1L.2-Regel: Radar uebernimmt die IR-Vorlaeufer-ID.
+    """
+    radar_cid = str((radar_obj or {}).get("cell_id") or "").strip()
+    ir_cid = str((ir_track or {}).get("cell_id") or "").strip()
+
+    if has_structural_radar_lineage(radar_obj) and radar_cid:
+        return radar_cid
+    return ir_cid or radar_cid
+
+
+def _reconcile_ir_alias_state(
+    state: dict,
+    *,
+    source_ir_cell_id: str | None,
+    canonical_cell_id: str,
+    radar_track_id: str,
+    ir_track_id: str,
+    timestamp: str | None,
+) -> None:
+    """B392: alte IR-Zellidentitaet als bestaetigten Alias markieren.
+
+    Der Alias bleibt fuer Debugging/Lead-Time nachvollziehbar, darf aber weder
+    als zweite physikalische Zelle weiterlaufen noch spaeter ein negatives
+    `ended_without_radar`-Label erhalten.
+    """
+    source_id = str(source_ir_cell_id or "").strip()
+    canonical_id = str(canonical_cell_id or "").strip()
+    if not source_id or not canonical_id or source_id == canonical_id:
+        return
+
+    cells = state.setdefault("cells", {})
+    source = cells.setdefault(source_id, {"cell_id": source_id})
+    canonical = cells.setdefault(canonical_id, {"cell_id": canonical_id})
+    _ensure_cell_defaults(source_id, source)
+    _ensure_cell_defaults(canonical_id, canonical)
+
+    # Bereits gesammelte IR-Metadaten in die kanonische Zelle uebernehmen, aber
+    # vorhandene kanonische Werte nicht ueberschreiben.
+    for key in (
+        "first_seen_timestamp",
+        "first_seen_source",
+        "created_at",
+        "cloud_age_min",
+        *_IR_FEATURE_KEYS,
+    ):
+        if canonical.get(key) is None and source.get(key) is not None:
+            canonical[key] = source.get(key)
+
+    _append_unique(canonical.setdefault("alias_cell_ids", []), source_id)
+
+    source.update({
+        "canonical_cell_id": canonical_id,
+        "is_alias": True,
+        "status": "radar_confirmed",
+        "radar_confirmed": True,
+        "radar_track_id": radar_track_id or source.get("radar_track_id"),
+        "ir_track_id": ir_track_id or source.get("ir_track_id"),
+        "became_radar_cell": 1,
+        "ended_without_radar": 0,
+        "ended": True,
+        "last_seen_timestamp": _timestamp_str(timestamp),
+    })
+
+
+def apply_ir_radar_lineage_match(
+    radar_obj: dict,
+    ir_track: dict,
+    match: dict,
+    state: dict | None = None,
+    *,
+    timestamp: str | None = None,
+) -> tuple[dict, dict, dict]:
+    """Verknuepft IR-Vorlaeufer und Radarobjekt ohne Radar-Lineage zu zerstoeren."""
     state = load_lineage_state() if state is None else _normalize_state(state)
+
     if not ir_track.get("cell_id"):
-        ir_track, state = ensure_ir_track_cell_id(ir_track, timestamp=timestamp, state=state)
-    cell_id = ir_track.get("cell_id")
-    ir_track_id = str(normalize_ir_id(ir_track.get("ir_track_id") or ir_track.get("ir_id") or ir_track.get("id")) or "")
-    radar_track_id = str(radar_obj.get("id") or radar_obj.get("track_id") or "")
-    radar_obj.update({"cell_id": cell_id, "ir_match_id": ir_track.get("ir_id"), "ir_track_id": ir_track_id or ir_track.get("ir_id"), "ir_status": "radar_confirmed", "ir_radar_confirmed": True, "ir_is_potential_new_cell": False, "ir_display_as_precursor": False, "ir_only_precursor": 0.0, "lineage_status": "radar_confirmed", "lineage_event": "ir_to_radar_confirmation", "lineage_match_score": match.get("score"), "lineage_match_decision": match.get("decision"), "lineage_match_reason": match.get("reason"), "lineage_match_distance_km": match.get("centroid_distance_km"), "lineage_match_predicted_distance_km": match.get("predicted_centroid_distance_km")})
-    for key in ("area_growth_km2_per_min", "cloud_height_trend_m_per_min", "bt_min_k", "bt_mean_k", "bt_trend_k_per_min", "cloud_age_min", "anvil_extension_km", "overshooting_top"):
-        if key in ir_track: radar_obj.setdefault("ir_" + key if key.startswith(("area", "cloud_height")) else key, ir_track.get(key))
-    ir_track.update({"radar_track_id": radar_obj.get("id"), "status": "radar_confirmed", "radar_confirmed": True, "is_potential_new_cell": False, "display_as_precursor": False, "ir_only_precursor": 0.0})
-    state.setdefault("radar_to_cell", {})[radar_track_id] = cell_id
-    state.setdefault("ir_to_cell", {})[ir_track_id] = cell_id
-    cell = state.setdefault("cells", {}).setdefault(cell_id, {"cell_id": cell_id})
-    if radar_track_id:
-        cell.update({"status": "radar_confirmed", "radar_confirmed": True, "radar_track_id": radar_track_id, "ir_track_id": ir_track_id, "last_seen_timestamp": _timestamp_str(timestamp), "radar_confirmed_at": _timestamp_str(timestamp)})
+        ir_track, state = ensure_ir_track_cell_id(
+            ir_track,
+            timestamp=timestamp,
+            state=state,
+        )
+
+    source_ir_cell_id = str(ir_track.get("cell_id") or "").strip()
+    preserve_structural = has_structural_radar_lineage(radar_obj)
+    cell_id = resolve_ir_radar_cell_id(radar_obj, ir_track)
+
+    if not cell_id:
+        # Defensiver Fallback; regulaer hat ensure_ir_track_cell_id() bereits
+        # eine fachliche ID erzeugt.
+        ir_track, state = ensure_ir_track_cell_id(
+            ir_track,
+            timestamp=timestamp,
+            state=state,
+        )
+        source_ir_cell_id = str(ir_track.get("cell_id") or "").strip()
+        cell_id = resolve_ir_radar_cell_id(radar_obj, ir_track)
+
+    ir_track_id = str(
+        normalize_ir_id(
+            ir_track.get("ir_track_id")
+            or ir_track.get("ir_id")
+            or ir_track.get("id")
+        )
+        or ""
+    )
+    radar_track_id = str(
+        radar_obj.get("id")
+        or radar_obj.get("track_id")
+        or ""
+    )
+
+    preserved_lineage_status = radar_obj.get("lineage_status")
+    preserved_lineage_event = radar_obj.get("lineage_event")
+
+    # Nur IR-Metadaten setzen. Strukturelle Radar-Felder bleiben unangetastet.
+    radar_obj.update({
+        "cell_id": cell_id,
+        "ir_match_id": ir_track.get("ir_id"),
+        "ir_track_id": ir_track_id or ir_track.get("ir_id"),
+        "ir_status": "radar_confirmed",
+        "ir_radar_confirmed": True,
+        "ir_is_potential_new_cell": False,
+        "ir_display_as_precursor": False,
+        "ir_only_precursor": 0.0,
+        "ir_lineage_event": "ir_to_radar_confirmation",
+        "lineage_match_score": match.get("score"),
+        "lineage_match_decision": match.get("decision"),
+        "lineage_match_reason": match.get("reason"),
+        "lineage_match_distance_km": match.get("centroid_distance_km"),
+        "lineage_match_predicted_distance_km": match.get(
+            "predicted_centroid_distance_km"
+        ),
+    })
+
+    if preserve_structural:
+        # Merge-/Split-Status und strukturelles lineage_event erhalten.
+        radar_obj["lineage_status"] = preserved_lineage_status
+        if preserved_lineage_event is not None:
+            radar_obj["lineage_event"] = preserved_lineage_event
+        else:
+            radar_obj.pop("lineage_event", None)
+        if source_ir_cell_id and source_ir_cell_id != cell_id:
+            _append_unique(radar_obj.setdefault("alias_cell_ids", []), source_ir_cell_id)
     else:
-        cell.update({"ir_track_id": ir_track_id, "last_seen_timestamp": _timestamp_str(timestamp)})
+        # Unveraendertes 1L.2-Normalverhalten.
+        radar_obj["lineage_status"] = "radar_confirmed"
+        radar_obj["lineage_event"] = "ir_to_radar_confirmation"
+
+    for key in (
+        "area_growth_km2_per_min",
+        "cloud_height_trend_m_per_min",
+        "bt_min_k",
+        "bt_mean_k",
+        "bt_trend_k_per_min",
+        "cloud_age_min",
+        "anvil_extension_km",
+        "overshooting_top",
+    ):
+        if key in ir_track:
+            radar_obj.setdefault(
+                "ir_" + key if key.startswith(("area", "cloud_height")) else key,
+                ir_track.get(key),
+            )
+
+    # Beide In-Memory-Objekte verwenden nach dem Match dieselbe kanonische ID.
+    ir_track.update({
+        "cell_id": cell_id,
+        "radar_track_id": radar_obj.get("id"),
+        "status": "radar_confirmed",
+        "radar_confirmed": True,
+        "is_potential_new_cell": False,
+        "display_as_precursor": False,
+        "ir_only_precursor": 0.0,
+    })
+
+    if radar_track_id:
+        state.setdefault("radar_to_cell", {})[radar_track_id] = cell_id
+    if ir_track_id:
+        state.setdefault("ir_to_cell", {})[ir_track_id] = cell_id
+
+    _reconcile_ir_alias_state(
+        state,
+        source_ir_cell_id=source_ir_cell_id,
+        canonical_cell_id=cell_id,
+        radar_track_id=radar_track_id,
+        ir_track_id=ir_track_id,
+        timestamp=timestamp,
+    )
+
+    cell = state.setdefault("cells", {}).setdefault(
+        cell_id,
+        {"cell_id": cell_id},
+    )
+    _ensure_cell_defaults(cell_id, cell)
+
+    cell.update({
+        "radar_confirmed": True,
+        "radar_track_id": radar_track_id or cell.get("radar_track_id"),
+        "ir_track_id": ir_track_id or cell.get("ir_track_id"),
+        "last_seen_timestamp": _timestamp_str(timestamp),
+        "radar_confirmed_at": _timestamp_str(timestamp),
+    })
+
+    # record_cell_merge()/record_cell_split() haben den fachlichen Status bereits
+    # festgelegt. Nur der Normalfall darf ihn zu radar_confirmed aendern.
+    if not preserve_structural:
+        cell["status"] = "radar_confirmed"
+
     for key in _IR_FEATURE_KEYS:
         if key in ir_track and ir_track.get(key) is not None:
             cell[key] = ir_track.get(key)
-    event = {"event_type": "ir_to_radar_confirmation", "cell_id": cell_id, "ir_track_id": ir_track_id, "radar_track_id": radar_track_id, "timestamp": _timestamp_str(timestamp), "score": match.get("score"), "decision": match.get("decision"), "reason": match.get("reason"), "centroid_distance_km": match.get("centroid_distance_km"), "predicted_centroid_distance_km": match.get("predicted_centroid_distance_km")}
+
+    event = {
+        "event_type": "ir_to_radar_confirmation",
+        "cell_id": cell_id,
+        "ir_track_id": ir_track_id,
+        "radar_track_id": radar_track_id,
+        "timestamp": _timestamp_str(timestamp),
+        "score": match.get("score"),
+        "decision": match.get("decision"),
+        "reason": match.get("reason"),
+        "centroid_distance_km": match.get("centroid_distance_km"),
+        "predicted_centroid_distance_km": match.get(
+            "predicted_centroid_distance_km"
+        ),
+        "preserved_structural_lineage": bool(preserve_structural),
+    }
+    if source_ir_cell_id and source_ir_cell_id != cell_id:
+        event["source_ir_cell_id"] = source_ir_cell_id
+
     append_lineage_event(event)
+    match["cell_id"] = cell_id
     match["event"] = event
     return radar_obj, ir_track, state
-
 
 def update_cell_lineage(radar_objects: list[dict], ir_tracks: list[dict], *, timestamp: str | None = None, weather_context: dict | None = None) -> tuple[list[dict], list[dict], list[dict]]:
     state = load_lineage_state()
