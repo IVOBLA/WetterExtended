@@ -92,40 +92,92 @@ def _inter(a, b) -> float:
         return 0.0
 
 
-def find_merge_candidates(unmatched_tracks: dict, detections: dict, matched: dict) -> list:
-    """n:1 — mehrere UNMATCHED alte Zellen überdecken dieselbe neue Zelle.
+def _explained_union_ratio(det_poly, parent_polys: list) -> float:
+    """B387: Anteil der neuen Kontur, den die Parents GEMEINSAM erklaeren.
 
-    unmatched_tracks: track_id -> Polygon (nicht 1:1 zugeordnet)
-    detections:       det_index -> Polygon
-    matched:          det_index -> track_id (Ergebnis des globalen Matchings)
+    Vorher wurden die Einzelschnittflaechen ADDIERT. Ueberlappen sich zwei
+    Parent-Polygone -- bei konvergierenden Zellen kurz vor der Fusion der
+    Normalfall, also genau die Situation, in der ein Merge erkannt werden soll --
+    wurde der gemeinsame Bereich mehrfach gezaehlt. `explained` konnte dadurch
+    ueber 1.0 steigen und einen Merge bestaetigen, den die Parents nicht erklaeren.
+
+    Die geometrische Vereinigung zaehlt jeden Bereich genau einmal; das Ergebnis
+    liegt per Konstruktion in [0, 1].
+    """
+    new_area = _safe_area(det_poly)
+    if new_area <= 0:
+        return 0.0
+    pieces = []
+    for poly in parent_polys:
+        if poly is None:
+            continue
+        try:
+            piece = det_poly.intersection(poly)
+        except Exception:
+            continue
+        if piece is not None and not getattr(piece, "is_empty", False) and piece.area > 0:
+            pieces.append(piece)
+    if not pieces:
+        return 0.0
+    try:
+        from shapely.ops import unary_union
+        union_area = float(unary_union(pieces).area)
+    except Exception:
+        # Ohne Vereinigung waere die Summe eine Ueberschaetzung. Deckeln statt
+        # falsch bestaetigen -- die Mindestabdeckung je Parent bleibt wirksam.
+        union_area = min(sum(float(p.area) for p in pieces), new_area)
+    return max(0.0, min(1.0, union_area / new_area))
+
+
+def find_merge_candidates(all_tracks: dict, detections: dict, matched: dict) -> list:
+    """n:1 — mehrere alte Zellen überdecken dieselbe neue Zelle.
+
+    B387: Der Parameter heisst `all_tracks`, nicht `unmatched_tracks`. Vorher
+    erhielt die Funktion ausschliesslich ungematchte Tracks; der Survivor
+    (`matched.get(det_idx)`) wurde zwar der Parent-Liste hinzugefuegt, sein
+    Flaechenbeitrag aber mit 0.0 gezaehlt, weil `survivor in unmatched_tracks`
+    per Definition falsch war. Der Survivor ist typischerweise der GROESSTE
+    Beitragende -- er dominiert den Merge und fuehrt die ID fort.
+
+    Beispiel: Survivor erklaert 70 %, Secondary 25 % -> gezaehlt wurden 25 %,
+    und der Merge fiel an TRANSITION_MERGE_MIN_EXPLAINED=0.50 durch, obwohl die
+    Parents 95 % erklaerten. Echte Merges wurden dadurch systematisch verworfen.
+
+    all_tracks:  track_id -> Polygon (ALLE alten Tracks, gematcht wie ungematcht)
+    detections:  det_index -> Polygon
+    matched:     det_index -> track_id (Ergebnis des globalen Matchings)
     """
     min_cov = float(_cfg("TRANSITION_MERGE_MIN_PARENT_COVERAGE"))
     min_expl = float(_cfg("TRANSITION_MERGE_MIN_EXPLAINED"))
+    matched_track_ids = set((matched or {}).values())
     out = []
     for det_idx, det_poly in (detections or {}).items():
         new_area = _safe_area(det_poly)
         if new_area <= 0:
             continue
-        parents, explained = [], 0.0
-        for tid, tpoly in (unmatched_tracks or {}).items():
+        survivor = (matched or {}).get(det_idx)
+        parents, parent_polys = [], []
+        for tid, tpoly in (all_tracks or {}).items():
             old_area = _safe_area(tpoly)
             if old_area <= 0:
+                continue
+            # Ein Track, der 1:1 einer ANDEREN Detektion zugeordnet wurde, lebt
+            # eigenstaendig weiter und ist kein Merge-Parent.
+            if tid != survivor and tid in matched_track_ids:
                 continue
             inter = _inter(det_poly, tpoly)
             # Jeder Parent muss einen RELEVANTEN Anteil seiner eigenen alten
             # Flaeche beitragen. Der alte 0.30-Fallback liess kleine Randtracks
-            # zu Merge-Parents werden, obwohl sie nichts erklaerten.
-            if old_area > 0 and (inter / old_area) >= min_cov:
+            # zu Merge-Parents werden, obwohl sie nichts erklaerten. Der Survivor
+            # ist per globalem Match qualifiziert und umgeht diese Schranke.
+            if tid == survivor or (inter / old_area) >= min_cov:
                 parents.append(tid)
-                explained += inter
-        survivor = matched.get(det_idx)
-        if survivor:
-            parents.append(survivor)
-            explained += _inter(det_poly, unmatched_tracks.get(survivor)) if survivor in unmatched_tracks else 0.0
+                parent_polys.append(tpoly)
         parents = list(dict.fromkeys(parents))
         if len(parents) < 2:
             continue
-        ratio = explained / max(new_area, 1e-6)
+        # B387: geometrische Vereinigung statt Summe der Einzelschnitte.
+        ratio = _explained_union_ratio(det_poly, parent_polys)
         if ratio < min_expl:
             continue   # die Parents erklaeren die neue Zelle nicht ausreichend
         out.append(TransitionCandidate(

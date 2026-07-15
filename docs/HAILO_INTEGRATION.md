@@ -5845,3 +5845,43 @@ und `cell_lineage_write_status.json` `last_result="ok"` melden (B372).
 **Offen:** Resolver-Geometrie P1-2 (B387), stabile Signaturen/`closed` P1-3/4/5 (B388),
 Hungarian-Unmatched P1-7 + Zeitbasis P2-2 (B389), Mehrkern-Komponentengraph P2-4 (B390),
 IR-`cell_id` umgeht Merge-Policy P2-1.
+
+### B387 — Merge-Erklärung zählte den Survivor mit 0 und addierte überlappende Flächen doppelt ✅ erledigt
+
+**Root-Cause (P1):** `explained` maß nicht, was es zu messen vorgab — zwei Rechenfehler im selben
+Ausdruck.
+
+1. **Survivor trug 0 bei.** `survivor = matched.get(det_idx)` ist per Definition ein global
+   1:1 gematchter Track; der Parameter `unmatched_tracks` enthält ausschließlich **nicht**
+   gematchte. `survivor in unmatched_tracks` war damit immer falsch → Beitrag immer `0.0`. Der
+   Survivor ist aber typischerweise der **größte** Beitragende. Beispiel: Survivor 70 % +
+   Secondary 25 % = 95 % → gezählt wurden 25 % → Merge fiel an
+   `TRANSITION_MERGE_MIN_EXPLAINED=0.50` durch. **Echte Merges wurden systematisch verworfen.**
+2. **Überlappende Parents wurden doppelt gezählt.** `explained += inter` addierte die
+   Einzelschnitte. Bei konvergierenden Zellen kurz vor der Fusion — genau der zu erkennende Fall —
+   wurde der gemeinsame Bereich mehrfach gezählt; `explained` konnte **> 1.0** werden.
+
+Beide Fehler wirkten gegenläufig (Unter- bzw. Überschätzung) und machten `explained` unbrauchbar.
+Das Abnahmekriterium „`explained_ratio` liegt immer zwischen 0 und 1 und enthält den
+Survivor-Beitrag" war in **beiden** Teilen verletzt.
+
+**Fix:**
+- `find_merge_candidates(all_tracks, …)` erhält **alle** alten Tracks (analog B381 für Splits).
+  Der Survivor ist per globalem Match qualifiziert und umgeht die Eigenabdeckungsschranke; ein
+  Track, der 1:1 einer **anderen** Detektion zugeordnet ist, wird als eigenständig
+  weiterlebend ausgeschlossen.
+- `_explained_union_ratio()`: **geometrische Vereinigung** (`shapely.ops.unary_union`) der
+  Parent-Schnittflächen statt deren Summe → jeder Bereich zählt genau einmal, Ergebnis per
+  Konstruktion in `[0, 1]`. Fallback ohne `unary_union` deckelt auf die Zielfläche, statt falsch
+  zu bestätigen.
+- `TRANSITION_MERGE_MIN_PARENT_COVERAGE` bleibt für alle Nicht-Survivor unverändert wirksam.
+
+**Tests:** `tests/test_b387_merge_erklaerung_union.py` — Survivor-Beitrag zählt (95 %-Kernfall),
+keine Doppelzählung bei Überlappung, `explained` in [0,1], Gegenprobe gegen die alte Summenlogik
+(hätte 5.0 ergeben), anderweitig gematchter Track ist kein Parent, Eigenabdeckung bleibt wirksam,
+Einzelparent, unzureichende Erklärung, Leereingaben.
+
+**Phasen-Status:** Phase A — Merge-Erklärung ist geometrisch korrekt.
+**Offen:** Stabile Signaturen P1-3, `closed`-Zustand P1-5, bestätigte Parentmenge P1-4 (B388),
+Hungarian-Unmatched P1-7 + Zeitbasis P2-2 (B389), Mehrkern-Komponentengraph P2-4 (B390),
+IR-`cell_id` umgeht Merge-Policy P2-1.
