@@ -6155,3 +6155,42 @@ Kandidaten-Schwelle bleibt erhalten.
 **Phasen-Status:** Phase A — Ereignis und Bestätigung nutzen dieselbe Parentmenge.
 **Offen:** `closed`-Zustand P1-5, Hungarian-Unmatched P1-7, Zeitbasis Polygon/Position P2-2,
 Mehrkern-Komponentengraph P2-4.
+
+### B396 — Zustandsautomat kannte kein `closed`: Übergänge blieben dauerhaft `confirmed` ✅ erledigt
+
+**Root-Cause (P1-5):** Der dokumentierte Automat existierte nicht. Der Modul-Docstring beschreibt
+`candidate -> confirmed -> closed` / `-> reverted`; implementiert war nur
+`candidate -> confirmed`. `confirm_candidates()` schrieb **jede** Signatur zurück in
+`new_pending` — auch bereits bestätigte. `frames_seen` wuchs unbegrenzt (3, 4, 5 …) und blieb
+`>= need`, sodass derselbe Übergang in **jedem Folgeframe erneut als `confirmed`** gemeldet wurde —
+ein Zustand, der als **Ereignis** gemeint war.
+
+Strukturell derselbe Defekt, den B371 auf der Fachschicht behob (wiederholte Merge-Events), nur
+eine Ebene tiefer: B371 dedupliziert den Ledger, die Transition-Logik meldete weiter.
+
+**Der bestehende Test war blind:** `test_repeated_merge_confirms_once_not_every_frame` prüfte nur
+`len(set(signatures)) == 1` — zehn identische Bestätigungen erfüllen das ebenso wie eine einzige.
+Er ist jetzt um `len(signatures) == 1` ergänzt.
+
+**Warum es bisher nicht auffiel:** B371 (Ledger-Dedup) und B391 (Parent lebt nur bei
+`phase == "candidate"`, wird danach ausgebucht) fingen es als **Nebeneffekt** ab. Sobald ein Parent
+aus anderem Grund erhalten bleibt (`inactive_rain`, Rain-Support, künftiger Konsument), hätte der
+Resolver denselben Merge erneut bestätigt — mit `lineage="merged"` in jedem Folgeframe, also exakt
+dem Ausgangsbefund der Analyse (23 Serien, Mittel 6.6, längste 11 Frames).
+
+**Fix:** `pending` speichert jetzt `{"frames_seen": int, "phase": str}` statt einer blanken Zahl.
+`confirmed` wird **genau einmal** ausgegeben — beim Übergang von `candidate`; danach ist der
+Übergang `closed` (die Konstellation besteht fort, das Ereignis ist abgeschlossen). Da die
+Objektschleife `phase == "confirmed"` prüft, ist `lineage="merged"` damit automatisch auf den
+Ereignisframe begrenzt. `_pending_entry()` liest das Alt-Format (blanke Zahl) abwärtskompatibel,
+damit ein Deployment ohne Neustart nicht doppelt bestätigt. `reverted` und
+`TRANSITION_CONFIRM_FRAMES=2` bleiben unverändert; B391 (`phase == "candidate"`) und B395 bleiben
+unberührt.
+
+**Tests:** `tests/test_b396_closed_zustand.py` — 10 Frames → genau 1 Bestätigung, Phase wird
+`closed`, Kandidatenphase unverändert (B391-Kopplung), `reverted` vor und nach `closed`,
+Alt-Format lesbar, Alt-State bestätigt nur einmal, andere Konstellation wird nicht blockiert.
+
+**Phasen-Status:** Phase A — der Zustandsautomat entspricht seiner Dokumentation.
+**Offen:** Hungarian-Unmatched P1-7, Zeitbasis Polygon/Position P2-2, Mehrkern-Komponentengraph
+P2-4.
