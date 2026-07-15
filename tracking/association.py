@@ -51,7 +51,19 @@ else:  # pragma: no cover
 
 # --- Defaults (per runtime_config überschreibbar) ---------------------------
 _DEFAULTS = {
-    "ASSOC_MAX_COST": 1.0,
+    # B400: ERREICHBARE Schwelle. Alle Kostenkomponenten sind auf [0,1] normiert und
+    # die Gewichte summieren sich auf exakt 1.00 -- die teuerste moegliche Paarung
+    # kostet damit 1.00. Verworfen wurde bei `cost > max_cost` mit max_cost=1.0, also
+    # NIE. Die Schwelle war toter Code; es filterten ausschliesslich die harten Gates.
+    # 0.75 heisst: ein Paar muss im gewichteten Mittel mindestens "mittelmaessig"
+    # passen. Der Wert ist NICHT gegen reale Daten kalibriert (siehe Changelog).
+    "ASSOC_MAX_COST": 0.75,
+    # B400: Kosten einer bewussten NICHT-Zuordnung. Hungarian muss jeder Zeile eine
+    # Spalte zuweisen -- ohne Dummy-Spalte kann der Solver "keine Zuordnung" nicht
+    # waehlen und verdraengt gute Paare, um die Gesamtsumme zu minimieren.
+    # Muss knapp ueber ASSOC_MAX_COST liegen: ein Paar unterhalb der Schwelle soll
+    # immer der Nicht-Zuordnung vorgezogen werden.
+    "ASSOC_UNMATCHED_COST": 0.80,
     "ASSOC_W_POS": 0.35,
     "ASSOC_W_IOU": 0.25,
     "ASSOC_W_AREA": 0.15,
@@ -365,16 +377,60 @@ def solve_global_assignment(tracks: list, detections: list, dt_minutes: float,
     result.cost_matrix = [[None if v >= _INF else round(float(v), 4) for v in row] for row in matrix]
     result.candidate_pairs = pairs
 
-    if _HAS_SCIPY:
-        row_ind, col_ind = linear_sum_assignment(matrix)
-    else:
-        row_ind, col_ind = _fallback_linear_sum_assignment(matrix)
     max_cost = float(_cfg("ASSOC_MAX_COST"))
+    unmatched_cost = float(_cfg("ASSOC_UNMATCHED_COST"))
+    n_det, n_trk = len(detections), len(tracks)
+
+    # ========================================================================
+    # B400: Zu teure Paare VOR der Optimierung ausschliessen und dem Solver eine
+    # echte Nicht-Zuordnungs-Option geben.
+    #
+    # Vorher wurde die Schwelle NACH linear_sum_assignment() geprueft. Der Solver
+    # minimiert die GESAMTSUMME und muss jeder Zeile eine Spalte zuweisen -- eine
+    # Option "keine Zuordnung" existierte nicht. Ein schlechtes Paar konnte dadurch
+    # ein gutes verdraengen:
+    #        T1     T2
+    #   D1  0.10   0.95     Summe D1->T2 + D2->T1 = 1.15  <-- gewaehlt
+    #   D2  0.20   0.99     Summe D1->T1 + D2->T2 = 1.09
+    # Wurde D1->T2 danach verworfen, verlor D1 seine Zuordnung -- obwohl D1->T1 mit
+    # 0.10 exzellent gewesen waere. Die nachgelagerte Filterung repariert das nicht,
+    # weil die Matrix nicht neu geloest wird. Strukturell derselbe Fehler wie beim
+    # Greedy-Matching, das B374 beseitigt hat.
+    #
+    # Jetzt: teure Paare sind unzulaessig (_INF), und jede Detektion erhaelt eine
+    # Dummy-Spalte mit ASSOC_UNMATCHED_COST. Der Solver bezieht die Nicht-Zuordnung
+    # damit IN die Optimierung ein.
+    # ========================================================================
+    solve_matrix = [[unmatched_cost for _ in range(n_trk + n_det)] for _ in range(n_det)]
+    for i in range(n_det):
+        for j in range(n_trk):
+            c = float(matrix[i][j])
+            # Gegatet ODER ueber der Qualitaetsschwelle -> unzulaessig.
+            solve_matrix[i][j] = _INF if (c >= _INF or c > max_cost) else c
+        # Dummy-Spalten: jede Detektion darf genau ihre eigene waehlen.
+        for j in range(n_trk, n_trk + n_det):
+            solve_matrix[i][j] = unmatched_cost if (j - n_trk) == i else _INF
+
+    if _HAS_SCIPY:
+        row_ind, col_ind = linear_sum_assignment(solve_matrix)
+    else:
+        row_ind, col_ind = _fallback_linear_sum_assignment(solve_matrix)
+
     matched_tracks = set()
     for i, j in zip(row_ind, col_ind):
-        cost = float(matrix[i][j])
         det_idx = detections[i].index
+        if j >= n_trk:
+            # Bewusste Nicht-Zuordnung -- der Solver hat sie der besten verfuegbaren
+            # Paarung vorgezogen.
+            _best = min((float(matrix[i][k]) for k in range(n_trk)), default=_INF)
+            result.rejected_matches.append({
+                "detection_index": det_idx, "track_id": None,
+                "reason": "no_acceptable_track",
+                "cost": None if _best >= _INF else round(_best, 4),
+            })
+            continue
         trk_id = tracks[j].track_id
+        cost = float(matrix[i][j])
         if cost >= _INF:
             result.rejected_matches.append({"detection_index": det_idx, "track_id": trk_id,
                                             "reason": "gated", "cost": None})

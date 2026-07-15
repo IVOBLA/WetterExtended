@@ -6259,3 +6259,46 @@ redundantes `id`-Feld im internen State.
 **Tests:** Anpassung von `tests/test_b384_testsemantik_und_massstab.py` und
 `tests/test_b391_merge_parent_ueberlebt_kandidatenphase.py`; neuer Vertrags-Schutz
 `tests/test_b399_test_contracts.py`.
+
+### B400 — `ASSOC_MAX_COST` war unerreichbar; Hungarian konnte keine Nicht-Zuordnung wählen ✅ erledigt
+
+**Root-Cause (P1-7):** Die Qualitätsschwelle der Zuordnung war rechnerisch unerreichbar und griff
+zu spät.
+
+1. **Unerreichbar:** Alle sechs Kostenkomponenten sind auf `[0,1]` normiert, die `ASSOC_W_*`-Gewichte
+   summieren sich auf **exakt 1.00** (0.35+0.25+0.15+0.10+0.10+0.05). Die teuerste mögliche Paarung
+   kostet damit 1.00; verworfen wurde bei `cost > max_cost` mit `ASSOC_MAX_COST = 1.0` — **nie**.
+   Die Schwelle war toter Code; es filterten ausschließlich die harten Gates (`_INF`).
+2. **Zu spät:** `linear_sum_assignment()` minimiert die **Gesamtsumme** und muss jeder Zeile eine
+   Spalte zuweisen — eine Option „keine Zuordnung" existierte nicht. Ein schlechtes Paar konnte ein
+   gutes verdrängen (`D1→T2` 0.95 + `D2→T1` 0.20 = 1.15 wird gegenüber `D1→T1` 0.10 + `D2→T2` 0.99
+   = 1.09 gewählt); die nachgelagerte Filterung reparierte das nicht, weil die Matrix nicht neu
+   gelöst wurde. Strukturell derselbe Fehler wie beim Greedy-Matching, das B374 beseitigt hat.
+
+**Wirkung:** Die Kostenfunktion aus B373 bewertete korrekt, aber **ohne Konsequenz** — jedes nicht
+gegatete Paar wurde akzeptiert. Besonders relevant nach B389, das den Suchraum für vektorlose
+Tracks fast verdoppelte (7.62 → 14.50 km); die dortige Review-Note verwies auf `c_iou`/`c_area`/
+`c_core` als Gegengewicht — was voraussetzt, dass die Kostenschwelle überhaupt wirkt.
+
+**Fix:**
+- `ASSOC_MAX_COST = 0.75` — erreichbar.
+- Paare über der Schwelle werden **vor** Hungarian auf `_INF` gesetzt.
+- Jede Detektion erhält eine **Dummy-Spalte** mit `ASSOC_UNMATCHED_COST = 0.80` (knapp über
+  `MAX_COST`, damit ein akzeptables Paar immer vorgezogen wird). Der Solver bezieht die
+  Nicht-Zuordnung damit **in die Optimierung ein**, statt sie nachträglich zu korrigieren.
+- Neue Ablehnungsursache `no_acceptable_track` in der Diagnose, inkl. der besten verfügbaren
+  Kosten.
+
+**Kalibrierung:** `ASSOC_MAX_COST = 0.75` und `ASSOC_UNMATCHED_COST = 0.80` sind **nicht gegen
+reale Daten kalibriert** — im Debug-Export vom 14.07.2026 existiert `train_data/association/`
+noch nicht (erst ab B374). **Beim nächsten Konvektions-Debugexport gegen
+`train_data/association/*.json` prüfen:** Verteilung von `cost` über akzeptierte Matches; häufen
+sich `no_acceptable_track`-Ablehnungen bei real korrekten Zuordnungen, ist die Schwelle zu streng.
+
+**Tests:** `tests/test_b400_hungarian_unmatched_option.py` — Schwelle liegt unter der maximal
+möglichen Paarung, `UNMATCHED_COST > MAX_COST`, gutes Paar wird nicht verdrängt (Kernfall),
+Solver darf Nicht-Zuordnung wählen, Ablehnungsgrund in der Diagnose, gute Paare matchen weiterhin,
+alles gegatet, mehr Detektionen als Tracks und umgekehrt, Diagnosevollständigkeit, Leereingaben.
+
+**Phasen-Status:** Phase A — die Kostenfunktion hat erstmals Wirkung.
+**Offen:** Zeitbasis Polygon/Position P2-2, Mehrkern-Komponentengraph P2-4.
