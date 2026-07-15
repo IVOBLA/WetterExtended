@@ -128,7 +128,7 @@ def run_ir_precursor_pipeline(timestamp=None, weather_data=None, allow_cached=Tr
 
 def _legacy_ir_radar_distance_match(objects, ir_tracks):
     """Legacy-Fallback: nächster IR-Track innerhalb 40 km (B109-kompatibel)."""
-    from cell_lineage import haversine_km
+    from cell_lineage import haversine_km, resolve_ir_radar_cell_id
     match_km = float(runtime_config.get("IR_RADAR_MATCH_MAX_KM", 40.0))
     matched_ir_ids = set()
     for obj in objects or []:
@@ -142,7 +142,12 @@ def _legacy_ir_radar_distance_match(objects, ir_tracks):
             if d < best_dist:
                 best_dist = d; best_ir = ir
         if best_ir is not None and best_dist <= match_km:
-            obj["cell_id"] = best_ir.get("cell_id", obj.get("cell_id"))
+            # B392: Auch der Legacy-Fallback darf eine zuvor bestaetigte
+            # Merge-/Split-cell_id nicht durch die IR-ID ueberschreiben.
+            _resolved_cell_id = resolve_ir_radar_cell_id(obj, best_ir)
+            if _resolved_cell_id:
+                obj["cell_id"] = _resolved_cell_id
+                best_ir["cell_id"] = _resolved_cell_id
             obj["ir_match_id"] = best_ir.get("ir_id")
             obj["ir_track_id"] = best_ir.get("ir_track_id") or best_ir.get("ir_id")
             obj["ir_status"] = "radar_confirmed"
@@ -588,6 +593,10 @@ def main_loop():
             # Satellitenpipeline haengen. Passt zum B372-Befund (fehlender Ledger
             # im Debug-Export trotz aktiver Merge-Erkennung).
             # ================================================================
+            # B392: Dieser Aufruf bleibt bewusst VOR der optionalen IR-Pipeline.
+            # apply_ir_radar_lineage_match() reconciled eine spaetere IR-Bestaetigung auf
+            # die bereits festgelegte strukturelle cell_id und darf Merge-/Split-Status
+            # nicht ueberschreiben.
             try:
                 from cell_lineage import update_split_merge_lineage
                 import object_tracking as _ot_cell_lineage

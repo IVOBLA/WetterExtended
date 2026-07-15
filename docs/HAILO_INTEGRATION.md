@@ -5993,3 +5993,37 @@ ausgeschlossen.
 **Offen:** Merge-Bestätigung mit verschwindendem Secondary-Parent (B391), bestätigte Parentmenge
 P1-4, Hungarian-Unmatched P1-7, Zeitbasis Polygon/Position P2-2, Mehrkern-Komponentengraph P2-4,
 IR-`cell_id` umgeht Merge-Policy P2-1.
+
+### B392 — IR-Bestätigung überschrieb bestätigte Radar-Merge-/Split-Lineage ✅ erledigt
+
+**Root-Cause:** B386 führte die Radar-Lineage korrekt unabhängig und vor der optionalen
+IR-Pipeline aus. `apply_ir_radar_lineage_match()` setzte danach jedoch immer die IR-`cell_id`,
+`lineage_status="radar_confirmed"` und `radar_to_cell` neu. Bei einem Merge/Split im selben Zyklus
+widersprachen sich dadurch Ledger-Ereignis, finales Radarobjekt und gespeicherter State. Auch der
+Legacy-Distanzfallback überschrieb die Objekt-`cell_id`.
+
+**Fix:** Eine bestätigte strukturelle Radar-Lineage behält ihre kanonische `cell_id` und ihren
+Merge-/Split-Status. Die spätere IR-Bestätigung wird auf diese ID reconciled. Radarobjekt,
+IR-Track, `radar_to_cell`, `ir_to_cell` und `ir_to_radar_confirmation`-Event verwenden danach
+dieselbe ID. Die frühere IR-ID bleibt als bestätigter Alias nachvollziehbar und kann kein negatives
+Lead-Time-Label mehr erzeugen. Normale IR→Radar-Bestätigungen ohne Merge/Split übernehmen weiterhin
+die IR-Vorläufer-ID.
+
+B386 bleibt unverändert: Radar-Lineage läuft weiterhin auch bei Ausfall der IR-Pipeline.
+
+**Tests:** `tests/test_b392_ir_match_erhaelt_radar_lineage.py`.
+
+### B393 — Split-Signatur bestand nach B388 nur aus Parent-ID und Kinderanzahl ✅ erledigt
+
+**Root-Cause:** B388 entfernte zu Recht frame-lokale Detektionsindizes, ersetzte sie beim Split
+aber nur durch `n=<anzahl>`. Zwei geometrisch verschiedene 2er-Splits desselben Parents erhielten
+damit dieselbe Pending-Signatur. `confirm_candidates()` konnte den zweiten, anderen Split mit dem
+Zähler des ersten bestätigen.
+
+**Fix:** Die Split-Signatur enthält eine sortierte, quantisierte Parent-lokale Kindgeometrie:
+relative Schwerpunktposition und erklärter Parent-Flächenanteil je Kind. Sie bleibt unabhängig von
+Detektionsindex, Kindreihenfolge, gemeinsamer Translation und Skalierung, unterscheidet aber
+verschiedene räumliche Aufteilungen und deutlich andere Flächenanteile.
+
+**Tests:** `tests/test_b393_split_signatur_geometrie.py` sowie Erweiterung von
+`tests/test_b388_stabile_transition_signaturen.py`.

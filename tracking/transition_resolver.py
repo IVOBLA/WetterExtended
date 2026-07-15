@@ -39,6 +39,11 @@ _DEFAULTS = {
     # Mindestanteil der ALTEN Flaeche, den alle Kinder zusammen erklaeren muessen.
     "TRANSITION_SPLIT_MIN_EXPLAINED": 0.50,
     "TRANSITION_SPLIT_MIN_CHILD_SHARE": 0.15,
+    # B393: Quantisierung der parent-lokalen Split-Geometrie.
+    # Positionswerte sind auf 0..1 normalisiert.
+    "TRANSITION_SPLIT_SIGNATURE_POS_BIN": 0.10,
+    # Relative Parent-Flaechenanteile in 5-Prozent-Schritten.
+    "TRANSITION_SPLIT_SIGNATURE_SHARE_BIN": 0.05,
 }
 
 
@@ -72,8 +77,9 @@ def transition_signature(kind: str, parents: list, children: list) -> str:
 
     Aufrufer verwenden stattdessen:
       - Merge: _stable_merge_key(parents)      -- Kindmenge implizit (eine Zelle)
-      - Split: _stable_child_key(n_children)   -- Anzahl statt Indizes
-    Beides ist aus frameuebergreifend stabilen Groessen gebildet (Track-IDs, Anzahl).
+      - Split: _stable_child_key(parent_poly, child_polys) -- sortierte und
+        quantisierte parent-lokale Kindgeometrie aus relativem Schwerpunkt und
+        Parent-Flaechenanteil.
     """
     payload = "|".join([
         str(kind),
@@ -92,15 +98,94 @@ def _stable_merge_key(parents: list) -> list:
     return []
 
 
-def _stable_child_key(n_children: int) -> list:
-    """B388: Kindschluessel eines Splits — die ANZAHL, nicht die Indizes.
+def _poly_bounds(poly) -> tuple[float, float, float, float] | None:
+    if poly is None:
+        return None
+    try:
+        values = tuple(float(v) for v in poly.bounds)
+        if len(values) == 4:
+            return values
+    except Exception:
+        pass
+    try:
+        return (
+            float(poly.x1),
+            float(poly.y1),
+            float(poly.x2),
+            float(poly.y2),
+        )
+    except Exception:
+        return None
 
-    Die Kinder haben zum Zeitpunkt der Kandidatenbildung noch keine Track-IDs. Ihre
-    Anzahl ist frameuebergreifend stabil und unterscheidet echte Ereignisse: ein
-    2er- und ein 3er-Split desselben Parents sind verschiedene Uebergaenge.
+
+def _poly_centroid_xy(poly) -> tuple[float, float] | None:
+    if poly is None:
+        return None
+    try:
+        centroid = poly.centroid
+        return float(centroid.x), float(centroid.y)
+    except Exception:
+        bounds = _poly_bounds(poly)
+        if bounds is None:
+            return None
+        x1, y1, x2, y2 = bounds
+        return (x1 + x2) / 2.0, (y1 + y2) / 2.0
+
+
+def _quantized_bin(value: float, step: float) -> int:
+    return int(round(float(value) / max(float(step), 1e-6)))
+
+
+def _stable_child_key(parent_poly, child_polys: list) -> list[str]:
+    """B393: indexfreie, parent-lokale Geometrie eines Split-Kandidaten.
+
+    Pro Kind:
+      - normierter Schwerpunkt der Parent-Kind-Schnittflaeche,
+      - erklaerter Anteil der Parentflaeche.
+
+    Die sortierten und quantisierten Deskriptoren sind unabhaengig von
+    Detektionsindex, Kindreihenfolge, gemeinsamer Translation und Skalierung.
     """
-    return [f"n={int(n_children)}"]
+    children = [poly for poly in (child_polys or []) if poly is not None]
+    parent_bounds = _poly_bounds(parent_poly)
+    parent_area = _safe_area(parent_poly)
 
+    if parent_bounds is None or parent_area <= 0.0:
+        return [f"n={len(children)}", "geometry=unavailable"]
+
+    px1, py1, px2, py2 = parent_bounds
+    width = max(px2 - px1, 1e-6)
+    height = max(py2 - py1, 1e-6)
+    pos_bin = float(_cfg("TRANSITION_SPLIT_SIGNATURE_POS_BIN"))
+    share_bin = float(_cfg("TRANSITION_SPLIT_SIGNATURE_SHARE_BIN"))
+
+    descriptors: list[str] = []
+    for child_poly in children:
+        try:
+            piece = parent_poly.intersection(child_poly)
+        except Exception:
+            piece = child_poly
+
+        piece_area = _safe_area(piece)
+        centroid = _poly_centroid_xy(piece)
+        if piece_area <= 0.0 or centroid is None:
+            continue
+
+        cx, cy = centroid
+        rel_x = min(max((cx - px1) / width, 0.0), 1.0)
+        rel_y = min(max((cy - py1) / height, 0.0), 1.0)
+        share = min(max(piece_area / parent_area, 0.0), 1.0)
+
+        descriptors.append(
+            "x={}:y={}:s={}".format(
+                _quantized_bin(rel_x, pos_bin),
+                _quantized_bin(rel_y, pos_bin),
+                _quantized_bin(share, share_bin),
+            )
+        )
+
+    descriptors.sort()
+    return [f"n={len(children)}", *descriptors]
 
 @dataclass
 class TransitionCandidate:
@@ -269,12 +354,21 @@ def find_split_candidates(all_tracks: dict, detections: dict, matched: dict) -> 
             # Kein Kind wurde dem Parent zugeordnet (z. B. weil alle Paare gegatet
             # wurden). Dann ist das flaechengroesste Kind das primaere.
             _primary_child = max(children, key=lambda c: _safe_area(detections.get(c)))
+        _child_polys = [
+            detections.get(child_idx)
+            for child_idx in children
+            if detections.get(child_idx) is not None
+        ]
         out.append(TransitionCandidate(
             kind="split", parents=[tid], children=children,
-            # B388: Anzahl statt Detektionsindizes. Die Kinder haben noch keine
-            # Track-IDs; ihre Anzahl ist frameuebergreifend stabil und trennt
-            # einen 2er- von einem 3er-Split desselben Parents.
-            signature=transition_signature("split", [tid], _stable_child_key(len(children))),
+            # B393: Parent-ID plus quantisierte parent-lokale Kindgeometrie.
+            # Keine Detektionsindizes, keine absolute Position und keine
+            # Abhaengigkeit von der Kindreihenfolge.
+            signature=transition_signature(
+                "split",
+                [tid],
+                _stable_child_key(tpoly, _child_polys),
+            ),
             explained=round(ratio, 4),
             primary_child=_primary_child,
         ))
