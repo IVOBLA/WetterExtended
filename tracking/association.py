@@ -62,8 +62,20 @@ _DEFAULTS = {
     "ASSOC_ELLIPSE_CROSS_FACTOR": 0.45,
     # Grundunsicherheit der Position in km (Segmentierungsrauschen, Schwerpunktzittern).
     "ASSOC_BASE_UNCERTAINTY_KM": 2.0,
-    # Maximal plausible Flächenänderung als Faktor pro Minute.
+    # B379: Flaechengate muss Merge UND Split zulassen.
+    # Vorher: 1.25^dt -> bei dt=5min nur 3.05x. Eine Merge-Kontur waechst aber genau
+    # um ein Vielfaches (im B117-Test 6.25x) -> das Gate verwarf JEDEN Merge, die
+    # Kontur wurde `new` und verlor die Parent-ID. Der Legacy-Stage-2-Code erlaubte
+    # ueber `_aratio2 >= 0.10` rund 10x; B373 war damit strenger als der ersetzte Code.
+    # Basisfaktor deckt Merge/Split ab (bis ~10 verschmelzende Zellen), der
+    # Zeitanteil kommt NUR fuer Radarluecken oberhalb des Normaltakts dazu.
+    "ASSOC_MAX_AREA_RATIO_BASE": 10.0,
     "ASSOC_MAX_AREA_GROWTH_PER_MIN": 1.25,
+    "ASSOC_NORMAL_FRAME_MINUTES": 5.0,
+    # B379: B365-Kernschwaeche. Eine schwache/sterbende Zelle darf sich nicht ueber
+    # den vollen MAX_CELL_SPEED_KMH-Radius mit einer entfernten Kontur fortsetzen.
+    "ASSOC_WEAK_CORE_THRESHOLD": 0.05,
+    "ASSOC_WEAK_MAX_SPEED_KMH": 60.0,
     # Junge Tracks haben keinen belastbaren Bewegungsvektor -> Richtungsgate aussetzen.
     "ASSOC_MIN_AGE_FRAMES_FOR_DIR_GATE": 3,
     "ASSOC_MAX_DIR_DEVIATION_DEG": 75.0,
@@ -125,6 +137,48 @@ def predict_track_state(track: TrackCandidate, dt_minutes: float) -> tuple[float
     return (track.pred_x_km + track.vx_kmh * dt_h, track.pred_y_km + track.vy_kmh * dt_h)
 
 
+def _effective_max_speed(track: TrackCandidate, max_speed_kmh: float) -> float:
+    """B379: B365-Semantik — schwache Zellen bekommen einen engeren Suchradius.
+
+    B374 behauptete, B365 sei "in den physikalischen Gates aufgegangen". Das war
+    falsch: object_tracking.py uebergab MAX_CELL_SPEED_KMH (150) fuer ALLE Tracks.
+    Eine sterbende Zelle (core_ratio unter der Schwelle) konnte sich dadurch ueber
+    den vollen Radius mit einer entfernten, unabhaengigen Kontur fortsetzen --
+    genau die Fehlzuordnung, die B365 verhindern sollte.
+
+    Die Kostenkomponenten c_core/c_age helfen hier nicht, weil das GATE vorher greift.
+    """
+    if track.core_ratio < float(_cfg("ASSOC_WEAK_CORE_THRESHOLD")):
+        return min(float(max_speed_kmh), float(_cfg("ASSOC_WEAK_MAX_SPEED_KMH")))
+    return float(max_speed_kmh)
+
+
+def _max_area_ratio(dt_minutes: float) -> float:
+    """B379: zulaessiges Flaechenverhaeltnis (Merge-/Split-tauglich).
+
+    Basisfaktor deckt den Normalfall inkl. Merge/Split ab. Der zeitabhaengige
+    Anteil greift NUR fuer Luecken oberhalb des normalen Radartakts -- bei 5 min
+    bleibt es exakt beim Basisfaktor.
+    """
+    base = float(_cfg("ASSOC_MAX_AREA_RATIO_BASE"))
+    normal = float(_cfg("ASSOC_NORMAL_FRAME_MINUTES"))
+    extra = max(float(dt_minutes) - normal, 0.0)
+    return base * (float(_cfg("ASSOC_MAX_AREA_GROWTH_PER_MIN")) ** extra)
+
+
+def _predict_track_state_for_gate(track: TrackCandidate, dt_minutes: float, max_speed_kmh: float) -> tuple[float, float]:
+    """B379: Praediktion fuer Gate/Kosten mit derselben effektiven Speed-Basis."""
+    speed = math.hypot(track.vx_kmh, track.vy_kmh)
+    if speed > float(max_speed_kmh) > 0.0:
+        scale = float(max_speed_kmh) / speed
+        dt_h = max(float(dt_minutes), 0.0) / 60.0
+        return (
+            track.pred_x_km + track.vx_kmh * scale * dt_h,
+            track.pred_y_km + track.vy_kmh * scale * dt_h,
+        )
+    return predict_track_state(track, dt_minutes)
+
+
 def _search_radii_km(track: TrackCandidate, dt_minutes: float, max_speed_kmh: float) -> tuple[float, float, float, float]:
     """Halbachsen der Suchellipse in km plus Richtungsvektor.
 
@@ -147,19 +201,23 @@ def _search_radii_km(track: TrackCandidate, dt_minutes: float, max_speed_kmh: fl
 def passes_physical_gate(track: TrackCandidate, det: DetectionCandidate, dt_minutes: float,
                          max_speed_kmh: float) -> tuple[bool, str]:
     """Harte physikalische Gates. Gibt (ok, Ablehnungsgrund) zurück."""
-    px, py = predict_track_state(track, dt_minutes)
+    # B379: effektive Hoechstgeschwindigkeit beruecksichtigt die Kernstaerke (B365).
+    _eff_speed = _effective_max_speed(track, max_speed_kmh)
+    px, py = _predict_track_state_for_gate(track, dt_minutes, _eff_speed)
     dx, dy = det.x_km - px, det.y_km - py
 
-    a_km, b_km, ux, uy = _search_radii_km(track, dt_minutes, max_speed_kmh)
+    a_km, b_km, ux, uy = _search_radii_km(track, dt_minutes, _eff_speed)
     # Projektion auf Längs-/Querachse der Bewegung.
     along = dx * ux + dy * uy
     cross = -dx * uy + dy * ux
     if (along / max(a_km, 1e-6)) ** 2 + (cross / max(b_km, 1e-6)) ** 2 > 1.0:
         return (False, f"outside_search_ellipse(a={a_km:.1f}km,b={b_km:.1f}km)")
 
-    # Flächengate: zeitabhängig statt fixem 10x-Faktor.
+    # B379: Flaechengate muss Merge (Wachstum) und Split (Schrumpfung) zulassen.
+    # Es faengt nur noch absurde Verhaeltnisse ab; die Feinbewertung leistet die
+    # Kostenkomponente c_area.
     if track.area_px > 0 and det.area_px > 0:
-        max_factor = float(_cfg("ASSOC_MAX_AREA_GROWTH_PER_MIN")) ** max(float(dt_minutes), 1.0)
+        max_factor = _max_area_ratio(dt_minutes)
         ratio = max(det.area_px, track.area_px) / max(min(det.area_px, track.area_px), 1e-6)
         if ratio > max_factor:
             return (False, f"area_ratio={ratio:.1f}>max={max_factor:.1f}")
@@ -190,9 +248,12 @@ def _iou(poly_a, poly_b) -> float:
 def build_candidate_features(track: TrackCandidate, det: DetectionCandidate,
                              dt_minutes: float, max_speed_kmh: float) -> dict:
     """Alle Kostenkomponenten eines Paares — einzeln exportierbar für die Diagnose."""
-    px, py = predict_track_state(track, dt_minutes)
+    # B379: identische Basis wie im Gate — sonst normiert c_pos gegen einen anderen
+    # Radius, als das Gate zulaesst.
+    _eff_speed = _effective_max_speed(track, max_speed_kmh)
+    px, py = _predict_track_state_for_gate(track, dt_minutes, _eff_speed)
     dist_km = math.hypot(det.x_km - px, det.y_km - py)
-    a_km, _, ux, uy = _search_radii_km(track, dt_minutes, max_speed_kmh)
+    a_km, _, ux, uy = _search_radii_km(track, dt_minutes, _eff_speed)
 
     c_pos = min(dist_km / max(a_km, 1e-6), 1.0)
     c_iou = 1.0 - _iou(track.polygon, det.polygon)
