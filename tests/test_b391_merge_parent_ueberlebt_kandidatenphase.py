@@ -59,7 +59,11 @@ def _run_merge_sequence():
         hsv, [parent_a, parent_b], {}, "2026-01-01_00-00-00")
     merged = _rect_contour(60, 160, 230, 240)
     o2 = object_tracking.update_tracking_memory(hsv, [merged], {}, "2026-01-01_00-05-00")
-    mem_after_f2 = dict(object_tracking.tracking_memory)
+    # B398: Objekt-Dicts snapshotten; vollständiges deepcopy des KalmanFilters ist unnötig.
+    mem_after_f2 = {
+        obj_id: obj.copy()
+        for obj_id, obj in object_tracking.tracking_memory.items()
+    }
     o3 = object_tracking.update_tracking_memory(hsv, [merged], {}, "2026-01-01_00-10-00")
     return o1, o2, mem_after_f2, o3
 
@@ -117,6 +121,18 @@ def test_pending_parent_is_excluded_from_neighbor_features():
         obj["id"]
         for obj in emitted_frame2
     }
+
+
+def test_frame_two_snapshot_is_not_mutated_by_frame_three():
+    _, _, mem_after_f2, _ = _run_merge_sequence()
+
+    pending = [
+        obj for obj in mem_after_f2.values()
+        if obj.get("tracking_state") == "merge_pending"
+    ]
+    assert len(pending) == 1
+    assert pending[0]["transition_phase"] == "candidate"
+    assert pending[0]["silent_tracking"] is True
 
 
 def test_confirmed_merge_ends_the_pending_state():

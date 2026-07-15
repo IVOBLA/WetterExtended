@@ -1331,6 +1331,12 @@ else
     fi
 fi
 
+# B398: Semantisch neutrale last-wins-Deduplizierung.
+if [[ -f "$TARGET/.env" ]]; then
+  "$VENV/bin/python3" "$TARGET/scripts/dedupe_env.py" \
+    "$TARGET/.env"
+fi
+
 # LOCAL_TRAINING Flag in runtime_overrides.json schreiben (nur wenn --no-training)
 if [[ "$LOCAL_TRAINING_FLAG" == "false" ]]; then
     log_info "Setze LOCAL_TRAINING=False in runtime_overrides.json ..."

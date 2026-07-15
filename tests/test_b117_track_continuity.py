@@ -42,6 +42,11 @@ def _square(cx, cy, half=12):
     )
 
 
+def _rect_contour(x1, y1, x2, y2):
+    pts = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
+    return np.array(pts, dtype=np.int32).reshape(-1, 1, 2)
+
+
 def _apply_mocks(monkeypatch):
     """Setzt alle Mocks die update_tracking_memory für einen Testlauf benötigt.
 
@@ -138,66 +143,42 @@ def test_active_frames_accumulate_for_continued_cell(monkeypatch):
 
 
 def test_merge_inherits_dominant_parent_id(monkeypatch):
-    """B117-B: Merge-Zelle erbt ID des größten Parents — keine neue ID pro Frame."""
+    """B117/B398: gültiger Merge führt die ID des dominanten Parents fort."""
     _apply_mocks(monkeypatch)
     object_tracking.tracking_memory = {}
+    monkeypatch.setattr(object_tracking, "_last_tracking_timestamp", None, raising=False)
+    monkeypatch.setattr(object_tracking, "_pending_transitions", {}, raising=False)
 
     hsv = np.zeros((400, 400, 3), dtype=np.uint8)
 
-    # Frame 1: zwei getrennte Zellen — eine GROSS (dominant), eine klein
-    big = _square(100, 200, half=40)  # cx=100, groß
-    small = _square(280, 200, half=15)  # cx=280, klein — deutlich getrennt
+    # big: 90x80 = 7.200 px; small: 60x80 = 4.800 px
+    # merge: 160x80 = 12.800 px; explained = 12.000/12.800 = 0.9375
+    big = _rect_contour(60, 160, 150, 240)
+    small = _rect_contour(160, 160, 220, 240)
 
     objs1 = object_tracking.update_tracking_memory(
         hsv, [big, small], {}, "2026-01-01_00-00-00"
     )
-    assert isinstance(objs1, list), "Rückgabe muss list sein"
-    assert len(objs1) >= 2, (
-        f"Frame 1: erwartet ≥2 Objekte, erhalten {len(objs1)} — "
-        "Mocks korrekt gesetzt? Zellen innerhalb Bbox?"
-    )
-    ids_frame1 = {o["id"] for o in objs1}
+    assert len(objs1) == 2
 
-    # Frame 2: beide überlappen in einer großen Merge-Kontur
-    merged_cnt = _square(190, 200, half=100)  # überlappt beide Parent-Konturen
+    big_obj = max(objs1, key=lambda obj: float(obj.get("area") or 0.0))
+    small_obj = min(objs1, key=lambda obj: float(obj.get("area") or 0.0))
+    assert big_obj["id"] != small_obj["id"]
+    dominant_parent_id = big_obj["id"]
+
+    merged_cnt = _rect_contour(60, 160, 220, 240)
+
     objs2 = object_tracking.update_tracking_memory(
         hsv, [merged_cnt], {}, "2026-01-01_00-05-00"
     )
-    # B384: Frame 2 ist der KANDIDATENFRAME eines Merges.
-    # B375 bestaetigt einen Uebergang erst im zweiten konsistenten Frame
-    # (TRANSITION_CONFIRM_FRAMES=2); B382 stellt sicher, dass die IDENTITAET
-    # trotzdem sofort erhalten bleibt ("Identitaet sofort, Ereignis verzoegert").
-    # Der Zweck von B117 -- die Merge-Zelle erbt die ID des dominanten Parents und
-    # mintet keine neue -- wird hier unveraendert geprueft; nur die Erwartung, das
-    # EREIGNIS sei schon im selben Frame sichtbar, war an die alte Architektur
-    # gebunden.
-    assert len(objs2) == 1, f"Frame 2: erwartet 1 Merge-Kontur, erhalten {len(objs2)}"
-    m = objs2[0]
-    assert m.get("lineage") == "continued", (
-        f"Frame 2 (Kandidatenframe) muss `continued` sein, war {m.get('lineage')!r}. "
-        "Bei `new` waere die ID-Kontinuitaet gebrochen (vgl. B382)."
-    )
+    assert len(objs2) == 1
+    assert objs2[0].get("lineage") == "continued"
+    assert objs2[0]["id"] == dominant_parent_id
 
-    # B117: Merge-Zelle MUSS eine der Parent-IDs fortführen
-    assert m["id"] in ids_frame1, (
-        f"Merge-Zelle mintete neue ID {m['id']!r} statt Parent-ID fortzuführen. "
-        f"Frame-1-IDs: {ids_frame1} — B117 Merge-ID-Fix nicht angewandt?"
-    )
-
-    # B384: Frame 3 — dieselbe Merge-Geometrie. Jetzt ist der Uebergang bestaetigt
-    # und das EREIGNIS wird sichtbar. Die ID darf sich dabei nicht aendern.
     objs3 = object_tracking.update_tracking_memory(
         hsv, [merged_cnt], {}, "2026-01-01_00-10-00"
     )
     assert len(objs3) == 1
-    m3 = objs3[0]
-    assert m3["id"] == m["id"], (
-        f"ID wechselte bei der Merge-Bestaetigung: {m['id']!r} -> {m3['id']!r}"
-    )
-    assert m3.get("lineage") == "merged", (
-        f"Frame 3 muss den bestaetigten Merge melden, war {m3.get('lineage')!r} "
-        f"(TRANSITION_CONFIRM_FRAMES=2)"
-    )
-    assert len(m3.get("parents") or []) >= 2, (
-        "Der bestaetigte Merge muss die vollstaendige Parentmenge tragen"
-    )
+    assert objs3[0]["id"] == dominant_parent_id
+    assert objs3[0].get("lineage") == "merged"
+    assert len(objs3[0].get("parents") or []) == 2
