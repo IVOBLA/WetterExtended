@@ -6027,3 +6027,47 @@ verschiedene räumliche Aufteilungen und deutlich andere Flächenanteile.
 
 **Tests:** `tests/test_b393_split_signatur_geometrie.py` sowie Erweiterung von
 `tests/test_b388_stabile_transition_signaturen.py`.
+
+### B391 — Secondary-Parent wurde im Kandidatenframe beendet: kein Merge konnte je bestätigt werden ✅ erledigt
+
+**Root-Cause (P0):** Die Bestätigung braucht zwei Frames, der zweite Parent überlebte aber nur
+einen. B375 verlangt `TRANSITION_CONFIRM_FRAMES=2`, und ein Merge-Kandidat verlangt **≥ 2
+Parents**. Der Secondary-Parent ist nicht 1:1 gematcht (der Survivor bekam die Kontur), landet
+nicht in `new_memory` und wurde in `object_tracking.py:2093 ff.` als `dissolved` ausgebucht. Im
+Bestätigungsframe existierte er nicht mehr → `len(parents) < 2` → **0 Kandidaten**.
+
+**Laufzeitbeleg** (Spy auf `find_merge_candidates`, `test_object_tracking_regression`):
+```
+FRAME 2: tracks=['CHILD','DOM'] -> 1 Kandidat (explained=0.7941), danach memory=['DOM']
+FRAME 3: tracks=['DOM']         -> 0 Kandidaten -> nie bestaetigt
+```
+
+**Tragweite:** **Kein Merge konnte im gesamten System jemals bestätigt werden** — kein
+`lineage="merged"`, kein Eventledger-Eintrag (B371), kein `origin_type="created_by_merge"` (B378),
+die Karte zeigte nie einen Verbund, die Primary-Policy (B377/B385) lief ins Leere. Der
+ursprüngliche Befund der Analyse (160 Merge-Beobachtungen) hätte sich in **0 bestätigte Merges**
+verkehrt.
+
+`test_b117_track_continuity` war grün, weil dort beide Parents die Merge-Kontur ausreichend
+überlappen und der kleine Parent über den Merge-Fallback erneut in `overlaps` landet. Der Defekt
+ist nicht geometrieabhängig, sondern nur **geometrieabhängig sichtbar**.
+
+**Fix:** Ein Track, der Parent eines **noch nicht bestätigten** Übergangs ist, ist nicht aufgelöst
+— er bleibt bis zur Entscheidung (`confirmed`/`reverted`) im Speicher, mit
+`tracking_state="merge_pending"`, `is_active_cell=False`, `silent_tracking=True`. Das entspricht
+dem bestehenden `inactive_rain`-Muster (stilles Tracking). Pending-Parents werden **nicht** als
+Zellen ausgegeben — weder auf der Karte noch in Warnungen oder ML-Sequenzen.
+`TRANSITION_CONFIRM_FRAMES` bleibt bei 2; eine Senkung auf 1 hätte den Defekt kaschiert und den
+Schutz gegen flackernde Pixelbrücken entwertet.
+
+**Tests:** `tests/test_b391_merge_parent_ueberlebt_kandidatenphase.py` — beide Parents überleben
+den Kandidatenframe, Merge wird in Frame 3 bestätigt, Pending-Parent erscheint nicht als Zelle,
+`merge_pending`-Zustand korrekt, Zustand endet nach der Bestätigung, echte aufgelöste Zelle
+expiriert weiterhin, Bestätigungsschwelle unverändert.
+
+**Phasen-Status:** Phase A — der Merge-Pfad ist erstmals vollständig funktionsfähig.
+**Verifikationspflicht:** Im nächsten Debug-Export muss `lineage="merged"` **auftreten** und
+`cell_lineage_events.jsonl` `cell_merge`-Einträge enthalten — bei gleichzeitig **höchstens einem**
+Ereignis je Signatur (B371).
+**Offen:** Bestätigte Parentmenge P1-4, Hungarian-Unmatched P1-7, Zeitbasis Polygon/Position P2-2,
+Mehrkern-Komponentengraph P2-4, IR-`cell_id` umgeht Merge-Policy P2-1.
