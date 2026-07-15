@@ -524,6 +524,17 @@ ASSOC_NORMAL_FRAME_MINUTES: float = 5.0
 # B379: B365-Semantik in den Gates — schwache Zelle, engerer Suchradius.
 ASSOC_WEAK_CORE_THRESHOLD: float = 0.05
 ASSOC_WEAK_MAX_SPEED_KMH: float = 60.0
+# B400: Qualitaetsschwelle der Zuordnung. Alle Kostenkomponenten sind auf [0,1]
+# normiert und die ASSOC_W_*-Gewichte summieren sich auf exakt 1.00 -- die teuerste
+# Paarung kostet also 1.00. Bei ASSOC_MAX_COST=1.0 und der Bedingung `cost > max_cost`
+# war die Schwelle NIE erreichbar und damit toter Code.
+# NICHT gegen reale Daten kalibriert -- gegen die Assoziations-Diagnose des naechsten
+# Konvektions-Debugexports pruefen (train_data/association/*.json).
+ASSOC_MAX_COST: float = 0.75
+# B400: Kosten einer bewussten Nicht-Zuordnung (Dummy-Spalte fuer Hungarian).
+# Muss knapp ueber ASSOC_MAX_COST liegen, damit ein Paar unterhalb der Schwelle
+# immer der Nicht-Zuordnung vorgezogen wird.
+ASSOC_UNMATCHED_COST: float = 0.80
 # B273: Max. Abweichung (Grad) zwischen der zuletzt beobachteten Zugrichtung
 # (direction_deg) und einem einzelnen ML-Forecast-Horizontpunkt. Da jeder
 # Horizont (10/20/30/40/60 min) ein unabhaengig trainiertes Modell hat (P58),
