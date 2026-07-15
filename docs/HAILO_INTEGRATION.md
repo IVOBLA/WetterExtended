@@ -6424,3 +6424,24 @@ Einzelkern, Leereingabe, Determinismus, Konjunktion entfernt, End-to-End 2 Sub-K
 `lineage="merged"` und `lineage="split"` treten auf (bisher 160/0), je Signatur genau **ein**
 Ledger-Eintrag, `train_data/association/*.json` zur Kalibrierung von `ASSOC_MAX_COST` (0.75,
 nicht gegen reale Daten kalibriert) und den Transition-Schwellen.
+
+### B404 — B403-Testszene lag unter der produktiven Sattelschwelle ✅ erledigt
+
+**Ausgangslage:** Der vollständige Raspberry-Pi-Testlauf nach B403 endete mit
+`2012 passed, 3 failed, 1 skipped`. Fehlgeschlagen waren ausschließlich drei Tests in
+`tests/test_b403_kern_komponentengraph.py`.
+
+**Root-Cause:** Die synthetische Szene verwendete rote starke Bereiche und eine orange Brücke.
+Laut produktiver `RADAR_DBZ_BANDS`-Skala besitzt Rot den Proxy `0.80`, Orange `0.55`.
+Der tatsächliche Sattel war damit nur `1 - 0.55/0.80 = 0.3125` und lag unter
+`MULTI_CORE_MIN_SADDLE_RATIO=0.35`. Da die Brücke Bestandteil der Zellmaske war, galt zusätzlich
+`gap_px=0`. `_core_components()` ordnete deshalb A, B und C korrekt derselben Komponente zu.
+
+**Fix:** Die starken Testbereiche verwenden nun das violette Radarband mit Proxy `1.00`.
+Die unveränderte orange Brücke erzeugt damit einen Sattel von ungefähr `0.45`: A-B bleibt eine
+durchgehende Komponente, C ist gegenüber A und B trennbar. Ein neuer Szenenvertrag prüft die drei
+Sattelwerte und stellt sicher, dass keine geometrische Maskenlücke den Test künstlich erfüllt.
+
+**Produktivcode:** unverändert. Keine Schwelle wurde abgesenkt.
+
+**Tests:** `tests/test_b403_kern_komponentengraph.py`.
