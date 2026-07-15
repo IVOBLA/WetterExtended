@@ -163,12 +163,20 @@ def test_merge_inherits_dominant_parent_id(monkeypatch):
     objs2 = object_tracking.update_tracking_memory(
         hsv, [merged_cnt], {}, "2026-01-01_00-05-00"
     )
-    merged_cells = [o for o in objs2 if o.get("lineage") == "merged"]
-    assert merged_cells, (
-        f"Frame 2: keine merged-Zelle erkannt. Vorhandene Lineages: "
-        f"{[o.get('lineage') for o in objs2]}"
+    # B384: Frame 2 ist der KANDIDATENFRAME eines Merges.
+    # B375 bestaetigt einen Uebergang erst im zweiten konsistenten Frame
+    # (TRANSITION_CONFIRM_FRAMES=2); B382 stellt sicher, dass die IDENTITAET
+    # trotzdem sofort erhalten bleibt ("Identitaet sofort, Ereignis verzoegert").
+    # Der Zweck von B117 -- die Merge-Zelle erbt die ID des dominanten Parents und
+    # mintet keine neue -- wird hier unveraendert geprueft; nur die Erwartung, das
+    # EREIGNIS sei schon im selben Frame sichtbar, war an die alte Architektur
+    # gebunden.
+    assert len(objs2) == 1, f"Frame 2: erwartet 1 Merge-Kontur, erhalten {len(objs2)}"
+    m = objs2[0]
+    assert m.get("lineage") == "continued", (
+        f"Frame 2 (Kandidatenframe) muss `continued` sein, war {m.get('lineage')!r}. "
+        "Bei `new` waere die ID-Kontinuitaet gebrochen (vgl. B382)."
     )
-    m = merged_cells[0]
 
     # B117: Merge-Zelle MUSS eine der Parent-IDs fortführen
     assert m["id"] in ids_frame1, (
@@ -176,11 +184,20 @@ def test_merge_inherits_dominant_parent_id(monkeypatch):
         f"Frame-1-IDs: {ids_frame1} — B117 Merge-ID-Fix nicht angewandt?"
     )
 
-    # Frame 3: Merge bleibt — ID muss STABIL sein
+    # B384: Frame 3 — dieselbe Merge-Geometrie. Jetzt ist der Uebergang bestaetigt
+    # und das EREIGNIS wird sichtbar. Die ID darf sich dabei nicht aendern.
     objs3 = object_tracking.update_tracking_memory(
         hsv, [merged_cnt], {}, "2026-01-01_00-10-00"
     )
-    assert any(o["id"] == m["id"] for o in objs3), (
-        f"Merge-ID {m['id']!r} nicht stabil über Folgeframe — "
-        "jeder Frame mintete neue ID (B117 nicht vollständig angewandt)"
+    assert len(objs3) == 1
+    m3 = objs3[0]
+    assert m3["id"] == m["id"], (
+        f"ID wechselte bei der Merge-Bestaetigung: {m['id']!r} -> {m3['id']!r}"
+    )
+    assert m3.get("lineage") == "merged", (
+        f"Frame 3 muss den bestaetigten Merge melden, war {m3.get('lineage')!r} "
+        f"(TRANSITION_CONFIRM_FRAMES=2)"
+    )
+    assert len(m3.get("parents") or []) >= 2, (
+        "Der bestaetigte Merge muss die vollstaendige Parentmenge tragen"
     )
