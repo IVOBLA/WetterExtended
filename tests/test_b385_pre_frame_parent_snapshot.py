@@ -20,6 +20,16 @@ def _square(cx, cy, half=20):
     return np.array(pts, dtype=np.int32).reshape(-1, 1, 2)
 
 
+def _rect_contour(x1, y1, x2, y2):
+    """B394: RECHTECK — zwei nebeneinanderliegende Parents brauchen eine breite,
+    flache Merge-Kontur, damit sie diese tatsaechlich erklaeren (explained >= 0.50).
+    Die alte Quadrat-Geometrie erreichte nur 0.119 und erzeugte damit gar keinen
+    Merge-Kandidaten."""
+    np = _np()
+    pts = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
+    return np.array(pts, dtype=np.int32).reshape(-1, 1, 2)
+
+
 @pytest.fixture(autouse=True)
 def _mocks(monkeypatch):
     """Testisolation via monkeypatch (Muster: test_config_override_guard.py)."""
@@ -69,15 +79,17 @@ def test_snapshot_keeps_secondary_parent_that_new_memory_drops():
     core_ratio=0 -> continuity_score=0.0 -> er verlor immer.
     """
     np = _np()
+    # B394: Geometrie, die die Merge-Kontur tatsaechlich erklaert (explained = 0.94).
+    # Vorher: 0.119 -> kein Merge-Kandidat -> der Secondary-Parent wurde regulaer
+    # ausgebucht und der B391-Schutz konnte gar nicht greifen.
     hsv = np.zeros((400, 400, 3), dtype=np.uint8)
     objs1 = object_tracking.update_tracking_memory(
-        hsv, [_square(100, 200, half=40), _square(280, 200, half=15)], {}, "2026-01-01_00-00-00")
+        hsv, [_rect_contour(60, 160, 140, 240), _rect_contour(150, 160, 230, 240)],
+        {}, "2026-01-01_00-00-00")
     small_id = min(objs1, key=lambda o: o["area"])["id"]
 
-    object_tracking.update_tracking_memory(
-        hsv, [_square(190, 200, half=100)], {}, "2026-01-01_00-05-00")
-    object_tracking.update_tracking_memory(
-        hsv, [_square(190, 200, half=100)], {}, "2026-01-01_00-10-00")
+    merged = _rect_contour(60, 160, 230, 240)
+    object_tracking.update_tracking_memory(hsv, [merged], {}, "2026-01-01_00-05-00")
 
     snap = object_tracking.last_previous_snapshot
     assert small_id in snap, "Secondary-Parent fehlt im Pre-Frame-Snapshot"
