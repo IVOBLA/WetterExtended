@@ -6194,3 +6194,33 @@ Alt-Format lesbar, Alt-State bestätigt nur einmal, andere Konstellation wird ni
 **Phasen-Status:** Phase A — der Zustandsautomat entspricht seiner Dokumentation.
 **Offen:** Hungarian-Unmatched P1-7, Zeitbasis Polygon/Position P2-2, Mehrkern-Komponentengraph
 P2-4.
+
+
+### B397 — `merge_pending`-Parent kontaminierte B94-/ML-Nachbarfeatures ✅ erledigt
+
+**Root-Cause:** B391 hält einen Secondary-Parent während der Merge-Kandidatenphase korrekt als
+`tracking_state="merge_pending"` und `silent_tracking=true` in `new_memory`, damit derselbe
+Übergang im zweiten Frame bestätigt werden kann. Der Parent wird später aus Karte, Warnungen und
+ML-Sequenzen übersprungen. Der davor laufende B94-Durchlauf verwendete jedoch
+`list(new_memory.values())` ungefiltert. `_compute_neighbor_ahead()` zählte den versteckten Parent
+dadurch als eigenständigen Nachbarn einer sichtbaren Zelle.
+
+Betroffen waren `neighbor_count_ahead`, `neighbor_max_core_ahead`,
+`neighbor_min_dist_km_ahead` und `strat_area_ahead_px`. Dasselbe physikalische System konnte
+während eines Merge-Kandidaten doppelt in ML-/Forecast-Features eingehen.
+
+**Fix:** Zentrale `_is_neighbor_feature_eligible()`-Regel. `merge_pending` wird sowohl aus dem
+B94-Objektpool entfernt als auch defensiv direkt in `_compute_neighbor_ahead()` als Subjekt und
+Nachbar ausgeschlossen. Der Parent bleibt für B391/B395/B396 vollständig im Tracking-Speicher.
+Andere Tracking-Zustände, insbesondere `inactive_rain`, bleiben unverändert.
+
+**Testkorrektur:** B396 änderte `pending` von einer Zahl auf
+`{"frames_seen": ..., "phase": ...}`. Der B393-Geometrietest wurde auf das neue Schema migriert;
+die `closed`-Produktionslogik bleibt unverändert.
+
+**Tests:** `tests/test_b397_merge_pending_neighbor_features.py`, Erweiterung von
+`tests/test_b391_merge_parent_ueberlebt_kandidatenphase.py` und Korrektur von
+`tests/test_b393_split_signatur_geometrie.py`.
+
+**Phasen-Status:** Technisch erhaltene Übergangsparents sind nun auch aus abgeleiteten
+ML-/Umgebungsfeatures vollständig ausgeschlossen.
