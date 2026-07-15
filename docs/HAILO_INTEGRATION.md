@@ -6445,3 +6445,54 @@ Sattelwerte und stellt sicher, dass keine geometrische Maskenlücke den Test kü
 **Produktivcode:** unverändert. Keine Schwelle wurde abgesenkt.
 
 **Tests:** `tests/test_b403_kern_komponentengraph.py`.
+
+### B405 — q10/q90-Unsicherheitspunkte umgingen die ML-Dekodierung ✅ erledigt
+
+**Root-Cause:** Der q10/q90-Zweig ignorierte `target_encoding` — als **einziger von drei Zweigen
+desselben Codeblocks**:
+- Zeile ~1697 Zentralwert: `_decode_ml_position(obj, _x_raw, _y_raw, _target_encoding)` ✓
+- Zeile ~1690 ML-Schatten (P52): `_compute_ml_shadow(..., _target_encoding)` ✓
+- Zeile 1745–1748 q10/q90: `float(prediction_q10[idx*2]) * _UF` ✗
+
+Bei `target_encoding="delta"` liefert das Modell eine **Verschiebung** von wenigen Pixeln (P58).
+Ohne die Addition von `obj["x"]/obj["y"]` wurde sie als **Absolutposition** gelesen → der Punkt landete
+nahe dem Bildursprung, also am Rand des Radarbildes.
+
+**Gemessen** (Export `2026-07-15_20-55-00`, Distanz vom Zellzentrum, Horizont 10 min):
+
+| Zelle | Zentralwert | q10 | q90 |
+|---|---:|---:|---:|
+| E47G23ND | 3.4 km | **123.7 km** | **111.2 km** |
+| H6B04FCG | 4.3 km | **151.1 km** | **138.2 km** |
+| ZR1R2GLC | 3.3 km | **167.2 km** | **152.0 km** |
+| DWSWZ7J7 | 4.9 km | **197.2 km** | **184.0 km** |
+
+Der Zentralwert ist plausibel (3–5 km in 10 min ≈ 20–30 km/h), die Quantile lagen um **Faktor
+30–40** daneben. Das ist nur mit `"delta"` erklärbar — bei `"absolute"` wäre die Zeile korrekt
+gewesen.
+
+**Wirkung:** Der Frontend-Korridor (B130) spannt aus q10/q90 ein Polygon auf — von der Zelle bis
+~150 km. Sichtbar als magenta Band von ~100 km Länge quer über die Karte, dessen Achse mit der
+Zellbewegung nichts zu tun hat (sie verbindet die Zelle mit einem Artefakt am Bildrand). Fachlich
+suggerierte der Unsicherheitsbereich, die Zelle könne in **10 Minuten** irgendwo in einem
+150-km-Band landen — schlechter als gar keine Anzeige.
+
+**Warum unbemerkt:** Nur bei ML-Prognosen mit Quantilmodellen. Im kinematischen Fallback — dem
+Normalfall der letzten Wochen — existieren q10/q90 nicht und `corridor` ist `null`. Erst mit aktivem
+ML **und** realer Konvektion wurde es sichtbar; im Export vom 15.07. tragen genau die vier Zellen
+mit `forecast_mode="ml"` q10/q90-Werte.
+
+**Fix:** Beide Quantile laufen über `_decode_ml_position(obj, …, _target_encoding)` — dieselbe
+Funktion, die Zentralwert und Schatten bereits nutzen. Kein Frontend-Eingriff nötig: Der
+Korridor-Code (B130) ist korrekt und zeichnet nur, was er bekommt.
+
+**Tests:** `tests/test_b405_quantil_dekodierung.py` — P58-Konvention für delta/absolute,
+Fehlergröße belegt, manuelle `_UF`-Multiplikation entfernt, `target_encoding` an beide Quantile
+durchgereicht, alle drei Zweige konsistent, Quantile bleiben beim Zentralwert.
+
+**Phasen-Status:** Phase A — Unsicherheitskorridor zeigt wieder einen plausiblen Bereich.
+**Verifikationspflicht:** Im nächsten Konvektions-Debugexport prüfen, dass
+`forecast_lat/lon_{h}_q10/q90` in derselben Größenordnung wie `forecast_lat/lon_{h}` liegen
+(Abweichung wenige km, nicht > 100 km). **`training_meta.json` fehlt im Debug-Export** — der Wert
+von `target_encoding` ist daher nicht direkt belegbar, sondern aus der Fehlergröße erschlossen.
+Die Aufnahme in den Export ist als eigener Punkt zu führen.
