@@ -4,30 +4,9 @@ import pytest
 
 
 def _patch_tracking_dependencies(monkeypatch, object_tracking):
-    # B384: REALISTISCHER Geo-Mock statt konstanter Koordinate.
-    #
-    # Vorher lieferte der Mock fuer JEDE Kontur (46.7, 14.3) -- die Distanz zwischen
-    # altem Track und neuer Detektion war immer 0 km. Bis B374 war das folgenlos, weil
-    # Stage 2 in skalierten Pixeln aus Konturmomenten rechnete und pixel_to_geo gar
-    # nicht benutzte. Seit B373/B374 rechnen alle Gates in echten Kilometern aus
-    # lat/lon -- ein konstanter Mock macht jedes Distanzgate wirkungslos.
-    #
-    # Massstab aus config.py abgeleitet:
-    #   PX_TO_KMH = 4.0   -> 1 Original-Pixel/5-min-Frame = 4.0 * (5/60) = 0.333 km
-    #   UPSCALE_FACTOR = 3 -> 1 skalierter Pixel = 0.333 / 3 = 0.111 km
-    # Die Konturen dieses Tests liegen in skalierten Pixeln.
-    _KM_PER_SCALED_PX = 0.111
-    _KM_PER_DEG_LAT = 111.32
-    _LAT0, _LON0 = 46.7, 14.3
-    _KM_PER_DEG_LON = _KM_PER_DEG_LAT * math.cos(math.radians(_LAT0))
-    monkeypatch.setattr(
-        object_tracking,
-        "pixel_to_geo",
-        lambda x, y: (
-            _LAT0 - (float(y) * _KM_PER_SCALED_PX) / _KM_PER_DEG_LAT,   # y waechst nach Sueden
-            _LON0 + (float(x) * _KM_PER_SCALED_PX) / _KM_PER_DEG_LON,
-        ),
-    )
+    # B384/B390: REALISTISCHER Geo-Mock statt konstanter Koordinate.
+    # B390: derselbe Aufruf wie im Snapshot — eine einzige Geo-Quelle.
+    monkeypatch.setattr(object_tracking, "pixel_to_geo", _geo_from_pixel_for_test)
     monkeypatch.setattr(object_tracking, "save_tracking_snapshot", lambda: None)
     monkeypatch.setattr(object_tracking, "calculate_core_ratio", lambda hsv, contour: 0.2)
     monkeypatch.setattr(
@@ -68,6 +47,25 @@ def _require_real_numpy(np):
         pytest.skip("benötigt ein echtes numpy-Paket")
 
 
+# B390: EINE Geo-Quelle fuer Snapshot UND Detektions-Mock.
+# Massstab aus config.py (vgl. B384):
+#   PX_TO_KMH=4.0   -> 1 Original-Pixel/5-min-Frame = 4.0*(5/60) = 0.333 km
+#   UPSCALE_FACTOR=3 -> 1 skalierter Pixel = 0.111 km
+_KM_PER_SCALED_PX = 0.111
+_KM_PER_DEG_LAT = 111.32
+_LAT0, _LON0 = 46.7, 14.3
+_KM_PER_DEG_LON = _KM_PER_DEG_LAT * math.cos(math.radians(_LAT0))
+
+
+def _geo_from_pixel_for_test(x, y):
+    """Identisch zum pixel_to_geo-Mock aus B384 — Snapshot und Detektion muessen
+    dieselbe Abbildung verwenden, sonst wird gegen den Bildursprung gemessen."""
+    return (
+        _LAT0 - (float(y) * _KM_PER_SCALED_PX) / _KM_PER_DEG_LAT,   # y waechst nach Sueden
+        _LON0 + (float(x) * _KM_PER_SCALED_PX) / _KM_PER_DEG_LON,
+    )
+
+
 def _snapshot_obj(obj_id, contour, *, core_ratio, x=None, y=None, area=8100.0):
     pts = contour[:, 0, :].tolist()
     if x is None:
@@ -86,8 +84,16 @@ def _snapshot_obj(obj_id, contour, *, core_ratio, x=None, y=None, area=8100.0):
         "contour": pts,
         "missing": 0,
         "history": [],
-        "lat": 46.7,
-        "lon": 14.3,
+        # B390: lat/lon MUESSEN aus derselben Quelle stammen wie die Detektion.
+        # Vorher stand hier hart (46.7, 14.3) -- also die Koordinate von Pixel (0,0).
+        # Seit B384 ist der pixel_to_geo-Mock positionsabhaengig; der alte Track wurde
+        # damit gegen den BILDURSPRUNG gemessen statt gegen sein Konturzentrum. Aus
+        # den gewollten 10.0 km (90 px) wurden scheinbare 20.1 km -> ueber dem
+        # 14.5-km-Radius -> gegatet, obwohl die Gates korrekt sind.
+        **dict(zip(("lat", "lon"), _geo_from_pixel_for_test(
+            sum(point[0] for point in pts) / len(pts),
+            sum(point[1] for point in pts) / len(pts),
+        ))),
         "first_seen": "2026-07-14_00-00-00",
         "total_active_frames": 1,
     }
