@@ -6383,3 +6383,44 @@ Normaltakt unverändert, schnelle Zelle überlebt 15-min-Lücke, statische Zelle
 
 **Phasen-Status:** Phase A — Position und Geometrie teilen dieselbe Zeitbasis.
 **Offen:** Mehrkern-Komponentengraph P2-4.
+
+### B403 — Mehrkern-Split war „alles oder nichts": ein untrennbares Paar blockierte alle anderen ✅ erledigt
+
+**Root-Cause (P2-4):** Die Split-Freigabe war eine **Konjunktion** über alle Kernpaare
+(`eligible = _pairs_checked > 0 and _pairs_ok == _pairs_checked`). Ein einziges untrennbares Paar
+setzte `eligible = False` und blockierte den gesamten Komplex.
+
+**Fehlerfall:** Linie A━━B (durchgehend, kein Sattel) plus separate Zelle C. A–B nicht trennbar
+(korrekt), A–C und B–C trennbar → `_pairs_ok=2`, `_pairs_checked=3` → **C wurde nicht abgespalten**,
+obwohl es meteorologisch eindeutig eine eigene Zelle ist. In Kärnten der Regelfall bei Mischlagen:
+elongierte Linie plus eigenständige, orografisch ausgelöste Zelle daneben.
+
+**Herkunft:** Die Konjunktion stammt aus **B376** und war dort eine bewusste Verschärfung gegen den
+Vorgängerzustand („ein einziges geeignetes Kernpaar gibt den gesamten Komplex frei", `break`/`break`).
+Damit wurde ein zu weites ODER durch ein zu enges UND ersetzt — **beide Extreme betrachten die
+Struktur nicht**. Die B376-Review-Note hatte genau darauf hingewiesen.
+
+**Fix — Kernbeziehungen als Graph** (analog B370 für Konturen):
+- Knoten = Kern; Kante „gehört zusammen" = kein ausreichender Sattel **und** keine Lücke;
+  zusätzlich werden Kerne unter `MULTI_CORE_MIN_DIST_PX` zusammengefasst.
+- Zusammenhangskomponenten via Union-Find (`_uf_find`/`_uf_union` aus B370 wiederverwendet).
+- **1 Komponente** → kein Split (Böenlinie bleibt eine Zelle). **≥ 2 Komponenten** → Split.
+- `_watershed_split()` erhält **einen Marker je Komponente** (flächenstärkster Kern als
+  Repräsentant) statt je Kern — die Maxima derselben Linie dürfen nicht gegeneinander segmentiert
+  werden.
+- Ergebnis deterministisch (Komponenten nach kleinstem Kernindex sortiert).
+
+`MULTI_CORE_MIN_SADDLE_RATIO` und `MULTI_CORE_MIN_GAP_PX` bleiben **unverändert** — die Schwellen
+waren nicht das Problem, ihre Verknüpfung war es.
+
+**Tests:** `tests/test_b403_kern_komponentengraph.py` — Linie+Zelle ergibt 2 Komponenten
+{A,B}/{C} (Kernregression), Linienkerne bleiben zusammen, durchgehende Linie bleibt 1 Komponente
+(B376-Regression), drei getrennte Kerne → 3 Komponenten, Kerne unter `MIN_DIST` verschmelzen,
+Einzelkern, Leereingabe, Determinismus, Konjunktion entfernt, End-to-End 2 Sub-Konturen.
+
+**Phasen-Status:** Phase A — **alle Findings des Codex-Reviews vom 14.07.2026 sind abgearbeitet**
+(P0-1, P0-2, P1-1 … P1-7, P2-1 … P2-5).
+**Nächster fachlicher Schritt:** Debug-Export der nächsten Konvektionslage. Zu prüfen:
+`lineage="merged"` und `lineage="split"` treten auf (bisher 160/0), je Signatur genau **ein**
+Ledger-Eintrag, `train_data/association/*.json` zur Kalibrierung von `ASSOC_MAX_COST` (0.75,
+nicht gegen reale Daten kalibriert) und den Transition-Schwellen.

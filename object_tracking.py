@@ -670,6 +670,61 @@ def _core_saddle_ratio(field, cell_mask, p1, p2, n_samples=64):
     return max(0.0, min(1.0, 1.0 - (valley / peak)))
 
 
+def _core_components(field, cell_mask, cores, min_dist_px, min_saddle, min_gap_px):
+    """B403: Gruppiert Kerne zu Zusammenhangskomponenten.
+
+    Vorher war die Split-Freigabe eine KONJUNKTION ueber alle Kernpaare
+    (`_pairs_ok == _pairs_checked`): ein einziges untrennbares Paar blockierte den
+    gesamten Komplex. Fehlerfall:
+
+        A ●━━━━━● B      C ●
+          kein Sattel      klar getrennt
+
+    A-B nicht trennbar (korrekt), A-C und B-C trennbar -> 2 von 3 Paaren ok ->
+    eligible=False -> C wurde NICHT abgespalten, obwohl es meteorologisch eindeutig
+    eine eigene Zelle ist. In Kaernten der Regelfall bei Mischlagen: elongierte Linie
+    plus eigenstaendige, orografisch ausgeloeste Zelle daneben.
+
+    Die Konjunktion stammt aus B376 und war dort eine Verschaerfung gegen den
+    Vorgaenger ("ein einziges Paar genuegt", break/break). Damit wurde ein zu weites
+    ODER durch ein zu enges UND ersetzt -- beide Extreme betrachten die STRUKTUR nicht.
+
+    Jetzt als Graph, analog zu B370 fuer Konturen:
+        Knoten = Kern
+        Kante  = "gehoert zusammen" (kein ausreichender Sattel UND keine Luecke)
+        Ergebnis = Zusammenhangskomponenten via Union-Find
+
+    Rueckgabe: Liste von Listen -- je Komponente die Indizes ihrer Kerne,
+    deterministisch sortiert (Komponenten nach kleinstem Kernindex).
+    """
+    n = len(cores)
+    if n == 0:
+        return []
+    parent = list(range(n))
+    rank = [0] * n
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            dx = cores[i][0] - cores[j][0]
+            dy = cores[i][1] - cores[j][1]
+            if _math_ot.sqrt(dx * dx + dy * dy) < min_dist_px:
+                # Zu dicht beieinander -> ein Kern, nicht trennbar.
+                _uf_union(parent, rank, i, j)
+                continue
+            _saddle = _core_saddle_ratio(field, cell_mask, cores[i][:2], cores[j][:2])
+            _gap_px = _core_path_gap_px(cell_mask, cores[i][:2], cores[j][:2])
+            separable = (_saddle >= min_saddle) or (_gap_px >= min_gap_px)
+            if not separable:
+                # Kein Sattel und keine Luecke -> die beiden Kerne gehoeren zu
+                # derselben Struktur (z. B. Boeenlinie mit mehreren Maxima).
+                _uf_union(parent, rank, i, j)
+
+    groups = {}
+    for i in range(n):
+        groups.setdefault(_uf_find(parent, i), []).append(i)
+    return [sorted(groups[r]) for r in sorted(groups, key=lambda r: min(groups[r]))]
+
+
 def _geodesic_priority_assign(cell_mask, field, core_centers, max_iter_per_band=10000):
     """B383: Band-priorisierte geodaetische Multi-Source-Flutung.
 
@@ -842,34 +897,38 @@ def split_multi_core_contours(contours, hsv):
         # ein einziges geeignetes Paar den gesamten Mehrkernkomplex frei.
         _field = _intensity_field(hsv, cell_mask)
         _min_saddle = float(_rc.get("MULTI_CORE_MIN_SADDLE_RATIO", 0.35))
-        _pairs_checked = 0
-        _pairs_ok = 0
-        for i in range(len(cores)):
-            for j in range(i + 1, len(cores)):
-                dx = cores[i][0] - cores[j][0]
-                dy = cores[i][1] - cores[j][1]
-                if _math_ot.sqrt(dx * dx + dy * dy) < min_dist_px:
-                    continue
-                _pairs_checked += 1
-                _saddle = _core_saddle_ratio(_field, cell_mask, cores[i][:2], cores[j][:2])
-                _gap_px = _core_path_gap_px(cell_mask, cores[i][:2], cores[j][:2])
-                # Echte Luecke ODER ausgepraegter Intensitaetseinschnitt.
-                if _saddle >= _min_saddle or _gap_px >= min_gap_px:
-                    _pairs_ok += 1
-
-        # Alle geprueften Paare muessen trennbar sein. Eine elongierte Boeenlinie
-        # mit mehreren Maxima ohne Sattel bleibt damit EINE Zelle.
-        eligible = _pairs_checked > 0 and _pairs_ok == _pairs_checked
+        # B403: Kernbeziehungen als GRAPH statt als Konjunktion ueber alle Paare.
+        # Kerne ohne Sattel/Luecke zwischen sich gehoeren zusammen; getrennte
+        # Komponenten werden abgespalten. Eine elongierte Boeenlinie bleibt damit
+        # EINE Komponente (kein Split), waehrend eine daneben liegende, klar
+        # getrennte Zelle korrekt abgespalten wird -- vorher blockierte das
+        # untrennbare Linienpaar den gesamten Komplex.
+        _groups = _core_components(
+            _field, cell_mask, cores, min_dist_px, _min_saddle, min_gap_px
+        )
+        eligible = len(_groups) >= 2
+        if eligible:
+            debug_log(
+                f"[B403] Mehrkern-Komplex: {len(cores)} Kerne -> {len(_groups)} "
+                f"Komponente(n) {[len(g) for g in _groups]}"
+            )
 
         if not eligible:
             result.append(contour)
             continue
 
+        # B403: EIN Marker je Komponente statt je Kern. Die Kerne einer Komponente
+        # (z. B. mehrere Maxima derselben Boeenlinie) duerfen nicht gegeneinander
+        # segmentiert werden -- sie sind dieselbe Zelle.
+        # Repraesentant: der flaechenstaerkste Kern der Komponente (cores[k][2] = Flaeche).
+        _group_cores = [
+            max((cores[k] for k in g), key=lambda c: c[2]) for g in _groups
+        ]
         try:
-            sub_contours = _watershed_split(hsv, contour, cores, min_child_area)
+            sub_contours = _watershed_split(hsv, contour, _group_cores, min_child_area)
         except Exception as _ws_exc:
             debug_log(f"[B376] Watershed fehlgeschlagen, Voronoi-Fallback: {_ws_exc}")
-            sub_contours = _voronoi_split(hsv.shape, contour, cores, min_child_area)
+            sub_contours = _voronoi_split(hsv.shape, contour, _group_cores, min_child_area)
         result.extend(sub_contours)
         if len(sub_contours) > 1:
             debug_log(
