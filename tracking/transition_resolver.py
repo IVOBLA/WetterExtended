@@ -54,13 +54,52 @@ def _cfg(key, default=None):
 
 
 def transition_signature(kind: str, parents: list, children: list) -> str:
-    """Zeitstempelfreie Identitaet eines Uebergangs (analog B371)."""
+    """Zeitstempelfreie UND framestabile Identitaet eines Uebergangs (analog B371).
+
+    B388: `children` darf KEINE Detektionsindizes mehr enthalten.
+
+    Ein Detektionsindex ist die Position in der Rueckgabeliste von cv2.findContours()
+    und gilt nur INNERHALB eines Frames. Erscheint, verschwindet oder verschiebt sich
+    eine unbeteiligte Kontur, verschieben sich alle nachfolgenden Indizes. Da
+    confirm_candidates() den Bestaetigungszaehler ueber die Signatur fuehrt, fiel ein
+    Kandidat bei unveraenderter Geometrie auf frames_seen=1 zurueck und wurde NIE
+    bestaetigt -- waehrend die alte Signatur gleichzeitig als `reverted` galt.
+
+    Besonders tueckisch: Bei einem Merge aendert sich die Konturanzahl per Definition
+    (2 Zellen -> 1 Kontur), die Indizes verschieben sich also im Bestaetigungsframe
+    regelmaessig. B370 hat die GRUPPIERUNG reihenfolgeinvariant gemacht, nicht die
+    INDIZIERUNG.
+
+    Aufrufer verwenden stattdessen:
+      - Merge: _stable_merge_key(parents)      -- Kindmenge implizit (eine Zelle)
+      - Split: _stable_child_key(n_children)   -- Anzahl statt Indizes
+    Beides ist aus frameuebergreifend stabilen Groessen gebildet (Track-IDs, Anzahl).
+    """
     payload = "|".join([
         str(kind),
         ",".join(sorted(str(p) for p in (parents or []) if p)),
         ",".join(sorted(str(c) for c in (children or []) if c)),
     ])
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+
+def _stable_merge_key(parents: list) -> list:
+    """B388: Kindschluessel eines Merges — bewusst leer.
+
+    Dieselben Parents verschmelzen zu genau EINER Zelle; der Detektionsindex dieser
+    Zelle traegt keine zusaetzliche Information, ist aber frameweise instabil.
+    """
+    return []
+
+
+def _stable_child_key(n_children: int) -> list:
+    """B388: Kindschluessel eines Splits — die ANZAHL, nicht die Indizes.
+
+    Die Kinder haben zum Zeitpunkt der Kandidatenbildung noch keine Track-IDs. Ihre
+    Anzahl ist frameuebergreifend stabil und unterscheidet echte Ereignisse: ein
+    2er- und ein 3er-Split desselben Parents sind verschiedene Uebergaenge.
+    """
+    return [f"n={int(n_children)}"]
 
 
 @dataclass
@@ -182,7 +221,11 @@ def find_merge_candidates(all_tracks: dict, detections: dict, matched: dict) -> 
             continue   # die Parents erklaeren die neue Zelle nicht ausreichend
         out.append(TransitionCandidate(
             kind="merge", parents=parents, children=[det_idx],
-            signature=transition_signature("merge", parents, [str(det_idx)]),
+            # B388: KEIN Detektionsindex in der Signatur -- er ist frameweise
+            # instabil und liess die Bestaetigung auf frames_seen=1 zurueckfallen.
+            # `children` bleibt fuer die Objektschleife erhalten, geht aber nicht
+            # in die Identitaet ein.
+            signature=transition_signature("merge", parents, _stable_merge_key(parents)),
             explained=round(ratio, 4),
         ))
     return out
@@ -228,7 +271,10 @@ def find_split_candidates(all_tracks: dict, detections: dict, matched: dict) -> 
             _primary_child = max(children, key=lambda c: _safe_area(detections.get(c)))
         out.append(TransitionCandidate(
             kind="split", parents=[tid], children=children,
-            signature=transition_signature("split", [tid], [str(c) for c in children]),
+            # B388: Anzahl statt Detektionsindizes. Die Kinder haben noch keine
+            # Track-IDs; ihre Anzahl ist frameuebergreifend stabil und trennt
+            # einen 2er- von einem 3er-Split desselben Parents.
+            signature=transition_signature("split", [tid], _stable_child_key(len(children))),
             explained=round(ratio, 4),
             primary_child=_primary_child,
         ))
