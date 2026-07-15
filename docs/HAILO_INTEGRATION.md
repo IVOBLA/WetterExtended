@@ -6235,3 +6235,27 @@ Der vollständige Pi-Lauf nach B397 endete mit `1940 passed, 4 failed, 1 skipped
 - **`.env`:** Install-/Upgrade entfernt aktive Duplikate atomar unter Erhalt des bisher effektiven letzten Werts, der Kommentare und Dateirechte; Secret-Werte werden nicht geloggt.
 
 Produktions-Tracking, Transition-Gates, TAWES-Requests und B397 wurden nicht verändert.
+
+
+### B399 — letzte zwei Pytest-Metatestfehler nach B398 ✅ erledigt
+
+**Ausgangslage:** Der vollständige Pi-Lauf nach B398 sammelte 1955 Tests und endete mit
+`1951 passed, 2 failed, 2 skipped`. Die eigentlichen B398-Fixes waren grün: B117-Merge-Test,
+beide TAWES-Breaker-Tests, B391-Snapshot, B397-Nachbarfeatures und `.env`-Deduplizierung.
+
+**B384 Root-Cause:** Der Metatest suchte weiterhin exakt nach dem alten lokalen Variablennamen
+`m3`, obwohl der erfolgreiche B117-Test die fachlich identische Assertion über `objs3[0]`
+ausführt. Der Metatest analysiert nun gezielt die Funktion
+`test_merge_inherits_dominant_parent_id` und prüft variablennamenunabhängig den dritten Frame
+sowie `lineage == "merged"`.
+
+**B391 Root-Cause:** Der Test behandelte den internen Value aus `tracking_memory` als
+vollständiges Ausgabeobjekt und griff auf `pending_parent["id"]` zu. Die kanonische Track-ID ist
+jedoch der Key des Mappings. Die Emissionsprüfung verwendet nun diesen Key und erzwingt kein
+redundantes `id`-Feld im internen State.
+
+**Produktivcode:** unverändert.
+
+**Tests:** Anpassung von `tests/test_b384_testsemantik_und_massstab.py` und
+`tests/test_b391_merge_parent_ueberlebt_kandidatenphase.py`; neuer Vertrags-Schutz
+`tests/test_b399_test_contracts.py`.

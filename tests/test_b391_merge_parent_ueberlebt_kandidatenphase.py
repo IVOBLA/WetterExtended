@@ -104,23 +104,26 @@ def test_pending_parent_has_merge_pending_state():
 
 
 def test_pending_parent_is_excluded_from_neighbor_features():
-    """B397: technisch erhaltener Parent darf keine B94-/ML-Zelle sein."""
+    """B397/B399: technisch erhaltener Parent ist keine ausgegebene ML-Zelle."""
     _, emitted_frame2, mem_after_f2, _ = _run_merge_sequence()
 
     pending = [
-        value
-        for value in mem_after_f2.values()
+        (track_id, value)
+        for track_id, value in mem_after_f2.items()
         if value.get("tracking_state") == "merge_pending"
     ]
     assert len(pending) == 1
-    pending_parent = pending[0]
+
+    pending_parent_id, pending_parent = pending[0]
 
     assert pending_parent["silent_tracking"] is True
     assert object_tracking._is_neighbor_feature_eligible(pending_parent) is False
-    assert pending_parent["id"] not in {
-        obj["id"]
+
+    emitted_ids = {
+        str(obj["id"])
         for obj in emitted_frame2
     }
+    assert str(pending_parent_id) not in emitted_ids
 
 
 def test_frame_two_snapshot_is_not_mutated_by_frame_three():
