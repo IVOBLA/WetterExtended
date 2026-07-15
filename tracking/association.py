@@ -193,8 +193,25 @@ def _search_radii_km(track: TrackCandidate, dt_minutes: float, max_speed_kmh: fl
     b_km = reach_km * float(_cfg("ASSOC_ELLIPSE_CROSS_FACTOR")) + base  # quer
     speed = math.hypot(track.vx_kmh, track.vy_kmh)
     if speed < 1.0:
-        # Kein belastbarer Vektor -> isotroper Kreis mit dem engeren Radius.
-        return (b_km, b_km, 1.0, 0.0)
+        # B389: isotroper Kreis mit dem WEITEREN Radius (a_km), nicht dem engeren.
+        #
+        # Der Querradius b_km ist eng, WEIL die Bewegungsrichtung bekannt ist: eine
+        # nach Osten ziehende Zelle springt nicht 12 km nach Norden. Diese
+        # Einschraenkung setzt den Vektor voraus. Fehlt er, gibt es kein "quer" --
+        # die Zelle kann in JEDE Richtung mit voller Geschwindigkeit ziehen.
+        #
+        # Vorher wurde b_km isotrop verwendet: bei MAX_CELL_SPEED_KMH=150 und
+        # dt=5min also 7.62 km statt 14.50 km -- 39 % zu eng, ausgerechnet fuer die
+        # Tracks mit der GROESSTEN Positionsunsicherheit:
+        #   - jede neue Zelle im zweiten Frame (Kalman noch ohne Geschwindigkeit),
+        #   - stationaere, orografisch gebundene Konvektion,
+        #   - Tracks ohne Kalman-Filter (vx/vy fehlen im Snapshot).
+        # Folge: Match verworfen -> neue ID -> Verlust von Kalman-Zustand, Trend,
+        # Lebensdauer und ML-Sequenz.
+        #
+        # Der Schwach-Cap aus B379 bleibt unberuehrt und wirkt jetzt sogar schaerfer,
+        # weil er gegen den richtigen Radius greift (60 km/h -> 7.00 km).
+        return (a_km, a_km, 1.0, 0.0)
     return (a_km, b_km, track.vx_kmh / speed, track.vy_kmh / speed)
 
 

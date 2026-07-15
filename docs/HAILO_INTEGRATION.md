@@ -5925,3 +5925,36 @@ Parent-Reihenfolge irrelevant, Indizes kehren nicht zurück, `children` bleibt n
 **Offen:** `closed`-Zustand P1-5 (B389), bestätigte Parentmenge P1-4 (B390),
 Hungarian-Unmatched P1-7 + Zeitbasis P2-2, Mehrkern-Komponentengraph P2-4,
 IR-`cell_id` umgeht Merge-Policy P2-1.
+
+### B389 — Suchradius ohne bekannten Bewegungsvektor nutzte den engen Querradius ✅ erledigt
+
+**Root-Cause:** Invertierte Logik in `_search_radii_km()`. Bei `speed < 1.0` wurde
+`(b_km, b_km)` zurückgegeben — der **Querradius**, isotrop angewendet. Der Kommentar
+(„isotroper Kreis mit dem engeren Radius") beschrieb den Denkfehler exakt.
+
+Der Querradius ist eng, **weil** die Bewegungsrichtung bekannt ist: eine nach Osten ziehende Zelle
+springt nicht 12 km nach Norden. Diese Einschränkung setzt den Vektor voraus. Fehlt er, gibt es
+kein „quer" — die Zelle kann in **jede** Richtung mit voller Geschwindigkeit ziehen.
+
+**Nachgerechnet** (`MAX_CELL_SPEED_KMH=150`, `dt=5 min`): `reach=12.50 km`, `a_km=14.50 km`,
+`b_km=7.62 km`. Der Code lieferte **7.62 km isotrop** statt 14.50 km — **39 % zu eng**, und das
+ausgerechnet für die Tracks mit der größten Positionsunsicherheit: jede neue Zelle im zweiten
+Frame (Kalman noch ohne Geschwindigkeit), stationäre orografisch gebundene Konvektion (in Kärnten
+häufig) und Tracks ohne Kalman-Filter. Folge: Match verworfen → neue ID → Verlust von
+Kalman-Zustand, Trend, Lebensdauer und ML-Sequenz.
+
+**Fix:** `return (a_km, a_km, 1.0, 0.0)`. Der Schwach-Cap aus B379 bleibt unberührt und wirkt jetzt
+**schärfer**, weil er gegen den richtigen Radius greift (60 km/h → 7.00 km statt 4.25 km).
+
+**Behobene Regression:** `test_b365_stage2_weak_cell_match_cap::test_strong_cell_still_matches_at_same_distance`.
+Bei der realistischen Testdistanz aus B384 (90 skalierte px ≈ 10.0 km): starke Zelle → Radius
+14.50 km → **Match**; schwache Zelle → Radius 7.00 km → **gegatet**. Beide Testfälle korrekt.
+
+**Tests:** `tests/test_b389_suchradius_ohne_vektor.py` — isotroper Radius nutzt `a_km`, Radius ≥
+Cap-Reichweite, bewegter Track behält engen Querradius (B373-Kernidee), stehende starke Zelle
+matcht bei 10 km, schwache bleibt gegatet, absurde Distanz weiter gegatet, Skalierung mit realem dt.
+
+**Phasen-Status:** Phase A — Suchraum entspricht der konfigurierten Physik.
+**Offen:** Merge-Bestätigung mit verschwindendem Secondary-Parent (B390), bestätigte Parentmenge
+P1-4, Hungarian-Unmatched P1-7, Zeitbasis Polygon/Position P2-2, Mehrkern-Komponentengraph P2-4,
+IR-`cell_id` umgeht Merge-Policy P2-1.
