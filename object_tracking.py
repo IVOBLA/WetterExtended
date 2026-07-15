@@ -2090,6 +2090,50 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
         )
 
     import time as _time_mod
+    # ========================================================================
+    # B391: Parents eines NOCH NICHT BESTAETIGTEN Uebergangs ueberleben.
+    #
+    # B375 verlangt TRANSITION_CONFIRM_FRAMES=2 -- ein Merge-Kandidat muss in ZWEI
+    # aufeinanderfolgenden Frames erkannt werden -- und ein Kandidat verlangt >= 2
+    # Parents. Der Secondary-Parent wurde aber schon im Kandidatenframe ausgebucht:
+    # er ist nicht 1:1 gematcht (der Survivor bekam die Kontur), landet nicht in
+    # new_memory und wird unten als "dissolved" beendet. Im Bestaetigungsframe
+    # existierte er nicht mehr -> len(parents) < 2 -> 0 Kandidaten -> frames_seen
+    # erreichte nie 2.
+    #
+    # Laufzeitbeleg (test_object_tracking_regression):
+    #   Frame 2: tracks=['CHILD','DOM'] -> 1 Kandidat, danach memory=['DOM']
+    #   Frame 3: tracks=['DOM']         -> 0 Kandidaten -> nie bestaetigt
+    #
+    # Folge: KEIN Merge konnte jemals bestaetigt werden -- kein lineage="merged",
+    # kein Eventledger-Eintrag, kein origin_type="created_by_merge", die Karte zeigte
+    # nie einen Verbund.
+    #
+    # Ein Parent eines laufenden Uebergangs ist NICHT aufgeloest. Er bleibt bis zur
+    # Entscheidung (confirmed/reverted) im Speicher, aber nicht als eigenstaendige
+    # Zelle -- analog zum bestehenden inactive_rain-Muster (stilles Tracking).
+    # ========================================================================
+    _pending_parent_ids = set()
+    for _cand in _frame_transitions.values():
+        if getattr(_cand, "phase", None) == "candidate":
+            for _pid in (_cand.parents or []):
+                _pending_parent_ids.add(str(_pid))
+
+    for obj_id, obj in previous_snapshot.items():
+        if obj_id not in new_memory and str(obj_id) in _pending_parent_ids:
+            _pending_obj = obj.copy()
+            _pending_obj["missing"] = int(obj.get("missing", 0) or 0) + 1
+            _pending_obj["tracking_state"] = "merge_pending"
+            _pending_obj["is_active_cell"] = False
+            _pending_obj["silent_tracking"] = True
+            _pending_obj["transition_phase"] = "candidate"
+            _suppress_inactive_rain_warning_fields(_pending_obj)
+            new_memory[obj_id] = _pending_obj
+            debug_log(
+                f"[B391] Parent {obj_id} bleibt erhalten — Uebergang noch nicht "
+                f"bestaetigt (missing={_pending_obj['missing']})"
+            )
+
     for obj_id, obj in previous_snapshot.items():
         if obj_id not in new_memory:
             lat, lon = obj.get("lat"), obj.get("lon")
@@ -2187,6 +2231,11 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
     last_previous_snapshot = dict(previous_snapshot)
     tracking_memory = new_memory
     for obj_id, obj in new_memory.items():
+        # B391: Parents eines ausstehenden Uebergangs sind kein eigenstaendiges
+        # Objekt -- sie warten nur auf die Entscheidung und duerfen weder auf der
+        # Karte noch in Warnungen oder ML-Sequenzen erscheinen.
+        if obj.get("tracking_state") == "merge_pending":
+            continue
         if obj.get("missing", 0) == 0 or obj.get("tracking_state") == "inactive_rain":
             if obj.get("missing", 0) == 0:
                 obj.pop("missing_since", None)  # Zelle wieder sichtbar → Timer zurücksetzen

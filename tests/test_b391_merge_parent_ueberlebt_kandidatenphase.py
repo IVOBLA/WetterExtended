@@ -1,0 +1,99 @@
+"""B391: Parents eines ausstehenden Übergangs müssen bis zur Entscheidung leben."""
+import numpy as np
+import pytest
+
+import object_tracking
+
+
+def _square(cx, cy, half=20):
+    pts = [[cx - half, cy - half], [cx + half, cy - half],
+           [cx + half, cy + half], [cx - half, cy + half]]
+    return np.array(pts, dtype=np.int32).reshape(-1, 1, 2)
+
+
+@pytest.fixture(autouse=True)
+def _mocks(monkeypatch):
+    """Testisolation via monkeypatch (Muster: test_config_override_guard.py)."""
+    monkeypatch.setattr(object_tracking, "pixel_to_geo",
+                        lambda x, y: (46.7 - y * 0.001, 14.3 + x * 0.00145))
+    monkeypatch.setattr(object_tracking, "calculate_core_ratio", lambda hsv, contour: 0.2)
+    monkeypatch.setattr(object_tracking, "_is_in_exclusion_zone", lambda lat, lon, zones: False)
+    object_tracking.tracking_memory = {}
+    monkeypatch.setattr(object_tracking, "_last_tracking_timestamp", None, raising=False)
+    monkeypatch.setattr(object_tracking, "_pending_transitions", {}, raising=False)
+    yield
+    object_tracking.tracking_memory = {}
+
+
+def _run_merge_sequence():
+    hsv = np.zeros((400, 400, 3), dtype=np.uint8)
+    o1 = object_tracking.update_tracking_memory(
+        hsv, [_square(100, 200, half=40), _square(250, 200, half=25)], {}, "2026-01-01_00-00-00")
+    merged = _square(175, 200, half=95)
+    o2 = object_tracking.update_tracking_memory(hsv, [merged], {}, "2026-01-01_00-05-00")
+    mem_after_f2 = dict(object_tracking.tracking_memory)
+    o3 = object_tracking.update_tracking_memory(hsv, [merged], {}, "2026-01-01_00-10-00")
+    return o1, o2, mem_after_f2, o3
+
+
+def test_secondary_parent_survives_candidate_frame():
+    """KERNREGRESSION: Nach dem Kandidatenframe muessen BEIDE Parents leben."""
+    o1, _, mem_after_f2, _ = _run_merge_sequence()
+    ids1 = {o["id"] for o in o1}
+    assert len(ids1) == 2
+    assert ids1.issubset(set(mem_after_f2)), (
+        f"Parent verschwand im Kandidatenframe: {ids1 - set(mem_after_f2)}. "
+        "Damit kann der Merge in Frame 3 nie bestaetigt werden (len(parents) < 2)."
+    )
+
+
+def test_merge_is_confirmed_in_frame_three():
+    """Das eigentliche Ziel: der Merge wird bestaetigt."""
+    _, o2, _, o3 = _run_merge_sequence()
+    assert o2[0]["lineage"] == "continued", "Frame 2 ist der Kandidatenframe"
+    lineages3 = [o["lineage"] for o in o3]
+    assert "merged" in lineages3, (
+        f"Frame 3 meldet keinen bestaetigten Merge: {lineages3}"
+    )
+
+
+def test_pending_parent_is_not_emitted_as_cell():
+    """Der wartende Parent darf nicht als eigene Zelle erscheinen."""
+    _, o2, _, _ = _run_merge_sequence()
+    assert len(o2) == 1, f"Pending-Parent wurde als Zelle ausgegeben: {[o['id'] for o in o2]}"
+
+
+def test_pending_parent_has_merge_pending_state():
+    o1, _, mem_after_f2, _ = _run_merge_sequence()
+    pending = [v for v in mem_after_f2.values() if v.get("tracking_state") == "merge_pending"]
+    assert pending, "Kein Track im Zustand merge_pending"
+    assert pending[0]["is_active_cell"] is False
+    assert pending[0]["silent_tracking"] is True
+
+
+def test_confirmed_merge_ends_the_pending_state():
+    """Nach der Bestaetigung darf kein merge_pending mehr uebrig bleiben."""
+    _run_merge_sequence()
+    hsv = np.zeros((400, 400, 3), dtype=np.uint8)
+    object_tracking.update_tracking_memory(hsv, [_square(175, 200, half=95)], {}, "2026-01-01_00-15-00")
+    still_pending = [k for k, v in object_tracking.tracking_memory.items()
+                     if v.get("tracking_state") == "merge_pending"]
+    assert not still_pending, f"merge_pending haengt nach der Bestaetigung: {still_pending}"
+
+
+def test_dissolved_cell_without_transition_still_expires():
+    """Regression: eine echte aufgeloeste Zelle darf NICHT kuenstlich am Leben bleiben."""
+    hsv = np.zeros((400, 400, 3), dtype=np.uint8)
+    o1 = object_tracking.update_tracking_memory(hsv, [_square(100, 200, half=40)], {}, "2026-01-01_00-00-00")
+    tid = o1[0]["id"]
+    object_tracking.update_tracking_memory(hsv, [], {}, "2026-01-01_00-05-00")
+    obj = object_tracking.tracking_memory.get(tid)
+    assert obj is None or obj.get("tracking_state") != "merge_pending", (
+        "Zelle ohne Uebergang wurde faelschlich als merge_pending gehalten"
+    )
+
+
+def test_confirm_frames_unchanged():
+    """B391 darf die Bestaetigungsschwelle nicht aufweichen."""
+    from tracking.transition_resolver import _cfg
+    assert int(_cfg("TRANSITION_CONFIRM_FRAMES")) == 2
