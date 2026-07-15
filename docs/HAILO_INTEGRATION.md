@@ -5631,3 +5631,40 @@ rauschrobustes Kernmaximum, Sattelreferenz am schwächeren Kern, B275-U-Form.
 **Phasen-Status:** Phase A — Segmentierung misst wieder Intensität. Voraussetzung für **B381**
 (Split-Integration): ohne funktionierende Sub-Zellen gibt es keine Split-Kandidaten.
 **Offen:** Mehrkern-Komponentengraph („alles oder nichts", P2-4) → **B387**.
+
+### B381 — Split-Pfad war auch nach B375 praktisch unerreichbar ✅ erledigt
+
+**Root-Cause:** B375 hat das ursprüngliche Kernproblem (0 Splits in 724 Beobachtungen trotz
+sichtbarer Sub-Zellen) **nicht** behoben. Drei Integrationsfehler:
+
+1. **Resolver sah nur unmatched Tracks.** Bei einem normalen Split `A → X + Y` ordnet Hungarian A
+   korrekterweise 1:1 einem Kind zu. A ist damit *matched* und fehlte in `_unmatched_polys` — der
+   Resolver sah genau den Fall nicht, für den er gebaut wurde.
+2. **Objektschleife hatte keinen Split-Zweig.** Zeile 1710 prüfte nur
+   `phase == "confirmed" and len(overlaps) >= 2` — für ein Split-Kind nie erfüllt, da jedes Kind
+   höchstens einen Parent hat. Bestätigte Split-Kandidaten blieben wirkungslos.
+3. **Alt-Nachlauf tot.** `assigned_old_to_new` verlangte dieselbe alte ID in `parents` mehrerer
+   neuer Objekte — nach der globalen 1:1-Zuordnung per Konstruktion unmöglich. Die einzige Stelle,
+   die `lineage="split"` setzte (Zeile 1900), war damit unerreichbar.
+
+**Fix (AINT-Regel, arXiv:2509.02929):**
+- `find_split_candidates(all_tracks, …)` erhält **alle** alten Tracks. Das globale 1:1-Match ist
+  kein Ausschlusskriterium, sondern die Information, **welches** Kind das primäre ist.
+- `TransitionCandidate.primary_child`: das gematchte Kind; ohne Match das flächengrößte.
+- Neuer Split-Zweig in der Objektschleife: primäres Kind führt die Parent-ID fort, weitere Kinder
+  erhalten neue IDs, alle tragen `parents=[parent_id]` und `lineage="split"` **nur** im
+  bestätigten Ereignisframe. `best_id` zeigt bei allen Kindern auf den Parent, damit Trend- und
+  Kern-Carry-over die Herkunft nutzen können.
+- `children`/`lineage_end` stammen aus den bestätigten Ereignissen; der tote
+  `assigned_old_to_new`-Nachlauf ist ersatzlos entfallen.
+
+**Tests:** `tests/test_b381_split_integration.py` — Split mit **gematchtem** Parent (Kernfall),
+primäres Kind = gematchtes Kind, Flächen-Fallback, Einzelkind kein Split, Erklärungsschwelle,
+Bestätigung ab Frame 2, `primary_child` überlebt die Bestätigung, toter Pfad entfernt,
+Split-Zweig vorhanden.
+
+**Phasen-Status:** Phase A — der Split ist erstmals im integrierten Live-Ablauf erreichbar.
+**Verifikationspflicht:** Im nächsten Debug-Export muss `lineage="split"` bei Multi-Core-Lagen
+**auftreten** (bisher 0/724). Bleibt der Wert 0, ist die Ursache in der Segmentierung (B380) oder
+den Schwellen (`TRANSITION_SPLIT_MIN_EXPLAINED`/`MIN_CHILD_SHARE`) zu suchen.
+**Offen:** Merge-Erklärung/Survivor-Fläche (B384), stabile Signaturen + `closed` (B385).
