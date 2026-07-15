@@ -1742,10 +1742,40 @@ def predict_positions(objects: list, timestamp: str, stations: list):
             obj[f"kinematic_source_{horizon}"] = None
             obj[f"of_available_{horizon}"] = int(obj.get("of_available", 0) or 0)
             if prediction_q10 is not None and prediction_q90 is not None:
-                x_q10 = float(prediction_q10[idx * 2])     * _UF
-                y_q10 = float(prediction_q10[idx * 2 + 1]) * _UF
-                x_q90 = float(prediction_q90[idx * 2])     * _UF
-                y_q90 = float(prediction_q90[idx * 2 + 1]) * _UF
+                # ============================================================
+                # B405: q10/q90 MUESSEN dieselbe Dekodierung durchlaufen wie der
+                # Zentralwert. Vorher wurde die Modellausgabe hier nur mit _UF
+                # multipliziert und damit hart als target_encoding="absolute"
+                # interpretiert -- als einziger von drei Zweigen desselben Blocks:
+                #   Zeile ~1697 Zentralwert : _decode_ml_position(..., _target_encoding)
+                #   Zeile ~1690 ML-Schatten : _compute_ml_shadow(..., _target_encoding)
+                #   hier        q10/q90     : manuelle * _UF-Multiplikation
+                #
+                # Bei target_encoding="delta" ist die Modellausgabe eine VERSCHIEBUNG
+                # von wenigen Pixeln (P58). Ohne die Addition von obj["x"]/obj["y"] wurde
+                # sie als Absolutposition gelesen -> der Punkt landete nahe dem
+                # Bildursprung, also am Rand des Radarbildes.
+                #
+                # Gemessen (Export 2026-07-15_20-55-00, Distanz vom Zellzentrum):
+                #   Zelle       Zentralwert   q10       q90
+                #   E47G23ND      3.4 km    123.7 km  111.2 km
+                #   H6B04FCG      4.3 km    151.1 km  138.2 km
+                #   DWSWZ7J7      4.9 km    197.2 km  184.0 km
+                # Faktor 30-40 daneben. Der Frontend-Korridor (B130) spannt daraus
+                # ein Polygon von der Zelle bis ~150 km auf -> ein magenta Band quer
+                # ueber die Karte, dessen Achse nichts mit der Zellbewegung zu tun hat.
+                # Fachlich suggerierte es, die Zelle koenne in 10 Minuten irgendwo in
+                # einem 150-km-Band landen.
+                #
+                # Nur bei ML-Prognosen mit Quantilmodellen sichtbar -- im kinematischen
+                # Fallback existieren q10/q90 nicht und corridor ist null.
+                # ============================================================
+                x_q10, y_q10 = _decode_ml_position(
+                    obj, prediction_q10[idx * 2], prediction_q10[idx * 2 + 1], _target_encoding
+                )
+                x_q90, y_q90 = _decode_ml_position(
+                    obj, prediction_q90[idx * 2], prediction_q90[idx * 2 + 1], _target_encoding
+                )
                 lat_q10, lon_q10 = pixel_to_geo(x_q10, y_q10)
                 lat_q90, lon_q90 = pixel_to_geo(x_q90, y_q90)
                 obj[f"forecast_x_{horizon}_q10"]   = x_q10
@@ -1782,10 +1812,10 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                     "stale": _stale,
                     **(
                         {
-                            "x_q10": float(prediction_q10[idx * 2])     * _UF,
-                            "y_q10": float(prediction_q10[idx * 2 + 1]) * _UF,
-                            "x_q90": float(prediction_q90[idx * 2])     * _UF,
-                            "y_q90": float(prediction_q90[idx * 2 + 1]) * _UF,
+                            "x_q10": x_q10,
+                            "y_q10": y_q10,
+                            "x_q90": x_q90,
+                            "y_q90": y_q90,
                         }
                         if prediction_q10 is not None and prediction_q90 is not None
                         else {}
