@@ -6118,3 +6118,40 @@ IR-`cell_id` umgeht Merge-Policy P2-1.
 **Nächster fachlicher Schritt:** Debug-Export der nächsten Konvektionslage auswerten — B391 macht
 bestätigte Merges erstmals möglich; `lineage="merged"` und `cell_merge`-Einträge im Ledger müssen
 auftreten, bei höchstens einem Ereignis je Signatur (B371).
+
+### B395 — Bestätigter Merge übernahm Parents, die der Resolver nie bestätigt hat ✅ erledigt
+
+**Root-Cause (P1-4):** Die Parentmenge des Ereignisses stammte aus einer anderen Quelle als die
+Bestätigung. Zwei Auswahlen mit **unterschiedlichen Schwellen** liefen nebeneinander:
+- **Resolver** (`transition_resolver.py`): `TRANSITION_MERGE_MIN_PARENT_COVERAGE = 0.40` plus
+  `MIN_EXPLAINED = 0.50` → `_transition.parents`.
+- **Objektschleife** (`object_tracking.py:1756`): `_old_coverage_m >= 0.30` → `_overlap_by_id`.
+
+Beim bestätigten Merge wurde **die zweite** verwendet (`parents = [oid for oid, _ in overlaps]`,
+Zeile 1869). `_transition` diente nur als **Auslöser**; seine bestätigte Menge wurde verworfen.
+
+**Folge:** Ein Randtrack mit 31 % Abdeckung erfüllt `>= 0.30`, aber nicht `>= 0.40`. Er war nicht
+Teil des bestätigten Ereignisses, landete trotzdem in `parents` — erschien im `cell_merge`-Event
+(B371), wurde über `lineage_end="merged_into:…"` als beendet markiert und verlor seine Identität,
+und konnte bei hohem Trackalter/Kernwert sogar die Primary-Policy (B377/B385) gewinnen. **Die
+0.40-Schwelle war damit wirkungslos** — genau der Defekt, den sie verhindern sollte (Analyse 5.9).
+
+**Belegte Relevanz** (Debug-Export 14.07.2026, 373 Parent-Beziehungen aus 160 Merges):
+≥ 0.30 → 313/373 (84 %), ≥ 0.40 → 292/373 (78 %). **21 Beziehungen (~6 %)** liegen zwischen beiden
+Schwellen und wurden fälschlich übernommen.
+
+**Fix:** `parents` wird auf `_transition.parents` gefiltert; `overlaps` liefert nur noch die
+**Reihenfolge** (dominanter Parent zuerst, nach B377-Policy sortiert), nicht die Mitgliedschaft.
+Ein bestätigter Parent, der nicht in `overlaps` steht, geht defensiv nicht verloren. Der dominante
+Parent — und damit die geerbte ID — stammt jetzt zwingend aus der bestätigten Menge. Die
+0.30-Schwelle bleibt für die **Kandidatenermittlung** und die Kandidatenphase (B382) unverändert;
+dort ist das weite Netz korrekt.
+
+**Tests:** `tests/test_b395_bestaetigte_parentmenge.py` — Randtrack zwischen 0.30 und 0.40 wird
+nicht übernommen, Resolver-Schwelle ist strenger als die Schleifen-Schwelle, ID stammt aus der
+bestätigten Menge, sauberer 2er-Merge unverändert, statischer Nachweis der Quelle,
+Kandidaten-Schwelle bleibt erhalten.
+
+**Phasen-Status:** Phase A — Ereignis und Bestätigung nutzen dieselbe Parentmenge.
+**Offen:** `closed`-Zustand P1-5, Hungarian-Unmatched P1-7, Zeitbasis Polygon/Position P2-2,
+Mehrkern-Komponentengraph P2-4.
