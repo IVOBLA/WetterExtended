@@ -6071,3 +6071,50 @@ expiriert weiterhin, Bestätigungsschwelle unverändert.
 Ereignis je Signatur (B371).
 **Offen:** Bestätigte Parentmenge P1-4, Hungarian-Unmatched P1-7, Zeitbasis Polygon/Position P2-2,
 Mehrkern-Komponentengraph P2-4, IR-`cell_id` umgeht Merge-Policy P2-1.
+
+### B394 — Testgeometrien in B385/B391 erklärten ihre Merge-Kontur nicht ✅ erledigt
+
+**Root-Cause:** Kein Code-Defekt. Die Testgeometrien bildeten **keinen gültigen Merge-Kandidaten**
+und scheiterten an einer Vorbedingung, die sie selbst verletzten. **Nur Testdateien geändert.**
+
+**B391 ist nachweislich wirksam:** `tests/test_object_tracking_regression.py` läuft **6/6 grün**,
+inklusive `test_merge_with_dominant_parent_without_kf_does_not_crash`, das zuvor am
+verschwindenden Secondary-Parent scheiterte.
+
+**Nachgerechnet (B391-Test):** Parents 6.400 + 2.500 px, Merge-Kontur 36.100 px →
+`explained = 7.050/36.100 = 0.195` < `TRANSITION_MERGE_MIN_EXPLAINED = 0.50` → kein Kandidat →
+`_pending_parent_ids` leer → der B391-Schutz konnte nicht greifen. Im B385-Test identisch:
+`explained = 0.119`. Die Parent-Coverage war in beiden Fällen erfüllt (0.75/0.90) — nur die
+Erklärung der Zielkontur nicht.
+
+**Warum die Geometrie falsch war:** Die Merge-Kontur war jeweils ~4× größer als die Summe ihrer
+Parents. Das ist fachlich **kein Merge**, sondern eine Systemhülle — der Code lehnte sie korrekt ab
+(Analyse 5.9). Ursache: `_square()` erzeugt ein **Quadrat**; zwei nebeneinanderliegende Parents
+brauchen eine breite, **flache** Kontur. Ein Quadrat, das beide horizontal umschließt, ist
+zwangsläufig auch vertikal riesig und damit größtenteils leer.
+
+**Gegen reale Daten belegt** (Debug-Export 14.07.2026, 160 Merge-Beobachtungen mit
+Parent-Geometrie, `explained` nach B387-Union-Rechnung): **Median 1.00**, p75 1.00, p25 0.69,
+p10 0.48. Reale Merge-Konturen werden von ihren Parents im Median vollständig erklärt; 0.195 und
+0.119 liegen weit unter dem 10 %-Perzentil. Die Schwelle 0.50 wird von **89 %** der realen
+Beobachtungen erfüllt — die verworfenen 11 % sind genau die Scheinmerges, die B375/B387
+aussortieren sollen. `TRANSITION_MERGE_MIN_EXPLAINED` bleibt daher **unverändert**.
+
+**Fix:** Neuer Helfer `_rect_contour(x1, y1, x2, y2)` in beiden Testdateien. Neue Geometrie:
+Parents 60..140 und 150..230 (je 80×80), Merge 60..230 × 160..240 (170×80) →
+coverage 1.00/1.00, **explained 0.94** — realistisch.
+
+**Tests:** `tests/test_b394_testgeometrie_erklaert_merge.py` — neue Geometrie erzeugt einen
+Kandidaten (explained ≈ 0.94), alte Quadrat-Geometrie wird korrekt verworfen (Beleg, dass der Code
+richtig lag), Coverage je Parent erfüllt, Schwelle liegt unter dem realen p10, `_rect_contour` in
+beiden Dateien vorhanden.
+
+**Phasen-Status:** Phase A — **Serie B370–B394 abgeschlossen, keine offenen Regressionen.**
+Verbleibend nur vorbestehend: `test_b150_tawes_breaker`, `test_b243_baseline_gate` (beide bereits
+in Baseline `a7912311` rot) und `test_frontend_build` (benötigt `vite`).
+**Offen (funktionale Verbesserungen, keine Blocker):** Bestätigte Parentmenge P1-4, `closed`-Zustand
+P1-5, Hungarian-Unmatched P1-7, Zeitbasis Polygon/Position P2-2, Mehrkern-Komponentengraph P2-4,
+IR-`cell_id` umgeht Merge-Policy P2-1.
+**Nächster fachlicher Schritt:** Debug-Export der nächsten Konvektionslage auswerten — B391 macht
+bestätigte Merges erstmals möglich; `lineage="merged"` und `cell_merge`-Einträge im Ledger müssen
+auftreten, bei höchstens einem Ereignis je Signatur (B371).

@@ -11,6 +11,19 @@ def _square(cx, cy, half=20):
     return np.array(pts, dtype=np.int32).reshape(-1, 1, 2)
 
 
+def _rect_contour(x1, y1, x2, y2):
+    """B394: RECHTECK statt Quadrat.
+
+    Zwei nebeneinanderliegende Parents brauchen eine breite, FLACHE Merge-Kontur.
+    Ein Quadrat, das beide horizontal umschliesst, ist zwangsläufig auch vertikal
+    riesig -- und damit groesstenteils leer. Genau das machte die alte Geometrie
+    zum Scheinmerge (explained=0.195), den find_merge_candidates() korrekt verwarf:
+    kein Kandidat -> _pending_parent_ids leer -> der B391-Fix konnte nicht greifen.
+    """
+    pts = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
+    return np.array(pts, dtype=np.int32).reshape(-1, 1, 2)
+
+
 @pytest.fixture(autouse=True)
 def _mocks(monkeypatch):
     """Testisolation via monkeypatch (Muster: test_config_override_guard.py)."""
@@ -26,10 +39,25 @@ def _mocks(monkeypatch):
 
 
 def _run_merge_sequence():
+    """B394: Geometrie so, dass die Parents die Merge-Kontur tatsaechlich ERKLAEREN.
+
+    Parent 1: 60..140 x 160..240  (80x80 = 6.400 px)
+    Parent 2: 150..230 x 160..240 (80x80 = 6.400 px)
+    Merge   : 60..230 x 160..240  (170x80 = 13.600 px)
+
+    coverage je Parent = 6.400/6.400 = 1.00   (>= TRANSITION_MERGE_MIN_PARENT_COVERAGE)
+    explained          = 12.800/13.600 = 0.94 (>= TRANSITION_MERGE_MIN_EXPLAINED)
+
+    Das entspricht realer Konvektion: im Debug-Export vom 14.07.2026 liegt explained
+    ueber 160 Merge-Beobachtungen im Median bei 1.00 (p10 = 0.48). Die alte
+    Testgeometrie erreichte 0.195 -- weit unter dem 10 %-Perzentil.
+    """
     hsv = np.zeros((400, 400, 3), dtype=np.uint8)
+    parent_a = _rect_contour(60, 160, 140, 240)
+    parent_b = _rect_contour(150, 160, 230, 240)
     o1 = object_tracking.update_tracking_memory(
-        hsv, [_square(100, 200, half=40), _square(250, 200, half=25)], {}, "2026-01-01_00-00-00")
-    merged = _square(175, 200, half=95)
+        hsv, [parent_a, parent_b], {}, "2026-01-01_00-00-00")
+    merged = _rect_contour(60, 160, 230, 240)
     o2 = object_tracking.update_tracking_memory(hsv, [merged], {}, "2026-01-01_00-05-00")
     mem_after_f2 = dict(object_tracking.tracking_memory)
     o3 = object_tracking.update_tracking_memory(hsv, [merged], {}, "2026-01-01_00-10-00")
@@ -75,7 +103,8 @@ def test_confirmed_merge_ends_the_pending_state():
     """Nach der Bestaetigung darf kein merge_pending mehr uebrig bleiben."""
     _run_merge_sequence()
     hsv = np.zeros((400, 400, 3), dtype=np.uint8)
-    object_tracking.update_tracking_memory(hsv, [_square(175, 200, half=95)], {}, "2026-01-01_00-15-00")
+    object_tracking.update_tracking_memory(
+        hsv, [_rect_contour(60, 160, 230, 240)], {}, "2026-01-01_00-15-00")
     still_pending = [k for k, v in object_tracking.tracking_memory.items()
                      if v.get("tracking_state") == "merge_pending"]
     assert not still_pending, f"merge_pending haengt nach der Bestaetigung: {still_pending}"
@@ -84,7 +113,8 @@ def test_confirmed_merge_ends_the_pending_state():
 def test_dissolved_cell_without_transition_still_expires():
     """Regression: eine echte aufgeloeste Zelle darf NICHT kuenstlich am Leben bleiben."""
     hsv = np.zeros((400, 400, 3), dtype=np.uint8)
-    o1 = object_tracking.update_tracking_memory(hsv, [_square(100, 200, half=40)], {}, "2026-01-01_00-00-00")
+    o1 = object_tracking.update_tracking_memory(
+        hsv, [_rect_contour(60, 160, 140, 240)], {}, "2026-01-01_00-00-00")
     tid = o1[0]["id"]
     object_tracking.update_tracking_memory(hsv, [], {}, "2026-01-01_00-05-00")
     obj = object_tracking.tracking_memory.get(tid)
