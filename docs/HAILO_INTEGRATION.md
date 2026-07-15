@@ -5777,3 +5777,35 @@ konstanter Mock kehrt nicht zurück, B117 prüft Frame 3.
 **Offen:** Pre-Frame-Parent-Snapshot P0-2 (B385), IR-Entkopplung P1-1 (B386), Resolver-Geometrie
 P1-2 (B387), stabile Signaturen/`closed` P1-3/4/5 (B388), Hungarian-Unmatched P1-7 + Zeitbasis
 P2-2 (B389), Mehrkern-Komponentengraph P2-4 (B390).
+
+### B385 — Fachliche Cell-Policy bewertete bereits überschriebene Parent-Daten ✅ erledigt
+
+**Root-Cause (P0):** B377 hat die Auswahl-*Funktion* vereinheitlicht, nicht die *Eingabedaten*.
+`update_tracking_memory()` arbeitet auf `previous_snapshot = tracking_memory.copy()` und ersetzt
+am Ende den globalen Speicher (`tracking_memory = new_memory`, Zeile 2145). **Danach** rief
+`main.py:598` die fachliche Lineage mit `previous_objects=tracking_memory` auf — also mit dem
+bereits überschriebenen Stand.
+
+Darin trägt der **Survivor** bereits das neue, verschmolzene Objekt (Fläche der Systemkontur), und
+die beendeten **Secondary-Parents fehlen vollständig** → `po = {}` → `area=0`, `core_ratio=0`,
+`total_active_frames=0`. `continuity_score()` gewichtet genau diese Felder (0.30/0.30/0.25/0.15) →
+Score **0.0** → jeder Secondary-Parent verlor automatisch, unabhängig von seiner Stärke. Betrifft
+**alle vier** Policies. Das Abnahmekriterium „Radar- und fachliche Primary wählen denselben
+Parent" war damit strukturell unerfüllbar.
+
+**Fix:** Neues Modulattribut `object_tracking.last_previous_snapshot` wird **vor** dem Ersetzen von
+`tracking_memory` gefüllt und hält den unveränderlichen Pre-Frame-Zustand. `main.py` reicht ihn als
+`previous_objects` durch; Fallback auf `tracking_memory` nur, falls das Attribut fehlt
+(Alt-Deployment) — dann greift das alte Verhalten, statt dass die Lineage ganz ausfällt. Der
+Vertrag wird damit von einer impliziten Annahme zu einer expliziten Übergabe. Signaturen bleiben
+unverändert.
+
+**Tests:** `tests/test_b385_pre_frame_parent_snapshot.py` — Attribut existiert, Snapshot trägt den
+Pre-Frame-Stand, beendeter Secondary-Parent bleibt mit `area>0` erhalten, Survivor trägt **nicht**
+das verschmolzene Objekt (Gegenprobe gegen `tracking_memory`), leeres Parent-Dict verliert immer,
+`main.py` reicht durch, Snapshot ist von `tracking_memory` entkoppelt.
+
+**Phasen-Status:** Phase A — Radar- und Fachebene bewerten dieselben Daten.
+**Offen:** IR-Entkopplung P1-1 (B386), Resolver-Geometrie P1-2 (B387), stabile Signaturen/`closed`
+P1-3/4/5 (B388), Hungarian-Unmatched P1-7 + Zeitbasis P2-2 (B389), Mehrkern-Komponentengraph P2-4
+(B390), IR-`cell_id` umgeht Merge-Policy P2-1.

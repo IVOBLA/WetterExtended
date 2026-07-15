@@ -1287,6 +1287,11 @@ def _seed_velocity_from_snapshot(prev_obj, cx, cy, previous_snapshot):
 # ---------------------------------------------------------------------------
 _last_tracking_timestamp = None
 _KM_PER_DEG_LAT = 111.32
+# B385: Pre-Frame-Zustand des letzten update_tracking_memory()-Laufs.
+# cell_lineage darf die alten Parent-Objekte NICHT aus dem bereits ersetzten
+# tracking_memory rekonstruieren -- dort traegt der Survivor bereits das
+# verschmolzene Objekt und die Secondary-Parents fehlen.
+last_previous_snapshot = {}
 # B375: frameuebergreifender Kandidatenspeicher (Signatur -> frames_seen).
 # Ein Uebergang gilt erst nach TRANSITION_CONFIRM_FRAMES konsistenten Frames
 # als bestaetigt; bis dahin bleibt die Identitaet unveraendert.
@@ -1473,6 +1478,9 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
         _IRSE = True
     _rain_support_enabled = bool(_rc.get("INACTIVE_RAIN_SUPPORT_ENABLED", _IRSE))
     global tracking_memory
+    # B385: unveraenderlicher Pre-Frame-Zustand fuer nachgelagerte Konsumenten
+    # (cell_lineage). Muss VOR dem Ersetzen von tracking_memory gefuellt werden.
+    global last_previous_snapshot
     objects = []
     new_memory = {}
     used_ids = set()
@@ -2142,6 +2150,20 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
 
     # Orographische Scores werden in main.py nach assign_cape gesetzt
     # (brauchen CAPE-Werte die hier noch nicht verfügbar sind).
+    # B385: Pre-Frame-Zustand explizit bereitstellen, BEVOR der globale Speicher
+    # ersetzt wird.
+    #
+    # Danach ruft main.py die fachliche Lineage auf und uebergab bisher
+    # `object_tracking.tracking_memory` als `previous_objects` -- also den bereits
+    # UEBERSCHRIEBENEN Speicher. Darin traegt der Survivor schon das neue,
+    # verschmolzene Objekt, und die beendeten Secondary-Parents fehlen vollstaendig
+    # (`po = {}` -> area=0, core_ratio=0, total_active_frames=0). continuity_score()
+    # bewertete damit auf der Fachebene andere Daten als auf der Radar-Ebene, obwohl
+    # B377 dieselbe Funktion verwendet -- die Vereinheitlichung war wirkungslos.
+    #
+    # Flache Kopie: die enthaltenen Objekt-Dicts sind der Pre-Frame-Stand und werden
+    # ab hier nicht mehr veraendert (new_memory enthaelt eigene Dicts).
+    last_previous_snapshot = dict(previous_snapshot)
     tracking_memory = new_memory
     for obj_id, obj in new_memory.items():
         if obj.get("missing", 0) == 0 or obj.get("tracking_state") == "inactive_rain":
