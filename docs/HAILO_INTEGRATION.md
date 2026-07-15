@@ -6344,3 +6344,42 @@ keine Brute-Force-Reste, `row_ind` sortiert.
 
 **Phasen-Status:** Phase A — der scipy-freie Pfad ist erstmals produktionstauglich und getestet.
 **Offen:** Zeitbasis Polygon/Position P2-2, Mehrkern-Komponentengraph P2-4.
+
+### B402 — Polygon-Prädiktion unterstellte einen festen 5-Minuten-Takt, die Position nicht ✅ erledigt
+
+**Root-Cause (P2-2):** Position und Geometrie desselben Tracks wurden auf **zwei verschiedene
+Zeitpunkte** prädiziert und flossen gleichzeitig in dieselbe Kostenfunktion.
+
+| Komponente | Quelle | Zeitbasis |
+|---|---|---|
+| `c_pos` | `predict_track_state()` (B374) | **echtes dt** |
+| `c_iou` | `pred_polys` (`_dx_s = vx * UPSCALE_FACTOR`) | **immer 5 min** |
+
+`vx`/`vy` sind Original-Pixel **pro Frame**; der Versatz entsprach damit implizit einem Frame.
+
+**Folge:** Bei einer 15-min-Radarlücke und 60 km/h zieht die Zelle ~15 km, das prädizierte Polygon
+nur ~5 km → kaum Überlappung → `c_iou` nahe 1.0, obwohl `c_pos` nahe 0 liegt. Mit
+`ASSOC_W_IOU = 0.25` kostet das bis zu 0.25. **Seit B400 ist `ASSOC_MAX_COST = 0.75` erreichbar** —
+ein korrekter Track kann dadurch allein wegen der falschen Polygon-Zeitbasis abgelehnt werden. Vor
+B400 war die Schwelle wirkungslos und der Defekt folgenlos; B400 macht ihn **akut**. Betroffen sind
+**schnelle Zellen bei Radarlücken** — der Fall, in dem Tracking-Kontinuität am wertvollsten ist.
+Stehende Zellen (`_dx_s ≈ 0`) sind nicht betroffen.
+
+**Kein B374-Versäumnis:** Die `pred_polys`-Berechnung liegt **vor** dem Assoziationsblock und
+stammt aus der Zeit vor der globalen Zuordnung. Der Widerspruch entstand erst dadurch, dass beide
+Größen jetzt in dieselbe Kostenfunktion fließen.
+
+**Fix:** Neuer Faktor `_dt_frames = _dt_minutes / FRAME_INTERVAL_MIN` skaliert Polygonversatz **und**
+prädizierten Schwerpunkt auf den tatsächlichen Zeitabstand. Bei 5 min ist der Faktor exakt 1.0 —
+das Verhalten im Normalfall bleibt **bitgleich**. `_dt_minutes` wird dafür vor die
+`pred_polys`-Schleife gezogen; `_tracking_dt_minutes()` schreibt `_last_tracking_timestamp` fort und
+darf pro Lauf nur **einmal** aufgerufen werden (durch Test abgesichert). Neue Konstante
+`FRAME_INTERVAL_MIN = 5.0` in `config.py`, konsistent zu `ASSOC_NORMAL_FRAME_MINUTES`.
+
+**Tests:** `tests/test_b402_polygon_zeitbasis.py` — Konstanten konsistent, `_dt_minutes` steht vor
+der Prädiktion, genau ein `_tracking_dt_minutes`-Aufruf, Versatz skaliert mit dt (5/10/15 min),
+Normaltakt unverändert, schnelle Zelle überlebt 15-min-Lücke, statische Zelle unbeeinflusst,
+`FRAME_INTERVAL_MIN` über runtime_config lesbar.
+
+**Phasen-Status:** Phase A — Position und Geometrie teilen dieselbe Zeitbasis.
+**Offen:** Mehrkern-Komponentengraph P2-4.

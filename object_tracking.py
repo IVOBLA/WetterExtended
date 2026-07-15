@@ -1548,6 +1548,12 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
     pred_polys     = {}
     pred_centroids = {}
 
+    # B402: Der tatsaechliche Zeitabstand wird JETZT ermittelt -- die
+    # Polygon-Praediktion unten braucht dieselbe Zeitbasis wie die Assoziation.
+    # `_tracking_dt_minutes()` schreibt `_last_tracking_timestamp` fort und darf
+    # deshalb pro Lauf nur EINMAL aufgerufen werden.
+    _dt_minutes = _tracking_dt_minutes(timestamp)
+
     for prev_id, prev_obj in previous_snapshot.items():
         try:
             if prev_obj.get("missing", 0) > 10:
@@ -1559,11 +1565,28 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
             prev_polys.append((prev_id, _orig_poly))
 
             # Kalman-Verschiebung: vx/vy in ORIGINAL-px/Frame; Kontur in SKALIERTEN px.
-            # → Versatz = vx * UPSCALE_FACTOR (skalierte Pixel).
+            # → Versatz = vx * UPSCALE_FACTOR * dt_frames (skalierte Pixel).
+            #
+            # B402: `dt_frames` skaliert auf den TATSAECHLICHEN Zeitabstand.
+            # Vorher wurde immer um genau EINEN Frame verschoben (5 min), waehrend die
+            # Assoziation die Position seit B374 mit dem echten dt fortschreibt
+            # (predict_track_state). Bei einer 15-min-Radarluecke prädizierte die
+            # Position auf +15 min, das Polygon aber auf +5 min -- beide Groessen
+            # beschrieben denselben Track zu VERSCHIEDENEN Zeitpunkten und flossen
+            # gleichzeitig in dieselbe Kostenfunktion (c_pos vs. c_iou).
+            #
+            # Folge: Bei 60 km/h und 15 min zieht die Zelle ~15 km, das prädizierte
+            # Polygon nur ~5 km -> kaum Ueberlappung -> c_iou nahe 1.0, obwohl c_pos
+            # nahe 0 liegt. Mit ASSOC_W_IOU=0.25 kostet das bis zu 0.25. Seit B400 ist
+            # ASSOC_MAX_COST=0.75 erreichbar -- ein korrekter Track kann dadurch allein
+            # wegen der falschen Zeitbasis abgelehnt werden.
+            #
+            # Bei 5 min ist dt_frames == 1.0 -> Verhalten unveraendert.
+            _dt_frames = _dt_minutes / max(float(_rc.get("FRAME_INTERVAL_MIN", 5.0)), 0.1)
             _vx_kf = float(prev_obj.get("vx", 0.0))
             _vy_kf = float(prev_obj.get("vy", 0.0))
-            _dx_s  = _vx_kf * UPSCALE_FACTOR
-            _dy_s  = _vy_kf * UPSCALE_FACTOR
+            _dx_s  = _vx_kf * UPSCALE_FACTOR * _dt_frames
+            _dy_s  = _vy_kf * UPSCALE_FACTOR * _dt_frames
             if abs(_dx_s) > 0.1 or abs(_dy_s) > 0.1:
                 pred_polys[prev_id] = Polygon(_cnt_arr + np.array([_dx_s, _dy_s]))
             else:
@@ -1573,8 +1596,8 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
             _x_orig = float(prev_obj.get("x", 0.0))
             _y_orig = float(prev_obj.get("y", 0.0))
             pred_centroids[prev_id] = (
-                (_x_orig + _vx_kf) * UPSCALE_FACTOR,
-                (_y_orig + _vy_kf) * UPSCALE_FACTOR,
+                (_x_orig + _vx_kf * _dt_frames) * UPSCALE_FACTOR,
+                (_y_orig + _vy_kf * _dt_frames) * UPSCALE_FACTOR,
             )
         except Exception:
             continue
@@ -1607,7 +1630,6 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
     # Jetzt: alle zulaessigen Paare werden zuerst bewertet, dann wird EINMAL
     # global optimal zugeordnet (Hungarian).
     # ========================================================================
-    _dt_minutes = _tracking_dt_minutes(timestamp)
     _detections = []
     _det_by_contour_idx = {}
     for _c_idx, _c in enumerate(contours):
