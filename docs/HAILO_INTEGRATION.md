@@ -5560,3 +5560,38 @@ globale Zuordnung (B373/B374), intensitätsbasierte Segmentierung (B376) und Pol
   Translationslabels ins Training (`transition_mask`) — eigener Prompt nach der ML-Reaktivierung.
 - **Kalibrierung:** Die Gewichte aus B373/B375/B376/B377 sind gegen den ersten Debug-Export mit
   aktiver Serie nachzujustieren.
+
+### B379 — Flächengate verwarf jede Merge-Kontur; B365-Kernschwäche fehlte in den Gates ✅ erledigt
+
+**Root-Cause:** Die Gates aus B373 waren gegen die falsche Physik kalibriert.
+
+1. **Flächengate:** `1.25^dt` erlaubte bei dt=5 min nur **3.05×**. Eine Merge-Kontur wächst aber
+   genau um ein Vielfaches (B117-Testfall: 6.400 px² → 40.000 px² = **6.25×**) → das Paar wurde
+   gegatet, die Kontur wurde `lineage="new"` mit **neuer ID**. Die B117-Kontinuität brach bei
+   jedem Merge. Der Legacy-Stage-2-Code war mit `_aratio2 >= 0.10` (~10×) großzügiger — B373 war
+   strenger als der Code, den es ersetzte.
+2. **B365:** Die B374-Changelog behauptete, B365 sei „in den physikalischen Gates aufgegangen".
+   Das war falsch — `object_tracking.py` übergab `MAX_CELL_SPEED_KMH` (150) für **alle** Tracks.
+   Die Kostenkomponenten `c_core`/`c_age` greifen zu spät, weil das Gate vorher entscheidet.
+
+**Behobene Regressionen** (gegen Baseline `a7912311` abgegrenzt):
+`test_b117_track_continuity`, `test_object_tracking_regression`, `test_b365_stage2_weak_cell_match_cap`.
+
+**Fix:**
+- `_max_area_ratio()`: Basisfaktor `ASSOC_MAX_AREA_RATIO_BASE` (10.0) im Normaltakt; der
+  zeitabhängige Anteil greift **nur** für Lücken oberhalb `ASSOC_NORMAL_FRAME_MINUTES` (5.0).
+  Merge (Wachstum) und Split (Schrumpfung) sind zulässig; absurde Verhältnisse werden weiter
+  abgefangen. Die Feinbewertung leistet `c_area`.
+- `_effective_max_speed()`: B365-Semantik in den Gates — `core_ratio < ASSOC_WEAK_CORE_THRESHOLD`
+  (0.05) → `ASSOC_WEAK_MAX_SPEED_KMH` (60). Ein global engerer Cap wird nie aufgeweitet.
+- `build_candidate_features()` nutzt dieselbe Basis wie das Gate, sonst normiert `c_pos` gegen
+  einen anderen Radius als der zugelassene.
+
+**Tests:** `tests/test_b379_assoc_gates_merge_und_kernschwaeche.py` — Merge-Wachstum und
+Split-Schrumpfung zulässig, absurde Ratio weiter gegatet, Basisfaktor bei 5 min, Zeitzuschlag erst
+darüber, Schwach-/Stark-Cap inkl. Gegenprobe, End-to-End-Match der Merge-Kontur auf den dominanten
+Parent.
+
+**Phasen-Status:** Phase A — Korrekturserie B379–B386 gestartet. **Offen:** Split-Integration
+(B381), Pre-Frame-Parent-Snapshot (B382), IR-Entkopplung (B383), Resolver-Geometrie (B384),
+stabile Signaturen/`closed` (B385), Hungarian-Unmatched + Zeitbasis (B386), Segmentierung (B380).
