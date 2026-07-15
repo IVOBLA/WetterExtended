@@ -1627,8 +1627,12 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
             tid: poly for tid, poly in pred_polys.items() if poly is not None
         }
         _det_polys = {d.index: d.polygon for d in _detections if d.polygon is not None}
+        # B387: Auch der Merge-Resolver braucht ALLE alten Tracks. Der Survivor
+        # ist per Definition gematcht und fehlte in _unmatched_polys -- sein
+        # Flaechenbeitrag wurde deshalb mit 0.0 gezaehlt, obwohl er den Merge
+        # typischerweise dominiert.
         _cands = (
-            find_merge_candidates(_unmatched_polys, _det_polys, _assoc_result.matches)
+            find_merge_candidates(_all_track_polys, _det_polys, _assoc_result.matches)
             + find_split_candidates(_all_track_polys, _det_polys, _assoc_result.matches)
         )
         _confirmed, _still, _reverted, _pending_transitions = confirm_candidates(
