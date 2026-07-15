@@ -1866,13 +1866,49 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
             # das Objekt `continued` -- auch wenn seine Herkunft ein Merge war.
             # Vorher meldete jeder Frame erneut ein Merge (23 Serien, bis 11 Frames).
             lineage = "merged"
-            parents = [oid for oid, _ in overlaps]
+            # ================================================================
+            # B395: NUR die BESTAETIGTE Parentmenge.
+            #
+            # Vorher: Die Parentliste wurde direkt aus `overlaps` abgeleitet -- also die Liste,
+            # die die Objektschleife oben mit der Schwelle `_old_coverage_m >= 0.30`
+            # aufgebaut hat. Der Resolver bestaetigt aber mit
+            # TRANSITION_MERGE_MIN_PARENT_COVERAGE = 0.40 (plus MIN_EXPLAINED fuer
+            # die Gesamtmenge). `_transition` diente damit nur als AUSLOESER; seine
+            # bestaetigte Parentmenge wurde verworfen.
+            #
+            # Folge: Ein Randtrack mit 31 % Abdeckung erfuellt >= 0.30, aber nicht
+            # >= 0.40. Er war NICHT Teil des bestaetigten Ereignisses, landete aber
+            # trotzdem in `parents` -- erschien im cell_merge-Event, wurde ueber
+            # lineage_end als beendet markiert und konnte bei hohem Trackalter sogar
+            # die Primary-Policy gewinnen. Die 0.40-Schwelle war damit wirkungslos.
+            # Belegt (Debug 14.07.2026): 21 von 373 Parent-Beziehungen (~6 %) liegen
+            # zwischen 0.30 und 0.40.
+            #
+            # `overlaps` liefert ab hier nur noch die REIHENFOLGE (dominanter Parent
+            # zuerst, nach B377-Policy sortiert), nicht mehr die Mitgliedschaft.
+            # Die 0.30-Schwelle in der Kandidatenermittlung bleibt unveraendert --
+            # dort ist das weite Netz korrekt.
+            # ================================================================
+            _confirmed_parent_ids = {str(p) for p in (_transition.parents or [])}
+            parents = [oid for oid, _ in overlaps if str(oid) in _confirmed_parent_ids]
+            # Defensiv: ein bestaetigter Parent, der nicht in overlaps steht, darf
+            # nicht verloren gehen (Reihenfolge dann ans Ende).
+            for _cp in (_transition.parents or []):
+                if str(_cp) not in {str(_p) for _p in parents}:
+                    parents.append(_cp)
+            if len(parents) < 2:
+                debug_log(
+                    f"[B395] Bestaetigter Merge mit {len(parents)} Parent(s) — "
+                    f"Signatur {_transition.signature[:8]}, uebersprungen"
+                )
             # B117: Merge-Zelle ERBT die ID des dominanten Parents (groesster
             # Parent nach alter Konturflaeche = overlaps[0]), sofern noch frei.
             # Erhaelt Track-Kontinuitaet
             # (Kalman/History/first_seen werden im Enrichment uebernommen).
             # Nur wenn kein Parent mehr frei ist -> neue ID (echtes Novum).
-            _dominant = next((oid for oid, _ in overlaps if oid not in used_ids), None)
+            # B395: Der dominante Parent muss aus der BESTAETIGTEN Menge stammen --
+            # sonst erbte ein nicht bestaetigter Randtrack die Identitaet.
+            _dominant = next((oid for oid in parents if oid not in used_ids), None)
             if _dominant is not None and _dominant in previous_snapshot:
                 obj_id = _dominant
                 best_id = _dominant      # ermoeglicht Trend-Carry-over
