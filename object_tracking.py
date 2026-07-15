@@ -1556,6 +1556,10 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
     # ========================================================================
     global _pending_transitions
     _frame_transitions = {}
+    # B381: signature -> {detection_index: obj_id}. Grundlage fuer children/
+    # lineage_end der bestaetigten Splits (ersetzt den toten assigned_old_to_new-Pfad).
+    _split_child_obj_ids = {}
+    _confirmed_transitions = []
     try:
         from tracking.transition_resolver import (
             confirm_candidates, find_merge_candidates, find_split_candidates,
@@ -1563,10 +1567,16 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
         _unmatched_polys = {
             tid: pred_polys.get(tid) for tid in _unmatched_track_ids if pred_polys.get(tid) is not None
         }
+        # B381: Der Split-Resolver braucht ALLE alten Tracks, auch 1:1-gematchte.
+        # Bei A -> X + Y ordnet Hungarian A korrekterweise X zu; A waere in
+        # _unmatched_polys nicht enthalten und der Split unsichtbar.
+        _all_track_polys = {
+            tid: poly for tid, poly in pred_polys.items() if poly is not None
+        }
         _det_polys = {d.index: d.polygon for d in _detections if d.polygon is not None}
         _cands = (
             find_merge_candidates(_unmatched_polys, _det_polys, _assoc_result.matches)
-            + find_split_candidates(_unmatched_polys, _det_polys, _assoc_result.matches)
+            + find_split_candidates(_all_track_polys, _det_polys, _assoc_result.matches)
         )
         _confirmed, _still, _reverted, _pending_transitions = confirm_candidates(
             _cands, _pending_transitions
@@ -1574,6 +1584,7 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
         for _c in _confirmed + _still:
             for _child in _c.children:
                 _frame_transitions[_child] = _c
+        _confirmed_transitions = list(_confirmed)
         debug_log(
             f"[B375] Uebergaenge: {len(_confirmed)} bestaetigt, {len(_still)} Kandidaten, "
             f"{len(_reverted)} verworfen"
@@ -1754,7 +1765,29 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
         obj_id = None
 
         _transition = _frame_transitions.get(_c_idx)
-        if _transition is not None and _transition.phase == "confirmed" and len(overlaps) >= 2:
+        if (_transition is not None and _transition.phase == "confirmed"
+                and _transition.kind == "split"):
+            # B381: Bestaetigter Split. Vorher hatte die Schleife ueberhaupt keinen
+            # Split-Zweig -- `len(overlaps) >= 2` ist fuer ein Split-Kind nie erfuellt,
+            # jedes Kind hat hoechstens einen Parent. Bestaetigte Split-Kandidaten
+            # blieben damit wirkungslos.
+            _split_parent = _transition.parents[0]
+            lineage = "split"
+            parents = [_split_parent]
+            if _transition.primary_child == _c_idx and _split_parent not in used_ids:
+                # Primaeres Kind fuehrt die Parent-ID fort (AINT-Regel).
+                obj_id = _split_parent
+                best_id = _split_parent
+            else:
+                # Weitere Kinder erhalten neue IDs; best_id erhaelt den Parent,
+                # damit Trend-/Kern-Carry-over die Herkunft nutzen kann.
+                obj_id = generate_id()
+                while obj_id in new_memory or obj_id in previous_snapshot:
+                    obj_id = generate_id()
+                best_id = _split_parent
+            _split_child_obj_ids.setdefault(_transition.signature, {})[_c_idx] = obj_id
+
+        elif _transition is not None and _transition.phase == "confirmed" and len(overlaps) >= 2:
             # B375: `merged` NUR im bestaetigten Ereignisframe. In Folgeframes ist
             # das Objekt `continued` -- auch wenn seine Herkunft ein Merge war.
             # Vorher meldete jeder Frame erneut ein Merge (23 Serien, bis 11 Frames).
@@ -1924,35 +1957,34 @@ def update_tracking_memory(hsv, contours, weather_data, timestamp, rain_support_
         for parent_id in parents:
             assigned_old_to_new.setdefault(parent_id, []).append(obj_id)
 
-    for old_id, new_ids in assigned_old_to_new.items():
-        uniq = []
-        for nid in new_ids:
-            if nid not in uniq:
-                uniq.append(nid)
-        if len(uniq) >= 2 and old_id in new_memory:
-            areas = [(nid, float(new_memory.get(nid, {}).get("area", 0.0))) for nid in uniq if nid in new_memory]
-            if not areas:
-                continue
-            areas.sort(key=lambda item: item[1], reverse=True)
-            keep_id = areas[0][0]
-            children = [keep_id]
-            for sid, _ in areas[1:]:
-                src = new_memory.get(sid)
-                if not src:
-                    continue
-                new_id = generate_id()
-                while new_id in new_memory:
-                    new_id = generate_id()
-                split_obj = src.copy()
-                split_obj["lineage"] = "split"
-                split_obj["parents"] = [old_id]
-                new_memory[new_id] = split_obj
-                del new_memory[sid]
-                children.append(new_id)
-            old_obj = previous_snapshot.get(old_id, {})
-            old_obj["children"] = children
-            old_obj["lineage_end"] = f"split_into:{children}"
-            previous_snapshot[old_id] = old_obj
+    # B381: children/lineage_end der bestaetigten Splits stammen aus dem
+    # Transition-Resolver. Der alte assigned_old_to_new-Nachlauf ist ersatzlos
+    # entfallen: er verlangte, dass dieselbe alte ID in `parents` MEHRERER neuer
+    # Objekte steht -- nach der globalen 1:1-Zuordnung ist das per Konstruktion
+    # unmoeglich (parents hat bei `continued` genau einen, bei `merged` mehrere
+    # Eintraege, aber nie derselbe Parent bei zwei Objekten). Der Pfad war tot und
+    # damit die einzige Stelle, die lineage="split" setzen konnte.
+    for _tr in _confirmed_transitions:
+        if _tr.kind != "split":
+            continue
+        _parent_id = _tr.parents[0]
+        _child_map = _split_child_obj_ids.get(_tr.signature, {})
+        _children_ids = [_child_map[i] for i in _tr.children if i in _child_map]
+        if len(_children_ids) < 2:
+            continue
+        # Primaeres Kind zuerst -- es fuehrt die Parent-ID fort.
+        _primary_obj_id = _child_map.get(_tr.primary_child)
+        if _primary_obj_id in _children_ids:
+            _children_ids.remove(_primary_obj_id)
+            _children_ids.insert(0, _primary_obj_id)
+        _old_obj = previous_snapshot.get(_parent_id, {})
+        _old_obj["children"] = _children_ids
+        _old_obj["lineage_end"] = f"split_into:{_children_ids}"
+        previous_snapshot[_parent_id] = _old_obj
+        debug_log(
+            f"[B381] Split bestaetigt: {_parent_id} -> {_children_ids} "
+            f"(primaer={_primary_obj_id}, explained={_tr.explained})"
+        )
 
     import time as _time_mod
     for obj_id, obj in previous_snapshot.items():

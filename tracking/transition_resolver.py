@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
+from typing import Any
 
 try:
     import runtime_config as _rc
@@ -71,6 +72,8 @@ class TransitionCandidate:
     explained: float = 0.0
     frames_seen: int = 1
     phase: str = "candidate"
+    # B381: Detektionsindex des primaeren Kindes (fuehrt die Parent-ID fort).
+    primary_child: Any = None
 
 
 def _safe_area(poly) -> float:
@@ -133,16 +136,23 @@ def find_merge_candidates(unmatched_tracks: dict, detections: dict, matched: dic
     return out
 
 
-def find_split_candidates(unmatched_tracks: dict, detections: dict, matched: dict) -> list:
-    """1:n — eine UNMATCHED alte Zelle überdeckt mehrere neue Zellen.
+def find_split_candidates(all_tracks: dict, detections: dict, matched: dict) -> list:
+    """1:n — eine alte Zelle überdeckt mehrere neue Zellen.
 
-    Dieser Pfad war bisher strukturell unerreichbar (used_ids), obwohl P66
-    nachweislich Sub-Zellen erzeugt. Ergebnis: 0 Splits in 724 Beobachtungen.
+    B381: Der Parameter heisst bewusst `all_tracks`, nicht `unmatched_tracks`.
+    Bei einem normalen Split A -> X + Y ordnet Hungarian A korrekterweise 1:1
+    einem der Kinder zu (z. B. X). A ist damit MATCHED. Wurden hier nur unmatched
+    Tracks uebergeben, sah der Resolver genau den Fall nicht, fuer den er gebaut
+    wurde -- den Split, bei dem das primaere Kind die Parent-ID fortfuehrt.
+    Ergebnis: weiterhin 0 Splits, obwohl die Segmentierung Sub-Zellen erzeugt.
+
+    Das globale 1:1-Match ist kein Ausschlusskriterium, sondern die Information,
+    WELCHES Kind das primaere ist (AINT: das am besten passende Kind behaelt die UID).
     """
     min_expl = float(_cfg("TRANSITION_SPLIT_MIN_EXPLAINED"))
     min_share = float(_cfg("TRANSITION_SPLIT_MIN_CHILD_SHARE"))
     out = []
-    for tid, tpoly in (unmatched_tracks or {}).items():
+    for tid, tpoly in (all_tracks or {}).items():
         old_area = _safe_area(tpoly)
         if old_area <= 0:
             continue
@@ -157,10 +167,18 @@ def find_split_candidates(unmatched_tracks: dict, detections: dict, matched: dic
         ratio = explained / max(old_area, 1e-6)
         if ratio < min_expl:
             continue
+        # B381: Das primaere Kind ist das global 1:1 gematchte. Es fuehrt die
+        # Parent-ID fort; alle weiteren Kinder erhalten neue IDs.
+        _primary_child = next((c for c in children if matched.get(c) == tid), None)
+        if _primary_child is None:
+            # Kein Kind wurde dem Parent zugeordnet (z. B. weil alle Paare gegatet
+            # wurden). Dann ist das flaechengroesste Kind das primaere.
+            _primary_child = max(children, key=lambda c: _safe_area(detections.get(c)))
         out.append(TransitionCandidate(
             kind="split", parents=[tid], children=children,
             signature=transition_signature("split", [tid], [str(c) for c in children]),
             explained=round(ratio, 4),
+            primary_child=_primary_child,
         ))
     return out
 
