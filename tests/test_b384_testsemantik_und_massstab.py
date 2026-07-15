@@ -1,5 +1,7 @@
 """B384: Die angepassten Bestandstests müssen die NEUE Architektur prüfen."""
+import ast
 import math
+from pathlib import Path
 
 import pytest
 
@@ -51,6 +53,26 @@ def test_b365_mock_is_position_dependent():
 
 
 def test_b117_checks_confirmed_merge_in_frame3():
-    src = open("tests/test_b117_track_continuity.py", encoding="utf-8").read()
-    assert "00-10-00" in src, "Frame 3 (Bestaetigung) fehlt im B117-Test"
-    assert 'm3.get("lineage") == "merged"' in src
+    """B399: Semantik prüfen, nicht den Namen einer lokalen Variable."""
+    src = Path("tests/test_b117_track_continuity.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    function = next(
+        (
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "test_merge_inherits_dominant_parent_id"
+        ),
+        None,
+    )
+    assert function is not None, "B117-Merge-Kontinuitätstest fehlt"
+
+    function_src = ast.get_source_segment(src, function) or ""
+
+    assert "00-10-00" in function_src, (
+        "Frame 3 mit Zeitstempel 00-10-00 fehlt im B117-Test"
+    )
+    assert '.get("lineage") == "merged"' in function_src, (
+        "B117 muss im dritten Frame weiterhin den bestätigten Merge prüfen"
+    )
