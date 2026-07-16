@@ -8,6 +8,7 @@ schneidet. Eine spätere Pegelreaktion wird bewusst nicht hier verifiziert.
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import math
 import os
@@ -22,8 +23,8 @@ try:
 except (ImportError, ValueError):
     SHAPELY_AVAILABLE = False
 if SHAPELY_AVAILABLE:
-    from shapely.geometry import Polygon, shape
-    from shapely.ops import transform
+    from shapely.geometry import Polygon, mapping, shape
+    from shapely.ops import transform, unary_union
     from shapely.validation import make_valid
 else:  # pragma: no cover - schlanker Fallback für Minimalumgebungen
     Polygon = shape = transform = make_valid = None
@@ -46,6 +47,90 @@ LATEST_IMPACTS_PATH = Path(os.environ.get("HYDRO_LATEST_IMPACTS_PATH", str(IMPAC
 LATEST_FORECAST_PATH = Path(os.environ.get("HYDRO_LATEST_FORECAST_PATH", str(IMPACT_DIR / "latest_hydro_forecast.json")))
 HYDRO_IMPACT_STATE_PATH = Path(os.environ.get("HYDRO_IMPACT_STATE_PATH", str(IMPACT_DIR / "hydro_impact_state.json")))
 
+
+
+_CATCHMENT_INDEX_CACHE: dict[str, Any] = {"key": None, "index": {}}
+
+def _catchment_cache_key(path: Path | None = None):
+    path = Path(path or CATCHMENTS_PATH)
+    try:
+        st = path.stat()
+        return (str(path.resolve()), st.st_mtime_ns, st.st_size)
+    except OSError:
+        return (str(path), None, None)
+
+def catchment_file_signature() -> dict:
+    key = _catchment_cache_key()
+    return {"path": key[0], "mtime_ns": key[1], "size": key[2]}
+
+def _canonical_station_id(props: dict[str, Any]) -> str:
+    for key in ("station_id", "hzbnr", "peg_id", "number", "id"):
+        val = props.get(key)
+        if val not in (None, ""):
+            return str(val)
+    return ""
+
+def load_station_catchment_index(force_reload: bool = False) -> dict[str, dict]:
+    """Laedt lokale Stations-Einzugsgebiete, vereinigt Mehrfachfeatures und cached per Datei-Signatur."""
+    if not SHAPELY_AVAILABLE:
+        return {}
+    key = _catchment_cache_key()
+    if not force_reload and _CATCHMENT_INDEX_CACHE.get("key") == key:
+        return _CATCHMENT_INDEX_CACHE.get("index") or {}
+    index: dict[str, dict] = {}
+    raw = _load_json(CATCHMENTS_PATH, {})
+    if not isinstance(raw, dict) or raw.get("type") != "FeatureCollection" or not isinstance(raw.get("features"), list):
+        _CATCHMENT_INDEX_CACHE.update({"key": key, "index": {}})
+        return {}
+    grouped: dict[str, list] = {}
+    props_by_sid: dict[str, dict] = {}
+    invalid_counts: dict[str, int] = {}
+    for feat in raw.get("features") or []:
+        if not isinstance(feat, dict):
+            continue
+        props = feat.get("properties") if isinstance(feat.get("properties"), dict) else {}
+        sid = _canonical_station_id(props)
+        if not sid:
+            continue
+        try:
+            geom = shape(feat.get("geometry"))
+            if not geom.is_valid:
+                geom = make_valid(geom)
+            if geom.is_empty:
+                invalid_counts[sid] = invalid_counts.get(sid, 0) + 1
+                continue
+            grouped.setdefault(sid, []).append(geom)
+            props_by_sid.setdefault(sid, props)
+        except Exception:
+            invalid_counts[sid] = invalid_counts.get(sid, 0) + 1
+    for sid, geoms in grouped.items():
+        try:
+            geom = unary_union(geoms) if len(geoms) > 1 else geoms[0]
+            if not geom.is_valid:
+                geom = make_valid(geom)
+            status = "ok" if geom and not geom.is_empty else "invalid_geometry"
+            area = _area_km2(geom) if status == "ok" else 0.0
+            index[sid] = {
+                "station_id": sid,
+                "geometry": geom,
+                "feature_count": len(geoms),
+                "invalid_feature_count": invalid_counts.get(sid, 0),
+                "status": status,
+                "area_km2": round(area, 3),
+                "signature": hashlib.sha256(json.dumps({"file": key, "sid": sid, "area": round(area, 6), "features": len(geoms)}, sort_keys=True, default=str).encode()).hexdigest(),
+                "properties": props_by_sid.get(sid, {}),
+            }
+        except Exception:
+            index[sid] = {"station_id": sid, "geometry": None, "feature_count": len(geoms), "status": "invalid_geometry", "area_km2": 0.0}
+    _CATCHMENT_INDEX_CACHE.update({"key": key, "index": index})
+    return index
+
+def catchment_diagnostics(station_id: str) -> dict:
+    item = load_station_catchment_index().get(str(station_id) or "")
+    if not item:
+        return {"catchment_geometry_available": False, "catchment_geometry_status": "missing", "catchment_feature_count": 0, "catchment_area_geometry_km2": None}
+    ok = item.get("status") == "ok" and item.get("geometry") is not None
+    return {"catchment_geometry_available": bool(ok), "catchment_geometry_status": item.get("status") or "missing", "catchment_feature_count": int(item.get("feature_count") or 0), "catchment_area_geometry_km2": item.get("area_km2"), "catchment_signature": item.get("signature")}
 
 def _runtime_get(name: str, default: Any) -> Any:
     try:
@@ -601,3 +686,38 @@ def load_pending_hydro_impacts() -> list[dict]:
                 else:
                     by_id.pop(event_id, None)
     return list(by_id.values())
+
+# B408-Fallback: Auch ohne Shapely darf die lokale GeoJSON-Kette nicht als
+# "keine Daten" abbrechen. Für Minimal-Test-/Raspberry-Umgebungen wird eine
+# konservative Bounding-Box-Geometrie genutzt; mit Shapely bleibt obige präzise
+# Polygonlogik aktiv.
+_ORIG_LOAD_STATION_CATCHMENT_INDEX = load_station_catchment_index
+
+def load_station_catchment_index(force_reload: bool = False) -> dict[str, dict]:  # type: ignore[override]
+    if SHAPELY_AVAILABLE:
+        return _ORIG_LOAD_STATION_CATCHMENT_INDEX(force_reload)
+    key = _catchment_cache_key()
+    if not force_reload and _CATCHMENT_INDEX_CACHE.get("key") == key:
+        return _CATCHMENT_INDEX_CACHE.get("index") or {}
+    raw = _load_json(CATCHMENTS_PATH, {})
+    index: dict[str, dict] = {}
+    if isinstance(raw, dict) and raw.get("type") == "FeatureCollection" and isinstance(raw.get("features"), list):
+        grouped: dict[str, list] = {}
+        for feat in raw.get("features") or []:
+            if not isinstance(feat, dict):
+                continue
+            props = feat.get("properties") if isinstance(feat.get("properties"), dict) else {}
+            sid = _canonical_station_id(props)
+            geom = feat.get("geometry") if isinstance(feat.get("geometry"), dict) else {}
+            coords = geom.get("coordinates") or []
+            ring = coords[0] if geom.get("type") == "Polygon" and coords else None
+            poly = _to_polygon_from_coords(ring)
+            if sid and poly:
+                grouped.setdefault(sid, []).append(poly)
+        for sid, rings in grouped.items():
+            xs=[x for r in rings for x,_ in r]; ys=[y for r in rings for _,y in r]
+            bbox=[min(xs), min(ys), max(xs), max(ys)]
+            area=sum(_area_km2(r) for r in rings)
+            index[sid]={"station_id": sid, "geometry": rings[0], "bbox": bbox, "feature_count": len(rings), "status": "ok", "area_km2": round(area,3), "signature": hashlib.sha256(json.dumps({"file": key, "sid": sid, "bbox": bbox}, sort_keys=True, default=str).encode()).hexdigest()}
+    _CATCHMENT_INDEX_CACHE.update({"key": key, "index": index})
+    return index

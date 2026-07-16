@@ -95,3 +95,15 @@ Hydro-Flood-ML lernt fachlich die spätere Änderung von `q_m3s` nach Niederschl
 Niederschlag wird priorisiert: gesicherte/observed Werte zuerst, dann Nowcast/Radar/Zellableitung, zuletzt Proxy. Ein Proxy darf beobachtete Werte nie überschreiben. Jede Bewertung dokumentiert Quelle, Qualität, Alter und Proxy/Observed-Status.
 
 Der Zellforecast bleibt unabhängig: Hydro liest aktuelle erkannte Zellen nur read-only zur Einzugsgebietszuordnung und schreibt keine Hydro-, `q_`, `w_`- oder `hq`-Features in `ML_CELL_FEATURES`.
+
+## B408: Hydro-Flood-Q-Prognose aus Catchment-Niederschlag
+
+Der Flood-Risk-Pfad lädt die lokalen Einzugsgebiete zentral aus `train_data/hydro/static/generated/station_catchments.geojson` und indexiert sie nach `station_id`. Die öffentliche Stations-GeoJSON-API bleibt eine Punkt-Ausgabe; interne Catchment-Polygone werden nicht über Kartenpayloads transportiert.
+
+Der produktive Datenfluss ist:
+
+`Zellobjekte → produktive Zellzugbahn (forecast_lat_<H>/forecast_lon_<H>/forecast_mode_<H>) → zeitabhängige Zellpolygone → Catchment-Schnitt → räumlich deduplizierte Niederschlagswirkung → Dauer-/Routingberechnung → Q-Prognose in m³/s → Stationsgrenzwert`.
+
+Die deterministische Wirkung pro Zeitschritt nutzt `delta_q_raw = C * i_mm_h * A_km2 / 3.6`. Mehrere Zellen werden im selben Zeitraster gemeinsam aggregiert; überlappende Flächen werden nach numerischer Intensität sortiert und nur einmal mit der stärksten belastbaren Rate gezählt. Das Routing erfolgt kausal mit `alpha = 1 - exp(-dt_min / tau_min)` und setzt immer auf dem aktuellen `current_q_m3s` auf. Fehlende Grenzwerte verhindern nur `flood_expected`, nicht die Niederschlagsanalyse.
+
+Runtime-Parameter: `HYDRO_FORECAST_SAMPLE_STEP_MIN`, `HYDRO_FALLBACK_ROUTING_TAU_MIN`, `HYDRO_FORECAST_RUNOFF_COEFF`, `HYDRO_FORECAST_ROUTING_ATTENUATION`, `HYDRO_MIN_OVERLAP_AREA_KM2` und `HYDRO_MIN_OVERLAP_RATIO_CELL`.

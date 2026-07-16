@@ -73,7 +73,9 @@ export function normalizeHydroFloodPopup(p = {}, flood = {}) {
   const floodNotEvaluable = flood.flood_evaluable === false || flood.flood_status === 'missing_threshold' || thresholdMissing
   const floodLabel = floodNotEvaluable ? 'nicht bewertbar' : (flood.flood_expected === true ? 'ja' : 'nein')
   const precipEvaluable = flood.precip_evaluable === true || (flood.effective_precip_source_type && flood.effective_precip_source_type !== 'missing' && validNumber(flood.effective_catchment_precip_sum_mm))
-  const precipValue = precipEvaluable ? `${fmt(flood.effective_catchment_precip_sum_mm)} mm` : 'nicht bewertbar'
+  const noRelevantCell = flood.precip_status === 'no_relevant_cell'
+  const missingGeometry = flood.precip_status === 'catchment_geometry_missing' || flood.catchment_geometry_available === false
+  const precipValue = precipEvaluable && validNumber(flood.effective_catchment_precip_sum_mm) ? `${fmt(flood.effective_catchment_precip_sum_mm)} mm` : (noRelevantCell ? '0,00 mm' : 'nicht bewertbar')
   const precipStatusLabel = flood.precip_status_label || (precipEvaluable ? 'aus erkannter Regenzelle abgeleitet' : 'keine verwertbaren Niederschlagsdaten zugeordnet')
   const precipQualityLabel = flood.precip_quality_label || (precipEvaluable ? (flood.effective_precip_source_quality === 'high' ? 'hoch' : 'mittel') : 'nicht bewertbar')
   const qTimestamp = currentQTimestamp(p, flood)
@@ -99,6 +101,12 @@ export function normalizeHydroFloodPopup(p = {}, flood = {}) {
     distanceLabel: validNumber(distance) ? fmt(distance) : '—',
     dataAgeLabel: validNumber(dataAge) ? Number(dataAge).toFixed(1) : '—',
     floodLabel,
+    predictedQMaxLabel: validNumber(flood.predicted_q_max_m3s) ? fmt(flood.predicted_q_max_m3s) : '—',
+    thresholdExceededLabel: flood.flood_evaluable === false ? 'nicht bewertbar' : (flood.flood_expected === true ? 'ja' : 'nein'),
+    contributingCellCountLabel: validNumber(flood.contributing_cell_count) ? Number(flood.contributing_cell_count).toFixed(0) : '—',
+    currentCellCountLabel: validNumber(flood.current_cell_count) ? Number(flood.current_cell_count).toFixed(0) : '—',
+    incomingCellCountLabel: validNumber(flood.incoming_cell_count) ? Number(flood.incoming_cell_count).toFixed(0) : '—',
+    dwellTimeLabel: validNumber(flood.total_dwell_time_min) ? `${Number(flood.total_dwell_time_min).toFixed(0)} min` : '—',
     precipValue,
     precipStatusLabel,
     precipQualityLabel,

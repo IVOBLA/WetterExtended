@@ -2903,3 +2903,11 @@ abschätzen lässt, mit welchen Böen bei dieser Zelle aktuell zu rechnen
 ist. Die Windrichtung folgt der meteorologischen Konvention (Richtung,
 **aus** der der Wind weht — nicht zu verwechseln mit der Zugrichtung 🧭
 der Zelle selbst).
+
+## Hydro-Hochwasserprognose in m³/s
+
+Die Hydro-Hochwasseranzeige basiert auf dem aktuellen Durchfluss `Q aktuell` und dem Niederschlag erkannter Zellen im lokalen Einzugsgebiet der Station. WetterExtended berücksichtigt sowohl Zellen, die aktuell im Einzugsgebiet liegen, als auch Zellen, die über die produktive WetterExtended-Zugbahn in das Einzugsgebiet hineinziehen. Mehrere Zellen werden gemeinsam bewertet.
+
+Die Zellgröße wirkt nicht als zusätzlicher künstlicher Faktor, sondern über die tatsächlich vom Einzugsgebiet überdeckte Zellfläche. Niederschlagsintensität, Aufenthaltsdauer im Einzugsgebiet und ein einfacher Routing-Speicher bestimmen den erwarteten Q-Anstieg. Das Ergebnis bleibt eine maximale vorhergesagte Durchflussmenge in `m³/s` und die Aussage, ob der konfigurierte Q-Grenzwert voraussichtlich erreicht wird.
+
+Fehlt der Q-Grenzwert einer Station, zeigt WetterExtended weiterhin Niederschlags-, Zell- und Aufenthaltsdauerinformationen an. Nur die Ja/Nein-Hochwasserentscheidung ist dann nicht bewertbar.
