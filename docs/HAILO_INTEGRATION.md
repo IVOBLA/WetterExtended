@@ -6744,3 +6744,30 @@ räumlich deduplizierte `overlap_area_time_km2_min` konsistent als `0.0`.
 Daten; der Debug-Export liefert einen konsistenten Datenbankstand. Damit ist die
 Hydro-Flood-Serie B412–B419 abgeschlossen. Phase B (Hailo-8 U-Net) unverändert
 blockiert; sie wartet weiterhin auf ausreichende Trainingsdaten.
+
+### B420 — Cache-Validierung, Startup-Migration und Trainingslock griffen nicht ✅ erledigt
+
+**Root-Cause:** Alle drei Befunde stammen aus dem automatischen Codex-Review zu PR
+#1049 und #1052 und waren in B414 beziehungsweise B417 bereits als Anforderungen
+formuliert, aber unvollständig umgesetzt: Der Cache-Hash kannte den Zellframe-Zustand
+nicht, die Startup-Migration lief ausschließlich im 03:35-Cronjob, und der
+Cross-Process-Lock wurde vor der geschützten Arbeit wieder freigegeben. Damit waren
+insbesondere B417 Punkt 5 („zweiter Start → 409") und Punkt 22 („Migrationen
+automatisch einmalig") nicht erfüllt.
+
+**Fix:** Der Cache-Hash enthält jetzt Zellframe-Status, -Zeitstempel und rohe
+Zellanzahl, nicht aber das laufend alternde `frame_age_min`. Die idempotenten
+Migrationen laufen beim Aufbau des Schedulers vor dem ersten Verify-Job; der
+Materialisierer stößt sie ohne Scheduler ersatzweise an. Ein offenes `flock`-Handle
+wird an den Trainingsworker übergeben und dort erst nach Training oder Fehler
+freigegeben. Der Worker reicht dasselbe Handle reentrant an `train_model()` weiter.
+Der atomar geschriebene JSON-Status unter `train_data/hydro/ml` ist in allen Prozessen
+sichtbar; ein freier Lock bei `running=true` wird als `worker_vanished` korrigiert.
+
+**Tests:** Regressionen decken Frame-Erholung und stabile Frame-Alterung,
+idempotente und ersatzweise Startup-Migration sowie Lock-Übergabe,
+prozessübergreifende Exklusivität, Worker-Abschluss und fehlgeschlagenen Threadstart
+ab.
+
+**Phasen-Status:** Phase A — die Schutzmechanismen greifen. Phase B (Hailo-8 U-Net)
+unverändert blockiert.

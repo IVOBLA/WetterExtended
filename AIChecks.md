@@ -199,6 +199,23 @@ ob geometry_quality je einen anderen Wert annimmt. Ist der Zweig über 30 Tage n
 erreicht worden, als toten Code zur Entfernung in einem eigenen Prompt vormerken —
 nicht nebenbei löschen.
 
+### AC-033 — Prüfe, ob Deferred-Zustände die Erholung überleben
+Suche im 24h-Export Zeitpunkte, an denen cell_frame_status von "missing"/"stale" auf
+"ok" wechselt. Prüfe den unmittelbar folgenden hydro_flood_risk-Payload: deferred_reason
+muss verschwunden und forecast_evaluation_stale false sein. Bleibt der Deferred-Zustand
+über den Wechsel hinweg bestehen, greift die Cache-Invalidierung nicht — melden.
+
+### AC-034 — Prüfe Migrationszeitpunkt nach Upgrade
+Vergleiche im Export den Zeitstempel des Prozessstarts (systemd) mit applied_at in
+schema_migrations. Liegt applied_at systematisch bei 03:35 statt beim Start, läuft die
+Migration nur im Cronjob — melden. Zwischen Upgrade und Migration entstehen keine
+Labels.
+
+### AC-035 — Prüfe Trainingsstatus über Prozessgrenzen
+Rufe /api/admin/hydro/flood-risk/retrain/status während eines laufenden Trainings
+mehrfach ab. Zeigen manche Antworten "idle", ist der Status prozesslokal und die
+409-Zusage nicht eingehalten — melden.
+
 ---
 
 ## Erledigt

@@ -712,6 +712,15 @@ def create_scheduler() -> BlockingScheduler:
         },
     )
 
+    # Migrationen müssen vor dem ersten Hydro-Verify-Lauf verfügbar sein.
+    try:
+        import hydro_flood_ml
+        hydro_flood_ml.run_hydro_startup_migrations()
+    except BlockingIOError:
+        debug_log("[SCHEDULER] Hydro-Startup-Migration: anderer Prozess hält den Lock")
+    except Exception as exc:
+        debug_log(f"[SCHEDULER] Hydro-Startup-Migration Fehler: {exc}")
+
     # --- immer aktiv: KI-Analyse ---
     _ai_cfg  = runtime_config.get("AI_ANALYSIS_CONFIG", AI_ANALYSIS_CONFIG)
     _ai_days = _ai_cfg.get("cron_days", "mon,tue,wed,thu,fri,sat,sun").strip()
