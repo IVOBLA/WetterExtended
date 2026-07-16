@@ -71,7 +71,7 @@ nur Abschnitt ersetzt wird, mit exakten Such-/Ersatz-Strings.
 ## 2. Hardware-Stand (Mai 2026)
 
 ### 2.1 Was vorhanden ist
-- **Raspberry Pi 5 B (16 GB)** — Hauptrechner, in Betrieb
+- **Raspberry Pi 5 B (8 GB)** — Hauptrechner, in Betrieb
 - **Hailo-8 AI Module** (26 TOPS, PCIe Gen3) — montiert, `hailo-all` installiert
 - **Raspberry Pi OS Bookworm 64-bit** mit Kernel ≥ 6.6
 - **PCIe Gen3** aktiviert in `/boot/firmware/config.txt`
