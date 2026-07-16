@@ -28,6 +28,7 @@ HYDRO_MODEL_CURRENT_DIR = Path("train_data/models/hydro_flood/current")
 MIN_TRAINING_SAMPLES = int(os.getenv("HYDRO_FLOOD_ML_MIN_SAMPLES", "20"))
 FEATURE_SCHEMA_VERSION = "b418_live_catchment_v5"
 HYDRO_SAMPLE_DB_PATH = HYDRO_ML_DIR / "hydro_flood_samples.sqlite3"
+HYDRO_MAINTENANCE_STATUS_PATH = HYDRO_ML_DIR / "hydro_ml_maintenance_latest.json"
 _DEFAULT_HYDRO_SAMPLE_DB_PATH = HYDRO_SAMPLE_DB_PATH
 _DEFAULT_HYDRO_DATASET_JSONL_PATH = HYDRO_DATASET_JSONL_PATH
 HYDRO_MODEL_ROOT_DIR = Path("train_data/models/hydro_flood")
@@ -264,6 +265,13 @@ def is_flood_risk_cache_valid(doc: dict | None, live: dict | None = None, cells:
     if risk_mtime is not None and hydro_mtime is not None and hydro_mtime > risk_mtime:
         return False
     return doc.get("input_hash") == flood_risk_input_hash(live=live, cells=cells)
+
+
+def require_public_payload_scope(doc: dict) -> dict:
+    """Verhindert, dass ein unklassifizierter Cache still öffentlich wird."""
+    if not isinstance(doc, dict) or doc.get("payload_scope") != "public":
+        raise ValueError("hydro_flood_risk payload_scope fehlt oder ist nicht public")
+    return doc
 
 
 def _f(v, default=None):
@@ -832,7 +840,7 @@ def heuristic_score(row: dict) -> dict:
     return {**base, "flood_expected": expected, "flood_evaluable": True, "current_threshold_evaluable": True, "current_q_above_threshold": False, "forecast_flood_evaluable": True, "flood_status": "ok", "reasons": reasons, "warning_reasons": warnings, "prediction_source": "physical_fallback", "predicted_q_delta_m3s": predicted_delta, "predicted_q_max_m3s": predicted_q}
 
 def _public_flood_row(row: dict) -> dict:
-    keys = ["station_id","station_name","river","current_q_m3s","current_q_measured_at","current_q_timestamp_source","current_q_missing","station_q_threshold_m3s","station_q_threshold_source","station_q_threshold_missing","current_q_ratio_threshold","current_q_distance_to_threshold_m3s","current_q_above_threshold","current_threshold_evaluable","forecast_flood_evaluable","forecast_evaluation_stale","forecast_evaluation_generated_at","forecast_evaluation_age_min","stale_predicted_q_max_m3s","stale_prediction_generated_at","catchment_geometry_available","catchment_geometry_status","catchment_feature_count","catchment_area_geometry_km2","catchment_area_km2","routing_tau_min","routing_tau_source","input_cell_count","contributing_cell_count","current_cell_count","incoming_cell_count","effective_catchment_precip_sum_mm","effective_catchment_precip_weighted_sum_mm","effective_precip_source_type","effective_precip_source_quality","observed_precip_available","observed_precip_source_quality","observed_precip_used_in_forecast","observed_precip_rejection_reason","precip_window_overlap_min","precip_window_gap_min","precip_evaluable","precip_status","precip_status_label","precip_quality_label","cell_catchment_count","cell_catchment_overlap_area_km2_sum","raw_overlap_area_km2_sum","effective_overlap_area_km2","overlap_deduplicated_area_km2","spatial_dedup_applied","total_rain_volume_m3","total_runoff_volume_m3","total_dwell_time_min","max_cell_dwell_time_min","max_overlap_area_km2","overlap_area_time_km2_min","physical_predicted_q_delta_m3s","physical_predicted_q_max_m3s","ml_predicted_q_delta_m3s","predicted_q_delta_m3s","predicted_q_max_m3s","prediction_source","first_entry_offset_min","last_exit_offset_min","rain_rate_mm_h_max","rain_rate_mm_h_mean","rain_rate_mm_h_area_weighted","current_data_age_min","data_age_min","hydro_data_stale","current_q_trend_10min","current_q_trend_30min","current_q_trend_60min","q_trend_per_hour","already_rising_flag","q_trend_status","q_trend_delta_m3s","q_trend_reference_window_min","flood_expected","flood_evaluable","flood_status","reasons","warning_reasons","model_source","generated_at","flood_probability"]
+    keys = ["station_id","station_name","river","station_lat","station_lon","current_q_m3s","current_q_measured_at","current_q_missing","current_data_age_min","data_age_min","hydro_data_stale","station_q_threshold_m3s","station_q_threshold_missing","current_q_distance_to_threshold_m3s","current_q_ratio_threshold","current_q_above_threshold","current_threshold_evaluable","q_trend_status","q_trend_delta_m3s","q_trend_per_hour","q_trend_reference_window_min","already_rising_flag","current_q_trend_10min","current_q_trend_30min","current_q_trend_60min","predicted_q_max_m3s","prediction_source","forecast_flood_evaluable","forecast_evaluation_stale","forecast_evaluation_generated_at","forecast_evaluation_age_min","stale_predicted_q_max_m3s","stale_prediction_generated_at","input_cell_count","contributing_cell_count","current_cell_count","incoming_cell_count","effective_catchment_precip_sum_mm","effective_precip_source_type","effective_precip_source_quality","precip_evaluable","precip_status","precip_status_label","precip_quality_label","precip_is_observed","precip_source_name","precip_source_age_min","observed_precip_used_in_forecast","total_dwell_time_min","max_cell_dwell_time_min","overlap_area_time_km2_min","first_entry_offset_min","last_exit_offset_min","rain_rate_mm_h_max","rain_rate_mm_h_mean","catchment_geometry_available","catchment_geometry_status","catchment_area_km2","flood_expected","flood_evaluable","flood_status","reasons","warning_reasons","generated_at"]
     return {k: row.get(k) for k in keys if k in row}
 
 def evaluate_live_flood_risk(stations: list[dict]|None=None, live: dict|None=None, cells: list[dict]|None=None, write: bool=True, include_debug: bool=False) -> dict:
@@ -858,10 +866,10 @@ def evaluate_live_flood_risk(stations: list[dict]|None=None, live: dict|None=Non
         if isinstance(frame_meta, dict):
             full.update({"cell_frame_path": frame_meta.get("path"), "cell_frame_timestamp": frame_meta.get("frame_timestamp"), "cell_frame_age_min": frame_meta.get("frame_age_min"), "cell_frame_status": frame_meta.get("cell_frame_status") or frame_meta.get("status")})
         internal_rows.append(full)
-        public_rows.append(full if (include_debug or not write) else _public_flood_row(full))
+        public_rows.append(full if include_debug else _public_flood_row(full))
     pending_meta = record_pending_samples(internal_rows, live=live, cells_meta=cells_meta) if write else {"pending_added": 0, "pending_total": None}
     materialize_meta = materialize_pending_samples(live=None) if write else {"labeled_added": 0}
-    doc = {"status":"ok", "payload_scope": "admin_diagnostics" if include_debug else "public", "payload_schema_version": "b411_public_v1", "generated_at": generated, "input_hash": flood_risk_input_hash(live=live, cells=cells or []), "stations": public_rows, "pending_samples": pending_meta, "materialized_samples": materialize_meta, "readiness": readiness_status(), "cell_frame_path": (frame_meta or {}).get("path") if isinstance(frame_meta, dict) else None, "cell_frame_timestamp": (frame_meta or {}).get("frame_timestamp") if isinstance(frame_meta, dict) else None, "cell_frame_age_min": (frame_meta or {}).get("frame_age_min") if isinstance(frame_meta, dict) else None, "cell_frame_status": (frame_meta or {}).get("cell_frame_status") if isinstance(frame_meta, dict) else None}
+    doc = {"status":"ok", "payload_scope": "admin_diagnostics" if include_debug else "public", "payload_schema_version": "b419_admin_diagnostics_v1" if include_debug else "b411_public_v1", "generated_at": generated, "input_hash": flood_risk_input_hash(live=live, cells=cells or []), "stations": public_rows, "pending_samples": pending_meta, "materialized_samples": materialize_meta, "readiness": readiness_status(), "cell_frame_path": (frame_meta or {}).get("path") if isinstance(frame_meta, dict) else None, "cell_frame_timestamp": (frame_meta or {}).get("frame_timestamp") if isinstance(frame_meta, dict) else None, "cell_frame_age_min": (frame_meta or {}).get("frame_age_min") if isinstance(frame_meta, dict) else None, "cell_frame_status": (frame_meta or {}).get("cell_frame_status") if isinstance(frame_meta, dict) else None}
     if include_debug:
         doc["debug_stations"] = internal_rows
     if write and not include_debug: _atomic_json(HYDRO_RISK_PATH, doc)
@@ -1814,6 +1822,7 @@ def hydro_ml_maintenance() -> dict:
     report={"deleted_failure_rows":0,"deleted_dataset_rows":0,"deleted_q_history_rows":0,"deleted_training_runs":0,"deleted_candidates":0,"deleted_history_versions":0,"db_size_before":db_size_before}
     if q_days < minimum_q_days:
         report.update(status="refused",reason="q_history_retention_below_lag_and_validation_window",minimum_q_history_retention_days=minimum_q_days)
+        _atomic_json(HYDRO_MAINTENANCE_STATUS_PATH, report)
         return report
     with _sample_db() as con:
         fail_cut=(now_dt-timedelta(days=fail_days)).isoformat().replace("+00:00","Z")
@@ -1833,6 +1842,7 @@ def hydro_ml_maintenance() -> dict:
                 shutil.rmtree(victim, ignore_errors=True); report[key]+=1
     report["db_size_after"] = HYDRO_SAMPLE_DB_PATH.stat().st_size if HYDRO_SAMPLE_DB_PATH.exists() else 0
     report["status"] = "ok"
+    _atomic_json(HYDRO_MAINTENANCE_STATUS_PATH, report)
     return report
 
 def flood_risk_status() -> dict:
@@ -1849,7 +1859,7 @@ def diagnose_station(station_id: str) -> str:
     except Exception:
         live = None
     cells, meta = load_latest_cell_frame()
-    doc = evaluate_live_flood_risk(live=live, cells=cells or [], write=False)
+    doc = evaluate_live_flood_risk(live=live, cells=cells or [], write=False, include_debug=True)
     row = next((s for s in doc.get("stations", []) if str(s.get("station_id")) == str(station_id)), None)
     if not row:
         return f"Station {station_id}: nicht gefunden\nverwendeter Zellframe: {meta}"

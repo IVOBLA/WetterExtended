@@ -179,6 +179,26 @@ Zähle im Export Zeilen mit observed_precip_available=true, getrennt nach observ
 Werte bei gleichzeitig vorhandener Messung und Zellprognose precip_window_overlap_min und precip_window_gap_min aus. Erwartung: overlap = 0. Jeder Wert > 0 bedeutet ein zeitlich überlappendes Intervall; die Messung muss abgelehnt werden, damit keine überhöhte Q-Prognose entsteht — sofort melden.
 
 
+### AC-030 — Prüfe den öffentlichen Payload auf interne Felder
+Werte im 24h-Export den gespeicherten hydro_flood_risk-Cache aus. Erwartung:
+payload_scope="public", und keines der Felder cell_diagnostics,
+station_runoff_series, model_signature, model_source, ml_predicted_q_delta_m3s,
+flood_probability, hydro_flood_risk_score ist enthalten. Jeder Treffer ist ein Leck —
+die aufrufende Stelle melden, nicht das Feld im Frontend ignorieren.
+
+### AC-031 — Prüfe die Konsistenz des SQLite-Snapshots
+Öffne hydro_flood_samples_snapshot.sqlite3 aus dem Export und führe aus:
+  PRAGMA integrity_check;
+Erwartung: "ok". Prüfe zusätzlich, dass weder hydro_flood_samples.sqlite3 noch eine
+-wal/-shm-Datei im Export liegt. Ein Treffer bedeutet, dass die unkoordinierte Kopie
+zurück ist.
+
+### AC-032 — Prüfe den bbox_fallback-Zweig
+heuristic_score() testet auf geometry_quality == "bbox_fallback". Prüfe im Export,
+ob geometry_quality je einen anderen Wert annimmt. Ist der Zweig über 30 Tage nie
+erreicht worden, als toten Code zur Entfernung in einem eigenen Prompt vormerken —
+nicht nebenbei löschen.
+
 ---
 
 ## Erledigt

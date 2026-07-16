@@ -13,6 +13,7 @@ import time
 import zipfile
 import zlib  # B128: komprimierte Größenschätzung für Volume-Aufteilung
 import shutil
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -298,6 +299,8 @@ def _is_excluded(path: Path, base_dir: Path) -> bool:
     rel = _safe_rel(path, base_dir).as_posix()
     if path.name in _EXCLUDED_NAMES:
         return True
+    if path.name in {"hydro_flood_samples.sqlite3", "hydro_flood_samples.sqlite3-wal", "hydro_flood_samples.sqlite3-shm"}:
+        return True
     if path.suffix.lower() == ".zip" and ("/" not in rel or rel.startswith("data/")):
         return True
     if rel.startswith("train_data/hydro/static/"):
@@ -476,6 +479,62 @@ def _build_candidates_with_diagnostics(base_dir: Path, save_paths: dict | None) 
 def _build_candidates(base_dir: Path, save_paths: dict | None) -> list[ExportCandidate]:
     candidates, _diagnostics = _build_candidates_with_diagnostics(base_dir, save_paths)
     return candidates
+
+
+def _prepare_hydro_ml_snapshot(base_dir: Path) -> tuple[Path, list[ExportCandidate], dict]:
+    """Erzeugt exportierbare B419-Artefakte außerhalb des laufenden ML-Verzeichnisses."""
+    temp_dir = Path(tempfile.mkdtemp(prefix="wetterextended_hydro_snapshot_"))
+    source = base_dir / "train_data/hydro/ml/hydro_flood_samples.sqlite3"
+    snapshot = temp_dir / "hydro_flood_samples_snapshot.sqlite3"
+    migrations = temp_dir / "schema_migrations.json"
+    status_file = temp_dir / "hydro_ml_snapshot_status.json"
+    status: dict = {"hydro_ml_snapshot_status": "missing"}
+    candidates: list[ExportCandidate] = []
+    try:
+        if source.exists():
+            src = sqlite3.connect(str(source))
+            dst = sqlite3.connect(str(snapshot))
+            try:
+                src.backup(dst)
+            finally:
+                dst.close()
+                src.close()
+            snapshot_size = snapshot.stat().st_size
+            if snapshot_size > EXPORT_VOLUME_MAX_BYTES:
+                snapshot.unlink(missing_ok=True)
+                status = {
+                    "hydro_ml_snapshot_status": "omitted_size_limit",
+                    "hydro_ml_snapshot_size_bytes": snapshot_size,
+                    "hydro_ml_snapshot_limit_bytes": EXPORT_VOLUME_MAX_BYTES,
+                }
+            else:
+                con = sqlite3.connect(str(snapshot))
+                try:
+                    columns = [row[1] for row in con.execute("PRAGMA table_info(schema_migrations)")]
+                    rows = [dict(zip(columns, row)) for row in con.execute("SELECT * FROM schema_migrations")] if columns else []
+                finally:
+                    con.close()
+                migrations.write_text(json.dumps(rows, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+                status = {"hydro_ml_snapshot_status": "ok", "hydro_ml_snapshot_size_bytes": snapshot_size}
+                candidates.extend([
+                    ExportCandidate(snapshot, "hydro_ml", Path("hydro_ml/hydro_flood_samples_snapshot.sqlite3"), True),
+                    ExportCandidate(migrations, "hydro_ml", Path("hydro_ml/schema_migrations.json"), True),
+                ])
+    except Exception as exc:
+        snapshot.unlink(missing_ok=True)
+        migrations.unlink(missing_ok=True)
+        status = {"hydro_ml_snapshot_status": "error", "hydro_ml_snapshot_error": f"{type(exc).__name__}: {exc}"}
+
+    status_file.write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
+    candidates.append(ExportCandidate(status_file, "hydro_ml", Path("hydro_ml/hydro_ml_snapshot_status.json"), True))
+    companions = (
+        (base_dir / "train_data/hydro/ml/hydro_flood_training_meta.json", Path("hydro_ml/hydro_flood_training_meta.json")),
+        (base_dir / "train_data/models/hydro_flood/current/metadata.json", Path("hydro_ml/current/metadata.json")),
+        (base_dir / "train_data/models/hydro_flood/current/manifest.json", Path("hydro_ml/current/manifest.json")),
+        (base_dir / "train_data/hydro/ml/hydro_ml_maintenance_latest.json", Path("hydro_ml/hydro_ml_maintenance_latest.json")),
+    )
+    candidates.extend(ExportCandidate(src, "hydro_ml", arc, True) for src, arc in companions if src.is_file())
+    return temp_dir, candidates, status
 
 
 def _read_redacted(path: Path) -> bytes:
@@ -869,7 +928,9 @@ def create_debug_export_zip(
     # B357: ConvLSTM-Trainings-Telemetrie (B356-Kaskade + Fallback) automatisch
     # vor jedem Export zusammenfassen. Blockiert den Export nicht.
     convlstm_training_diagnosis = run_convlstm_training_diagnosis_before_export(hours=hours, base_dir=base_dir, save_paths=save_paths)
+    hydro_snapshot_dir, hydro_snapshot_candidates, hydro_snapshot_status = _prepare_hydro_ml_snapshot(base_dir)
     candidates, diagnostics = _build_candidates_with_diagnostics(base_dir, save_paths)
+    candidates.extend(hydro_snapshot_candidates)
     included_roots: set[str] = set()
     excluded_files: list[str] = []
     redacted_files: list[str] = []
@@ -1006,6 +1067,7 @@ def create_debug_export_zip(
                 "max_files": max_files,
                 "max_total_bytes": max_total_bytes,
                 "hydro_export": hydro_info,
+                **hydro_snapshot_status,
                 "diagnosis_presence": diagnosis_presence,
                 "forecast_quality_diagnosis": forecast_quality_diagnosis,
                 "kinematic_acceleration_diagnosis": kinematic_acceleration_diagnosis,
@@ -1014,9 +1076,11 @@ def create_debug_export_zip(
             manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
             zf.writestr(f"{root_name}/manifest.json", manifest_bytes)
         manifest["total_files"] = total_files
+        shutil.rmtree(hydro_snapshot_dir, ignore_errors=True)
         return tmp_path, filename, manifest
     except Exception:
         tmp_path.unlink(missing_ok=True)
+        shutil.rmtree(hydro_snapshot_dir, ignore_errors=True)
         raise
 
 def _extract_forecast_horizons(base_dir: Path) -> list[int]:

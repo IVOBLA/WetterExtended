@@ -6711,3 +6711,36 @@ Ein normalisiertes Messobjekt wird nur bei `quality=high`, bekanntem positiven `
 **API-Prüfung:** Im vorliegenden Repository existiert kein Adapter, der `observed_precip` aus einer dokumentierten Fremd-API erzeugt; auffindbar ist nur der interne normalisierte Objektvertrag. Daher gibt es keine belastbare externe Belegstelle für Einheit, Fenster, Bedeutung von `high` oder Mess-/Abrufzeit. `high` ist eine Projektklassifikation. Ohne explizites `measurement_window_min` wird die Messung mit `observed_precip_measurement_window_missing` abgelehnt; ein neuer Fremdrequest wurde nicht eingeführt. Dieser Provenienzbefund muss vor Anbindung einer realen Quelle geschlossen werden.
 
 Die B418-Target-, Forcing-, Volumenbilanz- und Migrationsregressionen wurden ergänzt. **Phasen-Status:** Phase A — Trainingsziel und Inferenz sind konsistent; die Prognose kann fachlich vollständig normalisierte gemessene Niederschläge nutzen. ML-Reaktivierung bleibt von der Datensammlung abhängig. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.
+
+### B419 — write=False lieferte interne Payloads; Debug-Export kopierte eine laufende WAL-Datenbank ✅ erledigt
+
+**Root-Cause:** Inhalt und Vorgang waren nicht getrennt: `write=False` schaltete neben
+der Persistenz unbeabsichtigt den internen Payload frei, während der Export eine sich
+ändernde WAL-Datenbank wie eine gewöhnliche Datei behandelte.
+
+**Fix:** Nur `include_debug` bestimmt nun den Payload-Inhalt; `write` bestimmt nur die
+Persistenz. `diagnose_station()` beruhte nachweislich auf dem `not write`-Fehler, weil
+es `cell_diagnostics` aus dem dadurch unbeabsichtigt vollständigen Stationsobjekt las,
+und fordert diese Daten jetzt ausdrücklich mit `include_debug=True` an. Admin-Diagnosen
+tragen `payload_scope="admin_diagnostics"` und Schema `b419_admin_diagnostics_v1`;
+ein unklassifizierter Cache wird abgewiesen. Der öffentliche Allowlist-Payload entfernt
+14 Modell-, Flächen- und Volumen-Zwischenwerte. Im synthetischen 50-Stations-Vergleich
+sank er von 41.964 auf 16.714 Bytes (die Testzeile enthielt 10 tatsächlich gesetzte
+öffentliche Felder).
+
+Der Debug-Export erstellt mit `sqlite3.Connection.backup()` in einem temporären,
+außerhalb von `train_data/hydro/ml` liegenden Verzeichnis einen konsistenten Snapshot,
+exportiert Status, Migrationen und Begleitartefakte und löscht das Verzeichnis bei
+Erfolg wie bei Fehler. Die Live-Datenbank sowie WAL/SHM-Dateien sind ausgeschlossen;
+Backup- und Größenfehler werden ausdrücklich im Manifest vermerkt.
+
+**Befund zum BBox-Zweig:** Der Zweig ist nicht tot: `_precip_from_cells()` setzt im
+vereinfachten Geometriepfad `geometry_quality="bbox_fallback"`, während der echte
+Shapely-Pfad `"shapely"` setzt. Er wurde geprüft und nicht entfernt. Bei leerer
+Zellliste liefern sowohl Ergebnis als auch Feature-Snapshot die effektive,
+räumlich deduplizierte `overlap_area_time_km2_min` konsistent als `0.0`.
+
+**Phasen-Status:** Phase A — der öffentliche Payload ist kompakt und frei von internen
+Daten; der Debug-Export liefert einen konsistenten Datenbankstand. Damit ist die
+Hydro-Flood-Serie B412–B419 abgeschlossen. Phase B (Hailo-8 U-Net) unverändert
+blockiert; sie wartet weiterhin auf ausreichende Trainingsdaten.

@@ -58,7 +58,7 @@ def test_cell_in_catchment_increases_precip_features(monkeypatch):
 
 
 def test_live_output_has_no_horizons_or_w_forecast():
-    doc = hydro_flood_ml.evaluate_live_flood_risk(stations=[{"station_id":"S1", "mark_q_m3s": 10, "q_m3s": 11}], write=False)
+    doc = hydro_flood_ml.evaluate_live_flood_risk(stations=[{"station_id":"S1", "mark_q_m3s": 10, "q_m3s": 11}], write=False, include_debug=True)
     row = doc["stations"][0]
     assert row["flood_expected"] is True
     assert row["model_source"] == "heuristic_scoring"
@@ -196,7 +196,7 @@ def test_missing_precip_source_is_not_confirmed_zero(monkeypatch):
 def test_hydro_flood_exports_current_q_measured_at(monkeypatch):
     monkeypatch.setattr(hydro_flood_ml.runtime_config, "get", lambda k, d=None: 8 if k == "HYDRO_MAP_MARK_Q_M3S" else d)
     live = {"fetched_at": "2026-06-25T12:00:00Z", "stations": [{"station_id": "S", "q_m3s": 0.89, "measured_at": "2026-06-25T11:45:00Z"}]}
-    row = hydro_flood_ml.evaluate_live_flood_risk(stations=[{"station_id": "S"}], live=live, write=False)["stations"][0]
+    row = hydro_flood_ml.evaluate_live_flood_risk(stations=[{"station_id": "S"}], live=live, write=False, include_debug=True)["stations"][0]
     assert row["current_q_m3s"] == 0.89
     assert row["current_q_measured_at"] == "2026-06-25T11:45:00Z"
     assert row["current_q_timestamp_source"] == "hydro_live.measured_at"
@@ -205,13 +205,13 @@ def test_hydro_flood_exports_current_q_measured_at(monkeypatch):
 def test_hydro_flood_uses_fetched_at_only_as_q_timestamp_fallback(monkeypatch):
     monkeypatch.setattr(hydro_flood_ml.runtime_config, "get", lambda k, d=None: 8 if k == "HYDRO_MAP_MARK_Q_M3S" else d)
     live = {"fetched_at": "2026-06-25T12:00:00Z", "stations": [{"station_id": "S", "q_m3s": 0.89}]}
-    row = hydro_flood_ml.evaluate_live_flood_risk(stations=[{"station_id": "S"}], live=live, write=False)["stations"][0]
+    row = hydro_flood_ml.evaluate_live_flood_risk(stations=[{"station_id": "S"}], live=live, write=False, include_debug=True)["stations"][0]
     assert row["current_q_measured_at"] == "2026-06-25T12:00:00Z"
     assert row["current_q_timestamp_source"] == "hydro_live.fetched_at_fallback"
 
 
 def test_generated_at_is_not_used_as_q_measured_at(monkeypatch):
     monkeypatch.setattr(hydro_flood_ml.runtime_config, "get", lambda k, d=None: 8 if k == "HYDRO_MAP_MARK_Q_M3S" else d)
-    row = hydro_flood_ml.evaluate_live_flood_risk(stations=[{"station_id": "S", "q_m3s": 0.89, "generated_at": "2026-06-25T12:00:00Z"}], write=False)["stations"][0]
+    row = hydro_flood_ml.evaluate_live_flood_risk(stations=[{"station_id": "S", "q_m3s": 0.89, "generated_at": "2026-06-25T12:00:00Z"}], write=False, include_debug=True)["stations"][0]
     assert row["current_q_measured_at"] is None
     assert row["current_q_timestamp_source"] == "missing"
