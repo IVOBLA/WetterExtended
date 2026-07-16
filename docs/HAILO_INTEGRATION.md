@@ -6496,3 +6496,49 @@ durchgereicht, alle drei Zweige konsistent, Quantile bleiben beim Zentralwert.
 (Abweichung wenige km, nicht > 100 km). **`training_meta.json` fehlt im Debug-Export** — der Wert
 von `target_encoding` ist daher nicht direkt belegbar, sondern aus der Fehlergröße erschlossen.
 Die Aufnahme in den Export ist als eigener Punkt zu führen.
+
+### B406 — Debug-Export verpackte seine eigenen Vorgänger; Assoziations-Diagnose fehlte ✅ erledigt
+
+**Root-Cause:** Der Export enthielt die falschen Daten — seine eigenen Vorgänger statt der
+Diagnose, für die er gebaut wurde. Ursache: `_iter_files()` (Zeile 282–288) sammelt jedes
+Verzeichnis rekursiv **ohne jeden Ausschluss**.
+
+**Ausprägung 1 — Rekursion:** `_latest_export_base_dir()` legt die fertigen Export-ZIPs unter
+`train_data/evaluation/latest_export/` ab; Zeile 325 exportiert das gesamte
+`evaluation`-Verzeichnis. **Jeder Export verpackte damit die ZIPs des vorherigen Laufs.** Belegt
+am Export `2026-07-16_04-58-40` (3 Teile, 56–81 MB): Er enthielt
+`evaluation/train_data/evaluation/latest_export/wetterextended_debug2.zip` und `…3.zip` — darin
+der **vollständige Export vom 15.07.**, inkl. 316 MB `external_responses`. Folgen: aufgeblähtes
+Übertragungsvolumen über den Mobilfunk des Pi; beim Entpacken mehrerer Teile überlagern **alte
+Daten die neuen**, sodass eine Auswertung unbemerkt auf den Vortag zugreift.
+
+**Ausprägung 2 — fehlende Diagnose:** `train_data/association` steht seit B374 in der Exportliste
+und wird von `object_tracking.py:1545` befüllt — im Export vom 16.07. dennoch **0 Dateien**
+(geprüft in allen drei Teilen und in den verschachtelten Archiven). Damit ist
+`ASSOC_MAX_COST` (B400, Default 0.75) **nicht kalibrierbar** — die einzige Schwelle, die aktiv
+Matches verwirft.
+
+**Fix:**
+- `_EXPORT_EXCLUDE_DIRS = {"latest_export"}` und `_EXPORT_EXCLUDE_SUFFIXES = {".zip"}`:
+  Ein Debug-Archiv enthält nie ein anderes Archiv. `_iter_files()` filtert beide Fälle.
+- `_diagnosis_presence_report()`: unterscheidet `missing` / `empty` / `stale` / `ok` samt
+  aufgelöstem Pfad. Ein leeres Diagnoseverzeichnis ist sonst nicht von einem fehlerhaften Export
+  zu unterscheiden — beides ergibt „0 Dateien". Das stille Fehlen ist besonders teuer: Es fällt
+  erst auf, wenn die Kalibrierung ansteht, also nach der nächsten Konvektionslage.
+- `diagnostics/diagnosis_presence.json` wird beim Export geschrieben und zusätzlich im Manifest
+  gespiegelt, damit fehlende oder veraltete Diagnosequellen nicht mehr still untergehen.
+
+**Neu: `AIChecks.md` im Project Root — ab sofort verbindlich.** Jeder Prompt trägt seine offenen
+Prüfungen dort ein; erledigte Punkte werden mit Datum und Ergebnis abgeschlossen statt gelöscht.
+Initial befüllt mit AC-001 bis AC-009 (Assoziations-Diagnose, `ASSOC_MAX_COST`,
+Transition-Schwellen, instabile Quellen-Rangfolge, Sattel-Schwelle, `lineage="split"`,
+Ledger-Eindeutigkeit, weitere `_UF`-Stellen, `training_meta.json`).
+
+**Tests:** `tests/test_b406_export_ohne_eigene_ausgaben.py` — ZIPs und `latest_export`
+ausgeschlossen, normale Dateien nicht, `_iter_files` überspringt eigene Exports,
+Diagnose-Report erkennt `missing`/`empty`/`ok`, Exporteintrag erhalten, `AIChecks.md` vorhanden.
+
+**Phasen-Status:** Phase A — der Export ist wieder eindeutig datierbar und meldet fehlende
+Diagnosen. **Nach dem nächsten Export prüfen:** `diagnostics/train_data/association/*.json`
+vorhanden? Falls `status="empty"` → die Diagnose wird nicht geschrieben (AC-001); falls
+`status="ok"` → Kalibrierung von `ASSOC_MAX_COST` möglich (AC-002).
