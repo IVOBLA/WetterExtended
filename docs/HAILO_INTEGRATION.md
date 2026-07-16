@@ -6654,3 +6654,30 @@ gefiltert, Fremd-ZIP erhalten, Suffix-Filter entfernt, `_EXPORT_EXCLUDE_DIRS` un
 **Tests:** Die B415-Integritätstests manipulieren Modell, promotete und nicht promotete Metadaten, Manifest und Schema, prüfen unbekannte Manifestversionen, nicht endliche Probeausgaben, den gültigen ML-Pfad und das unveränderte Manifest. Der I/O-Test belegt bei 80 synthetischen Stationen höchstens drei Hashaufrufe und genau eine Deserialisierung; der zweite Lauf erzeugt null Hashaufrufe. Touch und gleich großer Verzeichnistausch prüfen Stat-Key und Inode. Die Sandbox-Nachhermessung dauerte 0,018 s bei 0 verfügbaren Stationen; eine belastbare Vorher-/Nachhermessung war ohne Raspberry-Pi-Datenbestand nicht möglich und muss deshalb bei der verbindlichen Pi-Abnahme mit dem dokumentierten Messbefehl ergänzt werden.
 
 **Phasen-Status:** Phase A — Modellartefakte sind manipulationsfest, die Stationsschleife ist I/O-frei. Phase B (Hailo-8 U-Net) unverändert blockiert.
+
+### B416 — Samples ohne Zellbezug: Eventerkennung und Validierung liefen ins Leere ✅ erledigt
+
+**Root-Cause:** `record_pending_samples()` ließ Zell- und Lineage-IDs sowie den expliziten
+Niederschlagszustand aus dem Pending-Payload weg. Dadurch sah die nachgelagerte
+Eventerkennung keine Zellstruktur, der Split wurde stationsweise statt chronologisch,
+Readiness zählte noch nicht vergebene Event-IDs und unvollständige Snapshots konnten
+trainierbar erscheinen.
+
+**Fix:** Der Produktivpfad übernimmt ausschließlich kompakte Identitätsfelder aus der
+Zelldiagnose, speichert deduplizierte Zell-/Lineage-Listen, Zähler sowie getrennte
+`precip_event_active`- und `precip_event_evaluable`-Flags. Die zentrale Validierung
+prüft Snapshot, Schemahash, Pflichtwerte, Flags, Ziel, Station und Zeit. Die gemeinsame
+Dataset-Analyse erzeugt deterministische Events, sortiert sie global chronologisch und
+teilt ganze Events zeitlich. Die Schemaversion ist `b416_live_catchment_v4`; im
+vorliegenden Checkout entfallen 0 Altsamples, weil keine produktive Sample-Datenbank
+vorlag. In einer Pi-Installation werden alle v3-Zeilen mit
+`schema_version_superseded_b415` nach `sample_failures` verschoben.
+
+**Tests:** B416 ergänzt Validierungs-, Payload-Integrations-, Chronologie- und
+Readiness-Regressionstests; Compile-, Hydro-Zielsuite, Gesamtsuite und Frontend-Build
+sind Bestandteil der Abnahme.
+
+**Phasen-Status:** Phase A — die ML-Reaktivierung bleibt blockiert und der kompatible
+Datensatz beginnt mit B416 neu. Bei aktiver Gewitterlage werden voraussichtlich zwei
+bis sechs Wochen benötigt, weil nur voneinander unabhängige Regenereignisse zählen.
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.

@@ -137,6 +137,22 @@ je Auswertungslauf, alle weiteren Stationen "hit". Mehrere "miss" pro Lauf bedeu
 dass der Stat-Key instabil ist — Ursache melden, nicht den Cache vergrößern.
 
 
+### AC-020 — Prüfe Zellbezug in neuen Samples
+Werte im 24h-Export hydro_flood_samples aus. Zähle Zeilen mit precip_event_active=true
+und leerer contributing_lineage_ids-Liste. Erwartung: null. Jeden Treffer als Verlust
+des Zellbezugs im Produktivpfad melden; die Liste nicht im Test füllen.
+
+### AC-021 — Prüfe Eventverteilung vor jedem Training
+Vor jeder ML-Reaktivierung ausführen:
+  python -c "import hydro_flood_ml as h; r=h.analyze_training_dataset(h.load_trainable_labeled_samples(False)); print(r['event_count'], r['train_time_range'], r['validation_time_range'])"
+Erwartung: event_count >= HYDRO_ML_MIN_TRAIN_EVENTS + HYDRO_ML_MIN_VALIDATION_EVENTS,
+und train_time_range endet vor validation_time_range. Überlappende Bereiche verwerfen.
+
+### AC-022 — Prüfe Ausschlussgründe im Datensatz
+Werte sample_failures nach Grund gruppiert aus. Häuft sich ein Grund über 5 % der
+Gesamtsamples, die Ursache im Produktivpfad suchen und als Befund melden; die
+Validierung nicht lockern.
+
 ---
 
 ## Erledigt
