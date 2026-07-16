@@ -6574,3 +6574,43 @@ Messtabellen/Befunde, alle Einträge imperativ, jede Anweisung mit Datenquelle, 
 gefiltert, Fremd-ZIP erhalten, Suffix-Filter entfernt, `_EXPORT_EXCLUDE_DIRS` unverändert.
 
 **Phasen-Status:** Phase A — Export filtert gezielt, AIChecks.md ist handlungsleitend.
+
+### B408 — Hydro-Catchment-Flood-Forecast repariert ✅ erledigt
+
+**Root-Cause:** Der Hydro-Flood-Pfad war nicht durchgängig an reale Einzugsgebiete, Messzeitpunkte und ML-Trainingsdaten gekoppelt; dadurch konnten Catchment-Niederschlag, Durchflusslabels und öffentliche Warnwerte nicht belastbar aus den vorhandenen Hydro- und Zellinformationen abgeleitet werden.
+
+**Fix:** `hydro_flood_ml.py` wurde breit erweitert: Feature-Aufbau, Niederschlagsaggregation, History-/Dataset-Erzeugung, Heuristik und Training wurden mit Catchment- und Q-Zielgrößen verbunden. `hydro_impact.py` liefert Catchment-Index und Attribution, `hydro_fetch.py` erhält robustere Hydro-Zeitdaten, `config.py` und `debug_export.py` ergänzen Hydro-Konfiguration und Exportdaten. Zusätzlich wurden `frontend/src/utils/hydroFloodPopup.js`, `docs/HYDRO_IMPACT_PEGEL_ATTRIBUTION.md`, `docs/WetterExtended_Benutzerhandbuch.md` und der damals noch root-seitige `HAILO_INTEGRATION.md` angepasst.
+
+**Tests:** `tests/test_b408_hydro_catchment_precip_pipeline.py` prüft Catchment-Niederschlag und Pipeline-Zusammenhang, `tests/test_b408_hydro_ml_samples.py` die ML-Sample-Erzeugung, `tests/test_b408_hydro_multi_cell_dwell_q.py` die Mehrzellen-/Dwell-/Q-Aggregation.
+
+**Phasen-Status:** Phase A — Hydro-Flood-ML ist als datengetriebener Fallback-Pfad vorbereitet, aber nicht als promotetes Modell belegt. Phase B (Hailo-8 U-Net) bleibt blockiert.
+
+### B409 — Hydro-Flood-Produktionspfad gehärtet ✅ erledigt
+
+**Root-Cause:** Der B408-Pfad war für Produktion noch zu weich: Zellfilterung, Shapely-Geometriepfad, Routing, Dataset-Integrität, Runtime-Konfiguration, ML-Inferenz und Frontend-Warnanzeige waren nicht ausreichend abgesichert.
+
+**Fix:** `hydro_flood_ml.py` wurde um produktionsnähere Zell-/Geometrie-, Routing-, Dataset- und Inferenzlogik erweitert; `config.py` und `runtime_config.py` erhielten zugehörige Parameter; `frontend/src/pages/MapView.jsx`, `frontend/src/pages/MapFullscreen.jsx` und `frontend/src/utils/__tests__/hydroFloodPopup.test.mjs` deckten die Warnanzeige ab.
+
+**Tests:** `tests/test_b409_hydro_cell_filtering.py` prüft Zellfilterung, `tests/test_b409_hydro_dataset_integrity.py` Dataset-Labels und damalige JSONL-Annahmen, `tests/test_b409_hydro_ml_inference.py` ML-Inferenz, `tests/test_b409_hydro_routing.py` Routing-Effekte, `tests/test_b409_hydro_shapely_production_path.py` den Shapely-Produktionspfad. Die gemeldete Verifikation „Shapely-Test grün und nicht geskippt" traf nicht zu: `tests/test_b409_hydro_routing.py` und `tests/test_b409_hydro_shapely_production_path.py` scheiterten bis B412 an einem `AttributeError`, bevor eine Assertion lief. Der Shapely-Produktionspfad war von B409 bis B412 ungetestet; die Reparatur erfolgt in B412.
+
+**Phasen-Status:** Phase A — Hydro-Flood läuft weiterhin im kinematischen bzw. physikalischen Fallback; ML ist nicht promotet. Phase B (Hailo-8 U-Net) bleibt blockiert.
+
+### B410 — Hydro-Flood-Produktionspipeline gehärtet ✅ erledigt
+
+**Root-Cause:** Nach B409 fehlten weitere Produktionsgarantien für Frische der Zellframes, Provenienz, Feature-Snapshots, Modellpromotion, öffentliche Payloads, Readiness, Routing-Zeitlinie und Sample-Store.
+
+**Fix:** `hydro_flood_ml.py` wurde erneut deutlich erweitert: Frische- und Provenienzbewertung, Feature-Snapshot-Verwaltung, Readiness, Routing-Zeitleiste, Sample-Store und Modellpromotion wurden gehärtet. `app.py`, `config.py`, `hydro_fetch.py`, `frontend/src/utils/hydro.js`, `frontend/src/utils/hydroFloodPopup.js`, `frontend/src/pages/MapView.jsx`, `frontend/src/pages/MapFullscreen.jsx` und Frontend-Response-Tests wurden passend angepasst.
+
+**Tests:** `tests/test_b410_hydro_cell_frame_freshness.py`, `tests/test_b410_hydro_dataset_provenance.py`, `tests/test_b410_hydro_feature_snapshot.py`, `tests/test_b410_hydro_model_promotion.py`, `tests/test_b410_hydro_public_payload.py`, `tests/test_b410_hydro_readiness.py`, `tests/test_b410_hydro_routing_timeline.py` und `tests/test_b410_hydro_sample_store.py` prüfen die genannten Pipeline-Garantien; `tests/test_b409_hydro_shapely_production_path.py` wurde ebenfalls berührt.
+
+**Phasen-Status:** Phase A — Hydro-Flood bleibt im Fallback-Betrieb mit gehärteter Produktionspipeline; ML ist nicht promotet. Phase B (Hailo-8 U-Net) bleibt blockiert.
+
+### B411 — Hydro-Flood-SQLite und Härtungslücken geschlossen ✅ erledigt
+
+**Root-Cause:** Der produktive Sample-Store und mehrere Randbedingungen waren noch nicht robust genug: SQLite musste Source of Truth werden, Pending-Migration, Retention, optionale Features, Modellintegrität, Event-Split, atomare Fetches, Deferred-Q-Refresh und Debug-Zugriff brauchten Absicherung.
+
+**Fix:** `hydro_flood_ml.py` machte SQLite zum produktiven Sample-Store und ergänzte Migration, Retention, Export-Snapshot, Readiness und Modellintegritätslogik. `app.py`, `hydro_fetch.py`, `config.py` und `runtime_config.py` wurden für Zugriff, atomare Schreibpfade und Konfiguration angepasst.
+
+**Tests:** `tests/test_b411_hydro_debug_access.py`, `tests/test_b411_hydro_deferred_q_refresh.py`, `tests/test_b411_hydro_effective_overlap_time.py`, `tests/test_b411_hydro_event_split.py`, `tests/test_b411_hydro_fetch_atomic_write.py`, `tests/test_b411_hydro_model_integrity.py`, `tests/test_b411_hydro_optional_features.py`, `tests/test_b411_hydro_pending_migration.py`, `tests/test_b411_hydro_retention.py` und `tests/test_b411_hydro_sqlite_source_of_truth.py` prüfen die jeweiligen Härtungen; insbesondere belegt `test_b411_hydro_sqlite_source_of_truth.py`, dass Readiness aus SQLite und nicht aus einem defekten JSONL-Snapshot gelesen wird.
+
+**Phasen-Status:** Phase A — Hydro-Flood-ML ist im kinematischen bzw. physikalischen Fallback, produktive Samples liegen in SQLite, ML ist nicht promotet. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.

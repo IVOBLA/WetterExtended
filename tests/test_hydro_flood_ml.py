@@ -3,6 +3,7 @@ from pathlib import Path
 
 import config
 import hydro_flood_ml
+import hydro_impact
 
 
 def test_hydro_flood_features_are_separate_from_cell_ml():
@@ -36,14 +37,21 @@ def test_observed_precip_never_overwritten_by_proxy():
     assert row["effective_precip_is_proxy"] is False
 
 
-def test_cell_in_catchment_increases_precip_features():
-    station = {"station_id":"S1", "mark_q_m3s": 10, "q_m3s": 5}
-    inside = {"_hydro_overlap": {"hit": True, "overlap_area_km2": 5, "overlap_ratio_cell": 0.5, "cell_area_km2": 10}, "nowcast_rr_mm15": 6, "core_ratio": 0.7}
-    outside = {"_hydro_overlap": {"hit": False, "overlap_area_km2": 0, "overlap_ratio_cell": 0, "cell_area_km2": 10}, "nowcast_rr_mm15": 100}
+def test_cell_in_catchment_increases_precip_features(monkeypatch):
+    from shapely.geometry import Polygon
+
+    catchment = Polygon([(0, 0), (0.1, 0), (0.1, 0.1), (0, 0.1), (0, 0)])
+    monkeypatch.setattr(hydro_flood_ml.runtime_config, "get", lambda name, default=None: 0.0 if name == "HYDRO_MIN_OVERLAP_AREA_KM2" else default)
+    monkeypatch.setattr(hydro_impact, "load_station_catchment_index", lambda force_reload=False: {"S1": {"station_id": "S1", "geometry": catchment, "feature_count": 1, "status": "ok", "area_km2": 1, "signature": "x", "properties": {}}})
+    monkeypatch.setattr(hydro_impact, "catchment_diagnostics", lambda sid: {"catchment_geometry_available": True, "catchment_geometry_status": "ok", "catchment_feature_count": 1, "catchment_area_geometry_km2": 1, "catchment_signature": "x"})
+
+    station = {"station_id": "S1", "mark_q_m3s": 10, "q_m3s": 5}
+    inside = {"contour_geo": [[0.02, 0.02], [0.08, 0.02], [0.08, 0.08], [0.02, 0.08], [0.02, 0.02]], "lat": 0.05, "lon": 0.05, "nowcast_rr_mm15": 6, "core_ratio": 0.7}
+    outside = {"contour_geo": [[0.2, 0.2], [0.3, 0.2], [0.3, 0.3], [0.2, 0.3], [0.2, 0.2]], "lat": 0.25, "lon": 0.25, "nowcast_rr_mm15": 100}
     row = hydro_flood_ml.build_feature_row(station, cells=[inside, outside])
     assert row["cell_catchment_count"] == 1
     assert row["effective_catchment_precip_sum_mm"] == 6
-    assert row["cell_catchment_overlap_area_km2_sum"] == 5
+    assert row["cell_catchment_overlap_area_km2_sum"] > 0
 
 
 def test_live_output_has_no_horizons_or_w_forecast():
@@ -66,22 +74,29 @@ def test_append_history_writes_q_without_using_w_as_feature(tmp_path, monkeypatc
 
 
 def test_dataset_scan_labels_future_q_without_w_features(tmp_path, monkeypatch):
+    from shapely.geometry import Polygon
+
     hist = tmp_path / "hydro_history.jsonl"
-    rows = [
-        {"fetched_at":"2026-06-25T00:00:00Z", "measured_at":"2026-06-25T00:00:00Z", "station_id":"S1", "q_m3s":8.0},
-        {"fetched_at":"2026-06-25T00:30:00Z", "measured_at":"2026-06-25T00:30:00Z", "station_id":"S1", "q_m3s":11.0},
-    ]
-    hist.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    future = {"fetched_at": "2026-06-25T00:30:00Z", "measured_at": "2026-06-25T00:30:00Z", "station_id": "S1", "q_m3s": 11.0}
+    hist.write_text(json.dumps(future) + "\n", encoding="utf-8")
     monkeypatch.setattr(hydro_flood_ml, "HYDRO_HISTORY_PATH", hist)
     monkeypatch.setattr(hydro_flood_ml, "HYDRO_ML_DIR", tmp_path)
+    monkeypatch.setattr(hydro_flood_ml, "HYDRO_SAMPLE_DB_PATH", tmp_path / "samples.sqlite3")
     monkeypatch.setattr(hydro_flood_ml, "HYDRO_DATASET_JSONL_PATH", tmp_path / "dataset.jsonl")
     monkeypatch.setattr(hydro_flood_ml, "HYDRO_TRAINING_META_PATH", tmp_path / "meta.json")
     monkeypatch.setattr(hydro_flood_ml.runtime_config, "get", lambda k, d=None: 10.0 if k == "HYDRO_MAP_MARK_Q_M3S" else d)
+    catchment = Polygon([(0, 0), (0.1, 0), (0.1, 0.1), (0, 0.1), (0, 0)])
+    monkeypatch.setattr(hydro_impact, "load_station_catchment_index", lambda force_reload=False: {"S1": {"station_id": "S1", "geometry": catchment, "feature_count": 1, "status": "ok", "area_km2": 1, "signature": "x", "properties": {}}})
+    monkeypatch.setattr(hydro_impact, "catchment_diagnostics", lambda sid: {"catchment_geometry_available": True, "catchment_geometry_status": "ok", "catchment_feature_count": 1, "catchment_area_geometry_km2": 1, "catchment_signature": "x"})
+
+    live = {"fetched_at": "2026-06-25T00:00:00Z", "stations": [{"station_id": "S1", "q_m3s": 8.0, "measured_at": "2026-06-25T00:00:00Z"}]}
+    cells = [{"contour_geo": [[0.02, 0.02], [0.08, 0.02], [0.08, 0.08], [0.02, 0.08], [0.02, 0.02]], "lat": 0.05, "lon": 0.05, "nowcast_rr_mm15": 1}]
+    hydro_flood_ml.evaluate_live_flood_risk(stations=[{"station_id": "S1"}], live=live, cells=cells, write=True)
     status = hydro_flood_ml.build_dataset_scan()
     assert status["sample_count"] >= 1
     sample = json.loads((tmp_path / "dataset.jsonl").read_text().splitlines()[0])
     assert sample["current_q_m3s"] == 8.0
-    assert sample["mark_q_m3s"] == 10.0
+    assert sample["station_q_threshold_m3s"] == 10.0
     assert sample["target_q_delta_m3s"] == 3.0
     assert sample["target_q_threshold_exceeded"] is True
     assert sample["target_flood_expected"] is True
@@ -172,7 +187,7 @@ def test_missing_precip_source_is_not_confirmed_zero(monkeypatch):
     monkeypatch.setattr(hydro_flood_ml.runtime_config, "get", lambda k, d=None: 8 if k == "HYDRO_MAP_MARK_Q_M3S" else d)
     row = hydro_flood_ml.build_feature_row({"station_id": "S", "q_m3s": 1})
     assert row["precip_evaluable"] is False
-    assert row["precip_status"] == "missing"
+    assert row["precip_status"] == "catchment_geometry_missing"
     assert row["effective_catchment_precip_sum_mm"] is None
 
 def test_hydro_flood_exports_current_q_measured_at(monkeypatch):
