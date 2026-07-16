@@ -6614,3 +6614,23 @@ gefiltert, Fremd-ZIP erhalten, Suffix-Filter entfernt, `_EXPORT_EXCLUDE_DIRS` un
 **Tests:** `tests/test_b411_hydro_debug_access.py`, `tests/test_b411_hydro_deferred_q_refresh.py`, `tests/test_b411_hydro_effective_overlap_time.py`, `tests/test_b411_hydro_event_split.py`, `tests/test_b411_hydro_fetch_atomic_write.py`, `tests/test_b411_hydro_model_integrity.py`, `tests/test_b411_hydro_optional_features.py`, `tests/test_b411_hydro_pending_migration.py`, `tests/test_b411_hydro_retention.py` und `tests/test_b411_hydro_sqlite_source_of_truth.py` prüfen die jeweiligen Härtungen; insbesondere belegt `test_b411_hydro_sqlite_source_of_truth.py`, dass Readiness aus SQLite und nicht aus einem defekten JSONL-Snapshot gelesen wird.
 
 **Phasen-Status:** Phase A — Hydro-Flood-ML ist im kinematischen bzw. physikalischen Fallback, produktive Samples liegen in SQLite, ML ist nicht promotet. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.
+
+### B412 — Hydro-Testverifizierbarkeit wiederhergestellt ✅ erledigt
+
+**Root-Cause:** Die B409/B410-Shapely-Produktionspfadtests konnten vor ihren Fachassertions an einem Test-Importfehler scheitern; dadurch war die grüne Suite als Belegstelle nicht belastbar.
+
+**Fix:** Die Tests wurden so repariert, dass sie den realen Produktionspfad ausführen und Attribute-/Importfehler nicht mehr verdecken.
+
+**Tests:** `tests/test_b409_hydro_shapely_production_path.py`, `tests/test_b410_hydro_public_payload.py`, `tests/test_b410_hydro_cell_frame_freshness.py` und die Hydro-Flood-Basissuite belegen die wiederhergestellte Verifizierbarkeit.
+
+**Phasen-Status:** Phase A — Hydro-Flood-Tests sind wieder als Produktionspfad-Nachweis nutzbar. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.
+
+### B413 — Prognose-Gates unterdrückten die gemessene Grenzwertüberschreitung ✅ erledigt
+
+**Root-Cause:** Die aktuelle Q-Messung einer Pegelstation wurde an vier Stellen wie ein Forecast-Ergebnis behandelt: `heuristic_score()` brach bei Geometrie-Gates vor der Grenzwertprüfung ab, `refresh_hydro_fields_in_cached_risk()` übernahm alte Forecast-Warnfelder trotz stale Zellframe, `hydro_fetch.py` bewertete einen fehlenden Zellframe ohne Cache als frische leere Zellliste, und `_public_flood_row()` filterte `current_q_above_threshold` aus dem Public-Payload heraus.
+
+**Fix:** Die Grenzwertprüfung läuft nun vor allen Geometrie-/Forecast-Gates und trägt gemessene Überschreitungen unabhängig von Catchment, Zellframe und Niederschlagsprognose. Deferred-Refresh ersetzt alte Forecast-Gründe, setzt veraltete Prognosewerte nur noch als `stale_*`-Diagnose fort und setzt `predicted_q_max_m3s` auf `None`. `build_deferred_public_risk()` erzeugt für `missing`, `stale`, `invalid` und `error` zentral einen Public-Payload mit frischen Hydro-Q-Werten; `invalid` und `error` bleiben getrennte Status. Das Frontend nutzt die normalisierte Warnbedingung: aktive Warnung nur bei aktueller Q-Überschreitung oder frischem bewertbarem Forecast.
+
+**Tests:** Ergänzt wurden `tests/test_b413_hydro_measured_threshold_wins.py`, `tests/test_b413_hydro_deferred_warning_state.py`, `tests/test_b413_hydro_missing_frame_without_cache.py`, `tests/test_b413_hydro_public_threshold_field.py` und `frontend/src/utils/__tests__/hydroFloodStale.test.mjs`. Zusätzlich laufen die Hydro-Flood-, Public-Payload-, Cell-Frame-, P67-Kartenkonsistenz- und Frontend-Build-Prüfungen.
+
+**Phasen-Status:** Phase A — Hydro-Flood meldet gemessene Überschreitungen unabhängig von der Prognosekette. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.

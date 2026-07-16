@@ -70,13 +70,18 @@ export function normalizeHydroFloodPopup(p = {}, flood = {}) {
   const distance = validNumber(flood.current_q_distance_to_threshold_m3s)
     ? flood.current_q_distance_to_threshold_m3s
     : (!thresholdMissing && validNumber(currentQ) ? Number(threshold) - Number(currentQ) : null)
+  const forecastStale = flood.forecast_evaluation_stale === true
+  const currentThresholdExceeded = flood.current_q_above_threshold === true
+  const activeFloodWarning = currentThresholdExceeded || (forecastStale !== true && flood.forecast_flood_evaluable === true && flood.flood_expected === true)
   const floodNotEvaluable = flood.flood_evaluable === false || flood.flood_status === 'missing_threshold' || thresholdMissing
   const floodLabel = floodNotEvaluable ? 'nicht bewertbar' : (flood.flood_expected === true ? 'ja' : 'nein')
   const precipEvaluable = flood.precip_evaluable === true || (flood.effective_precip_source_type && flood.effective_precip_source_type !== 'missing' && validNumber(flood.effective_catchment_precip_sum_mm))
   const noRelevantCell = flood.precip_status === 'no_relevant_cell'
   const missingGeometry = flood.precip_status === 'catchment_geometry_missing' || flood.catchment_geometry_available === false
   const precipValue = precipEvaluable && validNumber(flood.effective_catchment_precip_sum_mm) ? `${fmt(flood.effective_catchment_precip_sum_mm)} mm` : (noRelevantCell ? '0,00 mm' : 'nicht bewertbar')
-  const precipStatusLabel = flood.precip_status_label || (precipEvaluable ? 'aus erkannter Regenzelle abgeleitet' : 'keine verwertbaren Niederschlagsdaten zugeordnet')
+  const forecastStatusLabel = forecastStale ? `veraltet – ${flood.flood_status || 'Zell-/Niederschlagsprognose nicht aktuell'}` : (flood.forecast_flood_evaluable === true ? 'aktuell bewertbar' : 'nicht bewertbar')
+  const forecastAgeLabel = validNumber(flood.forecast_evaluation_age_min) ? `${Number(flood.forecast_evaluation_age_min).toFixed(1)} min` : '—'
+  const precipStatusLabel = forecastStale ? forecastStatusLabel : (flood.precip_status_label || (precipEvaluable ? 'aus erkannter Regenzelle abgeleitet' : 'keine verwertbaren Niederschlagsdaten zugeordnet'))
   const precipQualityLabel = flood.precip_quality_label || (precipEvaluable ? (flood.effective_precip_source_quality === 'high' ? 'hoch' : 'mittel') : 'nicht bewertbar')
   const qTimestamp = currentQTimestamp(p, flood)
   const qTimestampDate = parseTimestamp(qTimestamp.value)
@@ -101,7 +106,14 @@ export function normalizeHydroFloodPopup(p = {}, flood = {}) {
     distanceLabel: validNumber(distance) ? fmt(distance) : '—',
     dataAgeLabel: validNumber(dataAge) ? Number(dataAge).toFixed(1) : '—',
     floodLabel,
-    predictedQMaxLabel: validNumber(flood.predicted_q_max_m3s) ? fmt(flood.predicted_q_max_m3s) : '—',
+    predictedQMaxLabel: forecastStale ? 'nicht aktuell' : (validNumber(flood.predicted_q_max_m3s) ? fmt(flood.predicted_q_max_m3s) : '—'),
+    stalePredictedQMaxLabel: forecastStale && validNumber(flood.stale_predicted_q_max_m3s) ? `${fmt(flood.stale_predicted_q_max_m3s)} (veraltet)` : '—',
+    forecastStale,
+    forecastStatusLabel,
+    forecastAgeLabel,
+    forecastGeneratedAtLabel: formatViennaTimestamp(flood.forecast_evaluation_generated_at || flood.stale_prediction_generated_at),
+    currentThresholdExceeded,
+    activeFloodWarning,
     thresholdExceededLabel: floodNotEvaluable ? 'nicht bewertbar' : (flood.flood_expected === true ? 'ja' : 'nein'),
     contributingCellCountLabel: validNumber(flood.contributing_cell_count) ? Number(flood.contributing_cell_count).toFixed(0) : '—',
     currentCellCountLabel: validNumber(flood.current_cell_count) ? Number(flood.current_cell_count).toFixed(0) : '—',

@@ -90,6 +90,18 @@ Treffer auf einem Modulobjekt (z. B. h.__import__("x")) sind immer defekt und la
 den Test scheitern, bevor eine Assertion läuft. Ein solcher Test belegt nichts.
 Regulär importieren und das Modul direkt patchen.
 
+### AC-013 — Prüfe im Export, ob Warnungen ohne Zellframe entstehen
+Werte im 24h-Export je Station aus:
+  flood_status, current_q_above_threshold, forecast_evaluation_stale, cell_frame_status
+Erwartung: bei cell_frame_status != "ok" und current_q_above_threshold=true muss
+flood_expected=true sein. Jede Zeile mit current_q_above_threshold=true und
+flood_expected=false ist ein Regressionsbefund.
+
+### AC-014 — Prüfe, ob stale Forecasts Warnungen fortschreiben
+Suche im Export Zeilen mit forecast_evaluation_stale=true und flood_expected=true
+bei current_q_above_threshold=false. Erwartung: keine. Jeder Treffer ist eine
+fortgeschriebene Altwarnung.
+
 ---
 
 ## Erledigt

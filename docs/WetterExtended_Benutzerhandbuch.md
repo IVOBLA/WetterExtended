@@ -2911,3 +2911,9 @@ Die Hydro-Hochwasseranzeige basiert auf dem aktuellen Durchfluss `Q aktuell` und
 Die Zellgröße wirkt nicht als zusätzlicher künstlicher Faktor, sondern über die tatsächlich vom Einzugsgebiet überdeckte Zellfläche. Niederschlagsintensität, Aufenthaltsdauer im Einzugsgebiet und ein einfacher Routing-Speicher bestimmen den erwarteten Q-Anstieg. Das Ergebnis bleibt eine maximale vorhergesagte Durchflussmenge in `m³/s` und die Aussage, ob der konfigurierte Q-Grenzwert voraussichtlich erreicht wird.
 
 Fehlt der Q-Grenzwert einer Station, zeigt WetterExtended weiterhin Niederschlags-, Zell- und Aufenthaltsdauerinformationen an. Nur die Ja/Nein-Hochwasserentscheidung ist dann nicht bewertbar.
+
+Ein Pegel wird hervorgehoben, sobald der eingestellte Markierungs-Durchfluss gemessen überschritten ist — auch wenn gerade keine Zell-/Niederschlagsprognose vorliegt. Damit bleibt die Hervorhebung an die aktuelle Stationsmessung gekoppelt.
+
+Ist die Niederschlagsprognose veraltet, zeigt das Popup dies mit dem Zeitpunkt der letzten vollständigen Prognose an. Der prognostizierte Maximalwert erscheint dann als „nicht aktuell" und löst kein Warnicon aus; ein sichtbares Warnicon entsteht weiterhin durch eine aktuelle gemessene Grenzwertüberschreitung oder durch einen frischen bewertbaren Forecast.
+
+Die Hydro-Hochwasseranzeige ist weiterhin eine lokale Orientierungshilfe und kein Ersatz für amtliche Hochwasserwarnungen.

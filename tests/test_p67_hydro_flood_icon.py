@@ -70,7 +70,7 @@ def test_frontend_prevents_double_circle_and_icon_for_flood_warning():
     mf = Path("frontend/src/pages/MapFullscreen.jsx").read_text(encoding="utf-8")
 
     for text in (mv, mf):
-        assert "const hasFloodWarning = flood.flood_expected === true || p.flood_expected === true" in text
+        assert "const hasFloodWarning = popup.activeFloodWarning === true" in text
         assert "{hasFloodWarning ? (" in text
         assert ") : (" in text
         assert "</Marker>" in text

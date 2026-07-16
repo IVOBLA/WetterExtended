@@ -684,7 +684,7 @@ export default function MapFullscreen() {
           const flood = hydroFloodRisk[String(p.station_id)] || {}
           const popup = normalizeHydroFloodPopup(p, flood)
           const color = hydroTrendColor(popup.trendStatus)
-          const hasFloodWarning = flood.flood_expected === true || p.flood_expected === true
+          const hasFloodWarning = popup.activeFloodWarning === true
           const loadCatchment = () => api.get(`/api/hydro/station/${p.station_id}/catchment`).then(d => setHydroCatchments(prev => ({ ...prev, [p.station_id]: hydroFeatureCollection(d) }))).catch(() => {})
           const popupContent = (
               <Popup>
