@@ -55,8 +55,8 @@ def _atomic_write_json(path: Path, data: dict) -> None:
         try:
             if os.path.exists(tmp):
                 os.unlink(tmp)
-        except Exception:
-            pass
+        except Exception as exc:
+            result["status"].update({"hydro_flood_eval_status": "error", "hydro_flood_eval_error": f"{type(exc).__name__}: {exc}", "hydro_flood_eval_at": _utc_now().isoformat().replace("+00:00", "Z")})
 
 
 def _read_json(path: Path) -> dict | None:
@@ -282,8 +282,8 @@ def fetch_hydro_live(force: bool = False) -> dict:
         try:
             from hydro_flood_ml import append_hydro_history
             append_hydro_history(result)
-        except Exception:
-            pass
+        except Exception as exc:
+            result["status"].update({"hydro_history_status": "error", "hydro_history_error": f"{type(exc).__name__}: {exc}"})
         # B271: Flood-Risk/Trend-Cache bei jedem erfolgreichen Fetch direkt aktualisieren.
         # B271: Vorher wurde dieser Cache ausschliesslich lazy beim Aufruf von
         # /api/hydro/flood-risk neu berechnet — dieser Endpunkt wird aber nur von
@@ -297,6 +297,7 @@ def fetch_hydro_live(force: bool = False) -> dict:
         try:
             from hydro_flood_ml import HYDRO_RISK_PATH, _atomic_json, _read_json as _read_risk_json, evaluate_live_flood_risk, load_latest_cell_frame
             cells, cell_meta = load_latest_cell_frame()
+            result["cell_frame_meta"] = cell_meta
             if cells is not None:
                 evaluate_live_flood_risk(live=result, cells=cells)
             else:
@@ -308,8 +309,8 @@ def fetch_hydro_live(force: bool = False) -> dict:
                     _atomic_json(HYDRO_RISK_PATH, existing)
                 else:
                     evaluate_live_flood_risk(live=result, cells=[])
-        except Exception:
-            pass
+        except Exception as exc:
+            result["status"].update({"hydro_flood_eval_status": "error", "hydro_flood_eval_error": f"{type(exc).__name__}: {exc}", "hydro_flood_eval_at": _utc_now().isoformat().replace("+00:00", "Z")})
         _write_status(result["status"])
         _log_api_call_safe(response, raw, duration_ms)
         return result

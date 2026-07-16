@@ -30,7 +30,7 @@ const HYDRO_FLOOD_ICON = L.divIcon({
 })
 import api, { abortApiRequests } from '../api.js'
 import { formatCbIrLabel, getCbThresholdState } from '../utils/cbThreshold.js'
-import { hasValidHydroImpactLine, hydroFeatureCollection } from '../utils/hydro.js'
+import { hasValidHydroImpactLine, hydroFeatureCollection, hydroFloodRows } from '../utils/hydro.js'
 import { normalizeHydroFloodPopup } from '../utils/hydroFloodPopup.js'
 import { loadRiskGridAfterHealth, nextRiskGridDelayMs } from '../utils/riskGridPolling.js'
 import {
@@ -737,7 +737,7 @@ export default function MapView() {
       if (lightningData?.strikes) setLightning(lightningData.strikes)
       api.get('/api/hydro/stations?map=1').then(d => setHydroStations(hydroFeatureCollection(d))).catch(() => setHydroStations({ type:'FeatureCollection', features: [] }))
       api.get('/api/hydro/flood-risk').then(d => {
-        const rows = d?.data?.stations || d?.stations || []
+        const rows = hydroFloodRows(d)
         setHydroFloodRisk(Object.fromEntries(rows.map(r => [String(r.station_id), r])))
       }).catch(() => setHydroFloodRisk({}))
       api.get('/api/hydro/impact-segments').then(d => setHydroSegments(hydroFeatureCollection(d))).catch(() => setHydroSegments({ type:'FeatureCollection', features: [] }))

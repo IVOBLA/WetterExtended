@@ -1,7 +1,7 @@
 import ast
-import pytest
+from shapely.geometry import Polygon as _RequiredShapelyPolygon
 
-pytest.importorskip("shapely")
+assert _RequiredShapelyPolygon is not None
 
 import hydro_flood_ml as h
 

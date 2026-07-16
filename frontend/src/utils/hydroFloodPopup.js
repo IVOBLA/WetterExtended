@@ -102,7 +102,7 @@ export function normalizeHydroFloodPopup(p = {}, flood = {}) {
     dataAgeLabel: validNumber(dataAge) ? Number(dataAge).toFixed(1) : '—',
     floodLabel,
     predictedQMaxLabel: validNumber(flood.predicted_q_max_m3s) ? fmt(flood.predicted_q_max_m3s) : '—',
-    thresholdExceededLabel: flood.flood_evaluable === false ? 'nicht bewertbar' : (flood.flood_expected === true ? 'ja' : 'nein'),
+    thresholdExceededLabel: floodNotEvaluable ? 'nicht bewertbar' : (flood.flood_expected === true ? 'ja' : 'nein'),
     contributingCellCountLabel: validNumber(flood.contributing_cell_count) ? Number(flood.contributing_cell_count).toFixed(0) : '—',
     currentCellCountLabel: validNumber(flood.current_cell_count) ? Number(flood.current_cell_count).toFixed(0) : '—',
     incomingCellCountLabel: validNumber(flood.incoming_cell_count) ? Number(flood.incoming_cell_count).toFixed(0) : '—',

@@ -49,3 +49,9 @@ export function hasValidHydroImpactLine(impact) {
     && isFiniteCoordinate(impact.station_lat)
     && isFiniteCoordinate(impact.station_lon)
 }
+
+
+export function hydroFloodRows(response) {
+  const rows = response?.data?.stations || response?.stations || []
+  return Array.isArray(rows) ? rows : []
+}
