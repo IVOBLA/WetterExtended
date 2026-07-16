@@ -1439,7 +1439,7 @@ def build_deferred_public_risk(live_doc: dict, cell_frame_meta: dict, previous_d
         doc = evaluate_live_flood_risk(stations=stations, live=live, cells=[], write=False, include_debug=False)
         for row in doc.get("stations") or []:
             _mark_row_forecast_deferred(row, doc.get("generated_at"), status)
-    doc.update({"status": status, "deferred_reason": status, "hydro_live_updated_at": live.get("fetched_at"), "cell_frame_path": (cell_frame_meta or {}).get("path"), "cell_frame_timestamp": (cell_frame_meta or {}).get("frame_timestamp"), "cell_frame_age_min": (cell_frame_meta or {}).get("frame_age_min"), "cell_frame_status": (cell_frame_meta or {}).get("status") or (cell_frame_meta or {}).get("cell_frame_status"), "warning": "Hydro-Flood-Risk-Cache wegen fehlendem, ungültigem oder veraltetem Zellframe nicht überschrieben."})
+    doc.update({"status": status, "payload_scope": "public", "deferred_reason": status, "hydro_live_updated_at": live.get("fetched_at"), "cell_frame_path": (cell_frame_meta or {}).get("path"), "cell_frame_timestamp": (cell_frame_meta or {}).get("frame_timestamp"), "cell_frame_age_min": (cell_frame_meta or {}).get("frame_age_min"), "cell_frame_status": (cell_frame_meta or {}).get("status") or (cell_frame_meta or {}).get("cell_frame_status"), "warning": "Hydro-Flood-Risk-Cache wegen fehlendem, ungültigem oder veraltetem Zellframe nicht überschrieben."})
     doc["stations"] = [_public_flood_row(r) for r in doc.get("stations") or [] if isinstance(r, dict)]
     return doc
 

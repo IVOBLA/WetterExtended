@@ -6634,3 +6634,13 @@ gefiltert, Fremd-ZIP erhalten, Suffix-Filter entfernt, `_EXPORT_EXCLUDE_DIRS` un
 **Tests:** Ergänzt wurden `tests/test_b413_hydro_measured_threshold_wins.py`, `tests/test_b413_hydro_deferred_warning_state.py`, `tests/test_b413_hydro_missing_frame_without_cache.py`, `tests/test_b413_hydro_public_threshold_field.py` und `frontend/src/utils/__tests__/hydroFloodStale.test.mjs`. Zusätzlich laufen die Hydro-Flood-, Public-Payload-, Cell-Frame-, P67-Kartenkonsistenz- und Frontend-Build-Prüfungen.
 
 **Phasen-Status:** Phase A — Hydro-Flood meldet gemessene Überschreitungen unabhängig von der Prognosekette. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.
+
+### B414 — Testzellen ohne ID; Identitätsprüfung nach B413 ✅ erledigt
+
+- **Root-Cause:** `is_hydro_relevant_cell()` verwirft ID-lose Zellen; die Testzellen trugen keine ID. Das war ein Testfehler, kein Produktionsbug: `load_latest_cell_frame()` filtert solche Zellen bereits, sodass der Produktivpfad sie nie sieht.
+- **Fix:** Die Testzellen tragen nun IDs, die Konstantenassertion wurde durch einen relationalen Vergleich ersetzt, und `test_b271` prüft die übergebenen Daten statt zufälliger Objektidentität. Ein zusätzlicher Regressionstest belegt für Fetches mit und ohne Zellframe, dass der öffentliche Risk-Cache geschrieben wird und im Deferred-Fall frisches Q sowie `forecast_evaluation_stale=true` enthält. Dabei wurde ein echter Randfall behoben: Beim Aktualisieren eines älteren Cache-Dokuments erzwingt der Deferred-Builder nun `payload_scope="public"`.
+- **Befund, nicht behoben:** Der Test patcht `catchment_area_geometry_km2 = 1` für ein ungefähr 124 km² großes Polygon. Da die Niederschlagsformel durch diese Fläche teilt, würde jede Konstantenassertion auf `effective_catchment_precip_sum_mm` eine falsch parametrierte Testumgebung prüfen.
+- **Einordnung der 25 Tracking-/Frontend-Fehler:** Die stichprobenartigen Sandbox-Läufe werden als Umgebungsartefakt oder neuer Befund dokumentiert; Tracking-Code wird in B414 nicht geändert.
+- **Einordnung B412:** B412 hat den Test korrekt auf den echten Shapely-Pfad umgestellt und dadurch den Befund sichtbar gemacht. Diese Aufklärung war die vorgesehene Arbeitsteilung und kein Versäumnis.
+
+**Phasen-Status:** Phase A — Hydro-Testsuite aussagekräftig. Phase B (Hailo-8 U-Net) unverändert blockiert.
