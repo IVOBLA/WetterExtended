@@ -44,6 +44,50 @@ _PRIORITY_TEXT_EXTS = {
 _NGINX_TAIL_BYTES = 5 * 1024 * 1024
 
 _TEXT_EXTENSIONS = {".txt", ".log", ".json", ".jsonl", ".csv", ".xml", ".kml", ".py", ".ini", ".cfg", ".conf", ".yaml", ".yml", ".env"}
+
+
+def _diagnosis_presence_report(base_dir: Path, window_start: datetime | None = None, window_end: datetime | None = None) -> dict:
+    """B406: Meldet, ob die erwarteten Diagnose-Verzeichnisse Daten enthalten.
+
+    Ein leeres train_data/association ist nicht von einem fehlerhaften Export zu
+    unterscheiden, solange beide Faelle "0 Dateien" ergeben. Der Report trennt sie:
+      - missing        -> Verzeichnis existiert nicht (Diagnose lief nie)
+      - empty          -> Verzeichnis existiert, ist aber leer (keine aktiven Frames?)
+      - stale          -> Dateien vorhanden, aber alle aelter als das Exportfenster
+      - ok             -> Dateien im Fenster vorhanden
+    """
+    report = {}
+    for label, rel in (("association", "train_data/association"),
+                       ("cell_lineage", "train_data/cell_lineage")):
+        p = base_dir / rel
+        try:
+            if not p.exists():
+                report[label] = {"status": "missing", "files": 0, "resolved": str(p.resolve())}
+                continue
+            files = [f for f in p.rglob("*") if f.is_file()]
+            if not files:
+                report[label] = {"status": "empty", "files": 0, "resolved": str(p.resolve())}
+                continue
+            newest = max(f.stat().st_mtime for f in files)
+            newest_dt = datetime.fromtimestamp(newest, tz=timezone.utc)
+            in_window_files = files
+            if window_start is not None and window_end is not None:
+                in_window_files = [
+                    f for f in files
+                    if window_start <= datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc) <= window_end
+                ]
+            report[label] = {
+                "status": "ok" if in_window_files else "stale",
+                "files": len(files),
+                "files_in_window": len(in_window_files),
+                "newest_mtime_utc": newest_dt.isoformat(),
+                "resolved": str(p.resolve()),
+            }
+        except Exception as exc:
+            report[label] = {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
+    return report
+
+
 _ALWAYS_INCLUDE_NAMES = {
     "latest_objects.json",
     "forecast.kmz",
@@ -279,12 +323,35 @@ def _file_in_window(path: Path, start: datetime, end: datetime, force: bool) -> 
         return False
 
 
+# B406: Verzeichnisse, die der Export NIEMALS in sich selbst aufnehmen darf.
+# `latest_export` enthaelt die fertigen ZIPs des vorherigen Laufs
+# (_latest_export_base_dir legt sie unter train_data/evaluation/latest_export ab).
+# Da das gesamte evaluation-Verzeichnis exportiert wird, verpackte jeder Export
+# seine eigenen Vorgaenger.
+_EXPORT_EXCLUDE_DIRS = {"latest_export"}
+
+# B406: Dateiendungen, die im Export nichts zu suchen haben. Ein Debug-Archiv darf
+# kein anderes Archiv enthalten -- sonst ist der Inhalt nicht mehr eindeutig
+# datierbar.
+_EXPORT_EXCLUDE_SUFFIXES = {".zip"}
+
+
+def _is_excluded_from_export(path: Path) -> bool:
+    """B406: True, wenn der Pfad eine eigene Export-Ausgabe ist."""
+    if any(part in _EXPORT_EXCLUDE_DIRS for part in path.parts):
+        return True
+    if path.suffix.lower() in _EXPORT_EXCLUDE_SUFFIXES:
+        return True
+    return False
+
+
 def _iter_files(root: Path):
     if root.is_file():
-        yield root
+        if not _is_excluded_from_export(root):
+            yield root
     elif root.is_dir():
         for path in root.rglob("*"):
-            if path.is_file():
+            if path.is_file() and not _is_excluded_from_export(path):
                 yield path
 
 
@@ -330,6 +397,12 @@ def _build_candidates_with_diagnostics(base_dir: Path, save_paths: dict | None) 
         ("admin_state", Path("train_data/system"), False),
         ("cell_lineage", Path("train_data/cell_lineage"), False),
         # B374: Assoziations-Diagnose (Kostenmatrix, Kandidatenpaare, Ablehnungsgründe)
+        # B406: Ohne diese Dateien ist ASSOC_MAX_COST (B400, Default 0.75) nicht
+        # kalibrierbar -- es ist die einzige Schwelle, die aktiv Matches verwirft.
+        # Im Export 2026-07-16 waren es 0 Dateien, obwohl der Eintrag seit B374
+        # existiert und object_tracking.py:1545 das Verzeichnis befuellt. Ein
+        # stilles Fehlen ist hier besonders teuer: es faellt erst auf, wenn die
+        # Kalibrierung ansteht -- also nach der naechsten Konvektionslage.
         ("diagnostics", Path("train_data/association"), False),
         ("system_logs", Path("logs"), False),
         ("config", Path("config.py"), True),
@@ -866,6 +939,17 @@ def create_debug_export_zip(
             except Exception as exc:
                 excluded_files.append(f"progress_snapshot.json: {exc}")
 
+            diagnosis_presence = _diagnosis_presence_report(base_dir, window_start, now)
+            try:
+                data = json.dumps(diagnosis_presence, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
+                zf.writestr(f"{root_name}/diagnostics/diagnosis_presence.json", data)
+                total_files += 1
+                total_bytes += len(data)
+                files_by_section["diagnostics"] = files_by_section.get("diagnostics", 0) + 1
+                included_roots.add("diagnostics")
+            except Exception as exc:
+                excluded_files.append(f"diagnosis_presence.json: {exc}")
+
             api_log_info = _write_api_logs_to_zip(zf, root_name, base_dir, save_paths, window_start, now)
             if api_log_info["files_count"]:
                 total_files += api_log_info["files_count"]
@@ -914,6 +998,7 @@ def create_debug_export_zip(
                 "max_files": max_files,
                 "max_total_bytes": max_total_bytes,
                 "hydro_export": hydro_info,
+                "diagnosis_presence": diagnosis_presence,
                 "forecast_quality_diagnosis": forecast_quality_diagnosis,
                 "kinematic_acceleration_diagnosis": kinematic_acceleration_diagnosis,
                 "convlstm_training_diagnosis": convlstm_training_diagnosis,
