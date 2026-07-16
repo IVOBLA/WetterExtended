@@ -1463,6 +1463,8 @@ HYDRO_PENDING_RETENTION_HOURS = 72
 HYDRO_FAILED_SAMPLE_RETENTION_DAYS = 30
 HYDRO_DATASET_RETENTION_DAYS = 365
 HYDRO_EVENT_GAP_MIN = 180
+HYDRO_ML_MIN_TRAIN_EVENTS = 2
+HYDRO_ML_MIN_VALIDATION_EVENTS = 1
 
 HYDRO_FLOOD_ML_FEATURES = [
     "current_q_m3s",
@@ -1492,6 +1494,10 @@ HYDRO_FLOOD_ML_FEATURES = [
     "physical_predicted_q_delta_m3s",
     "physical_predicted_q_max_m3s",
     "data_age_min",
+    "threshold_available_flag",
+    "q_trend_available_flag",
+    "cell_entry_available_flag",
+    "data_age_available_flag",
 ]
 
 # --- P68: Signierte Bias-Korrektur des kinematischen Fallbacks ---

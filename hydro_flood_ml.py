@@ -25,8 +25,10 @@ HYDRO_ACCURACY_HISTORY_PATH = HYDRO_ML_DIR / "hydro_flood_accuracy_history.jsonl
 HYDRO_RISK_PATH = Path("train_data/hydro/impact/latest_hydro_flood_risk.json")
 HYDRO_MODEL_CURRENT_DIR = Path("train_data/models/hydro_flood/current")
 MIN_TRAINING_SAMPLES = int(os.getenv("HYDRO_FLOOD_ML_MIN_SAMPLES", "20"))
-FEATURE_SCHEMA_VERSION = "b410_live_catchment_v2"
+FEATURE_SCHEMA_VERSION = "b411_live_catchment_v3"
 HYDRO_SAMPLE_DB_PATH = HYDRO_ML_DIR / "hydro_flood_samples.sqlite3"
+_DEFAULT_HYDRO_SAMPLE_DB_PATH = HYDRO_SAMPLE_DB_PATH
+_DEFAULT_HYDRO_DATASET_JSONL_PATH = HYDRO_DATASET_JSONL_PATH
 HYDRO_MODEL_ROOT_DIR = Path("train_data/models/hydro_flood")
 HYDRO_MODEL_CANDIDATES_DIR = HYDRO_MODEL_ROOT_DIR / "candidates"
 HYDRO_MODEL_PREVIOUS_DIR = HYDRO_MODEL_ROOT_DIR / "previous"
@@ -43,6 +45,29 @@ HYDRO_FLOOD_ML_FEATURES = list(getattr(config, "HYDRO_FLOOD_ML_FEATURES", [
     "rain_rate_mm_h_area_weighted", "first_entry_offset_min", "last_exit_offset_min",
     "physical_predicted_q_delta_m3s", "physical_predicted_q_max_m3s", "data_age_min",
 ]))
+
+HYDRO_OPTIONAL_FEATURES = {
+    "current_q_ratio_threshold", "current_q_distance_to_threshold_m3s",
+    "q_trend_delta_m3s", "q_trend_reference_window_min",
+    "first_entry_offset_min", "last_exit_offset_min", "data_age_min",
+}
+HYDRO_MISSING_INDICATOR_FEATURES = [
+    "threshold_available_flag", "q_trend_available_flag",
+    "cell_entry_available_flag", "data_age_available_flag",
+]
+HYDRO_REQUIRED_FEATURES = [f for f in HYDRO_FLOOD_ML_FEATURES if f not in HYDRO_OPTIONAL_FEATURES]
+HYDRO_FEATURE_IMPUTATION = {
+    "current_q_ratio_threshold": 0.0,
+    "current_q_distance_to_threshold_m3s": 0.0,
+    "q_trend_delta_m3s": 0.0,
+    "q_trend_reference_window_min": 0.0,
+    "first_entry_offset_min": 0.0,
+    "last_exit_offset_min": 0.0,
+    "data_age_min": 0.0,
+}
+for _flag in HYDRO_MISSING_INDICATOR_FEATURES:
+    if _flag not in HYDRO_FLOOD_ML_FEATURES:
+        HYDRO_FLOOD_ML_FEATURES.append(_flag)
 
 SOURCE_PRIORITY = {"measured": 0, "nowcast": 1, "radar_derived": 2, "cell_derived": 3, "proxy": 4, "missing": 9}
 QUALITY_SCORE = {"high": 1.0, "medium": 0.7, "low": 0.4, "missing": 0.0}
@@ -211,7 +236,7 @@ def flood_risk_input_hash(live: dict | None = None, cells: list[dict] | None = N
 
 
 def is_flood_risk_cache_valid(doc: dict | None, live: dict | None = None, cells: list[dict] | None = None) -> bool:
-    if not isinstance(doc, dict) or not doc.get("input_hash"):
+    if not isinstance(doc, dict) or not doc.get("input_hash") or doc.get("payload_scope") != "public":
         return False
     risk_mtime = _path_mtime(HYDRO_RISK_PATH)
     hydro_mtime = _path_mtime(getattr(__import__("hydro_fetch"), "LATEST_FILE", Path("train_data/hydro/live/latest_hydro.json")))
@@ -508,7 +533,9 @@ def _precip_from_cells_bbox_fallback(station: dict, cells: list[dict]) -> dict:
     label="aus erkannter Regenzelle abgeleitet" if count else "keine relevante Zelle im aktuellen oder prognostizierten Einzugsgebiet"
     base=_empty_precip_result(station, cells, geometry_available=True, geometry_status=cdiag.get("catchment_geometry_status") or "ok", precip_status=status, label=label, cdiag=cdiag)
     pred=max([x["routed_delta_q_m3s"] for x in series] or [0.0])
-    base.update({"geometry_quality":"bbox_fallback","precip_evaluable_by_geometry":False,"precip_status":"geometry_fallback_not_authoritative","precip_status_label":"Einzugsgebietsprüfung nur mit vereinfachter Geometrie möglich","cell_catchment_count":count,"contributing_cell_count":count,"current_cell_count":current,"incoming_cell_count":incoming,"cell_catchment_precip_sum_mm":round(sum_mm,3),"cell_catchment_precip_weighted_sum_mm":round(wsum,3),"cell_catchment_max_intensity":round(max_int,3),"cell_catchment_area_km2_sum":round(area_sum,3),"cell_catchment_overlap_area_km2_sum":round(overlap,3),"raw_overlap_area_km2_sum":round(overlap,3),"effective_overlap_area_km2":round(effective_overlap,3),"overlap_deduplicated_area_km2":round(dedup,3),"spatial_dedup_applied":dedup>1e-6,"max_overlap_area_km2":round(effective_overlap,3),"cell_precip_source_type":"nowcast" if count else "none","total_rain_volume_m3":sum(d["rain_volume_m3"] for d in diags),"total_runoff_volume_m3":sum(d["runoff_volume_m3"] for d in diags),"total_dwell_time_min":sum(d["dwell_time_min"] for d in diags),"max_cell_dwell_time_min":max([d["dwell_time_min"] for d in diags] or [0]),"physical_predicted_q_delta_m3s":round(pred,4),"physical_predicted_q_max_m3s":round(q0+pred,4),"rain_rate_mm_h_max":round(max_int,3),"rain_rate_mm_h_mean":round(max_int,3),"rain_rate_mm_h_area_weighted":round(max_int,3),"cell_diagnostics":diags,"station_runoff_series":series})
+    fallback_status = "geometry_fallback_not_authoritative" if count else "no_relevant_cell"
+    fallback_label = "Einzugsgebietsprüfung nur mit vereinfachter Geometrie möglich" if count else "keine relevante Zelle im aktuellen oder prognostizierten Einzugsgebiet"
+    base.update({"geometry_quality":"bbox_fallback","precip_evaluable_by_geometry":False,"precip_status":fallback_status,"precip_status_label":fallback_label,"cell_catchment_count":count,"contributing_cell_count":count,"current_cell_count":current,"incoming_cell_count":incoming,"cell_catchment_precip_sum_mm":round(sum_mm,3),"cell_catchment_precip_weighted_sum_mm":round(wsum,3),"cell_catchment_max_intensity":round(max_int,3),"cell_catchment_area_km2_sum":round(area_sum,3),"cell_catchment_overlap_area_km2_sum":round(overlap,3),"raw_overlap_area_km2_sum":round(overlap,3),"effective_overlap_area_km2":round(effective_overlap,3),"overlap_deduplicated_area_km2":round(dedup,3),"spatial_dedup_applied":dedup>1e-6,"max_overlap_area_km2":round(effective_overlap,3),"cell_precip_source_type":"nowcast" if count else "none","total_rain_volume_m3":sum(d["rain_volume_m3"] for d in diags),"total_runoff_volume_m3":sum(d["runoff_volume_m3"] for d in diags),"total_dwell_time_min":sum(d["dwell_time_min"] for d in diags),"max_cell_dwell_time_min":max([d["dwell_time_min"] for d in diags] or [0]),"physical_predicted_q_delta_m3s":round(pred,4),"physical_predicted_q_max_m3s":round(q0+pred,4),"rain_rate_mm_h_max":round(max_int,3),"rain_rate_mm_h_mean":round(max_int,3),"rain_rate_mm_h_area_weighted":round(max_int,3),"cell_diagnostics":diags,"station_runoff_series":series})
     return base
 
 def _empty_precip_result(station: dict, cells: list[dict] | None, *, geometry_available: bool, geometry_status: str, precip_status: str, label: str, cdiag: dict | None = None) -> dict:
@@ -649,7 +676,9 @@ def _precip_from_cells(station: dict, cells: list[dict]) -> dict:
     source="nowcast" if any(str(d.get("rain_rate_source")).startswith("nowcast") for d in diags) else ("cell_derived" if contributing else "none")
     status="cell_derived" if contributing else "no_relevant_cell"
     label="aus erkannter Regenzelle abgeleitet" if contributing else "keine relevante Zelle im aktuellen oder prognostizierten Einzugsgebiet"
-    return {**cdiag, "input_cell_count": len(cells or []), "cell_catchment_count": contributing, "contributing_cell_count": contributing, "current_cell_count": current, "incoming_cell_count": incoming, "cell_catchment_precip_sum_mm": round(total_rain / max(cdiag.get("catchment_area_geometry_km2") or 1.0, 1e-6) / 1000.0, 3), "cell_catchment_precip_weighted_sum_mm": round(total_rain / max(cdiag.get("catchment_area_geometry_km2") or 1.0, 1e-6) / 1000.0, 3), "cell_catchment_max_intensity": round(max([d.get("rain_rate_mm_h",0) for d in diags] or [0]),3), "cell_catchment_area_km2_sum": round(sum(d.get("cell_area_km2",0) for d in diags),3), "cell_catchment_overlap_area_km2_sum": round(raw_total,3), "raw_overlap_area_km2_sum": round(raw_total,3), "effective_overlap_area_km2": round(max([x["effective_overlap_area_km2"] for x in series] or [0]),3), "overlap_deduplicated_area_km2": round(dedup_total,3), "spatial_dedup_applied": spatial_dedup, "cell_catchment_overlap_ratio_max": round(max([d.get("max_overlap_area_km2",0)/max(d.get("cell_area_km2",1),1e-6) for d in diags] or [0]),4), "cell_precip_source_type": source if contributing else "none", "geometry_quality": "shapely", "routing_tau_min": round(tau,3), "routing_tau_source": tau_source, "precip_evaluable_by_geometry": True, "precip_status": status, "precip_status_label": label, "total_rain_volume_m3": round(total_rain,3), "total_runoff_volume_m3": round(total_runoff,3), "total_dwell_time_min": round(sum(d.get("dwell_time_min",0) for d in diags),3), "max_cell_dwell_time_min": round(max([d.get("dwell_time_min",0) for d in diags] or [0]),3), "max_overlap_area_km2": round(max([d.get("max_overlap_area_km2",0) for d in diags] or [0]),3), "overlap_area_time_km2_min": round(sum(d.get("overlap_area_time_km2_min",0) for d in diags),3), "physical_predicted_q_delta_m3s": round(pred_delta,4), "physical_predicted_q_max_m3s": round(max(0.0, q0+pred_delta),4), "first_entry_offset_min": min([d.get("entry_offset_min") for d in diags] or [None]), "last_exit_offset_min": max([d.get("exit_offset_min") for d in diags] or [None]), "rain_rate_mm_h_max": round(max([d.get("rain_rate_mm_h",0) for d in diags] or [0]),3), "rain_rate_mm_h_mean": round(sum(d.get("rain_rate_mm_h",0) for d in diags)/contributing,3) if contributing else 0.0, "rain_rate_mm_h_area_weighted": round((sum(d.get("rain_rate_mm_h",0)*d.get("max_overlap_area_km2",0) for d in diags) / max(sum(d.get("max_overlap_area_km2",0) for d in diags), 1e-6)),3) if contributing else 0.0, "cell_diagnostics": diags, "station_runoff_series": series[:24]}
+    raw_overlap_area_time_km2_min = round(raw_total * step, 3)
+    effective_overlap_area_time_km2_min = round(eff_total * step, 3)
+    return {**cdiag, "input_cell_count": len(cells or []), "cell_catchment_count": contributing, "contributing_cell_count": contributing, "current_cell_count": current, "incoming_cell_count": incoming, "cell_catchment_precip_sum_mm": round(total_rain / max(cdiag.get("catchment_area_geometry_km2") or 1.0, 1e-6) / 1000.0, 3), "cell_catchment_precip_weighted_sum_mm": round(total_rain / max(cdiag.get("catchment_area_geometry_km2") or 1.0, 1e-6) / 1000.0, 3), "cell_catchment_max_intensity": round(max([d.get("rain_rate_mm_h",0) for d in diags] or [0]),3), "cell_catchment_area_km2_sum": round(sum(d.get("cell_area_km2",0) for d in diags),3), "cell_catchment_overlap_area_km2_sum": round(raw_total,3), "raw_overlap_area_km2_sum": round(raw_total,3), "effective_overlap_area_km2": round(max([x["effective_overlap_area_km2"] for x in series] or [0]),3), "overlap_deduplicated_area_km2": round(dedup_total,3), "spatial_dedup_applied": spatial_dedup, "cell_catchment_overlap_ratio_max": round(max([d.get("max_overlap_area_km2",0)/max(d.get("cell_area_km2",1),1e-6) for d in diags] or [0]),4), "cell_precip_source_type": source if contributing else "none", "geometry_quality": "shapely", "routing_tau_min": round(tau,3), "routing_tau_source": tau_source, "precip_evaluable_by_geometry": True, "precip_status": status, "precip_status_label": label, "total_rain_volume_m3": round(total_rain,3), "total_runoff_volume_m3": round(total_runoff,3), "total_dwell_time_min": round(sum(d.get("dwell_time_min",0) for d in diags),3), "max_cell_dwell_time_min": round(max([d.get("dwell_time_min",0) for d in diags] or [0]),3), "max_overlap_area_km2": round(max([d.get("max_overlap_area_km2",0) for d in diags] or [0]),3), "raw_overlap_area_time_km2_min": raw_overlap_area_time_km2_min, "effective_overlap_area_time_km2_min": effective_overlap_area_time_km2_min, "overlap_area_time_km2_min": effective_overlap_area_time_km2_min, "physical_predicted_q_delta_m3s": round(pred_delta,4), "physical_predicted_q_max_m3s": round(max(0.0, q0+pred_delta),4), "first_entry_offset_min": min([d.get("entry_offset_min") for d in diags] or [None]), "last_exit_offset_min": max([d.get("exit_offset_min") for d in diags] or [None]), "rain_rate_mm_h_max": round(max([d.get("rain_rate_mm_h",0) for d in diags] or [0]),3), "rain_rate_mm_h_mean": round(sum(d.get("rain_rate_mm_h",0) for d in diags)/contributing,3) if contributing else 0.0, "rain_rate_mm_h_area_weighted": round((sum(d.get("rain_rate_mm_h",0)*d.get("max_overlap_area_km2",0) for d in diags) / max(sum(d.get("max_overlap_area_km2",0) for d in diags), 1e-6)),3) if contributing else 0.0, "cell_diagnostics": diags, "station_runoff_series": series[:24]}
 
 def _observed_precip(station: dict) -> dict:
     p = station.get("observed_precip") if isinstance(station.get("observed_precip"), dict) else {}
@@ -726,7 +755,7 @@ def heuristic_score(row: dict) -> dict:
     return {"hydro_flood_risk_score": None, "flood_expected": expected, "flood_evaluable": True, "flood_status": status, "confidence": None, "reasons": reasons, "warning_reasons": warnings, "model_source": "heuristic_scoring", "prediction_source": "physical_fallback", "physical_predicted_q_delta_m3s": physical_delta, "ml_predicted_q_delta_m3s": None, "predicted_q_delta_m3s": predicted_delta, "predicted_q_max_m3s": predicted_q}
 
 def _public_flood_row(row: dict) -> dict:
-    keys = ["station_id","station_name","river","current_q_m3s","current_q_measured_at","current_q_timestamp_source","current_q_missing","station_q_threshold_m3s","station_q_threshold_source","station_q_threshold_missing","current_q_ratio_threshold","current_q_distance_to_threshold_m3s","catchment_geometry_available","catchment_geometry_status","catchment_feature_count","catchment_area_geometry_km2","catchment_area_km2","routing_tau_min","routing_tau_source","input_cell_count","contributing_cell_count","current_cell_count","incoming_cell_count","effective_catchment_precip_sum_mm","effective_catchment_precip_weighted_sum_mm","effective_precip_source_type","effective_precip_source_quality","precip_evaluable","precip_status","precip_status_label","precip_quality_label","cell_catchment_count","cell_catchment_overlap_area_km2_sum","raw_overlap_area_km2_sum","effective_overlap_area_km2","overlap_deduplicated_area_km2","spatial_dedup_applied","total_rain_volume_m3","total_runoff_volume_m3","total_dwell_time_min","max_cell_dwell_time_min","max_overlap_area_km2","overlap_area_time_km2_min","physical_predicted_q_delta_m3s","physical_predicted_q_max_m3s","ml_predicted_q_delta_m3s","predicted_q_delta_m3s","predicted_q_max_m3s","prediction_source","model_version","model_cache_status","model_loaded_at","first_entry_offset_min","last_exit_offset_min","rain_rate_mm_h_max","rain_rate_mm_h_mean","rain_rate_mm_h_area_weighted","current_data_age_min","data_age_min","hydro_data_stale","current_q_trend_10min","current_q_trend_30min","current_q_trend_60min","q_trend_per_hour","already_rising_flag","q_trend_status","q_trend_delta_m3s","q_trend_reference_window_min","flood_expected","flood_evaluable","flood_status","reasons","warning_reasons","model_source","generated_at","flood_probability"]
+    keys = ["station_id","station_name","river","current_q_m3s","current_q_measured_at","current_q_timestamp_source","current_q_missing","station_q_threshold_m3s","station_q_threshold_source","station_q_threshold_missing","current_q_ratio_threshold","current_q_distance_to_threshold_m3s","catchment_geometry_available","catchment_geometry_status","catchment_feature_count","catchment_area_geometry_km2","catchment_area_km2","routing_tau_min","routing_tau_source","input_cell_count","contributing_cell_count","current_cell_count","incoming_cell_count","effective_catchment_precip_sum_mm","effective_catchment_precip_weighted_sum_mm","effective_precip_source_type","effective_precip_source_quality","precip_evaluable","precip_status","precip_status_label","precip_quality_label","cell_catchment_count","cell_catchment_overlap_area_km2_sum","raw_overlap_area_km2_sum","effective_overlap_area_km2","overlap_deduplicated_area_km2","spatial_dedup_applied","total_rain_volume_m3","total_runoff_volume_m3","total_dwell_time_min","max_cell_dwell_time_min","max_overlap_area_km2","overlap_area_time_km2_min","physical_predicted_q_delta_m3s","physical_predicted_q_max_m3s","ml_predicted_q_delta_m3s","predicted_q_delta_m3s","predicted_q_max_m3s","prediction_source","first_entry_offset_min","last_exit_offset_min","rain_rate_mm_h_max","rain_rate_mm_h_mean","rain_rate_mm_h_area_weighted","current_data_age_min","data_age_min","hydro_data_stale","current_q_trend_10min","current_q_trend_30min","current_q_trend_60min","q_trend_per_hour","already_rising_flag","q_trend_status","q_trend_delta_m3s","q_trend_reference_window_min","flood_expected","flood_evaluable","flood_status","reasons","warning_reasons","model_source","generated_at","flood_probability"]
     return {k: row.get(k) for k in keys if k in row}
 
 def evaluate_live_flood_risk(stations: list[dict]|None=None, live: dict|None=None, cells: list[dict]|None=None, write: bool=True, include_debug: bool=False) -> dict:
@@ -746,13 +775,13 @@ def evaluate_live_flood_risk(stations: list[dict]|None=None, live: dict|None=Non
         if isinstance(frame_meta, dict):
             full.update({"cell_frame_path": frame_meta.get("path"), "cell_frame_timestamp": frame_meta.get("frame_timestamp"), "cell_frame_age_min": frame_meta.get("frame_age_min"), "cell_frame_status": frame_meta.get("cell_frame_status") or frame_meta.get("status")})
         internal_rows.append(full)
-        public_rows.append(full if include_debug else _public_flood_row(full))
+        public_rows.append(full if (include_debug or not write) else _public_flood_row(full))
     pending_meta = record_pending_samples(internal_rows, live=live, cells_meta=cells_meta) if write else {"pending_added": 0, "pending_total": None}
     materialize_meta = materialize_pending_samples(live=None) if write else {"labeled_added": 0}
-    doc = {"status":"ok", "generated_at": generated, "input_hash": flood_risk_input_hash(live=live, cells=cells or []), "stations": public_rows, "pending_samples": pending_meta, "materialized_samples": materialize_meta, "readiness": readiness_status(), "cell_frame_path": (frame_meta or {}).get("path") if isinstance(frame_meta, dict) else None, "cell_frame_timestamp": (frame_meta or {}).get("frame_timestamp") if isinstance(frame_meta, dict) else None, "cell_frame_age_min": (frame_meta or {}).get("frame_age_min") if isinstance(frame_meta, dict) else None, "cell_frame_status": (frame_meta or {}).get("cell_frame_status") if isinstance(frame_meta, dict) else None}
+    doc = {"status":"ok", "payload_scope": "admin_diagnostics" if include_debug else "public", "payload_schema_version": "b411_public_v1", "generated_at": generated, "input_hash": flood_risk_input_hash(live=live, cells=cells or []), "stations": public_rows, "pending_samples": pending_meta, "materialized_samples": materialize_meta, "readiness": readiness_status(), "cell_frame_path": (frame_meta or {}).get("path") if isinstance(frame_meta, dict) else None, "cell_frame_timestamp": (frame_meta or {}).get("frame_timestamp") if isinstance(frame_meta, dict) else None, "cell_frame_age_min": (frame_meta or {}).get("frame_age_min") if isinstance(frame_meta, dict) else None, "cell_frame_status": (frame_meta or {}).get("cell_frame_status") if isinstance(frame_meta, dict) else None}
     if include_debug:
         doc["debug_stations"] = internal_rows
-    if write: _atomic_json(HYDRO_RISK_PATH, doc)
+    if write and not include_debug: _atomic_json(HYDRO_RISK_PATH, doc)
     return doc
 
 
@@ -774,7 +803,15 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
 
 
 def _feature_snapshot(row: dict) -> dict:
-    return {k: row.get(k) for k in HYDRO_FLOOD_ML_FEATURES}
+    snap = {k: row.get(k) for k in HYDRO_FLOOD_ML_FEATURES}
+    snap["threshold_available_flag"] = 0.0 if row.get("station_q_threshold_missing") or row.get("current_q_ratio_threshold") is None else 1.0
+    snap["q_trend_available_flag"] = 0.0 if row.get("q_trend_delta_m3s") is None else 1.0
+    snap["cell_entry_available_flag"] = 0.0 if row.get("first_entry_offset_min") is None or row.get("last_exit_offset_min") is None else 1.0
+    snap["data_age_available_flag"] = 0.0 if row.get("data_age_min") is None else 1.0
+    for key, default in HYDRO_FEATURE_IMPUTATION.items():
+        if snap.get(key) is None:
+            snap[key] = default
+    return snap
 
 def _feature_vector(row: dict) -> list[float]:
     vals = []
@@ -789,25 +826,34 @@ def _feature_vector(row: dict) -> list[float]:
 
 
 def _feature_schema_hash() -> str:
-    payload = {"version": FEATURE_SCHEMA_VERSION, "features": HYDRO_FLOOD_ML_FEATURES, "types": {k: "float_or_bool" for k in HYDRO_FLOOD_ML_FEATURES}, "imputation": "missing_numeric_features_rejected_for_training_then_zero_for_legacy_model_vector_only"}
+    payload = {"version": FEATURE_SCHEMA_VERSION, "features": HYDRO_FLOOD_ML_FEATURES, "required_features": HYDRO_REQUIRED_FEATURES, "optional_features": sorted(HYDRO_OPTIONAL_FEATURES), "missing_indicators": HYDRO_MISSING_INDICATOR_FEATURES, "types": {k: "float_or_bool" for k in HYDRO_FLOOD_ML_FEATURES}, "imputation": HYDRO_FEATURE_IMPUTATION}
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 def _missing_required_features(row: dict) -> list[str]:
     snap = row.get("features") if isinstance(row.get("features"), dict) else row
-    return [k for k in HYDRO_FLOOD_ML_FEATURES if snap.get(k) is None]
+    return [k for k in HYDRO_REQUIRED_FEATURES if snap.get(k) is None]
 
 def _sample_is_trainable_live(row: dict) -> bool:
-    return row.get("sample_kind") == SAMPLE_KIND_LIVE and row.get("feature_snapshot_complete") is True and row.get("feature_schema_version") == FEATURE_SCHEMA_VERSION and _f(row.get("target_q_delta_m3s")) is not None and not row.get("target_missing")
+    kind = row.get("sample_kind") or (SAMPLE_KIND_LIVE if row.get("feature_schema_version") == FEATURE_SCHEMA_VERSION else None)
+    return kind == SAMPLE_KIND_LIVE and row.get("feature_snapshot_complete", True) is True and row.get("feature_schema_version") == FEATURE_SCHEMA_VERSION and _f(row.get("target_q_delta_m3s")) is not None and not row.get("target_missing")
 
 def _sample_db() -> sqlite3.Connection:
     HYDRO_ML_DIR.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(HYDRO_SAMPLE_DB_PATH, timeout=30, isolation_level=None)
+    if HYDRO_DATASET_JSONL_PATH != _DEFAULT_HYDRO_DATASET_JSONL_PATH and HYDRO_SAMPLE_DB_PATH.parent != HYDRO_DATASET_JSONL_PATH.parent:
+        db_path = HYDRO_DATASET_JSONL_PATH.parent / "hydro_flood_samples.sqlite3"
+    elif HYDRO_SAMPLE_DB_PATH == _DEFAULT_HYDRO_SAMPLE_DB_PATH or HYDRO_SAMPLE_DB_PATH.parent != HYDRO_ML_DIR:
+        db_path = HYDRO_ML_DIR / "hydro_flood_samples.sqlite3"
+    else:
+        db_path = HYDRO_SAMPLE_DB_PATH
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(db_path, timeout=30, isolation_level=None)
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA synchronous=NORMAL")
     con.execute("CREATE TABLE IF NOT EXISTS pending_samples (sample_id TEXT PRIMARY KEY, station_id TEXT, sample_start_time TEXT, created_at TEXT, payload TEXT NOT NULL)")
     con.execute("CREATE TABLE IF NOT EXISTS labeled_samples (sample_id TEXT PRIMARY KEY, station_id TEXT, sample_start_time TEXT, labeled_at TEXT, payload TEXT NOT NULL)")
     con.execute("CREATE TABLE IF NOT EXISTS sample_failures (sample_id TEXT PRIMARY KEY, station_id TEXT, failed_at TEXT, reason TEXT, payload TEXT NOT NULL)")
     con.execute("CREATE TABLE IF NOT EXISTS training_runs (run_id TEXT PRIMARY KEY, created_at TEXT, payload TEXT NOT NULL)")
+    con.execute("CREATE TABLE IF NOT EXISTS schema_migrations (migration_id TEXT PRIMARY KEY, applied_at TEXT, rows_imported INTEGER DEFAULT 0, rows_legacy_moved INTEGER DEFAULT 0, rows_invalid INTEGER DEFAULT 0, payload TEXT)")
     con.execute("CREATE INDEX IF NOT EXISTS idx_pending_station_time ON pending_samples(station_id, sample_start_time)")
     con.execute("CREATE INDEX IF NOT EXISTS idx_labeled_station_time ON labeled_samples(station_id, sample_start_time)")
     return con
@@ -816,27 +862,88 @@ def _db_rows(table: str) -> list[dict]:
     with _sample_db() as con:
         return [json.loads(r[0]) for r in con.execute(f"SELECT payload FROM {table}").fetchall()]
 
+def _migration_applied(con: sqlite3.Connection, migration_id: str) -> bool:
+    return con.execute("SELECT 1 FROM schema_migrations WHERE migration_id=?", (migration_id,)).fetchone() is not None
+
+def _mark_migration(con: sqlite3.Connection, migration_id: str, meta: dict) -> None:
+    con.execute("INSERT OR REPLACE INTO schema_migrations(migration_id, applied_at, rows_imported, rows_legacy_moved, rows_invalid, payload) VALUES(?,?,?,?,?,?)", (migration_id, meta.get("migration_at") or _now(), int(meta.get("rows_imported", meta.get("rows_live_kept", 0)) or 0), int(meta.get("rows_legacy_moved", 0) or 0), int(meta.get("rows_invalid", meta.get("rows_invalid_dropped", 0)) or 0), json.dumps(meta, ensure_ascii=False, default=str)))
+
 def migrate_productive_dataset() -> dict:
-    rows = _jsonl_rows(HYDRO_DATASET_JSONL_PATH)
-    if not rows:
-        return {"migration_at": _now(), "rows_before": 0, "rows_live_kept": 0, "rows_legacy_moved": 0, "rows_invalid_dropped": 0}
-    live=[]; legacy=[]; invalid=[]
-    for r in rows:
-        if _sample_is_trainable_live(r) or (r.get("sample_kind") == SAMPLE_KIND_LIVE and r.get("feature_snapshot_complete") is True and r.get("feature_schema_version") == FEATURE_SCHEMA_VERSION):
-            live.append(r)
-        elif r.get("sample_kind") == SAMPLE_KIND_LEGACY or not r.get("cell_frame_hash") or r.get("feature_snapshot_complete") is not True:
-            r.setdefault("sample_kind", SAMPLE_KIND_LEGACY); legacy.append(r)
-        else:
-            invalid.append(r)
+    migration_id = "b410_jsonl_to_sqlite_v1"
+    with _sample_db() as con:
+        if _migration_applied(con, migration_id):
+            row=con.execute("SELECT payload FROM schema_migrations WHERE migration_id=?", (migration_id,)).fetchone()
+            meta=json.loads(row[0]) if row and row[0] else {"migration_id": migration_id}
+            meta["already_applied"] = True
+            return meta
+        rows = _jsonl_rows(HYDRO_DATASET_JSONL_PATH)
+        live=[]; legacy=[]; invalid=[]
+        con.execute("BEGIN IMMEDIATE")
+        try:
+            for r in rows:
+                if (r.get("sample_kind") in (None, SAMPLE_KIND_LIVE)) and r.get("feature_schema_version") == FEATURE_SCHEMA_VERSION:
+                    r.setdefault("sample_kind", SAMPLE_KIND_LIVE)
+                    sid=str(r.get("station_id") or "")
+                    if r.get("sample_id"):
+                        con.execute("INSERT OR REPLACE INTO labeled_samples(sample_id, station_id, sample_start_time, labeled_at, payload) VALUES(?,?,?,?,?)", (r.get("sample_id"), sid, r.get("sample_start_time"), r.get("labeled_at") or _now(), json.dumps(r, ensure_ascii=False, default=str)))
+                        live.append(r)
+                    else:
+                        invalid.append(r)
+                elif r.get("sample_kind") == SAMPLE_KIND_LEGACY or r.get("feature_snapshot_complete") is not True:
+                    r.setdefault("sample_kind", SAMPLE_KIND_LEGACY); legacy.append(r)
+                else:
+                    invalid.append(r)
+            meta={"migration_id": migration_id, "migration_at": _now(), "rows_before": len(rows), "rows_imported": len(live), "rows_live_kept": len(live), "rows_legacy_moved": len(legacy), "rows_invalid": len(invalid), "rows_invalid_dropped": len(invalid), "source": str(HYDRO_DATASET_JSONL_PATH), "store": "sqlite"}
+            _mark_migration(con, migration_id, meta)
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
     _write_jsonl(HYDRO_DATASET_JSONL_PATH, live)
-    existing = {r.get("sample_id"): r for r in _jsonl_rows(HYDRO_DATASET_PATH) if r.get("sample_id")}
-    for r in legacy:
-        existing[r.get("sample_id") or hashlib.sha256(json.dumps(r, sort_keys=True, default=str).encode()).hexdigest()] = r
-    _write_jsonl(HYDRO_DATASET_PATH, list(existing.values()))
-    meta={"migration_at": _now(), "rows_before": len(rows), "rows_live_kept": len(live), "rows_legacy_moved": len(legacy), "rows_invalid_dropped": len(invalid)}
+    if legacy:
+        existing = {r.get("sample_id"): r for r in _jsonl_rows(HYDRO_DATASET_PATH) if r.get("sample_id")}
+        for r in legacy:
+            existing[r.get("sample_id") or hashlib.sha256(json.dumps(r, sort_keys=True, default=str).encode()).hexdigest()] = r
+        _write_jsonl(HYDRO_DATASET_PATH, list(existing.values()))
     old=_read_json(HYDRO_TRAINING_META_PATH,{})
     old["b410_dataset_migration"] = meta
     _atomic_json(HYDRO_TRAINING_META_PATH, old)
+    return meta
+
+def migrate_pending_jsonl_to_sqlite() -> dict:
+    migration_id="b411_pending_jsonl_to_sqlite_v1"
+    with _sample_db() as con:
+        if _migration_applied(con, migration_id):
+            row=con.execute("SELECT payload FROM schema_migrations WHERE migration_id=?", (migration_id,)).fetchone()
+            meta=json.loads(row[0]) if row and row[0] else {"migration_id": migration_id}
+            meta["already_applied"] = True
+            return meta
+        rows=_jsonl_rows(HYDRO_PENDING_SAMPLES_PATH)
+        imported=duplicates=invalid=0; now=_now()
+        con.execute("BEGIN IMMEDIATE")
+        try:
+            seen=set()
+            for r in rows:
+                sid=str(r.get("station_id") or ""); sample_id=r.get("sample_id") or hashlib.sha256(json.dumps(r, sort_keys=True, default=str).encode()).hexdigest()
+                if sample_id in seen:
+                    duplicates += 1; continue
+                seen.add(sample_id); r["sample_id"] = sample_id
+                if not sid or not isinstance(r.get("features"), dict):
+                    invalid += 1
+                    con.execute("INSERT OR REPLACE INTO sample_failures(sample_id, station_id, failed_at, reason, payload) VALUES(?,?,?,?,?)", (sample_id, sid, now, "pending_jsonl_invalid_schema", json.dumps(r, ensure_ascii=False, default=str)))
+                    continue
+                con.execute("INSERT OR IGNORE INTO pending_samples(sample_id, station_id, sample_start_time, created_at, payload) VALUES(?,?,?,?,?)", (sample_id, sid, r.get("sample_start_time"), r.get("created_at") or now, json.dumps(r, ensure_ascii=False, default=str)))
+                imported += con.total_changes > 0
+            meta={"migration_id": migration_id, "migration_at": now, "rows_before": len(rows), "rows_imported": imported, "rows_invalid": invalid, "duplicate_rows": duplicates, "source": str(HYDRO_PENDING_SAMPLES_PATH)}
+            _mark_migration(con, migration_id, meta)
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
+    if rows and HYDRO_PENDING_SAMPLES_PATH.exists():
+        archive=HYDRO_PENDING_SAMPLES_PATH.with_name(f"hydro_flood_pending_samples.migrated.{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.jsonl")
+        os.replace(HYDRO_PENDING_SAMPLES_PATH, archive)
+        meta["archived_path"] = str(archive)
     return meta
 
 def record_pending_samples(rows: list[dict], live: dict | None = None, cells_meta: dict | None = None) -> dict:
@@ -888,13 +995,19 @@ def materialize_pending_samples(live: dict | None = None) -> dict:
             added += 1
         con.execute("COMMIT")
     dataset=[r for r in _db_rows("labeled_samples") if r.get("sample_kind") == SAMPLE_KIND_LIVE]
-    _write_jsonl(HYDRO_DATASET_JSONL_PATH, dataset)
-    return {"labeled_added": added, "failed_expired": failed, "pending_remaining": len(_db_rows("pending_samples")), "dataset_count": len(dataset), "store": "sqlite"}
+    dataset_count = len(dataset)
+    if added:
+        _write_jsonl(HYDRO_DATASET_JSONL_PATH, dataset)
+    return {"labeled_added": added, "failed_expired": failed, "pending_remaining": len(_db_rows("pending_samples")), "dataset_count": dataset_count, "store": "sqlite"}
+
+def load_trainable_labeled_samples(trainable_only: bool = False) -> list[dict]:
+    rows = _db_rows("labeled_samples")
+    return [r for r in rows if _sample_is_trainable_live(r)] if trainable_only else rows
 
 def readiness_status() -> dict:
     migrate_productive_dataset()
     meta = _read_json(HYDRO_TRAINING_META_PATH, {})
-    rows=_jsonl_rows(HYDRO_DATASET_JSONL_PATH)
+    rows=load_trainable_labeled_samples(False)
     usable=[r for r in rows if _sample_is_trainable_live(r)]
     valid_q=sum(1 for r in usable if _f(r.get("target_q_delta_m3s")) is not None)
     stations={r.get("station_id") for r in usable}
@@ -910,12 +1023,44 @@ def readiness_status() -> dict:
     coverage=dict(Counter((r.get("effective_precip_source_type") or "missing") for r in rows))
     return {"enabled": True, "model_available": (HYDRO_MODEL_CURRENT_DIR/HYDRO_MODEL_FILENAME).exists(), "sample_count": len(usable), "regression_sample_count": len(usable), "valid_target_q_delta_count": valid_q, "feature_complete_count": sum(1 for r in rows if r.get("feature_snapshot_complete") is True), "schema_compatible_count": sum(1 for r in rows if r.get("feature_schema_version") == FEATURE_SCHEMA_VERSION), "event_count": len(events), "time_span_days": round(span,3), "station_count": len(stations), "threshold_labeled_count": pos+neg, "positive_threshold_events": pos, "negative_threshold_events": neg, "positive_samples": pos, "negative_samples": neg, "stations_with_threshold": len({r.get("station_id") for r in rows if not r.get("station_q_threshold_missing")}), "stations_without_threshold": len({r.get("station_id") for r in rows if r.get("station_q_threshold_missing")}), "precip_source_coverage": coverage, "last_training_at": meta.get("last_training_at"), "last_dataset_build_at": meta.get("last_dataset_build_at"), "readiness_status": "ready" if not reasons else "fallback", "rejection_reasons": reasons}
 
+def _event_cells(row: dict) -> set[str]:
+    values = row.get("contributing_lineage_ids") or row.get("contributing_cell_ids")
+    if isinstance(values, str):
+        values = [v for v in values.split(",") if v]
+    if isinstance(values, (list, tuple, set)):
+        return {str(v) for v in values if v not in (None, "")}
+    return set()
+
 def _event_key(row: dict, previous: dict | None = None) -> str:
-    sid=str(row.get("station_id") or "")
-    cells=str(row.get("cell_frame_hash") or "")[:12]
-    dt=_dt(row.get("sample_start_time") or row.get("created_at"))
-    bucket=dt.strftime("%Y%m%d%H") if dt else str(row.get("sample_start_time") or "")[:13]
-    return f"{sid}:{bucket}:{cells}"
+    return str(row.get("event_id") or row.get("hydro_event_id") or "")
+
+def _assign_event_ids(rows: list[dict]) -> list[list[dict]]:
+    gap = _cfg_int("HYDRO_EVENT_GAP_MIN", 180, 10, 1440)
+    by_station = {}
+    for row in sorted(rows, key=lambda r: (str(r.get("station_id") or ""), str(r.get("sample_start_time") or r.get("created_at") or ""))):
+        by_station.setdefault(str(row.get("station_id") or ""), []).append(row)
+    events=[]
+    for sid, station_rows in by_station.items():
+        cur=[]; cur_cells=set(); prev_dt=None; event_no=0
+        for row in station_rows:
+            dt=_dt(row.get("sample_start_time") or row.get("created_at"))
+            cells=_event_cells(row)
+            precip_active=bool(row.get("precip_event_active", (row.get("contributing_cell_count") or 0) > 0))
+            prev_active=bool(cur[-1].get("precip_event_active", (cur[-1].get("contributing_cell_count") or 0) > 0)) if cur else False
+            separated = False
+            if cur and prev_dt and dt and (dt-prev_dt).total_seconds()/60.0 > gap:
+                separated = True
+            if cur and cells and cur_cells and cells.isdisjoint(cur_cells):
+                separated = True
+            if cur and precip_active and not prev_active and prev_dt and dt and (dt-prev_dt).total_seconds()/60.0 > gap:
+                separated = True
+            if cur and separated:
+                events.append(cur); event_no += 1; cur=[]; cur_cells=set()
+            eid=f"{sid}:event:{event_no}"
+            row["event_id"] = eid
+            cur.append(row); cur_cells |= cells; prev_dt = dt or prev_dt
+        if cur: events.append(cur)
+    return events
 
 
 
@@ -1038,17 +1183,18 @@ def _load_artifact(path: Path) -> dict:
         return pickle.loads(path.read_bytes())
 
 def _split_by_events(rows: list[dict]) -> tuple[list[dict], list[dict], dict]:
-    events=[]; cur_key=None; cur=[]
-    for r in rows:
-        key=_event_key(r)
-        if cur and key != cur_key:
-            events.append(cur); cur=[]
-        cur.append(r); cur_key=key
-    if cur: events.append(cur)
-    split=max(1, int(len(events)*0.8))
-    train_events=events[:split]; val_events=events[split:] or events[-1:]
+    events=_assign_event_ids(rows)
+    min_train=_cfg_int("HYDRO_ML_MIN_TRAIN_EVENTS", 2, 1, 100000)
+    min_val=_cfg_int("HYDRO_ML_MIN_VALIDATION_EVENTS", 1, 1, 100000)
+    if len(events) < min_train + min_val:
+        train_events=events; val_events=[]
+    else:
+        split=max(min_train, min(len(events)-min_val, int(len(events)*0.8)))
+        train_events=events[:split]; val_events=events[split:]
     train=[r for ev in train_events for r in ev]; val=[r for ev in val_events for r in ev]
-    meta={"train_event_count": len(train_events), "validation_event_count": len(val_events), "train_time_range": [train[0].get("sample_start_time") if train else None, train[-1].get("sample_start_time") if train else None], "validation_time_range": [val[0].get("sample_start_time") if val else None, val[-1].get("sample_start_time") if val else None]}
+    train_ids={r.get("event_id") for r in train}; val_ids={r.get("event_id") for r in val}
+    overlap=sorted(x for x in train_ids & val_ids if x)
+    meta={"train_event_count": len(train_events), "validation_event_count": len(val_events), "event_count": len(events), "event_split_overlap": overlap, "independent_event_status": "ok" if not overlap and len(train_events)>=min_train and len(val_events)>=min_val else "insufficient_independent_events", "train_time_range": [train[0].get("sample_start_time") if train else None, train[-1].get("sample_start_time") if train else None], "validation_time_range": [val[0].get("sample_start_time") if val else None, val[-1].get("sample_start_time") if val else None]}
     return train, val, meta
 
 def _active_model_mae(val: list[dict]) -> float | None:
@@ -1077,6 +1223,7 @@ def _promote_candidate(candidate_dir: Path, meta: dict) -> None:
         os.replace(tmp, HYDRO_MODEL_CURRENT_DIR)
         art=_load_artifact(HYDRO_MODEL_CURRENT_DIR/HYDRO_MODEL_FILENAME)
         if art.get("feature_schema_version") != FEATURE_SCHEMA_VERSION: raise ValueError("post_promotion_schema_mismatch")
+        _validate_model_integrity(HYDRO_MODEL_CURRENT_DIR)
         if HYDRO_MODEL_PREVIOUS_DIR.exists(): shutil.rmtree(HYDRO_MODEL_PREVIOUS_DIR)
         if backup: shutil.copytree(backup, HYDRO_MODEL_PREVIOUS_DIR)
     except Exception:
@@ -1086,12 +1233,14 @@ def _promote_candidate(candidate_dir: Path, meta: dict) -> None:
 
 def train_model() -> dict:
     materialize_pending_samples(); migration=migrate_productive_dataset()
-    rows=[r for r in _jsonl_rows(HYDRO_DATASET_JSONL_PATH) if _sample_is_trainable_live(r)]
+    rows=load_trainable_labeled_samples(True)
     if len(rows) < MIN_TRAINING_SAMPLES:
         status = readiness_status(); status.update({"status": "insufficient_data", "fallback_reason": ",".join(status.get("rejection_reasons") or []), "dataset_migration": migration})
         return status
     rows.sort(key=lambda r: str(r.get("sample_start_time") or r.get("created_at") or ""))
     train,val,split_meta=_split_by_events(rows)
+    if split_meta.get("independent_event_status") != "ok" or not val:
+        return {"status": "insufficient_independent_events", "promoted": False, **split_meta}
     X_train=[_feature_vector(r) for r in train]
     y_train=[(_f(r.get("target_q_delta_m3s"),0.0) or 0.0) - (_f((r.get("features") or r).get("physical_predicted_q_delta_m3s"),0.0) or 0.0) for r in train]
     X_val=[_feature_vector(r) for r in val]
@@ -1115,7 +1264,7 @@ def train_model() -> dict:
     mae=sum(abs(e) for e in errs)/len(errs); rmse=math.sqrt(sum(e*e for e in errs)/len(errs)); fb_mae=sum(abs(e) for e in fb_errs)/len(fb_errs)
     active_mae=_active_model_mae(val); finite=all(math.isfinite(x) for x in preds+[mae,rmse,fb_mae])
     baseline=fb_mae if active_mae is None else min(fb_mae, active_mae)
-    promoted=finite and split_meta["validation_event_count"] >= 1 and mae <= baseline*1.05
+    promoted=finite and split_meta.get("independent_event_status") == "ok" and split_meta["validation_event_count"] >= _cfg_int("HYDRO_ML_MIN_VALIDATION_EVENTS", 1, 1, 100000) and mae <= baseline*1.05
     run_id=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")+"_"+hashlib.sha256(os.urandom(8)).hexdigest()[:8]
     cand=HYDRO_MODEL_CANDIDATES_DIR/run_id; cand.mkdir(parents=True, exist_ok=True)
     artifact={"feature_schema_version": FEATURE_SCHEMA_VERSION, "feature_schema_hash": _feature_schema_hash(), "type": model_type, "model": model, "feature_names": HYDRO_FLOOD_ML_FEATURES}
@@ -1123,7 +1272,7 @@ def train_model() -> dict:
     prev_meta=_read_json(HYDRO_MODEL_CURRENT_DIR/"metadata.json", {})
     meta={"status":"trained", "run_id": run_id, "model_type": model_type, "feature_schema_version": FEATURE_SCHEMA_VERSION, "feature_schema_hash": _feature_schema_hash(), "feature_names": HYDRO_FLOOD_ML_FEATURES, "imputation_rule": "Samples mit fehlenden Pflichtfeatures werden vom produktiven Training ausgeschlossen; Modellvektor erhält nur für kompatible vollständige Snapshots numerische Werte.", "trained_at": _now(), "last_training_at": _now(), "sample_count": len(rows), "station_count": len({r.get("station_id") for r in rows}), "event_count": len({_event_key(r) for r in rows}), "candidate_mae": round(mae,4), "mae": round(mae,4), "rmse": round(rmse,4), "physical_fallback_mae": round(fb_mae,4), "active_model_mae": round(active_mae,4) if active_mae is not None else None, "promotion_baseline": "active_model" if active_mae is not None and active_mae <= fb_mae else "physical_fallback", "promoted": promoted, "promotion_decision": "promoted" if promoted else "rejected", "promotion_reason": "candidate_beats_selected_baseline" if promoted else "validation_not_better_than_physical_or_active_baseline", "previous_active_version": prev_meta.get("new_active_version") or prev_meta.get("trained_at"), "new_active_version": run_id, "model_filename": HYDRO_MODEL_FILENAME, **split_meta}
     _atomic_json(cand/"metadata.json", meta); _atomic_json(cand/"validation.json", {"candidate_mae": mae, "physical_fallback_mae": fb_mae, "active_model_mae": active_mae, **split_meta})
-    meta["model_signature"] = model_signature(cand); _atomic_json(cand/"metadata.json", meta)
+    meta["model_signature"] = model_signature(cand); _atomic_json(cand/"metadata.json", meta); _write_model_manifest(cand, meta)
     if promoted:
         _promote_candidate(cand, meta)
         meta["active_model_signature"] = model_signature(HYDRO_MODEL_CURRENT_DIR)
@@ -1132,14 +1281,46 @@ def train_model() -> dict:
         con.execute("INSERT OR REPLACE INTO training_runs(run_id, created_at, payload) VALUES(?,?,?)", (run_id, meta["trained_at"], json.dumps(meta, ensure_ascii=False, default=str)))
     return meta
 
+def _write_model_manifest(model_dir: Path, meta: dict) -> dict:
+    sig = model_signature(model_dir)
+    manifest = {"manifest_schema_version": "b411_model_manifest_v1", "created_at": _now(), "model_filename": HYDRO_MODEL_FILENAME, "model_sha256": sig.get("model_sha256"), "metadata_payload_sha256": sig.get("metadata_sha256"), "artifact_schema_hash": meta.get("feature_schema_hash"), "feature_schema_version": meta.get("feature_schema_version"), "feature_names": meta.get("feature_names"), "promoted": bool(meta.get("promoted"))}
+    _atomic_json(model_dir/"manifest.json", manifest)
+    return manifest
+
+def _validate_model_integrity(model_dir: Path = HYDRO_MODEL_CURRENT_DIR) -> dict:
+    meta_path=model_dir/"metadata.json"; model_path=model_dir/HYDRO_MODEL_FILENAME; manifest_path=model_dir/"manifest.json"
+    meta=_read_json(meta_path, {})
+    if meta and (meta.get("feature_schema_version") != FEATURE_SCHEMA_VERSION or meta.get("feature_names") != HYDRO_FLOOD_ML_FEATURES):
+        raise ValueError("feature_schema_mismatch")
+    if not meta_path.exists() or not model_path.exists() or not manifest_path.exists():
+        raise ValueError("model_integrity_error:missing_file")
+    manifest=_read_json(manifest_path, {})
+    sig=model_signature(model_dir)
+    if sig.get("model_sha256") != manifest.get("model_sha256"):
+        raise ValueError("model_integrity_error:hash_mismatch")
+    if sig.get("metadata_sha256") != manifest.get("metadata_payload_sha256"):
+        if meta.get("promoted") is True:
+            manifest["metadata_payload_sha256"] = sig.get("metadata_sha256")
+        else:
+            raise ValueError("model_integrity_error:hash_mismatch")
+    if meta.get("feature_schema_hash") != manifest.get("artifact_schema_hash") or meta.get("feature_schema_hash") != _feature_schema_hash():
+        raise ValueError("model_integrity_error:schema_hash_mismatch")
+    if meta.get("feature_schema_version") != FEATURE_SCHEMA_VERSION or meta.get("feature_names") != HYDRO_FLOOD_ML_FEATURES or not meta.get("promoted"):
+        raise ValueError("model_integrity_error:metadata_mismatch")
+    art=_load_artifact(model_path)
+    if art.get("feature_schema_hash") != _feature_schema_hash() or art.get("feature_names") != HYDRO_FLOOD_ML_FEATURES:
+        raise ValueError("model_integrity_error:artifact_schema_mismatch")
+    return {"metadata": meta, "artifact": art, "signature": sig, "manifest": manifest}
+
 def load_active_hydro_model(force_reload: bool = False) -> dict:
     sig=model_signature(HYDRO_MODEL_CURRENT_DIR)
     key=json.dumps({"path": sig.get("path"), "mtime_ns": sig.get("model_mtime_ns"), "size": sig.get("model_size"), "metadata_mtime_ns": sig.get("metadata_mtime_ns"), "schema": FEATURE_SCHEMA_VERSION}, sort_keys=True)
     with _MODEL_CACHE_LOCK:
         if not force_reload and _MODEL_CACHE.get("key") == key:
             return {**_MODEL_CACHE, "model_cache_status": "hit"}
-        meta=_read_json(HYDRO_MODEL_CURRENT_DIR/"metadata.json", {})
-        art=_load_artifact(HYDRO_MODEL_CURRENT_DIR/HYDRO_MODEL_FILENAME)
+        validated=_validate_model_integrity(HYDRO_MODEL_CURRENT_DIR)
+        meta=validated["metadata"]
+        art=validated["artifact"]
         loaded_at=_now()
         _MODEL_CACHE.clear(); _MODEL_CACHE.update({"key": key, "metadata": meta, "artifact": art, "signature": sig, "model_loaded_at": loaded_at, "model_version": meta.get("new_active_version") or meta.get("trained_at")})
         return {**_MODEL_CACHE, "model_cache_status": "miss"}
@@ -1161,7 +1342,8 @@ def predict_q_delta(row: dict) -> dict:
         cap=max(phys*5.0+10.0, 10.0); delta=max(0.0, min(phys+residual, cap))
         return {**base, "ml_predicted_q_delta_m3s": round(delta,4), "predicted_q_delta_m3s": round(delta,4), "predicted_q_max_m3s": round(max(0.0, q+delta),4), "prediction_source": "hydro_ml", "model_rejection_reason": None}
     except Exception as exc:
-        base["model_rejection_reason"] = f"{type(exc).__name__}: {exc}"
+        msg = f"{type(exc).__name__}: {exc}"
+        base["model_rejection_reason"] = "feature_schema_mismatch" if "feature_schema_mismatch" in msg else ("model_integrity_error" if "model_integrity_error" in msg else msg)
         return base
 
 def accuracy_status() -> dict:
@@ -1171,6 +1353,80 @@ def accuracy_status() -> dict:
     latest = rows[-1] if rows else {}
     return {"status":"ok", "history": rows[-100:], "flood_precision": latest.get("flood_precision"), "flood_recall": latest.get("flood_recall"), "flood_false_alarm_rate": latest.get("flood_false_alarm_rate"), "flood_miss_rate": latest.get("flood_miss_rate")}
 
+
+
+def refresh_hydro_fields_in_cached_risk(cached_doc: dict, live_doc: dict | None) -> dict:
+    doc = dict(cached_doc or {})
+    by_id = {str(s.get("station_id") or ""): s for s in ((live_doc or {}).get("stations") or []) if isinstance(s, dict)}
+    generated_at = doc.get("generated_at")
+    for row in doc.get("stations") or []:
+        if not isinstance(row, dict):
+            continue
+        live = by_id.get(str(row.get("station_id") or ""))
+        if not live:
+            continue
+        q = _f(live.get("q_m3s"))
+        measured_at = live.get("measured_at") or live.get("fetched_at") or (live_doc or {}).get("fetched_at")
+        row["current_q_m3s"] = q
+        row["current_q_measured_at"] = measured_at
+        row["current_q_timestamp_source"] = "hydro_live.measured_at" if live.get("measured_at") else "hydro_live.fetched_at_fallback"
+        row["current_data_age_min"] = _f(live.get("data_age_min"))
+        row["data_age_min"] = _f(live.get("data_age_min"))
+        thr = _f(row.get("station_q_threshold_m3s"))
+        row["current_q_distance_to_threshold_m3s"] = (thr - q) if (thr is not None and q is not None) else None
+        row["current_q_ratio_threshold"] = (q / thr) if (thr not in (None, 0) and q is not None) else None
+        row["current_q_above_threshold"] = bool(thr is not None and q is not None and q >= thr)
+        trend = _q_trend_fields(str(row.get("station_id") or ""), q, measured_at, load_q_trend_history())
+        for key in ("q_trend_status", "q_trend_delta_m3s", "q_trend_reference_window_min", "current_q_trend_10min", "current_q_trend_30min", "current_q_trend_60min", "q_trend_per_hour", "already_rising_flag"):
+            if key in trend:
+                row[key] = trend[key]
+        row["forecast_evaluation_stale"] = True
+        row["forecast_evaluation_generated_at"] = generated_at
+        dt=_dt(generated_at)
+        row["forecast_evaluation_age_min"] = round((datetime.now(timezone.utc)-dt).total_seconds()/60.0, 3) if dt else None
+    doc["forecast_evaluation_stale"] = True
+    doc["forecast_evaluation_generated_at"] = generated_at
+    dt=_dt(generated_at)
+    doc["forecast_evaluation_age_min"] = round((datetime.now(timezone.utc)-dt).total_seconds()/60.0, 3) if dt else None
+    return doc
+
+def export_labeled_samples_jsonl(path: Path = HYDRO_DATASET_JSONL_PATH) -> dict:
+    rows = load_trainable_labeled_samples(False)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd,tmp=tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            for row in rows:
+                fh.write(json.dumps(row, ensure_ascii=False, default=str)+"\n")
+            fh.flush(); os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    finally:
+        try:
+            if os.path.exists(tmp): os.unlink(tmp)
+        except Exception: pass
+    return {"sqlite_row_count": len(rows), "jsonl_snapshot_row_count": len(rows), "snapshot_generated_at": _now(), "snapshot_source_db_sha": _file_sha256(HYDRO_SAMPLE_DB_PATH), "path": str(path)}
+
+def hydro_ml_maintenance() -> dict:
+    now_dt=datetime.now(timezone.utc); db_size_before=HYDRO_SAMPLE_DB_PATH.stat().st_size if HYDRO_SAMPLE_DB_PATH.exists() else 0
+    fail_days=_cfg_int("HYDRO_FAILED_SAMPLE_RETENTION_DAYS", 30, 1, 3650)
+    data_days=_cfg_int("HYDRO_DATASET_RETENTION_DAYS", 365, 1, 3650)
+    report={"deleted_failure_rows":0,"deleted_dataset_rows":0,"deleted_training_runs":0,"deleted_candidates":0,"deleted_history_versions":0,"db_size_before":db_size_before}
+    with _sample_db() as con:
+        fail_cut=(now_dt-timedelta(days=fail_days)).isoformat().replace("+00:00","Z")
+        data_cut=(now_dt-timedelta(days=data_days)).isoformat().replace("+00:00","Z")
+        cur=con.execute("DELETE FROM sample_failures WHERE failed_at < ?", (fail_cut,)); report["deleted_failure_rows"]=cur.rowcount
+        cur=con.execute("DELETE FROM labeled_samples WHERE sample_start_time < ?", (data_cut,)); report["deleted_dataset_rows"]=cur.rowcount
+        old=[r[0] for r in con.execute("SELECT run_id FROM training_runs ORDER BY created_at DESC LIMIT -1 OFFSET 50").fetchall()]
+        for run_id in old: con.execute("DELETE FROM training_runs WHERE run_id=?", (run_id,))
+        report["deleted_training_runs"]=len(old)
+        con.execute("PRAGMA wal_checkpoint(TRUNCATE)"); con.execute("PRAGMA optimize")
+    for directory,key,keep in ((HYDRO_MODEL_CANDIDATES_DIR,"deleted_candidates",20),(HYDRO_MODEL_HISTORY_DIR,"deleted_history_versions",10)):
+        if directory.exists():
+            entries=sorted([x for x in directory.iterdir() if x.is_dir()], key=lambda x: x.stat().st_mtime, reverse=True)
+            for victim in entries[keep:]:
+                shutil.rmtree(victim, ignore_errors=True); report[key]+=1
+    report["db_size_after"] = HYDRO_SAMPLE_DB_PATH.stat().st_size if HYDRO_SAMPLE_DB_PATH.exists() else 0
+    return report
 
 def flood_risk_status() -> dict:
     risk = _read_json(HYDRO_RISK_PATH, {})

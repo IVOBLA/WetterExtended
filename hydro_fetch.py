@@ -56,7 +56,11 @@ def _atomic_write_json(path: Path, data: dict) -> None:
             if os.path.exists(tmp):
                 os.unlink(tmp)
         except Exception as exc:
-            result["status"].update({"hydro_flood_eval_status": "error", "hydro_flood_eval_error": f"{type(exc).__name__}: {exc}", "hydro_flood_eval_at": _utc_now().isoformat().replace("+00:00", "Z")})
+            try:
+                from debug_utils import debug_log
+                debug_log(f"[HYDRO] Temp-Datei konnte nicht entfernt werden: {type(exc).__name__}: {exc}")
+            except Exception:
+                pass
 
 
 def _read_json(path: Path) -> dict | None:
