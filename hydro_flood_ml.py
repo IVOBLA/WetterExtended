@@ -1196,7 +1196,7 @@ def hydro_training_lock(held_handle=None):
 
 def run_hydro_startup_migrations(lock_handle=None) -> dict:
     with hydro_training_lock(lock_handle):
-        return {"pending":migrate_pending_jsonl_to_sqlite(),"q_history":migrate_q_history_to_sqlite(),"dataset":migrate_productive_dataset()}
+        return {"pending":migrate_pending_jsonl_to_sqlite(),"q_history":migrate_q_history_to_sqlite(),"dataset":migrate_productive_dataset(),"event_ids":migrate_assign_event_ids_b421()}
 
 def record_pending_samples(rows: list[dict], live: dict | None = None, cells_meta: dict | None = None) -> dict:
     added = 0
@@ -1275,6 +1275,7 @@ def materialize_pending_samples(live: dict | None = None, migration_lock_handle=
                 con.execute("INSERT OR REPLACE INTO sample_failures(sample_id,station_id,failed_at,reason,payload) VALUES(?,?,?,?,?)",(sample.get("sample_id"),sid,now,"pending_retention_expired_without_label",json.dumps(sample,ensure_ascii=False,default=str))); failed+=1; continue
             flat={k:v for k,v in (sample.get("features") or {}).items() if k!="w_cm"}
             payload={**sample,**flat,**label,"labeled":True,"labeled_at":now}
+            _assign_incremental_event_id(con, payload)
             vals=_labeled_values(payload)
             con.execute("INSERT OR REPLACE INTO labeled_samples(sample_id,station_id,sample_start_time,labeled_at,payload,sample_kind,feature_schema_version,feature_schema_hash,feature_snapshot_complete,target_missing,target_q_delta_m3s,event_id,cell_frame_hash,precip_event_active) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(payload.get("sample_id"),sid,payload.get("sample_start_time"),now,json.dumps(payload,ensure_ascii=False,default=str),*vals)); added+=1
         con.execute("COMMIT")
@@ -1297,10 +1298,10 @@ def load_trainable_labeled_samples(trainable_only: bool = False) -> list[dict]:
 def readiness_status() -> dict:
     meta_mtime=_path_mtime(HYDRO_TRAINING_META_PATH)
     with _sample_db() as con:
-        sig=con.execute("SELECT COUNT(*),MAX(labeled_at) FROM labeled_samples").fetchone()+(
+        sig=con.execute("SELECT COUNT(*),MAX(labeled_at),COUNT(DISTINCT event_id) FROM labeled_samples").fetchone()+(
             FEATURE_SCHEMA_VERSION,con.execute("SELECT COUNT(*),MAX(applied_at) FROM schema_migrations").fetchone(),meta_mtime)
         if _READINESS_CACHE.get("signature")==sig: return dict(_READINESS_CACHE["value"])
-        base=con.execute("SELECT COUNT(*),COUNT(DISTINCT station_id),MIN(sample_start_time),MAX(sample_start_time),COUNT(DISTINCT COALESCE(event_id,json_extract(payload,'$.event_id'))),SUM(CASE WHEN COALESCE(target_q_delta_m3s,json_extract(payload,'$.target_q_delta_m3s')) IS NOT NULL THEN 1 ELSE 0 END) FROM labeled_samples WHERE COALESCE(sample_kind,json_extract(payload,'$.sample_kind'))=? AND COALESCE(feature_schema_version,json_extract(payload,'$.feature_schema_version'))=? AND COALESCE(feature_schema_hash,json_extract(payload,'$.feature_schema_hash'))=? AND COALESCE(feature_snapshot_complete,json_extract(payload,'$.feature_snapshot_complete'))=1 AND COALESCE(target_missing,json_extract(payload,'$.target_missing'))=0",(SAMPLE_KIND_LIVE,FEATURE_SCHEMA_VERSION,_feature_schema_hash())).fetchone()
+        base=con.execute("SELECT COUNT(*),COUNT(DISTINCT station_id),MIN(sample_start_time),MAX(sample_start_time),COUNT(DISTINCT event_id),SUM(target_q_delta_m3s IS NOT NULL) FROM labeled_samples WHERE sample_kind=? AND feature_schema_version=? AND feature_schema_hash=? AND feature_snapshot_complete=1 AND target_missing=0",(SAMPLE_KIND_LIVE,FEATURE_SCHEMA_VERSION,_feature_schema_hash())).fetchone()
         total,stations,first,last,events,valid=(int(x or 0) if i not in (2,3) else x for i,x in enumerate(base))
         complete,schema=con.execute("SELECT SUM(feature_snapshot_complete=1),SUM(feature_schema_version=?) FROM labeled_samples",(FEATURE_SCHEMA_VERSION,)).fetchone()
         coverage=dict(con.execute("SELECT COALESCE(precip_event_active,0),COUNT(*) FROM labeled_samples GROUP BY precip_event_active").fetchall())
@@ -1325,6 +1326,65 @@ def _event_cells(row: dict) -> set[str]:
 def _event_key(row: dict, previous: dict | None = None) -> str:
     return str(row.get("event_id") or row.get("hydro_event_id") or "")
 
+def _event_identity(station_id: str, event_start_time: str, lineage: set[str]) -> str:
+    digest = hashlib.sha256(json.dumps(sorted(lineage), separators=(",", ":")).encode()).hexdigest()
+    return hashlib.sha256(f"{station_id}|{event_start_time}|{digest}".encode()).hexdigest()
+
+def _assign_incremental_event_id(con: sqlite3.Connection, row: dict) -> None:
+    """Persistiert die billige Readiness-Näherung anhand des chronologischen Vorgängers."""
+    sid = str(row.get("station_id") or "")
+    current_dt = _dt(row.get("sample_start_time") or row.get("created_at"))
+    previous_sql = con.execute(
+        "SELECT payload FROM labeled_samples WHERE station_id=? AND sample_start_time<? ORDER BY sample_start_time DESC LIMIT 1",
+        (sid, row.get("sample_start_time") or row.get("created_at") or ""),
+    ).fetchone()
+    previous = json.loads(previous_sql[0]) if previous_sql else None
+    separated = previous is None
+    if previous:
+        previous_dt = _dt(previous.get("sample_start_time") or previous.get("created_at"))
+        elapsed = (current_dt - previous_dt).total_seconds() / 60.0 if current_dt and previous_dt else 0.0
+        current_active = row.get("precip_event_active") is True
+        previous_active = previous.get("precip_event_active") is True
+        separated = elapsed > _cfg_int("HYDRO_EVENT_GAP_MIN", 180, 10, 1440)
+        separated = separated or (current_active and not previous_active and elapsed >= _cfg_int("HYDRO_EVENT_DRY_GAP_MIN", 30, 1, 1440))
+        separated = separated or (current_active and previous_active and bool(_event_cells(row)) and bool(_event_cells(previous)) and not (_event_cells(row) & _event_cells(previous)))
+    if separated:
+        event_start = row.get("sample_start_time") or row.get("created_at") or ""
+        event_id = _event_identity(sid, event_start, _event_cells(row))
+    else:
+        event_start = previous.get("event_start_time") or previous.get("sample_start_time") or previous.get("created_at") or ""
+        event_id = previous.get("event_id") or _event_identity(sid, event_start, _event_cells(previous))
+    row.update(event_id=event_id, event_start_time=event_start)
+
+def _sync_event_ids(rows: list[dict]) -> int:
+    updated = 0
+    with _sample_db() as con:
+        con.execute("BEGIN IMMEDIATE")
+        for row in rows:
+            payload = json.dumps(row, ensure_ascii=False, default=str)
+            cur = con.execute("UPDATE labeled_samples SET event_id=?,payload=? WHERE sample_id=? AND (event_id IS NOT ? OR payload!=?)", (row.get("event_id"), payload, row.get("sample_id"), row.get("event_id"), payload))
+            updated += cur.rowcount
+        con.execute("COMMIT")
+    return updated
+
+def migrate_assign_event_ids_b421() -> dict:
+    migration_id = "migrate_assign_event_ids_b421"
+    batch = _cfg_int("HYDRO_ML_MATERIALIZE_BATCH_SIZE", 100, 1, 10000)
+    with _sample_db() as con:
+        if _migration_applied(con, migration_id):
+            return {"migration_id": migration_id, "already_applied": True, "rows_imported": 0, "batch_size": batch}
+        rows = con.execute("SELECT payload FROM labeled_samples WHERE event_id IS NULL ORDER BY station_id,sample_start_time LIMIT ?", (batch,)).fetchall()
+        con.execute("BEGIN IMMEDIATE")
+        for payload_text, in rows:
+            row = json.loads(payload_text)
+            _assign_incremental_event_id(con, row)
+            con.execute("UPDATE labeled_samples SET event_id=?,payload=? WHERE sample_id=?", (row["event_id"], json.dumps(row, ensure_ascii=False, default=str), row.get("sample_id")))
+        remaining = con.execute("SELECT COUNT(*) FROM labeled_samples WHERE event_id IS NULL").fetchone()[0]
+        meta = {"migration_id": migration_id, "migration_at": _now(), "rows_imported": len(rows), "rows_remaining": remaining, "batch_size": batch}
+        if remaining == 0: _mark_migration(con, migration_id, meta)
+        con.execute("COMMIT")
+        return meta
+
 def _assign_event_ids(rows: list[dict]) -> list[list[dict]]:
     gap = _cfg_int("HYDRO_EVENT_GAP_MIN", 180, 10, 1440)
     dry_gap = _cfg_int("HYDRO_EVENT_DRY_GAP_MIN", 30, 1, 1440)
@@ -1333,7 +1393,7 @@ def _assign_event_ids(rows: list[dict]) -> list[list[dict]]:
         by_station.setdefault(str(row.get("station_id") or ""), []).append(row)
     events=[]
     for sid, station_rows in by_station.items():
-        cur=[]; cur_cells=set(); prev_dt=None; dry_since=None; event_start=None
+        cur=[]; cur_cells=set(); prev_dt=None; previous_row=None; dry_since=None; event_start=None
         for row in station_rows:
             dt=_dt(row.get("sample_start_time") or row.get("created_at"))
             cells=_event_cells(row)
@@ -1343,12 +1403,14 @@ def _assign_event_ids(rows: list[dict]) -> list[list[dict]]:
                 separated = True
             if cur and precip_active and dry_since and dt and (dt-dry_since).total_seconds()/60.0 >= dry_gap:
                 separated = True
+            if cur and precip_active and previous_row and previous_row.get("precip_event_active") is True and cells and _event_cells(previous_row) and not (cells & _event_cells(previous_row)):
+                separated = True
             if cur and not precip_active and event_start and dt and (dt-event_start).total_seconds()/60.0 >= gap:
                 separated = True
             if cur and separated:
                 events.append(cur); cur=[]; cur_cells=set(); event_start=None
             if not cur: event_start = dt
-            cur.append(row); cur_cells |= cells; prev_dt = dt or prev_dt
+            cur.append(row); cur_cells |= cells; prev_dt = dt or prev_dt; previous_row = row
             if precip_active: dry_since = None
             elif dry_since is None: dry_since = dt
         if cur: events.append(cur)
@@ -1357,9 +1419,8 @@ def _assign_event_ids(rows: list[dict]) -> list[list[dict]]:
         sid = str(event[0].get("station_id") or "")
         start = event[0].get("sample_start_time") or event[0].get("created_at") or ""
         lineage = sorted(set().union(*(_event_cells(row) for row in event)))
-        digest = hashlib.sha256(json.dumps(lineage, separators=(",", ":")).encode()).hexdigest()
-        event_id = hashlib.sha256(f"{sid}|{start}|{digest}".encode()).hexdigest()
-        for row in event: row["event_id"] = event_id
+        event_id = _event_identity(sid, start, set(lineage))
+        for row in event: row.update(event_id=event_id, event_start_time=start)
     return events
 
 def analyze_training_dataset(rows: list[dict]) -> dict:
@@ -1562,10 +1623,13 @@ def _promote_candidate(candidate_dir: Path, meta: dict) -> None:
         raise
 
 def _train_model_unlocked(lock_handle=None) -> dict:
-    materialize_pending_samples(migration_lock_handle=lock_handle); migration=migrate_productive_dataset()
+    materialize_pending_samples(migration_lock_handle=lock_handle); migration=migrate_productive_dataset(); event_migration=migrate_assign_event_ids_b421()
     rows=load_trainable_labeled_samples(True)
+    analysis = analyze_training_dataset(rows)
+    synchronized_event_rows = _sync_event_ids(rows)
     if len(rows) < MIN_TRAINING_SAMPLES:
         status = readiness_status(); status.update({"status": "insufficient_data", "fallback_reason": ",".join(status.get("rejection_reasons") or []), "dataset_migration": migration})
+        status.update({"event_id_migration": event_migration, "event_id_rows_synchronized": synchronized_event_rows, "event_count": analysis["event_count"]})
         run_id = "rejected_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         status.update({"run_id": run_id, "trained_at": _now(), "promoted": False})
         _atomic_json(HYDRO_TRAINING_META_PATH, status)

@@ -6771,3 +6771,38 @@ ab.
 
 **Phasen-Status:** Phase A — die Schutzmechanismen greifen. Phase B (Hailo-8 U-Net)
 unverändert blockiert.
+
+### B421 — event_id-Spalte blieb leer; Readiness meldete dauerhaft fallback ✅ erledigt
+
+**Root-Cause und Herkunft:** Das Codex-Review stellte fest, dass B416 zwar die
+denormalisierte `event_id`-Spalte für billige SQL-Aggregate eingeführt hatte,
+`materialize_pending_samples()` sie im Produktivpfad aber nie füllte. B416-
+Abnahmekriterium 20 („Readiness zählt Events ohne vorhandene `event_id` korrekt") war
+damit nicht erfüllt. Die ML-Reaktivierung war seit B416 strukturell blockiert — nicht
+wegen fehlender Daten, sondern wegen einer leeren Spalte. Im Entwicklungs-Checkout
+waren vor dem Fix 0 Labels, 0 NULL-IDs und 0 verschiedene Events vorhanden; belastbare
+Vorher-/Nachher-Zahlen auf dem Pi stehen deshalb bei der Live-Abnahme aus.
+
+**Inkrementelle Vergaberegel:** Kein Vorgänger → neues Event; Datenlücke größer als
+`HYDRO_EVENT_GAP_MIN` → neues Event; Trockenphase größer/gleich
+`HYDRO_EVENT_DRY_GAP_MIN` → neues Event; leere Lineage-Schnittmenge mit dem Vorgänger
+bei aktivem Niederschlag in beiden Samples → neues Event; andernfalls wird die
+`event_id` des Vorgängers übernommen. Die stabile ID wird aus Station,
+`event_start_time` des ersten Samples und SHA-256 des sortierten Lineage-Sets gebildet;
+`event_start_time` wird innerhalb des Events vom Vorgänger übernommen. Spalte und
+Payload werden gemeinsam geschrieben.
+
+**Bewusste Schichtung:** Die Spalte `event_id` ist die inkrementelle Schätzung für
+billige Readiness-Aggregate und kann bei verspätet migrierten Samples vorübergehend von
+der Trainingsgruppierung abweichen. `_assign_event_ids()` und
+`analyze_training_dataset()` bleiben für Training und Split maßgeblich. Nach jedem
+Trainingsversuch werden deren IDs in Spalte und Payload zurückgeschrieben; der um
+`COUNT(DISTINCT event_id)` erweiterte Cache-Key erkennt diese Nachführung. Die unter
+dem Trainingslock laufende, idempotente und nach
+`HYDRO_ML_MATERIALIZE_BATCH_SIZE` gebatchte Migration
+`migrate_assign_event_ids_b421` trägt bestehende NULL-Werte nach. Ist B420 beim
+Upgrade noch nicht angewendet, greift sie erst beim nächsten Cronlauf.
+
+**Phasenstand:** Phase A misst wieder; `event_count` beträgt im leeren
+Entwicklungs-Checkout 0 und muss auf dem Pi nach der Migration live erhoben werden.
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.
