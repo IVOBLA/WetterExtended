@@ -5760,12 +5760,28 @@ def api_hydro_flood_risk_accuracy():
     return _hydro_safe(lambda: __import__("hydro_flood_ml").accuracy_status(), "hydro_flood_risk_accuracy_error")
 
 @app.route("/api/admin/hydro/flood-risk/dataset-scan", methods=["POST"])
+@require_role("admin")
 def api_admin_hydro_flood_risk_dataset_scan():
     return _hydro_safe(lambda: __import__("hydro_flood_ml").build_dataset_scan(), "hydro_flood_risk_dataset_error")
 
 @app.route("/api/admin/hydro/flood-risk/retrain", methods=["POST"])
-def api_admin_hydro_flood_risk_retrain():
-    return _hydro_safe(lambda: __import__("hydro_flood_ml").train_model(), "hydro_flood_risk_train_error")
+@require_role("admin")
+def api_admin_hydro_flood_risk_retrain_legacy():
+    response = jsonify({"ok": True, "status": "moved", "location": "/api/admin/hydro/flood-risk/retrain/start"})
+    response.status_code = 301
+    response.headers["Location"] = "/api/admin/hydro/flood-risk/retrain/start"
+    return response
+
+@app.route("/api/admin/hydro/flood-risk/retrain/start", methods=["POST"])
+@require_role("admin")
+def api_admin_hydro_flood_risk_retrain_start():
+    payload, code = __import__("hydro_flood_ml").start_training_job()
+    return jsonify(payload), code
+
+@app.route("/api/admin/hydro/flood-risk/retrain/status")
+@require_role("admin")
+def api_admin_hydro_flood_risk_retrain_status():
+    return jsonify(__import__("hydro_flood_ml").training_status())
 
 @app.route("/api/hydro/station/<station_id>")
 def api_hydro_station(station_id):

@@ -657,6 +657,19 @@ def run_hydro_verify_job():
     except Exception as exc:
         debug_log(f"[SCHEDULER] Hydro-Job Fehler: {exc}")
 
+def run_hydro_ml_maintenance_job():
+    """Führt B417-Migrationen und begrenzte Hydro-ML-Wartung unter Prozess-Lock aus."""
+    try:
+        import hydro_flood_ml
+        migrations = hydro_flood_ml.run_hydro_startup_migrations()
+        maintenance = hydro_flood_ml.hydro_ml_maintenance()
+        export = hydro_flood_ml.export_labeled_samples_jsonl()
+        debug_log(f"[SCHEDULER] Hydro-ML Maintenance: migrations={migrations} maintenance={maintenance} export={export}")
+    except BlockingIOError:
+        debug_log("[SCHEDULER] Hydro-ML Maintenance: Training aktiv, Lauf ausgelassen")
+    except Exception as exc:
+        debug_log(f"[SCHEDULER] Hydro-ML Maintenance Fehler: {exc}")
+
 
 def run_stats_aggregate_job():
     """P-S02: Nächtliche Langzeitstatistik-Aggregation (immer aktiv)."""
@@ -808,6 +821,11 @@ def create_scheduler() -> BlockingScheduler:
         run_hydro_verify_job,
         trigger=IntervalTrigger(minutes=int(runtime_config.get("HYDRO_VERIFY_INTERVAL_MIN", 15))),
         id="hydro_live_verify", max_instances=1, coalesce=True,
+    )
+    sched.add_job(
+        run_hydro_ml_maintenance_job,
+        trigger=CronTrigger(hour=3, minute=35, timezone="Europe/Vienna"),
+        id="hydro_ml_maintenance", max_instances=1, coalesce=True,
     )
 
     # --- immer aktiv: Langzeitstatistik-Aggregation (nächtlich) ---

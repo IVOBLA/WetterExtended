@@ -2917,3 +2917,10 @@ Ein Pegel wird hervorgehoben, sobald der eingestellte Markierungs-Durchfluss gem
 Ist die Niederschlagsprognose veraltet, zeigt das Popup dies mit dem Zeitpunkt der letzten vollständigen Prognose an. Der prognostizierte Maximalwert erscheint dann als „nicht aktuell" und löst kein Warnicon aus; ein sichtbares Warnicon entsteht weiterhin durch eine aktuelle gemessene Grenzwertüberschreitung oder durch einen frischen bewertbaren Forecast.
 
 Die Hydro-Hochwasseranzeige ist weiterhin eine lokale Orientierungshilfe und kein Ersatz für amtliche Hochwasserwarnungen.
+
+### Hydro-Modell im Hintergrund neu trainieren
+
+Ein im Admin-Panel gestartetes Neutraining läuft im Hintergrund; Karte und Oberfläche
+bleiben währenddessen bedienbar. Die Statusanzeige zeigt Phase, Fortschritt und das
+Ergebnis. Solange bereits ein Training läuft, wird ein weiterer Start mit einer
+entsprechenden Meldung abgewiesen.

@@ -153,6 +153,22 @@ Werte sample_failures nach Grund gruppiert aus. Häuft sich ein Grund über 5 % 
 Gesamtsamples, die Ursache im Produktivpfad suchen und als Befund melden; die
 Validierung nicht lockern.
 
+### AC-023 — Prüfe Speicherverbrauch der Readiness
+Werte im 24h-Export die Laufzeit von /api/hydro/flood-risk/status aus. Liegt sie über
+2 s, ist der Readiness-Cache unwirksam. Ursache melden — nicht das Polling-Intervall erhöhen.
+
+### AC-024 — Prüfe Q-History-Wachstum
+Werte q_history-Zeilen und Datenbankgröße aus. Wachstum über
+HYDRO_Q_HISTORY_RETENTION_DAYS bedeutet, dass der Maintenance-Job zu prüfen ist.
+
+### AC-025 — Prüfe Sampling-Rate
+Zähle Samples je Station und Tag, getrennt nach precip_event_active. No-cell-Samples
+müssen unter HYDRO_ML_MAX_NO_CELL_SAMPLES_PER_DAY bleiben.
+
+### AC-026 — Prüfe, ob Extremereignisse erhalten bleiben
+Samples mit current_q_above_threshold=true dürfen durch Subsampling nie entfernt
+werden. Einen Rückgang nach Maintenance sofort melden.
+
 ---
 
 ## Erledigt
