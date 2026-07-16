@@ -330,19 +330,23 @@ def _file_in_window(path: Path, start: datetime, end: datetime, force: bool) -> 
 # seine eigenen Vorgaenger.
 _EXPORT_EXCLUDE_DIRS = {"latest_export"}
 
-# B406: Dateiendungen, die im Export nichts zu suchen haben. Ein Debug-Archiv darf
-# kein anderes Archiv enthalten -- sonst ist der Inhalt nicht mehr eindeutig
-# datierbar.
-_EXPORT_EXCLUDE_SUFFIXES = {".zip"}
-
 
 def _is_excluded_from_export(path: Path) -> bool:
-    """B406: True, wenn der Pfad eine eigene Export-Ausgabe ist."""
-    if any(part in _EXPORT_EXCLUDE_DIRS for part in path.parts):
-        return True
-    if path.suffix.lower() in _EXPORT_EXCLUDE_SUFFIXES:
-        return True
-    return False
+    """B406/B407: True, wenn der Pfad eine EIGENE Export-Ausgabe ist.
+
+    B407: Der pauschale Suffix-Filter ({".zip"}) ist
+    ersatzlos entfallen. Er griff projektweit und verwarf JEDES .zip an jeder Stelle
+    -- auch legitime Nutzdaten (z. B. heruntergeladene Archive unter
+    external_responses), die fuer die Fehlersuche wertvoll sind und mit der Rekursion
+    nichts zu tun haben.
+
+    Die Rekursion entsteht ausschliesslich dadurch, dass _latest_export_base_dir()
+    die eigenen Export-ZIPs unter train_data/evaluation/latest_export/ ablegt und die
+    Exportliste das gesamte evaluation-Verzeichnis mitnimmt. Der Verzeichnisausschluss
+    deckt das vollstaendig ab; ein zweites, breiteres Netz fuer dasselbe Problem
+    verwirft nur Unbeteiligte.
+    """
+    return any(part in _EXPORT_EXCLUDE_DIRS for part in path.parts)
 
 
 def _iter_files(root: Path):
