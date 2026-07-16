@@ -76,6 +76,20 @@ Führe `unzip -l <export>.zip | grep '\.zip$'` aus.
 - Treffer unter `latest_export/` → Rekursion (B406/B407 nicht wirksam), melden.
 - Treffer außerhalb → prüfen, ob es legitime Nutzdaten sind.
 
+### AC-011 — Prüfe nach jedem Prompt, ob der Changelog-Eintrag existiert
+Vor jedem Abschlussbericht ausführen:
+  grep -c "^### B" docs/HAILO_INTEGRATION.md
+Die höchste dort eingetragene B-Nummer muss der höchsten Nummer unter tests/test_b*_
+entsprechen. Weicht sie ab, ist der Bericht unvollständig — Eintrag nachziehen, bevor
+der Prompt als erledigt gilt.
+
+### AC-012 — Prüfe Tests auf stille AttributeErrors
+Nach jedem Prompt mit neuen Tests ausführen:
+  grep -rn '__import__(' tests/
+Treffer auf einem Modulobjekt (z. B. h.__import__("x")) sind immer defekt und lassen
+den Test scheitern, bevor eine Assertion läuft. Ein solcher Test belegt nichts.
+Regulär importieren und das Modul direkt patchen.
+
 ---
 
 ## Erledigt

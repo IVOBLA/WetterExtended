@@ -4,6 +4,7 @@ from shapely.geometry import Polygon as _RequiredShapelyPolygon
 assert _RequiredShapelyPolygon is not None
 
 import hydro_flood_ml as h
+import hydro_impact
 
 
 def _station():
@@ -25,8 +26,8 @@ def test_shapely_path_uses_real_polygon_not_bbox(monkeypatch):
     from shapely.geometry import Polygon
     catchment = Polygon([(0,0), (0.1,0), (0.1,0.03), (0.03,0.03), (0.03,0.1), (0,0.1), (0,0)])
     monkeypatch.setattr(h.runtime_config, "get", lambda name, default=None: 0.0 if name == "HYDRO_MIN_OVERLAP_AREA_KM2" else default)
-    monkeypatch.setattr(h.__import__("hydro_impact"), "load_station_catchment_index", lambda force_reload=False: {"S1": {"station_id":"S1", "geometry": catchment, "feature_count":1, "status":"ok", "area_km2": 1, "signature":"x", "properties":{}}})
-    monkeypatch.setattr(h.__import__("hydro_impact"), "catchment_diagnostics", lambda sid: {"catchment_geometry_available": True, "catchment_geometry_status":"ok", "catchment_feature_count":1, "catchment_area_geometry_km2": 1, "catchment_signature":"x"})
+    monkeypatch.setattr(hydro_impact, "load_station_catchment_index", lambda force_reload=False: {"S1": {"station_id":"S1", "geometry": catchment, "feature_count":1, "status":"ok", "area_km2": 1, "signature":"x", "properties":{}}})
+    monkeypatch.setattr(hydro_impact, "catchment_diagnostics", lambda sid: {"catchment_geometry_available": True, "catchment_geometry_status":"ok", "catchment_feature_count":1, "catchment_area_geometry_km2": 1, "catchment_signature":"x"})
     row = h._precip_from_cells(_station(), [_cell()])
     assert row["catchment_geometry_available"] is True
     assert row["geometry_quality"] == "shapely"
@@ -38,8 +39,8 @@ def test_l_shape_bbox_intersection_without_real_polygon_hit_is_ignored(monkeypat
     from shapely.geometry import Polygon
     catchment = Polygon([(0,0), (0.1,0), (0.1,0.03), (0.03,0.03), (0.03,0.1), (0,0.1), (0,0)])
     monkeypatch.setattr(h.runtime_config, "get", lambda name, default=None: 0.0 if name == "HYDRO_MIN_OVERLAP_AREA_KM2" else default)
-    monkeypatch.setattr(h.__import__("hydro_impact"), "load_station_catchment_index", lambda force_reload=False: {"S1": {"station_id":"S1", "geometry": catchment, "feature_count":1, "status":"ok", "area_km2": 1, "signature":"x", "properties":{}}})
-    monkeypatch.setattr(h.__import__("hydro_impact"), "catchment_diagnostics", lambda sid: {"catchment_geometry_available": True, "catchment_geometry_status":"ok", "catchment_feature_count":1, "catchment_area_geometry_km2": 1, "catchment_signature":"x"})
+    monkeypatch.setattr(hydro_impact, "load_station_catchment_index", lambda force_reload=False: {"S1": {"station_id":"S1", "geometry": catchment, "feature_count":1, "status":"ok", "area_km2": 1, "signature":"x", "properties":{}}})
+    monkeypatch.setattr(hydro_impact, "catchment_diagnostics", lambda sid: {"catchment_geometry_available": True, "catchment_geometry_status":"ok", "catchment_feature_count":1, "catchment_area_geometry_km2": 1, "catchment_signature":"x"})
     gap_cell = _cell(coords=[[0.05,0.05],[0.08,0.05],[0.08,0.08],[0.05,0.08],[0.05,0.05]])
     row = h._precip_from_cells(_station(), [gap_cell])
     assert row["contributing_cell_count"] == 0
@@ -49,8 +50,8 @@ def test_l_shape_bbox_intersection_without_real_polygon_hit_is_ignored(monkeypat
 def test_empty_cell_list_keeps_valid_catchment(monkeypatch):
     from shapely.geometry import Polygon
     catchment = Polygon([(0,0),(0.1,0),(0.1,0.1),(0,0.1),(0,0)])
-    monkeypatch.setattr(h.__import__("hydro_impact"), "load_station_catchment_index", lambda force_reload=False: {"S1": {"station_id":"S1", "geometry": catchment, "feature_count":1, "status":"ok", "area_km2": 1, "signature":"x", "properties":{}}})
-    monkeypatch.setattr(h.__import__("hydro_impact"), "catchment_diagnostics", lambda sid: {"catchment_geometry_available": True, "catchment_geometry_status":"ok", "catchment_feature_count":1, "catchment_area_geometry_km2": 1, "catchment_signature":"x"})
+    monkeypatch.setattr(hydro_impact, "load_station_catchment_index", lambda force_reload=False: {"S1": {"station_id":"S1", "geometry": catchment, "feature_count":1, "status":"ok", "area_km2": 1, "signature":"x", "properties":{}}})
+    monkeypatch.setattr(hydro_impact, "catchment_diagnostics", lambda sid: {"catchment_geometry_available": True, "catchment_geometry_status":"ok", "catchment_feature_count":1, "catchment_area_geometry_km2": 1, "catchment_signature":"x"})
     row = h._precip_from_cells(_station(), [])
     assert row["catchment_geometry_available"] is True
     assert row["precip_evaluable_by_geometry"] is True
