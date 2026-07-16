@@ -33,3 +33,27 @@ import { normalizeHydroFloodPopup } from '../hydroFloodPopup.js'
   const n = normalizeHydroFloodPopup({}, { precip_status: 'missing', precip_status_label: 'keine verwertbaren Niederschlagsdaten zugeordnet' })
   assert.equal(n.precipStatusLabel, 'keine verwertbaren Niederschlagsdaten zugeordnet')
 }
+{
+  const n = normalizeHydroFloodPopup({}, {
+    current_q_m3s: 3,
+    predicted_q_max_m3s: 4.2,
+    station_q_threshold_missing: true,
+    flood_status: 'missing_threshold',
+    flood_evaluable: false,
+    precip_status: 'no_relevant_cell',
+    precip_evaluable: true,
+    effective_catchment_precip_sum_mm: 0,
+    contributing_cell_count: 0,
+    current_cell_count: 0,
+    incoming_cell_count: 0,
+    total_dwell_time_min: 0,
+    hydro_flood_risk_score: 0.9,
+    confidence: 'high',
+  })
+  assert.equal(n.predictedQMaxLabel, '4.20')
+  assert.equal(n.precipValue, '0.00 mm')
+  assert.equal(n.floodLabel, 'nicht bewertbar')
+  assert.equal(n.contributingCellCountLabel, '0')
+  assert.equal('riskScoreLabel' in n, false)
+  assert.equal('confidenceLabel' in n, false)
+}

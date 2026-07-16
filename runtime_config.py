@@ -216,8 +216,34 @@ def validate_override_key(key: str) -> None:
         raise ValueError(f"{ku} ist kein administrierbares Qualitätsziel")
 
 
+_HYDRO_NUMERIC_LIMITS = {
+    "HYDRO_FORECAST_SAMPLE_STEP_MIN": (1, 10),
+    "HYDRO_FALLBACK_ROUTING_TAU_MIN": (0, 1440),
+    "HYDRO_FORECAST_RUNOFF_COEFF": (0, 1),
+    "HYDRO_FORECAST_ROUTING_ATTENUATION": (0, 1),
+    "HYDRO_MIN_OVERLAP_AREA_KM2": (0, None),
+    "HYDRO_MIN_OVERLAP_RATIO_CELL": (0, 1),
+}
+
+def validate_override_value(key: str, value) -> None:
+    ku = str(key).upper()
+    if ku not in _HYDRO_NUMERIC_LIMITS:
+        return
+    lo, hi = _HYDRO_NUMERIC_LIMITS[ku]
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{ku} muss numerisch sein")
+    if ku == "HYDRO_FALLBACK_ROUTING_TAU_MIN":
+        if not (num > 0 and num <= 1440):
+            raise ValueError(f"{ku} muss > 0 und <= 1440 sein")
+        return
+    if num < lo or (hi is not None and num > hi):
+        raise ValueError(f"{ku} muss im Bereich {lo}..{hi} liegen")
+
 def set_override(key: str, value) -> dict:
     validate_override_key(key)
+    validate_override_value(key, value)
     return patch({key: value})
 
 
@@ -351,8 +377,9 @@ def patch(partial: dict) -> dict:
     """
     reload_overrides()
     if isinstance(partial, dict):
-        for _key in partial:
+        for _key, _value in partial.items():
             validate_override_key(_key)
+            validate_override_value(_key, _value)
         _forbidden = forbidden_keys_in(partial)
         if _forbidden:
             # B106: Gesamte Anfrage defensiv ablehnen wenn verbotene Pfade vorhanden.
