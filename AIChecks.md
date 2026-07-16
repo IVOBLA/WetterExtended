@@ -216,6 +216,23 @@ Rufe /api/admin/hydro/flood-risk/retrain/status während eines laufenden Trainin
 mehrfach ab. Zeigen manche Antworten "idle", ist der Status prozesslokal und die
 409-Zusage nicht eingehalten — melden.
 
+
+### AC-036 — Prüfe, ob event_id im Produktivpfad gesetzt wird
+Werte im 24h-Export labeled_samples aus. Zähle Zeilen mit event_id IS NULL.
+Erwartung: null. Jeder Treffer bedeutet, dass die inkrementelle Vergabe nicht greift
+und readiness_status() wieder auf 0 Events zählt — melden, nicht die Zählung ändern.
+
+### AC-037 — Prüfe die Eventverteilung auf Plausibilität
+Gruppiere labeled_samples nach event_id. Enthält ein Event mehr als 50 % aller Samples,
+greift die Trennung nicht: HYDRO_EVENT_DRY_GAP_MIN und die No-cell-Gruppierung prüfen.
+Eine hohe Eventzahl allein ist kein Erfolg — sie muss die Wetterlage abbilden.
+
+### AC-038 — Prüfe Readiness gegen die Trainingssicht
+Vergleiche readiness_status()["event_count"] mit
+analyze_training_dataset(load_trainable_labeled_samples(False))["event_count"].
+Weichen sie um mehr als 10 % ab, ist die Nachführung nach dem Training ausgeblieben
+oder der Readiness-Cache invalidiert nicht — melden.
+
 ---
 
 ## Erledigt
