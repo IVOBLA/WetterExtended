@@ -5733,10 +5733,8 @@ def api_hydro_flood_risk():
         live = {**(live or {}), "cell_frame_meta": cell_meta}
         doc = hydro_flood_ml.HYDRO_RISK_PATH.exists() and hydro_flood_ml._read_json(hydro_flood_ml.HYDRO_RISK_PATH, None)
         if cell_meta.get("status") in {"stale", "missing", "invalid", "error"}:
-            cached = doc if isinstance(doc, dict) and doc.get("payload_scope") == "public" else {"payload_scope":"public", "payload_schema_version":"b411_public_v1", "stations": []}
-            refreshed = hydro_flood_ml.refresh_hydro_fields_in_cached_risk(cached, live)
-            status_map = {"stale":"deferred_stale_cell_snapshot", "missing":"deferred_missing_cell_snapshot", "invalid":"deferred_invalid_cell_snapshot", "error":"deferred_invalid_cell_snapshot"}
-            return {**refreshed, "status": status_map.get(cell_meta.get("status"), "deferred_invalid_cell_snapshot"), "deferred_reason": status_map.get(cell_meta.get("status"), "deferred_invalid_cell_snapshot"), "cell_frame_path": cell_meta.get("path"), "cell_frame_timestamp": cell_meta.get("frame_timestamp"), "cell_frame_age_min": cell_meta.get("frame_age_min"), "cell_frame_status": cell_meta.get("status"), "warning": "Hydro-Flood-Risk-Cache wegen fehlendem, ungültigem oder veraltetem Zellframe nicht überschrieben."}
+            cached = doc if isinstance(doc, dict) and doc.get("payload_scope") == "public" else None
+            return hydro_flood_ml.build_deferred_public_risk(live, cell_meta, cached)
         if hydro_flood_ml.is_flood_risk_cache_valid(doc, live=live, cells=cells or []):
             return doc
         return hydro_flood_ml.evaluate_live_flood_risk(live=live, cells=cells or [], include_debug=False)

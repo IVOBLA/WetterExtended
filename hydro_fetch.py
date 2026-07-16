@@ -299,20 +299,15 @@ def fetch_hydro_live(force: bool = False) -> dict:
         # Abhaengigkeit); Niederschlag/Einzugsgebiet bleibt dann "nicht bewertbar",
         # Q-Trend und Hochwassergefahr funktionieren trotzdem unabhaengig davon.
         try:
-            from hydro_flood_ml import HYDRO_RISK_PATH, _atomic_json, _read_json as _read_risk_json, evaluate_live_flood_risk, load_latest_cell_frame
+            from hydro_flood_ml import HYDRO_RISK_PATH, _atomic_json, _read_json as _read_risk_json, build_deferred_public_risk, evaluate_live_flood_risk, load_latest_cell_frame
             cells, cell_meta = load_latest_cell_frame()
             result["cell_frame_meta"] = cell_meta
             if cells is not None:
                 evaluate_live_flood_risk(live=result, cells=cells)
             else:
                 existing = _read_risk_json(HYDRO_RISK_PATH, {})
-                if isinstance(existing, dict) and existing.get("stations"):
-                    existing["status"] = "deferred_missing_cell_snapshot"
-                    existing["deferred_reason"] = cell_meta
-                    existing["hydro_live_updated_at"] = result.get("fetched_at")
-                    _atomic_json(HYDRO_RISK_PATH, existing)
-                else:
-                    evaluate_live_flood_risk(live=result, cells=[])
+                previous = existing if isinstance(existing, dict) and existing.get("stations") else None
+                _atomic_json(HYDRO_RISK_PATH, build_deferred_public_risk(result, cell_meta, previous))
         except Exception as exc:
             result["status"].update({"hydro_flood_eval_status": "error", "hydro_flood_eval_error": f"{type(exc).__name__}: {exc}", "hydro_flood_eval_at": _utc_now().isoformat().replace("+00:00", "Z")})
         _write_status(result["status"])
