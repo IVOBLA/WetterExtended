@@ -26,7 +26,7 @@ HYDRO_ACCURACY_HISTORY_PATH = HYDRO_ML_DIR / "hydro_flood_accuracy_history.jsonl
 HYDRO_RISK_PATH = Path("train_data/hydro/impact/latest_hydro_flood_risk.json")
 HYDRO_MODEL_CURRENT_DIR = Path("train_data/models/hydro_flood/current")
 MIN_TRAINING_SAMPLES = int(os.getenv("HYDRO_FLOOD_ML_MIN_SAMPLES", "20"))
-FEATURE_SCHEMA_VERSION = "b416_live_catchment_v4"
+FEATURE_SCHEMA_VERSION = "b418_live_catchment_v5"
 HYDRO_SAMPLE_DB_PATH = HYDRO_ML_DIR / "hydro_flood_samples.sqlite3"
 _DEFAULT_HYDRO_SAMPLE_DB_PATH = HYDRO_SAMPLE_DB_PATH
 _DEFAULT_HYDRO_DATASET_JSONL_PATH = HYDRO_DATASET_JSONL_PATH
@@ -51,6 +51,10 @@ HYDRO_OPTIONAL_FEATURES = {
     "current_q_ratio_threshold", "current_q_distance_to_threshold_m3s",
     "q_trend_delta_m3s", "q_trend_reference_window_min",
     "first_entry_offset_min", "last_exit_offset_min", "data_age_min",
+    "effective_catchment_precip_sum_mm", "observed_catchment_precip_sum_mm",
+    "observed_catchment_precip_max_rate_mm_h", "observed_catchment_precip_mean_rate_mm_h",
+    "observed_precip_data_age_min", "observed_precip_available_flag",
+    "precip_source_measured_flag", "precip_source_cell_forecast_flag",
 }
 HYDRO_MISSING_INDICATOR_FEATURES = [
     "threshold_available_flag", "q_trend_available_flag",
@@ -65,6 +69,15 @@ HYDRO_FEATURE_IMPUTATION = {
     "first_entry_offset_min": 0.0,
     "last_exit_offset_min": 0.0,
     "data_age_min": 0.0,
+    # A missing age must not look fresh; the availability flag distinguishes it.
+    "observed_precip_data_age_min": 1000000.0,
+    "effective_catchment_precip_sum_mm": 0.0,
+    "observed_catchment_precip_sum_mm": 0.0,
+    "observed_catchment_precip_max_rate_mm_h": 0.0,
+    "observed_catchment_precip_mean_rate_mm_h": 0.0,
+    "observed_precip_available_flag": 0.0,
+    "precip_source_measured_flag": 0.0,
+    "precip_source_cell_forecast_flag": 0.0,
 }
 for _flag in HYDRO_MISSING_INDICATOR_FEATURES:
     if _flag not in HYDRO_FLOOD_ML_FEATURES:
@@ -700,7 +713,46 @@ def _observed_precip(station: dict) -> dict:
     age = _f(p.get("age_min"))
     if age is None and ts:
         d = _dt(ts); age = max(0.0, (datetime.now(timezone.utc)-d).total_seconds()/60.0) if d else None
-    return {"observed_catchment_precip_sum_mm": val or 0.0, "observed_catchment_precip_max_rate_mm_h": _f(p.get("max_rate_mm_h"),0.0), "observed_catchment_precip_mean_rate_mm_h": _f(p.get("mean_rate_mm_h"),0.0), "observed_catchment_precip_area_km2": _f(p.get("area_km2"),0.0), "observed_precip_source_quality": p.get("quality") or ("high" if val is not None else "missing"), "observed_precip_data_age_min": age, "observed_precip_available": val is not None, "precip_source_name": p.get("source_name") or ("observed_catchment_precip" if val is not None else None), "precip_source_timestamp": ts}
+    return {"observed_catchment_precip_sum_mm": val or 0.0, "observed_catchment_precip_max_rate_mm_h": _f(p.get("max_rate_mm_h"),0.0), "observed_catchment_precip_mean_rate_mm_h": _f(p.get("mean_rate_mm_h"),0.0), "observed_catchment_precip_area_km2": _f(p.get("area_km2"),0.0), "observed_precip_source_quality": p.get("quality") or ("high" if val is not None else "missing"), "observed_precip_data_age_min": age, "observed_precip_measurement_window_min": _f(p.get("measurement_window_min")), "observed_precip_available": val is not None, "precip_source_name": p.get("source_name") or ("observed_catchment_precip" if val is not None else None), "precip_source_timestamp": ts}
+
+
+def _apply_observed_precip_forcing(station: dict, obs: dict, cellp: dict) -> dict:
+    """Add the pre-t=0 measured runoff volume to the existing cell forecast."""
+    result = dict(cellp)
+    age = _f(obs.get("observed_precip_data_age_min"))
+    window = _f(obs.get("observed_precip_measurement_window_min"))
+    area = _f(station.get("catchment_area_km2"), _f(cellp.get("catchment_area_geometry_km2")))
+    overlap = max(0.0, -(age or 0.0)) if age is not None else 0.0
+    gap = max(0.0, age or 0.0) if age is not None else 0.0
+    reason = None
+    if not obs.get("observed_precip_available"): reason = "observed_precip_unavailable"
+    elif obs.get("observed_precip_source_quality") != "high": reason = "observed_precip_quality_not_high"
+    elif age is None: reason = "observed_precip_age_missing"
+    elif age < 0: reason = "observed_precip_window_overlaps_forecast"
+    elif age > _lag_bounds_min()[1]: reason = "observed_precip_outside_lag_window"
+    elif window is None or window <= 0: reason = "observed_precip_measurement_window_missing"
+    elif area is None or area <= 0: reason = "catchment_area_missing"
+    used = reason is None
+    rain_volume = (obs.get("observed_catchment_precip_sum_mm") or 0.0) * (area or 0.0) * 1000.0 if used else 0.0
+    runoff_volume = rain_volume * _cfg_float("HYDRO_FORECAST_RUNOFF_COEFF", 0.4, 0.0, 1.0)
+    observed_delta = runoff_volume / (window * 60.0) if used else 0.0
+    cell_delta = _f(cellp.get("physical_predicted_q_delta_m3s"), 0.0) or 0.0
+    q0 = _f(station.get("q_m3s") or station.get("current_q_m3s"), 0.0) or 0.0
+    result.update({
+        "observed_precip_used_in_forecast": used,
+        "observed_precip_rejection_reason": reason,
+        "precip_window_overlap_min": round(overlap, 3),
+        "precip_window_gap_min": round(gap, 3),
+        "observed_precip_rain_volume_m3": round(rain_volume, 3),
+        "observed_precip_runoff_volume_m3": round(runoff_volume, 3),
+        "cell_forecast_rain_volume_m3": _f(cellp.get("total_rain_volume_m3"), 0.0) or 0.0,
+        "combined_rain_volume_m3": round((_f(cellp.get("total_rain_volume_m3"), 0.0) or 0.0) + rain_volume, 3),
+        "total_rain_volume_m3": round((_f(cellp.get("total_rain_volume_m3"), 0.0) or 0.0) + rain_volume, 3),
+        "total_runoff_volume_m3": round((_f(cellp.get("total_runoff_volume_m3"), 0.0) or 0.0) + runoff_volume, 3),
+        "physical_predicted_q_delta_m3s": round(cell_delta + observed_delta, 4),
+        "physical_predicted_q_max_m3s": round(max(0.0, q0 + cell_delta + observed_delta), 4),
+    })
+    return result
 
 
 def _q_timestamp(live_station: dict) -> tuple[str | None, str]:
@@ -719,7 +771,8 @@ def build_feature_row(station: dict, live: dict|None=None, cells: list[dict]|Non
     if live:
         by = {str(s.get("station_id")): {**s, "fetched_at": s.get("fetched_at") or live.get("fetched_at")} for s in live.get("stations", []) if isinstance(s, dict)}; live_station = {**station, **(by.get(sid) or {})}
     q = _f(live_station.get("q_m3s")); q_measured_at, q_timestamp_source = _q_timestamp(live_station); thr, src = _threshold(station)
-    obs = _observed_precip(station); cellp = _precip_from_cells(station, cells if cells is not None else [{}])
+    forcing_station = {**station, **live_station}
+    obs = _observed_precip(live_station); cellp = _apply_observed_precip_forcing(forcing_station, obs, _precip_from_cells(forcing_station, cells if cells is not None else [{}]))
     use_obs = bool(obs["observed_precip_available"])
     eff_type = "measured" if use_obs else (cellp["cell_precip_source_type"] if cellp["cell_precip_source_type"] != "missing" else "missing")
     eff_sum = obs["observed_catchment_precip_sum_mm"] if use_obs else cellp["cell_catchment_precip_sum_mm"]
@@ -779,7 +832,7 @@ def heuristic_score(row: dict) -> dict:
     return {**base, "flood_expected": expected, "flood_evaluable": True, "current_threshold_evaluable": True, "current_q_above_threshold": False, "forecast_flood_evaluable": True, "flood_status": "ok", "reasons": reasons, "warning_reasons": warnings, "prediction_source": "physical_fallback", "predicted_q_delta_m3s": predicted_delta, "predicted_q_max_m3s": predicted_q}
 
 def _public_flood_row(row: dict) -> dict:
-    keys = ["station_id","station_name","river","current_q_m3s","current_q_measured_at","current_q_timestamp_source","current_q_missing","station_q_threshold_m3s","station_q_threshold_source","station_q_threshold_missing","current_q_ratio_threshold","current_q_distance_to_threshold_m3s","current_q_above_threshold","current_threshold_evaluable","forecast_flood_evaluable","forecast_evaluation_stale","forecast_evaluation_generated_at","forecast_evaluation_age_min","stale_predicted_q_max_m3s","stale_prediction_generated_at","catchment_geometry_available","catchment_geometry_status","catchment_feature_count","catchment_area_geometry_km2","catchment_area_km2","routing_tau_min","routing_tau_source","input_cell_count","contributing_cell_count","current_cell_count","incoming_cell_count","effective_catchment_precip_sum_mm","effective_catchment_precip_weighted_sum_mm","effective_precip_source_type","effective_precip_source_quality","precip_evaluable","precip_status","precip_status_label","precip_quality_label","cell_catchment_count","cell_catchment_overlap_area_km2_sum","raw_overlap_area_km2_sum","effective_overlap_area_km2","overlap_deduplicated_area_km2","spatial_dedup_applied","total_rain_volume_m3","total_runoff_volume_m3","total_dwell_time_min","max_cell_dwell_time_min","max_overlap_area_km2","overlap_area_time_km2_min","physical_predicted_q_delta_m3s","physical_predicted_q_max_m3s","ml_predicted_q_delta_m3s","predicted_q_delta_m3s","predicted_q_max_m3s","prediction_source","first_entry_offset_min","last_exit_offset_min","rain_rate_mm_h_max","rain_rate_mm_h_mean","rain_rate_mm_h_area_weighted","current_data_age_min","data_age_min","hydro_data_stale","current_q_trend_10min","current_q_trend_30min","current_q_trend_60min","q_trend_per_hour","already_rising_flag","q_trend_status","q_trend_delta_m3s","q_trend_reference_window_min","flood_expected","flood_evaluable","flood_status","reasons","warning_reasons","model_source","generated_at","flood_probability"]
+    keys = ["station_id","station_name","river","current_q_m3s","current_q_measured_at","current_q_timestamp_source","current_q_missing","station_q_threshold_m3s","station_q_threshold_source","station_q_threshold_missing","current_q_ratio_threshold","current_q_distance_to_threshold_m3s","current_q_above_threshold","current_threshold_evaluable","forecast_flood_evaluable","forecast_evaluation_stale","forecast_evaluation_generated_at","forecast_evaluation_age_min","stale_predicted_q_max_m3s","stale_prediction_generated_at","catchment_geometry_available","catchment_geometry_status","catchment_feature_count","catchment_area_geometry_km2","catchment_area_km2","routing_tau_min","routing_tau_source","input_cell_count","contributing_cell_count","current_cell_count","incoming_cell_count","effective_catchment_precip_sum_mm","effective_catchment_precip_weighted_sum_mm","effective_precip_source_type","effective_precip_source_quality","observed_precip_available","observed_precip_source_quality","observed_precip_used_in_forecast","observed_precip_rejection_reason","precip_window_overlap_min","precip_window_gap_min","precip_evaluable","precip_status","precip_status_label","precip_quality_label","cell_catchment_count","cell_catchment_overlap_area_km2_sum","raw_overlap_area_km2_sum","effective_overlap_area_km2","overlap_deduplicated_area_km2","spatial_dedup_applied","total_rain_volume_m3","total_runoff_volume_m3","total_dwell_time_min","max_cell_dwell_time_min","max_overlap_area_km2","overlap_area_time_km2_min","physical_predicted_q_delta_m3s","physical_predicted_q_max_m3s","ml_predicted_q_delta_m3s","predicted_q_delta_m3s","predicted_q_max_m3s","prediction_source","first_entry_offset_min","last_exit_offset_min","rain_rate_mm_h_max","rain_rate_mm_h_mean","rain_rate_mm_h_area_weighted","current_data_age_min","data_age_min","hydro_data_stale","current_q_trend_10min","current_q_trend_30min","current_q_trend_60min","q_trend_per_hour","already_rising_flag","q_trend_status","q_trend_delta_m3s","q_trend_reference_window_min","flood_expected","flood_evaluable","flood_status","reasons","warning_reasons","model_source","generated_at","flood_probability"]
     return {k: row.get(k) for k in keys if k in row}
 
 def evaluate_live_flood_risk(stations: list[dict]|None=None, live: dict|None=None, cells: list[dict]|None=None, write: bool=True, include_debug: bool=False) -> dict:
@@ -838,6 +891,9 @@ def _feature_snapshot(row: dict) -> dict:
     snap["q_trend_available_flag"] = 0.0 if row.get("q_trend_delta_m3s") is None else 1.0
     snap["cell_entry_available_flag"] = 0.0 if row.get("first_entry_offset_min") is None or row.get("last_exit_offset_min") is None else 1.0
     snap["data_age_available_flag"] = 0.0 if row.get("data_age_min") is None else 1.0
+    snap["observed_precip_available_flag"] = 1.0 if row.get("observed_precip_available") else 0.0
+    snap["precip_source_measured_flag"] = 1.0 if row.get("observed_precip_used_in_forecast") else 0.0
+    snap["precip_source_cell_forecast_flag"] = 1.0 if int(row.get("contributing_cell_count") or 0) > 0 else 0.0
     for key, default in HYDRO_FEATURE_IMPUTATION.items():
         if snap.get(key) is None:
             snap[key] = default
@@ -950,6 +1006,41 @@ def migrate_productive_dataset() -> dict:
     now = _now()
     with _sample_db() as con:
         con.execute("BEGIN IMMEDIATE")
+        migration_id = "b418_target_definition_v1"
+        if not _migration_applied(con, migration_id):
+            relabeled = unavailable = upgraded_pending = 0
+            for payload_text, in con.execute("SELECT payload FROM labeled_samples").fetchall():
+                row = json.loads(payload_text)
+                if row.get("feature_schema_version") != "b416_live_catchment_v4":
+                    continue
+                sid = str(row.get("station_id") or "")
+                label = _label_from_future(
+                    {"measured_at": row.get("sample_start_time"), "q_m3s": _f(row.get("current_q_m3s"))},
+                    _future_q_rows(con, sid, row.get("sample_start_time")),
+                    _f(row.get("station_q_threshold_m3s")),
+                )
+                sample_id = row.get("sample_id") or hashlib.sha256(payload_text.encode()).hexdigest()
+                if label.get("target_missing"):
+                    con.execute("INSERT OR REPLACE INTO sample_failures(sample_id,station_id,failed_at,reason,payload) VALUES(?,?,?,?,?)", (sample_id, sid, now, "target_definition_superseded_b418_history_unavailable", payload_text))
+                    con.execute("DELETE FROM labeled_samples WHERE sample_id=?", (sample_id,))
+                    unavailable += 1
+                    continue
+                features = dict(row.get("features") or {})
+                for key in HYDRO_FLOOD_ML_FEATURES:
+                    features.setdefault(key, HYDRO_FEATURE_IMPUTATION.get(key, 0.0))
+                row.update(label, features=features, feature_schema_version=FEATURE_SCHEMA_VERSION, feature_schema_hash=_feature_schema_hash(), feature_snapshot_complete=True)
+                vals = _labeled_values(row)
+                con.execute("UPDATE labeled_samples SET payload=?,feature_schema_version=?,feature_schema_hash=?,feature_snapshot_complete=?,target_missing=?,target_q_delta_m3s=?,event_id=?,cell_frame_hash=?,precip_event_active=? WHERE sample_id=?", (json.dumps(row, ensure_ascii=False, default=str), *vals[1:], sample_id))
+                relabeled += 1
+            for payload_text, in con.execute("SELECT payload FROM pending_samples").fetchall():
+                row = json.loads(payload_text)
+                if row.get("feature_schema_version") != "b416_live_catchment_v4": continue
+                features = dict(row.get("features") or {})
+                for key in HYDRO_FLOOD_ML_FEATURES: features.setdefault(key, HYDRO_FEATURE_IMPUTATION.get(key, 0.0))
+                row.update(features=features, feature_schema_version=FEATURE_SCHEMA_VERSION, feature_schema_hash=_feature_schema_hash())
+                con.execute("UPDATE pending_samples SET payload=? WHERE sample_id=?", (json.dumps(row, ensure_ascii=False, default=str), row.get("sample_id")))
+                upgraded_pending += 1
+            _mark_migration(con, migration_id, {"migration_id": migration_id, "migration_at": now, "rows_imported": relabeled, "rows_invalid": unavailable, "rows_pending_upgraded": upgraded_pending, "rows_relabeled": relabeled, "rows_history_unavailable": unavailable})
         for table in ("pending_samples", "labeled_samples"):
             for payload_text, in con.execute(f"SELECT payload FROM {table}").fetchall():
                 row = json.loads(payload_text)
@@ -1304,11 +1395,14 @@ def _label_from_future(start: dict, future_rows: list[dict], threshold: float | 
             candidates.append(row)
     if not candidates:
         return {"target_missing": True}
-    future_q = max((_f(r.get("q_m3s"), start.get("q_m3s")) or start.get("q_m3s")) for r in candidates)
-    delta = future_q - float(start.get("q_m3s"))
-    exceeded = bool(future_q >= threshold) if threshold is not None else None
+    start_q = float(start.get("q_m3s"))
+    future_q = max(float(r.get("q_m3s")) for r in candidates)
+    window_q = max(start_q, future_q)
+    end_q = float(max(candidates, key=lambda r: _dt(r.get("measured_at") or r.get("fetched_at"))).get("q_m3s"))
+    delta = window_q - start_q
+    exceeded = bool(window_q >= threshold) if threshold is not None else None
     min_delta = _f(runtime_config.get("HYDRO_VERIFY_MIN_DELTA_Q_M3S", getattr(config, "HYDRO_VERIFY_MIN_DELTA_Q_M3S", 0.2)), 0.2) or 0.2
-    return {"target_missing": False, "target_q_delta_m3s": round(delta, 3), "target_q_max_m3s": round(future_q, 3), "target_q_threshold_exceeded": exceeded, "target_flood_expected": (bool(exceeded and delta >= -abs(min_delta)) if exceeded is not None else None), "target_q_distance_to_threshold_after_reaction_m3s": (round(threshold - future_q, 3) if threshold is not None else None)}
+    return {"target_missing": False, "target_future_q_max_m3s": round(future_q, 3), "target_window_q_max_m3s": round(window_q, 3), "target_q_change_end_m3s": round(end_q - start_q, 3), "target_q_delta_m3s": round(delta, 3), "target_q_max_m3s": round(window_q, 3), "target_q_threshold_exceeded": exceeded, "target_flood_expected": (bool(exceeded and delta >= -abs(min_delta)) if exceeded is not None else None), "target_q_distance_to_threshold_after_reaction_m3s": (round(threshold - window_q, 3) if threshold is not None else None)}
 
 
 def build_dataset_scan() -> dict:

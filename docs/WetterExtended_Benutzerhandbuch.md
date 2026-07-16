@@ -2924,3 +2924,7 @@ Ein im Admin-Panel gestartetes Neutraining läuft im Hintergrund; Karte und Ober
 bleiben währenddessen bedienbar. Die Statusanzeige zeigt Phase, Fortschritt und das
 Ergebnis. Solange bereits ein Training läuft, wird ein weiterer Start mit einer
 entsprechenden Meldung abgewiesen.
+
+Liegt für ein Einzugsgebiet ein gemessener Niederschlag ausreichender Qualität mit bekanntem Messzeitraum vor, fließt er zusätzlich zum prognostizierten Zellniederschlag in die prognostizierte Pegelentwicklung ein. Das Popup weist die verwendete Quelle aus.
+
+Ist die Messung zu alt, zeitlich überlappend oder ihre Qualität unzureichend, beruht die Prognose allein auf den Zelldaten; das Popup kennzeichnet den Rückfall und seinen Grund. Die Hydro-Hochwasseranzeige bleibt eine lokale Orientierungshilfe und ist kein Ersatz für amtliche Hochwasserwarnungen.

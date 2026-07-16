@@ -6699,3 +6699,15 @@ Frontend-Prüfungen gehören zur B417-Abnahme.
 
 **Phasen-Status:** Phase A — der Hydro-ML-Pfad ist Pi-tauglich. Phase B (Hailo-8 U-Net)
 unverändert blockiert.
+
+### B418 — Negatives Trainingsziel gegen geklemmte Inferenz; gemessener Niederschlag ohne Prognosewirkung ✅ erledigt
+
+**Root-Cause:** Target und Featurebasis waren nicht gegen den Inferenzpfad geführt: Das Training erhielt negative Q-Delta-Targets, obwohl die Inferenz auf `>= 0` klemmt; zugleich blieb ein bereits normalisiertes `observed_precip` außerhalb der physikalischen Prognose und der kanonischen Features.
+
+Die neue Targetdefinition lautet wörtlich: `target_future_q_max_m3s = max(Q im Lag-Fenster)`, `target_window_q_max_m3s = max(Start-Q, target_future_q_max_m3s)` und `target_q_delta_m3s = target_window_q_max_m3s - Start-Q`. `target_q_change_end_m3s = Q am Ende des Fensters - Start-Q` bleibt ein ausschließlich diagnostisches, nicht trainiertes Rezessions-Target. Die produktive Migration `b418_target_definition_v1` labelt v4-Samples aus der SQLite-`q_history` neu; ohne verfügbares Fenster bleiben sie in `sample_failures` mit `target_definition_superseded_b418_history_unavailable`. Im vorliegenden Checkout waren 0 produktive Samples neu zu labeln und 0 zu verschieben.
+
+Ein normalisiertes Messobjekt wird nur bei `quality=high`, bekanntem positiven `measurement_window_min`, nichtnegativem Alter innerhalb des Lag-Fensters und bekannter Einzugsgebietsfläche verwendet. Die gemeinsame Rational-Methode nutzt `HYDRO_FORECAST_RUNOFF_COEFF`; Mess- und Zellvolumen werden getrennt ausgewiesen, bevor sie addiert werden. Ablehnungen sind über `observed_precip_rejection_reason`, Zeitlücke und Überlappung explizit sichtbar. Die Schemaversion ist `b418_live_catchment_v5`.
+
+**API-Prüfung:** Im vorliegenden Repository existiert kein Adapter, der `observed_precip` aus einer dokumentierten Fremd-API erzeugt; auffindbar ist nur der interne normalisierte Objektvertrag. Daher gibt es keine belastbare externe Belegstelle für Einheit, Fenster, Bedeutung von `high` oder Mess-/Abrufzeit. `high` ist eine Projektklassifikation. Ohne explizites `measurement_window_min` wird die Messung mit `observed_precip_measurement_window_missing` abgelehnt; ein neuer Fremdrequest wurde nicht eingeführt. Dieser Provenienzbefund muss vor Anbindung einer realen Quelle geschlossen werden.
+
+Die B418-Target-, Forcing-, Volumenbilanz- und Migrationsregressionen wurden ergänzt. **Phasen-Status:** Phase A — Trainingsziel und Inferenz sind konsistent; die Prognose kann fachlich vollständig normalisierte gemessene Niederschläge nutzen. ML-Reaktivierung bleibt von der Datensammlung abhängig. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.

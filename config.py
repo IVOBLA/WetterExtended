@@ -1507,6 +1507,14 @@ HYDRO_FLOOD_ML_FEATURES = [
     "q_trend_available_flag",
     "cell_entry_available_flag",
     "data_age_available_flag",
+    "effective_catchment_precip_sum_mm",
+    "observed_catchment_precip_sum_mm",
+    "observed_catchment_precip_max_rate_mm_h",
+    "observed_catchment_precip_mean_rate_mm_h",
+    "observed_precip_data_age_min",
+    "observed_precip_available_flag",
+    "precip_source_measured_flag",
+    "precip_source_cell_forecast_flag",
 ]
 
 # --- P68: Signierte Bias-Korrektur des kinematischen Fallbacks ---
