@@ -34,6 +34,12 @@ import { normalizeHydroFloodPopup } from '../hydroFloodPopup.js'
   assert.equal(n.precipStatusLabel, 'keine verwertbaren Niederschlagsdaten zugeordnet')
 }
 {
+  const used = normalizeHydroFloodPopup({}, { precip_status_label: 'gemessen', observed_precip_used_in_forecast: true })
+  const rejected = normalizeHydroFloodPopup({}, { observed_precip_rejection_reason: 'observed_precip_outside_lag_window' })
+  assert.match(used.precipStatusLabel, /in Pegelprognose verwendet/)
+  assert.match(rejected.precipStatusLabel, /zu alt/)
+}
+{
   const n = normalizeHydroFloodPopup({}, {
     current_q_m3s: 3,
     predicted_q_max_m3s: 4.2,

@@ -169,6 +169,16 @@ müssen unter HYDRO_ML_MAX_NO_CELL_SAMPLES_PER_DAY bleiben.
 Samples mit current_q_above_threshold=true dürfen durch Subsampling nie entfernt
 werden. Einen Rückgang nach Maintenance sofort melden.
 
+### AC-027 — Prüfe Targetverteilung
+Werte im 24h-Export target_q_delta_m3s aus. Erwartung: keine negativen Werte, und der Anteil exakt-null-Targets ist plausibel (fallende und gleichbleibende Verläufe). Liegt der Nullanteil über 90 %, sammelt das System fast nur Ruhelagen — als Befund für die Sampling-Parameter aus B416 melden.
+
+### AC-028 — Prüfe Nutzung gesicherter Niederschläge
+Zähle im Export Zeilen mit observed_precip_available=true, getrennt nach observed_precip_used_in_forecast. Werte die Gründe unter observed_precip_rejection_reason gruppiert aus. Häuft sich ein Grund, ist entweder die Qualitätsschwelle falsch oder die Quelle liefert anders als spezifiziert — beides melden, nicht die Schwelle senken.
+
+### AC-029 — Prüfe Niederschlags-Volumenbilanz
+Werte bei gleichzeitig vorhandener Messung und Zellprognose precip_window_overlap_min und precip_window_gap_min aus. Erwartung: overlap = 0. Jeder Wert > 0 bedeutet ein zeitlich überlappendes Intervall; die Messung muss abgelehnt werden, damit keine überhöhte Q-Prognose entsteht — sofort melden.
+
+
 ---
 
 ## Erledigt

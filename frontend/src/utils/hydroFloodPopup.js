@@ -81,7 +81,18 @@ export function normalizeHydroFloodPopup(p = {}, flood = {}) {
   const precipValue = precipEvaluable && validNumber(flood.effective_catchment_precip_sum_mm) ? `${fmt(flood.effective_catchment_precip_sum_mm)} mm` : (noRelevantCell ? '0,00 mm' : 'nicht bewertbar')
   const forecastStatusLabel = forecastStale ? `veraltet – ${flood.flood_status || 'Zell-/Niederschlagsprognose nicht aktuell'}` : (flood.forecast_flood_evaluable === true ? 'aktuell bewertbar' : 'nicht bewertbar')
   const forecastAgeLabel = validNumber(flood.forecast_evaluation_age_min) ? `${Number(flood.forecast_evaluation_age_min).toFixed(1)} min` : '—'
-  const precipStatusLabel = forecastStale ? forecastStatusLabel : (flood.precip_status_label || (precipEvaluable ? 'aus erkannter Regenzelle abgeleitet' : 'keine verwertbaren Niederschlagsdaten zugeordnet'))
+  const forcingReasonLabels = {
+    observed_precip_quality_not_high: 'Messung wegen unzureichender Qualität nicht für Prognose verwendet',
+    observed_precip_outside_lag_window: 'Messung zu alt; Prognose beruht auf Zelldaten',
+    observed_precip_measurement_window_missing: 'Messzeitraum unbekannt; Prognose beruht auf Zelldaten',
+    observed_precip_window_overlaps_forecast: 'Messzeitraum überlappt Zellprognose; Messung nicht verwendet',
+    catchment_area_missing: 'Bezugsfläche unbekannt; Messung nicht verwendet',
+  }
+  const basePrecipStatusLabel = flood.precip_status_label || (precipEvaluable ? 'aus erkannter Regenzelle abgeleitet' : 'keine verwertbaren Niederschlagsdaten zugeordnet')
+  const forcingStatusLabel = flood.observed_precip_used_in_forecast === true
+    ? `${basePrecipStatusLabel}; gemessener Niederschlag in Pegelprognose verwendet`
+    : (forcingReasonLabels[flood.observed_precip_rejection_reason] || basePrecipStatusLabel)
+  const precipStatusLabel = forecastStale ? forecastStatusLabel : forcingStatusLabel
   const precipQualityLabel = flood.precip_quality_label || (precipEvaluable ? (flood.effective_precip_source_quality === 'high' ? 'hoch' : 'mittel') : 'nicht bewertbar')
   const qTimestamp = currentQTimestamp(p, flood)
   const qTimestampDate = parseTimestamp(qTimestamp.value)
