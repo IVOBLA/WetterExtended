@@ -83,10 +83,12 @@ def _latest_objects_for_flood_risk() -> list:
 def _is_flood_risk_cache_valid_for_live(risk_doc: dict, live: dict) -> bool:
     try:
         import hydro_flood_ml
+        cells, cell_meta = hydro_flood_ml.load_latest_cell_frame()
         return hydro_flood_ml.is_flood_risk_cache_valid(
             risk_doc,
             live=live if isinstance(live, dict) else {},
-            cells=_latest_objects_for_flood_risk(),
+            cells=cells or [],
+            cell_frame_meta=cell_meta,
         )
     except Exception:
         return False

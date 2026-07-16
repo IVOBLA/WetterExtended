@@ -92,6 +92,7 @@ SAMPLE_KIND_LEGACY = "legacy_q_only"
 _MODEL_CACHE_LOCK = threading.RLock()
 _MODEL_CACHE: dict[str, Any] = {}
 HYDRO_TRAINING_LOCK_PATH = HYDRO_ML_DIR / "hydro_flood_training.lock"
+HYDRO_TRAINING_STATUS_PATH = HYDRO_ML_DIR / "hydro_flood_training_status.json"
 _READINESS_CACHE: dict[str, Any] = {}
 _TRAINING_STATUS_LOCK = threading.RLock()
 _TRAINING_STATUS = {"running": False, "phase": "idle", "started_at": None,
@@ -235,7 +236,7 @@ def _trend_cache_signature() -> dict:
     }
 
 
-def flood_risk_input_hash(live: dict | None = None, cells: list[dict] | None = None) -> str:
+def flood_risk_input_hash(live: dict | None = None, cells: list[dict] | None = None, cell_frame_meta: dict | None = None) -> str:
     overrides = runtime_config.get("HYDRO_STATION_OVERRIDES", {}) or {}
     live_sig = {
         "fetched_at": (live or {}).get("fetched_at"),
@@ -252,19 +253,20 @@ def flood_risk_input_hash(live: dict | None = None, cells: list[dict] | None = N
         catch_sig = {}
     model_meta = _read_json(HYDRO_MODEL_CURRENT_DIR / "metadata.json", {})
     hydro_cfg = {k: runtime_config.get(k, getattr(config, k, None)) for k in ("HYDRO_FORECAST_SAMPLE_STEP_MIN", "HYDRO_FALLBACK_ROUTING_TAU_MIN", "HYDRO_FORECAST_RUNOFF_COEFF", "HYDRO_FORECAST_ROUTING_ATTENUATION", "HYDRO_MIN_OVERLAP_AREA_KM2", "HYDRO_MIN_OVERLAP_RATIO_CELL", "ML_FORECAST_HORIZONS_MIN")}
-    payload = {"live": live_sig, "station_thresholds": overrides, "global_threshold": runtime_config.get("HYDRO_MAP_MARK_Q_M3S", getattr(config, "HYDRO_MAP_MARK_Q_M3S", None)), "objects": _objects_signature(cells), "q_trend": _trend_cache_signature(), "catchments": catch_sig, "hydro_config": hydro_cfg, "model": {"schema": model_meta.get("feature_schema_version"), "trained_at": model_meta.get("trained_at"), "promoted": model_meta.get("promoted"), "signature": model_stat_signature(HYDRO_MODEL_CURRENT_DIR)}}
+    frame = cell_frame_meta if isinstance(cell_frame_meta, dict) else {}
+    payload = {"live": live_sig, "station_thresholds": overrides, "global_threshold": runtime_config.get("HYDRO_MAP_MARK_Q_M3S", getattr(config, "HYDRO_MAP_MARK_Q_M3S", None)), "objects": _objects_signature(cells), "cell_frame": {"cell_frame_status": frame.get("cell_frame_status") or frame.get("status"), "cell_frame_timestamp": frame.get("cell_frame_timestamp") or frame.get("frame_timestamp"), "raw_cell_count": frame.get("raw_cell_count")}, "q_trend": _trend_cache_signature(), "catchments": catch_sig, "hydro_config": hydro_cfg, "model": {"schema": model_meta.get("feature_schema_version"), "trained_at": model_meta.get("trained_at"), "promoted": model_meta.get("promoted"), "signature": model_stat_signature(HYDRO_MODEL_CURRENT_DIR)}}
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def is_flood_risk_cache_valid(doc: dict | None, live: dict | None = None, cells: list[dict] | None = None) -> bool:
+def is_flood_risk_cache_valid(doc: dict | None, live: dict | None = None, cells: list[dict] | None = None, cell_frame_meta: dict | None = None) -> bool:
     if not isinstance(doc, dict) or not doc.get("input_hash") or doc.get("payload_scope") != "public":
         return False
     risk_mtime = _path_mtime(HYDRO_RISK_PATH)
     hydro_mtime = _path_mtime(getattr(__import__("hydro_fetch"), "LATEST_FILE", Path("train_data/hydro/live/latest_hydro.json")))
     if risk_mtime is not None and hydro_mtime is not None and hydro_mtime > risk_mtime:
         return False
-    return doc.get("input_hash") == flood_risk_input_hash(live=live, cells=cells)
+    return doc.get("input_hash") == flood_risk_input_hash(live=live, cells=cells, cell_frame_meta=cell_frame_meta)
 
 
 def require_public_payload_scope(doc: dict) -> dict:
@@ -869,7 +871,7 @@ def evaluate_live_flood_risk(stations: list[dict]|None=None, live: dict|None=Non
         public_rows.append(full if include_debug else _public_flood_row(full))
     pending_meta = record_pending_samples(internal_rows, live=live, cells_meta=cells_meta) if write else {"pending_added": 0, "pending_total": None}
     materialize_meta = materialize_pending_samples(live=None) if write else {"labeled_added": 0}
-    doc = {"status":"ok", "payload_scope": "admin_diagnostics" if include_debug else "public", "payload_schema_version": "b419_admin_diagnostics_v1" if include_debug else "b411_public_v1", "generated_at": generated, "input_hash": flood_risk_input_hash(live=live, cells=cells or []), "stations": public_rows, "pending_samples": pending_meta, "materialized_samples": materialize_meta, "readiness": readiness_status(), "cell_frame_path": (frame_meta or {}).get("path") if isinstance(frame_meta, dict) else None, "cell_frame_timestamp": (frame_meta or {}).get("frame_timestamp") if isinstance(frame_meta, dict) else None, "cell_frame_age_min": (frame_meta or {}).get("frame_age_min") if isinstance(frame_meta, dict) else None, "cell_frame_status": (frame_meta or {}).get("cell_frame_status") if isinstance(frame_meta, dict) else None}
+    doc = {"status":"ok", "payload_scope": "admin_diagnostics" if include_debug else "public", "payload_schema_version": "b419_admin_diagnostics_v1" if include_debug else "b411_public_v1", "generated_at": generated, "input_hash": flood_risk_input_hash(live=live, cells=cells or [], cell_frame_meta=frame_meta), "stations": public_rows, "pending_samples": pending_meta, "materialized_samples": materialize_meta, "readiness": readiness_status(), "cell_frame_path": (frame_meta or {}).get("path") if isinstance(frame_meta, dict) else None, "cell_frame_timestamp": (frame_meta or {}).get("frame_timestamp") if isinstance(frame_meta, dict) else None, "cell_frame_age_min": (frame_meta or {}).get("frame_age_min") if isinstance(frame_meta, dict) else None, "cell_frame_status": (frame_meta or {}).get("cell_frame_status") if isinstance(frame_meta, dict) else None}
     if include_debug:
         doc["debug_stations"] = internal_rows
     if write and not include_debug: _atomic_json(HYDRO_RISK_PATH, doc)
@@ -1167,18 +1169,33 @@ def migrate_q_history_to_sqlite() -> dict:
         meta={**started,"status":"complete","finished_at":_now(),"rows_imported":imported,"rows_invalid":invalid,"archived_path":str(archive) if archive else None}
         _mark_migration(con,migration_id,meta); return meta
 
-@contextmanager
-def hydro_training_lock():
+def acquire_training_lock():
+    """Nimmt den Prozess-Lock; None bedeutet, dass ein anderer Prozess ihn hält."""
     HYDRO_TRAINING_LOCK_PATH.parent.mkdir(parents=True,exist_ok=True)
     fh=HYDRO_TRAINING_LOCK_PATH.open("a+")
     try:
-        fcntl.flock(fh.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB); yield fh
-    finally:
-        try: fcntl.flock(fh.fileno(),fcntl.LOCK_UN)
-        finally: fh.close()
+        fcntl.flock(fh.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+        return fh
+    except BlockingIOError:
+        fh.close()
+        return None
 
-def run_hydro_startup_migrations() -> dict:
-    with hydro_training_lock():
+def release_training_lock(fh) -> None:
+    try: fcntl.flock(fh.fileno(),fcntl.LOCK_UN)
+    finally: fh.close()
+
+@contextmanager
+def hydro_training_lock(held_handle=None):
+    if held_handle is not None:
+        yield held_handle
+        return
+    fh=acquire_training_lock()
+    if fh is None: raise BlockingIOError("hydro_training_busy")
+    try: yield fh
+    finally: release_training_lock(fh)
+
+def run_hydro_startup_migrations(lock_handle=None) -> dict:
+    with hydro_training_lock(lock_handle):
         return {"pending":migrate_pending_jsonl_to_sqlite(),"q_history":migrate_q_history_to_sqlite(),"dataset":migrate_productive_dataset()}
 
 def record_pending_samples(rows: list[dict], live: dict | None = None, cells_meta: dict | None = None) -> dict:
@@ -1231,7 +1248,11 @@ def _future_q_rows(con: sqlite3.Connection, station_id: str, sample_time: str) -
         "SELECT measured_at, q_m3s FROM q_history WHERE station_id = ? AND measured_at BETWEEN ? AND ? ORDER BY measured_at",
         (station_id,begin,end))]
 
-def materialize_pending_samples(live: dict | None = None) -> dict:
+def materialize_pending_samples(live: dict | None = None, migration_lock_handle=None) -> dict:
+    with _sample_db() as con:
+        migration_ready = _migration_applied(con, "b417_q_history_jsonl_to_sqlite_v1")
+    if not migration_ready:
+        run_hydro_startup_migrations(lock_handle=migration_lock_handle)
     if live: append_hydro_history(live)
     added=failed=loaded=0; now_dt=datetime.now(timezone.utc); now=_now()
     retention_h=_cfg_int("HYDRO_PENDING_RETENTION_HOURS",72,1,24*30)
@@ -1540,8 +1561,8 @@ def _promote_candidate(candidate_dir: Path, meta: dict) -> None:
         if backup and backup.exists(): shutil.copytree(backup, HYDRO_MODEL_CURRENT_DIR)
         raise
 
-def _train_model_unlocked() -> dict:
-    materialize_pending_samples(); migration=migrate_productive_dataset()
+def _train_model_unlocked(lock_handle=None) -> dict:
+    materialize_pending_samples(migration_lock_handle=lock_handle); migration=migrate_productive_dataset()
     rows=load_trainable_labeled_samples(True)
     if len(rows) < MIN_TRAINING_SAMPLES:
         status = readiness_status(); status.update({"status": "insufficient_data", "fallback_reason": ",".join(status.get("rejection_reasons") or []), "dataset_migration": migration})
@@ -1599,29 +1620,43 @@ def _train_model_unlocked() -> dict:
         con.execute("INSERT OR REPLACE INTO training_runs(run_id, created_at, payload) VALUES(?,?,?)", (run_id, meta["trained_at"], json.dumps(meta, ensure_ascii=False, default=str)))
     return meta
 
-def train_model() -> dict:
-    with hydro_training_lock():
-        return _train_model_unlocked()
+def train_model(lock_handle=None) -> dict:
+    with hydro_training_lock(lock_handle) as active_handle:
+        return _train_model_unlocked(lock_handle=active_handle)
+
+def _write_training_status(status: dict) -> None:
+    _TRAINING_STATUS.update(status)
+    _atomic_json(HYDRO_TRAINING_STATUS_PATH, _TRAINING_STATUS)
 
 def training_status() -> dict:
-    with _TRAINING_STATUS_LOCK: return dict(_TRAINING_STATUS)
+    with _TRAINING_STATUS_LOCK:
+        shared = _read_json(HYDRO_TRAINING_STATUS_PATH, None)
+        return dict(shared if isinstance(shared, dict) else _TRAINING_STATUS)
 
-def _training_worker(run_id: str) -> None:
+def _training_worker(run_id: str, lock_handle) -> None:
     try:
-        with _TRAINING_STATUS_LOCK: _TRAINING_STATUS.update(phase="migration",message="Migration und Datensatzauswahl",progress_current=1,progress_total=4)
-        result=train_model()
-        with _TRAINING_STATUS_LOCK: _TRAINING_STATUS.update(running=False,phase="finished",finished_at=_now(),progress_current=4,message="Training abgeschlossen",result=result)
+        with _TRAINING_STATUS_LOCK: _write_training_status({"phase":"migration","message":"Migration und Datensatzauswahl","progress_current":1,"progress_total":4})
+        result=train_model(lock_handle=lock_handle)
+        with _TRAINING_STATUS_LOCK: _write_training_status({"running":False,"phase":"finished","finished_at":_now(),"progress_current":4,"message":"Training abgeschlossen","result":result})
     except Exception as exc:
-        with _TRAINING_STATUS_LOCK: _TRAINING_STATUS.update(running=False,phase="failed",finished_at=_now(),last_error=f"{type(exc).__name__}: {exc}",message="Training fehlgeschlagen")
+        with _TRAINING_STATUS_LOCK: _write_training_status({"running":False,"phase":"failed","finished_at":_now(),"last_error":f"{type(exc).__name__}: {exc}","message":"Training fehlgeschlagen"})
+    finally:
+        release_training_lock(lock_handle)
 
 def start_training_job() -> tuple[dict,int]:
-    try:
-        with hydro_training_lock(): pass
-    except BlockingIOError: return {"ok":False,"status":"busy",**training_status()},409
+    lock_handle=acquire_training_lock()
+    if lock_handle is None: return {"ok":False,"status":"busy",**training_status()},409
     with _TRAINING_STATUS_LOCK:
-        if _TRAINING_STATUS["running"]: return {"ok":False,"status":"busy",**_TRAINING_STATUS},409
-        run_id=str(uuid.uuid4()); _TRAINING_STATUS.update(running=True,phase="queued",started_at=_now(),finished_at=None,progress_current=0,progress_total=4,message="Training eingeplant",last_error=None,run_id=run_id,result=None)
-    threading.Thread(target=_training_worker,args=(run_id,),name="hydro-training",daemon=True).start()
+        previous=training_status()
+        if previous.get("running"):
+            _write_training_status({**previous,"running":False,"phase":"failed","finished_at":_now(),"last_error":"worker_vanished","message":"Trainingsprozess unerwartet beendet"})
+        run_id=str(uuid.uuid4()); _write_training_status({"running":True,"phase":"queued","started_at":_now(),"finished_at":None,"progress_current":0,"progress_total":4,"message":"Training eingeplant","last_error":None,"run_id":run_id,"result":None})
+    try:
+        threading.Thread(target=_training_worker,args=(run_id,lock_handle),name="hydro-training",daemon=True).start()
+    except Exception as exc:
+        with _TRAINING_STATUS_LOCK: _write_training_status({"running":False,"phase":"failed","finished_at":_now(),"last_error":f"{type(exc).__name__}: {exc}","message":"Worker konnte nicht gestartet werden"})
+        release_training_lock(lock_handle)
+        raise
     return {"ok":True,"status":"accepted","run_id":run_id},202
 
 def _write_model_manifest(model_dir: Path, meta: dict) -> dict:
@@ -1794,6 +1829,7 @@ def build_deferred_public_risk(live_doc: dict, cell_frame_meta: dict, previous_d
         for row in doc.get("stations") or []:
             _mark_row_forecast_deferred(row, doc.get("generated_at"), status)
     doc.update({"status": status, "payload_scope": "public", "deferred_reason": status, "hydro_live_updated_at": live.get("fetched_at"), "cell_frame_path": (cell_frame_meta or {}).get("path"), "cell_frame_timestamp": (cell_frame_meta or {}).get("frame_timestamp"), "cell_frame_age_min": (cell_frame_meta or {}).get("frame_age_min"), "cell_frame_status": (cell_frame_meta or {}).get("status") or (cell_frame_meta or {}).get("cell_frame_status"), "warning": "Hydro-Flood-Risk-Cache wegen fehlendem, ungültigem oder veraltetem Zellframe nicht überschrieben."})
+    doc["input_hash"] = flood_risk_input_hash(live=live, cells=[], cell_frame_meta=cell_frame_meta)
     doc["stations"] = [_public_flood_row(r) for r in doc.get("stations") or [] if isinstance(r, dict)]
     return doc
 

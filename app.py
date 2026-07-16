@@ -5737,7 +5737,7 @@ def api_hydro_flood_risk():
         if cell_meta.get("status") in {"stale", "missing", "invalid", "error"}:
             cached = doc if isinstance(doc, dict) and doc.get("payload_scope") == "public" else None
             return hydro_flood_ml.build_deferred_public_risk(live, cell_meta, cached)
-        if hydro_flood_ml.is_flood_risk_cache_valid(doc, live=live, cells=cells or []):
+        if hydro_flood_ml.is_flood_risk_cache_valid(doc, live=live, cells=cells or [], cell_frame_meta=cell_meta):
             return doc
         return hydro_flood_ml.evaluate_live_flood_risk(live=live, cells=cells or [], include_debug=False)
     return _hydro_safe(_load, "hydro_flood_risk_error")
