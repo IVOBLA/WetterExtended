@@ -6,7 +6,8 @@ bzw. train_data/models/hydro_flood.
 """
 from __future__ import annotations
 
-import hashlib, json, math, os, pickle, tempfile, sqlite3, shutil, threading
+import fcntl, hashlib, json, math, os, pickle, tempfile, sqlite3, shutil, threading, uuid
+from contextlib import contextmanager
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -76,6 +77,12 @@ SAMPLE_KIND_LIVE = "live_catchment_snapshot"
 SAMPLE_KIND_LEGACY = "legacy_q_only"
 _MODEL_CACHE_LOCK = threading.RLock()
 _MODEL_CACHE: dict[str, Any] = {}
+HYDRO_TRAINING_LOCK_PATH = HYDRO_ML_DIR / "hydro_flood_training.lock"
+_READINESS_CACHE: dict[str, Any] = {}
+_TRAINING_STATUS_LOCK = threading.RLock()
+_TRAINING_STATUS = {"running": False, "phase": "idle", "started_at": None,
+    "finished_at": None, "progress_current": 0, "progress_total": 0,
+    "message": "", "last_error": None, "run_id": None, "result": None}
 
 
 def _now() -> str:
@@ -208,6 +215,7 @@ def load_latest_cell_frame() -> tuple[list[dict] | None, dict]:
 def _trend_cache_signature() -> dict:
     return {
         "history_mtime": _path_mtime(HYDRO_HISTORY_PATH),
+        "q_history_signature": _q_history_signature(),
         "min_delta_m3s": runtime_config.get("HYDRO_TREND_MIN_DELTA_M3S", getattr(config, "HYDRO_TREND_MIN_DELTA_M3S", 0.02)),
         "min_delta_rel_pct": runtime_config.get("HYDRO_TREND_MIN_DELTA_REL_PCT", getattr(config, "HYDRO_TREND_MIN_DELTA_REL_PCT", 0.03)),
     }
@@ -269,9 +277,9 @@ def append_hydro_history(live_doc: dict) -> int:
         q = _f(s.get("q_m3s"))
         rows.append({"fetched_at": fetched_at, "measured_at": measured_at, "station_id": str(s.get("station_id") or ""), "station_name": s.get("name") or s.get("station_name") or "", "river": s.get("river") or "", "lat": _f(s.get("lat")), "lon": _f(s.get("lon")), "q_m3s": q, "q_missing": q is None, "data_age_min": age, "source": source, "raw_data_notice": notice, "w_cm": _f(s.get("w_cm")), "hq1": _f(s.get("hq1")), "hq10": _f(s.get("hq10")), "hq30": _f(s.get("hq30")), "hq100": _f(s.get("hq100"))})
     if rows:
-        HYDRO_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with HYDRO_HISTORY_PATH.open("a", encoding="utf-8") as f:
-            for r in rows: f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        with _sample_db() as con:
+            con.executemany("INSERT OR REPLACE INTO q_history(station_id,measured_at,fetched_at,q_m3s,data_age_min,source) VALUES(?,?,?,?,?,?)",
+                [(r["station_id"], r["measured_at"], r["fetched_at"], r["q_m3s"], r["data_age_min"], r["source"]) for r in rows if r["station_id"]])
     return len(rows)
 
 
@@ -316,7 +324,11 @@ def load_q_trend_history() -> dict[str, list[dict]]:
     genau die dafuer relevante Historie faelschlich ausschliessen.
     """
     out: dict[str, list[dict]] = {}
-    for row in _tail_history_rows():
+    with _sample_db() as con:
+        source_rows = ({"station_id": r[0], "measured_at": r[1], "q_m3s": r[2]} for r in con.execute(
+            "SELECT station_id,measured_at,q_m3s FROM q_history ORDER BY measured_at DESC LIMIT 5000"))
+        source_rows = list(source_rows)
+    for row in source_rows:
         sid = str(row.get("station_id") or "")
         q = _f(row.get("q_m3s"))
         ts = _dt(row.get("measured_at") or row.get("fetched_at"))
@@ -896,13 +908,32 @@ def _sample_db() -> sqlite3.Connection:
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA synchronous=NORMAL")
     con.execute("CREATE TABLE IF NOT EXISTS pending_samples (sample_id TEXT PRIMARY KEY, station_id TEXT, sample_start_time TEXT, created_at TEXT, payload TEXT NOT NULL)")
-    con.execute("CREATE TABLE IF NOT EXISTS labeled_samples (sample_id TEXT PRIMARY KEY, station_id TEXT, sample_start_time TEXT, labeled_at TEXT, payload TEXT NOT NULL)")
+    con.execute("CREATE TABLE IF NOT EXISTS labeled_samples (sample_id TEXT PRIMARY KEY, station_id TEXT, sample_start_time TEXT, labeled_at TEXT, payload TEXT NOT NULL, sample_kind TEXT, feature_schema_version TEXT, feature_schema_hash TEXT, feature_snapshot_complete INTEGER, target_missing INTEGER, target_q_delta_m3s REAL, event_id TEXT, cell_frame_hash TEXT, precip_event_active INTEGER)")
     con.execute("CREATE TABLE IF NOT EXISTS sample_failures (sample_id TEXT PRIMARY KEY, station_id TEXT, failed_at TEXT, reason TEXT, payload TEXT NOT NULL)")
     con.execute("CREATE TABLE IF NOT EXISTS training_runs (run_id TEXT PRIMARY KEY, created_at TEXT, payload TEXT NOT NULL)")
     con.execute("CREATE TABLE IF NOT EXISTS schema_migrations (migration_id TEXT PRIMARY KEY, applied_at TEXT, rows_imported INTEGER DEFAULT 0, rows_legacy_moved INTEGER DEFAULT 0, rows_invalid INTEGER DEFAULT 0, payload TEXT)")
+    con.execute("CREATE TABLE IF NOT EXISTS q_history (station_id TEXT NOT NULL, measured_at TEXT NOT NULL, fetched_at TEXT, q_m3s REAL, data_age_min REAL, source TEXT, PRIMARY KEY(station_id, measured_at))")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_q_history_station_time ON q_history(station_id, measured_at)")
+    existing={r[1] for r in con.execute("PRAGMA table_info(labeled_samples)")}
+    for name,kind in (("sample_kind","TEXT"),("feature_schema_version","TEXT"),("feature_schema_hash","TEXT"),("feature_snapshot_complete","INTEGER"),("target_missing","INTEGER"),("target_q_delta_m3s","REAL"),("event_id","TEXT"),("cell_frame_hash","TEXT"),("precip_event_active","INTEGER")):
+        if name not in existing: con.execute(f"ALTER TABLE labeled_samples ADD COLUMN {name} {kind}")
     con.execute("CREATE INDEX IF NOT EXISTS idx_pending_station_time ON pending_samples(station_id, sample_start_time)")
     con.execute("CREATE INDEX IF NOT EXISTS idx_labeled_station_time ON labeled_samples(station_id, sample_start_time)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_labeled_readiness ON labeled_samples(feature_schema_version, feature_snapshot_complete, target_missing)")
     return con
+
+def _q_history_signature():
+    try:
+        with _sample_db() as con:
+            return con.execute("SELECT COUNT(*),MAX(measured_at) FROM q_history").fetchone()
+    except sqlite3.Error:
+        return (0, None)
+
+def _labeled_values(row: dict) -> tuple:
+    return (row.get("sample_kind"), row.get("feature_schema_version"), row.get("feature_schema_hash"),
+        int(row.get("feature_snapshot_complete") is True), int(row.get("target_missing") is True),
+        _f(row.get("target_q_delta_m3s")), row.get("event_id"), row.get("cell_frame_hash"),
+        int(row.get("precip_event_active") is True))
 
 def _db_rows(table: str) -> list[dict]:
     with _sample_db() as con:
@@ -997,8 +1028,8 @@ def migrate_pending_jsonl_to_sqlite() -> dict:
                     invalid += 1
                     con.execute("INSERT OR REPLACE INTO sample_failures(sample_id, station_id, failed_at, reason, payload) VALUES(?,?,?,?,?)", (sample_id, sid, now, "pending_jsonl_invalid_schema", json.dumps(r, ensure_ascii=False, default=str)))
                     continue
-                con.execute("INSERT OR IGNORE INTO pending_samples(sample_id, station_id, sample_start_time, created_at, payload) VALUES(?,?,?,?,?)", (sample_id, sid, r.get("sample_start_time"), r.get("created_at") or now, json.dumps(r, ensure_ascii=False, default=str)))
-                imported += con.total_changes > 0
+                cur=con.execute("INSERT OR IGNORE INTO pending_samples(sample_id, station_id, sample_start_time, created_at, payload) VALUES(?,?,?,?,?)", (sample_id, sid, r.get("sample_start_time"), r.get("created_at") or now, json.dumps(r, ensure_ascii=False, default=str)))
+                imported += cur.rowcount
             meta={"migration_id": migration_id, "migration_at": now, "rows_before": len(rows), "rows_imported": imported, "rows_invalid": invalid, "duplicate_rows": duplicates, "source": str(HYDRO_PENDING_SAMPLES_PATH)}
             _mark_migration(con, migration_id, meta)
             con.execute("COMMIT")
@@ -1011,6 +1042,46 @@ def migrate_pending_jsonl_to_sqlite() -> dict:
         meta["archived_path"] = str(archive)
     return meta
 
+def migrate_q_history_to_sqlite() -> dict:
+    migration_id="b417_q_history_jsonl_to_sqlite_v1"
+    with _sample_db() as con:
+        if _migration_applied(con,migration_id):
+            row=con.execute("SELECT payload FROM schema_migrations WHERE migration_id=?",(migration_id,)).fetchone()
+            return {**(json.loads(row[0]) if row and row[0] else {}),"already_applied":True}
+        started={"migration_id":migration_id,"status":"running","migration_at":_now(),"source":str(HYDRO_HISTORY_PATH)}
+        _mark_migration(con,migration_id,started)
+        imported=invalid=0
+        if HYDRO_HISTORY_PATH.exists():
+            with HYDRO_HISTORY_PATH.open(encoding="utf-8") as fh:
+                for line in fh:
+                    try: row=json.loads(line)
+                    except Exception: invalid+=1; continue
+                    sid=str(row.get("station_id") or ""); measured=row.get("measured_at") or row.get("fetched_at")
+                    if not sid or not measured: invalid+=1; continue
+                    cur=con.execute("INSERT OR IGNORE INTO q_history(station_id,measured_at,fetched_at,q_m3s,data_age_min,source) VALUES(?,?,?,?,?,?)",(sid,measured,row.get("fetched_at"),_f(row.get("q_m3s")),_f(row.get("data_age_min")),row.get("source")))
+                    imported+=cur.rowcount
+        archive=None
+        if HYDRO_HISTORY_PATH.exists():
+            archive_dir=HYDRO_HISTORY_PATH.parent/"archive"; archive_dir.mkdir(parents=True,exist_ok=True)
+            archive=archive_dir/(HYDRO_HISTORY_PATH.stem+".migrated."+datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")+HYDRO_HISTORY_PATH.suffix)
+            os.replace(HYDRO_HISTORY_PATH,archive)
+        meta={**started,"status":"complete","finished_at":_now(),"rows_imported":imported,"rows_invalid":invalid,"archived_path":str(archive) if archive else None}
+        _mark_migration(con,migration_id,meta); return meta
+
+@contextmanager
+def hydro_training_lock():
+    HYDRO_TRAINING_LOCK_PATH.parent.mkdir(parents=True,exist_ok=True)
+    fh=HYDRO_TRAINING_LOCK_PATH.open("a+")
+    try:
+        fcntl.flock(fh.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB); yield fh
+    finally:
+        try: fcntl.flock(fh.fileno(),fcntl.LOCK_UN)
+        finally: fh.close()
+
+def run_hydro_startup_migrations() -> dict:
+    with hydro_training_lock():
+        return {"pending":migrate_pending_jsonl_to_sqlite(),"q_history":migrate_q_history_to_sqlite(),"dataset":migrate_productive_dataset()}
+
 def record_pending_samples(rows: list[dict], live: dict | None = None, cells_meta: dict | None = None) -> dict:
     added = 0
     now = _now()
@@ -1021,6 +1092,25 @@ def record_pending_samples(rows: list[dict], live: dict | None = None, cells_met
                 continue
             start = row.get("current_q_measured_at") or (live or {}).get("fetched_at") or row.get("generated_at") or now
             sid = str(row.get("station_id"))
+            extreme = row.get("current_q_above_threshold") is True or row.get("precip_event_active") is True
+            interval = _cfg_int("HYDRO_ML_SAMPLE_INTERVAL_MIN", 15, 1, 1440)
+            previous_row = con.execute("SELECT sample_start_time,payload FROM pending_samples WHERE station_id=? ORDER BY sample_start_time DESC LIMIT 1", (sid,)).fetchone()
+            previous = json.loads(previous_row[1]) if previous_row else None
+            lineage = sorted(set(row.get("contributing_lineage_ids") or []))
+            materially_changed = bool(previous and (
+                lineage != sorted(previous.get("contributing_lineage_ids") or [])
+                or row.get("current_q_measured_at") != previous.get("current_q_measured_at")
+                or int(row.get("contributing_cell_count") or 0) != int(previous.get("contributing_cell_count") or 0)
+                or abs((_f(row.get("rain_rate_mm_h_max"), 0) or 0) - (_f((previous.get("features") or {}).get("rain_rate_mm_h_max"), 0) or 0)) >= 2.0))
+            if previous_row and not extreme and not materially_changed:
+                elapsed = ((_dt(start) - _dt(previous_row[0])).total_seconds() / 60) if _dt(start) and _dt(previous_row[0]) else interval
+                if elapsed < interval:
+                    continue
+            if not extreme and int(row.get("contributing_cell_count") or 0) == 0:
+                day = str(start)[:10]
+                count = con.execute("SELECT COUNT(*) FROM pending_samples WHERE station_id=? AND substr(sample_start_time,1,10)=? AND json_extract(payload,'$.precip_event_active')=0", (sid, day)).fetchone()[0]
+                if count >= _cfg_int("HYDRO_ML_MAX_NO_CELL_SAMPLES_PER_DAY", 24, 1, 10000):
+                    continue
             features = _feature_snapshot(row)
             missing = _missing_required_features({"features": features})
             sig = {"station": sid, "start": start, "features": features, "catchment": row.get("catchment_geometry_status"), "cells": cells_meta}
@@ -1032,61 +1122,77 @@ def record_pending_samples(rows: list[dict], live: dict | None = None, cells_met
         total = con.execute("SELECT COUNT(*) FROM pending_samples").fetchone()[0]
     return {"pending_added": added, "pending_total": total, "store": "sqlite", "db_path": str(HYDRO_SAMPLE_DB_PATH)}
 
+def _future_q_rows(con: sqlite3.Connection, station_id: str, sample_time: str) -> list[dict]:
+    start=_dt(sample_time)
+    if not start: return []
+    lo,hi=_lag_bounds_min()
+    begin=(start+timedelta(minutes=lo)).isoformat().replace("+00:00","Z")
+    end=(start+timedelta(minutes=hi)).isoformat().replace("+00:00","Z")
+    return [{"measured_at": r[0], "q_m3s": r[1]} for r in con.execute(
+        "SELECT measured_at, q_m3s FROM q_history WHERE station_id = ? AND measured_at BETWEEN ? AND ? ORDER BY measured_at",
+        (station_id,begin,end))]
+
 def materialize_pending_samples(live: dict | None = None) -> dict:
-    if live:
-        append_hydro_history(live)
-    hist=_read_history_rows(); rows_by_station={}
-    for r in hist: rows_by_station.setdefault(str(r.get("station_id") or ""), []).append(r)
-    for rows in rows_by_station.values(): rows.sort(key=lambda r: str(r.get("measured_at") or r.get("fetched_at") or ""))
-    added=0; failed=0; now=_now()
-    retention_h = _cfg_int("HYDRO_PENDING_RETENTION_HOURS", 72, 1, 24*30)
+    if live: append_hydro_history(live)
+    added=failed=loaded=0; now_dt=datetime.now(timezone.utc); now=_now()
+    retention_h=_cfg_int("HYDRO_PENDING_RETENTION_HOURS",72,1,24*30)
+    batch=_cfg_int("HYDRO_ML_MATERIALIZE_BATCH_SIZE",100,1,10000)
+    lo,_=_lag_bounds_min(); eligible=(now_dt-timedelta(minutes=lo)).isoformat().replace("+00:00","Z")
+    expired=(now_dt-timedelta(hours=retention_h)).isoformat().replace("+00:00","Z")
     with _sample_db() as con:
+        normal=con.execute("SELECT payload FROM pending_samples WHERE sample_start_time <= ? AND created_at > ? ORDER BY sample_start_time LIMIT ?",(eligible,expired,batch)).fetchall()
+        remaining=max(0,batch-len(normal))
+        old=con.execute("SELECT payload FROM pending_samples WHERE created_at <= ? ORDER BY created_at LIMIT ?",(expired,remaining)).fetchall() if remaining else []
+        pending=[json.loads(r[0]) for r in normal+old]; loaded=len(pending)
         con.execute("BEGIN IMMEDIATE")
-        pending=[json.loads(r[0]) for r in con.execute("SELECT payload FROM pending_samples").fetchall()]
         for sample in pending:
-            sid=str(sample.get("station_id") or ""); start_q=_f(sample.get("current_q_m3s")); thr=_f(sample.get("station_q_threshold_m3s"))
-            label=_label_from_future({"measured_at": sample.get("sample_start_time"), "fetched_at": sample.get("sample_start_time"), "q_m3s": start_q}, rows_by_station.get(sid, []), thr)
-            age_dt=_dt(sample.get("created_at")); expired=age_dt and (datetime.now(timezone.utc)-age_dt).total_seconds() > retention_h*3600
-            if label.get("target_missing") and not expired:
-                continue
-            con.execute("DELETE FROM pending_samples WHERE sample_id=?", (sample.get("sample_id"),))
+            sid=str(sample.get("station_id") or "")
+            label=_label_from_future({"measured_at":sample.get("sample_start_time"),"q_m3s":_f(sample.get("current_q_m3s"))},_future_q_rows(con,sid,sample.get("sample_start_time")),_f(sample.get("station_q_threshold_m3s")))
+            is_expired=str(sample.get("created_at") or "") <= expired
+            if label.get("target_missing") and not is_expired: continue
+            con.execute("DELETE FROM pending_samples WHERE sample_id=?",(sample.get("sample_id"),))
             if label.get("target_missing"):
-                sample["failure_reason"] = "pending_retention_expired_without_label"
-                con.execute("INSERT OR REPLACE INTO sample_failures(sample_id, station_id, failed_at, reason, payload) VALUES(?,?,?,?,?)", (sample.get("sample_id"), sid, now, sample["failure_reason"], json.dumps(sample, ensure_ascii=False, default=str)))
-                failed += 1; continue
-            flat={k: v for k,v in (sample.get("features") or {}).items() if k != "w_cm"}
-            payload={**sample, **flat, **label, "labeled": True, "labeled_at": now}
-            con.execute("INSERT OR REPLACE INTO labeled_samples(sample_id, station_id, sample_start_time, labeled_at, payload) VALUES(?,?,?,?,?)", (payload.get("sample_id"), sid, payload.get("sample_start_time"), now, json.dumps(payload, ensure_ascii=False, default=str)))
-            added += 1
+                con.execute("INSERT OR REPLACE INTO sample_failures(sample_id,station_id,failed_at,reason,payload) VALUES(?,?,?,?,?)",(sample.get("sample_id"),sid,now,"pending_retention_expired_without_label",json.dumps(sample,ensure_ascii=False,default=str))); failed+=1; continue
+            flat={k:v for k,v in (sample.get("features") or {}).items() if k!="w_cm"}
+            payload={**sample,**flat,**label,"labeled":True,"labeled_at":now}
+            vals=_labeled_values(payload)
+            con.execute("INSERT OR REPLACE INTO labeled_samples(sample_id,station_id,sample_start_time,labeled_at,payload,sample_kind,feature_schema_version,feature_schema_hash,feature_snapshot_complete,target_missing,target_q_delta_m3s,event_id,cell_frame_hash,precip_event_active) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(payload.get("sample_id"),sid,payload.get("sample_start_time"),now,json.dumps(payload,ensure_ascii=False,default=str),*vals)); added+=1
         con.execute("COMMIT")
-    dataset=[r for r in _db_rows("labeled_samples") if r.get("sample_kind") == SAMPLE_KIND_LIVE]
-    dataset_count = len(dataset)
-    if added:
-        _write_jsonl(HYDRO_DATASET_JSONL_PATH, dataset)
-    return {"labeled_added": added, "failed_expired": failed, "pending_remaining": len(_db_rows("pending_samples")), "dataset_count": dataset_count, "store": "sqlite"}
+        pending_remaining=con.execute("SELECT COUNT(*) FROM pending_samples").fetchone()[0]
+        dataset_count=con.execute("SELECT COUNT(*) FROM labeled_samples WHERE sample_kind=?",(SAMPLE_KIND_LIVE,)).fetchone()[0]
+    if added: export_labeled_samples_jsonl()
+    return {"labeled_added":added,"failed_expired":failed,"loaded_pending":loaded,"pending_remaining":pending_remaining,"dataset_count":dataset_count,"store":"sqlite"}
 
 def load_trainable_labeled_samples(trainable_only: bool = False) -> list[dict]:
-    rows = _db_rows("labeled_samples")
+    if trainable_only:
+        limit = _cfg_int("HYDRO_ML_MAX_TRAINING_SAMPLES", 50000, 100, 1000000)
+        with _sample_db() as con:
+            rows = [json.loads(r[0]) for r in con.execute(
+                "SELECT payload FROM labeled_samples WHERE sample_kind=? AND feature_schema_version=? AND feature_snapshot_complete=1 AND target_missing=0 ORDER BY precip_event_active DESC, sample_start_time DESC LIMIT ?",
+                (SAMPLE_KIND_LIVE, FEATURE_SCHEMA_VERSION, limit))]
+    else:
+        rows = _db_rows("labeled_samples")
     return [r for r in rows if _sample_is_trainable_live(r)] if trainable_only else rows
 
 def readiness_status() -> dict:
-    migrate_productive_dataset()
-    meta = _read_json(HYDRO_TRAINING_META_PATH, {})
-    rows=load_trainable_labeled_samples(False)
-    usable=[r for r in rows if _sample_is_trainable_live(r)]
-    valid_q=sum(1 for r in usable if _f(r.get("target_q_delta_m3s")) is not None)
-    stations={r.get("station_id") for r in usable}
-    analysis=analyze_training_dataset(usable)
-    times=[_dt(r.get("sample_start_time") or r.get("created_at")) for r in usable]
-    times=[t for t in times if t]
-    span=((max(times)-min(times)).total_seconds()/86400.0) if len(times)>=2 else 0.0
-    reasons=list(analysis["readiness_reasons"])
-    if len(usable) < MIN_TRAINING_SAMPLES: reasons.append("insufficient_regression_samples")
-    if valid_q < MIN_TRAINING_SAMPLES: reasons.append("insufficient_valid_q_delta_targets")
-    if len(stations) < 1: reasons.append("missing_station_coverage")
-    pos=sum(1 for r in rows if r.get("target_flood_expected") is True); neg=sum(1 for r in rows if r.get("target_flood_expected") is False)
-    coverage=dict(Counter((r.get("effective_precip_source_type") or "missing") for r in rows))
-    return {"enabled": True, "model_available": (HYDRO_MODEL_CURRENT_DIR/HYDRO_MODEL_FILENAME).exists(), "sample_count": len(usable), "regression_sample_count": len(usable), "valid_target_q_delta_count": valid_q, "feature_complete_count": sum(1 for r in rows if r.get("feature_snapshot_complete") is True), "schema_compatible_count": sum(1 for r in rows if r.get("feature_schema_version") == FEATURE_SCHEMA_VERSION), "event_count": analysis["event_count"], "time_span_days": round(span,3), "station_count": len(stations), "threshold_labeled_count": pos+neg, "positive_threshold_events": pos, "negative_threshold_events": neg, "positive_samples": pos, "negative_samples": neg, "stations_with_threshold": len({r.get("station_id") for r in rows if not r.get("station_q_threshold_missing")}), "stations_without_threshold": len({r.get("station_id") for r in rows if r.get("station_q_threshold_missing")}), "precip_source_coverage": coverage, "last_training_at": meta.get("last_training_at"), "last_dataset_build_at": meta.get("last_dataset_build_at"), "readiness_status": "ready" if not reasons else "fallback", "rejection_reasons": reasons}
+    meta_mtime=_path_mtime(HYDRO_TRAINING_META_PATH)
+    with _sample_db() as con:
+        sig=con.execute("SELECT COUNT(*),MAX(labeled_at) FROM labeled_samples").fetchone()+(
+            FEATURE_SCHEMA_VERSION,con.execute("SELECT COUNT(*),MAX(applied_at) FROM schema_migrations").fetchone(),meta_mtime)
+        if _READINESS_CACHE.get("signature")==sig: return dict(_READINESS_CACHE["value"])
+        base=con.execute("SELECT COUNT(*),COUNT(DISTINCT station_id),MIN(sample_start_time),MAX(sample_start_time),COUNT(DISTINCT COALESCE(event_id,json_extract(payload,'$.event_id'))),SUM(CASE WHEN COALESCE(target_q_delta_m3s,json_extract(payload,'$.target_q_delta_m3s')) IS NOT NULL THEN 1 ELSE 0 END) FROM labeled_samples WHERE COALESCE(sample_kind,json_extract(payload,'$.sample_kind'))=? AND COALESCE(feature_schema_version,json_extract(payload,'$.feature_schema_version'))=? AND COALESCE(feature_schema_hash,json_extract(payload,'$.feature_schema_hash'))=? AND COALESCE(feature_snapshot_complete,json_extract(payload,'$.feature_snapshot_complete'))=1 AND COALESCE(target_missing,json_extract(payload,'$.target_missing'))=0",(SAMPLE_KIND_LIVE,FEATURE_SCHEMA_VERSION,_feature_schema_hash())).fetchone()
+        total,stations,first,last,events,valid=(int(x or 0) if i not in (2,3) else x for i,x in enumerate(base))
+        complete,schema=con.execute("SELECT SUM(feature_snapshot_complete=1),SUM(feature_schema_version=?) FROM labeled_samples",(FEATURE_SCHEMA_VERSION,)).fetchone()
+        coverage=dict(con.execute("SELECT COALESCE(precip_event_active,0),COUNT(*) FROM labeled_samples GROUP BY precip_event_active").fetchall())
+    span=((_dt(last)-_dt(first)).total_seconds()/86400) if first and last else 0.0
+    reasons=[]
+    if events < _cfg_int("HYDRO_ML_MIN_TRAIN_EVENTS",2,1,100000)+_cfg_int("HYDRO_ML_MIN_VALIDATION_EVENTS",1,1,100000): reasons.append("insufficient_independent_events")
+    if total<MIN_TRAINING_SAMPLES: reasons.append("insufficient_regression_samples")
+    if valid<MIN_TRAINING_SAMPLES: reasons.append("insufficient_valid_q_delta_targets")
+    if stations<1: reasons.append("missing_station_coverage")
+    meta=_read_json(HYDRO_TRAINING_META_PATH,{})
+    value={"enabled":True,"model_available":(HYDRO_MODEL_CURRENT_DIR/HYDRO_MODEL_FILENAME).exists(),"sample_count":total,"regression_sample_count":total,"valid_target_q_delta_count":valid,"feature_complete_count":int(complete or 0),"schema_compatible_count":int(schema or 0),"event_count":events,"time_span_days":round(span,3),"station_count":stations,"precip_source_coverage":{"active":coverage.get(1,0),"inactive":coverage.get(0,0)},"last_training_at":meta.get("last_training_at"),"last_dataset_build_at":meta.get("last_dataset_build_at"),"readiness_status":"ready" if not reasons else "fallback","rejection_reasons":reasons}
+    _READINESS_CACHE.update(signature=sig,value=value); return dict(value)
 
 def _event_cells(row: dict) -> set[str]:
     values = row.get("contributing_lineage_ids") or row.get("contributing_cell_ids")
@@ -1160,19 +1266,10 @@ def analyze_training_dataset(rows: list[dict]) -> dict:
 
 
 def _read_history_rows() -> list[dict]:
-    if not HYDRO_HISTORY_PATH.exists():
-        return []
-    rows = []
-    for line in HYDRO_HISTORY_PATH.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except Exception:
-            continue
-        if isinstance(row, dict):
-            rows.append(row)
-    return rows
+    with _sample_db() as con:
+        return [{"station_id": r[0], "measured_at": r[1], "fetched_at": r[2], "q_m3s": r[3],
+                 "data_age_min": r[4], "source": r[5]}
+                for r in con.execute("SELECT station_id,measured_at,fetched_at,q_m3s,data_age_min,source FROM q_history ORDER BY station_id,measured_at")]
 
 
 def _lag_bounds_min() -> tuple[float, float]:
@@ -1341,7 +1438,7 @@ def _promote_candidate(candidate_dir: Path, meta: dict) -> None:
         if backup and backup.exists(): shutil.copytree(backup, HYDRO_MODEL_CURRENT_DIR)
         raise
 
-def train_model() -> dict:
+def _train_model_unlocked() -> dict:
     materialize_pending_samples(); migration=migrate_productive_dataset()
     rows=load_trainable_labeled_samples(True)
     if len(rows) < MIN_TRAINING_SAMPLES:
@@ -1399,6 +1496,31 @@ def train_model() -> dict:
     with _sample_db() as con:
         con.execute("INSERT OR REPLACE INTO training_runs(run_id, created_at, payload) VALUES(?,?,?)", (run_id, meta["trained_at"], json.dumps(meta, ensure_ascii=False, default=str)))
     return meta
+
+def train_model() -> dict:
+    with hydro_training_lock():
+        return _train_model_unlocked()
+
+def training_status() -> dict:
+    with _TRAINING_STATUS_LOCK: return dict(_TRAINING_STATUS)
+
+def _training_worker(run_id: str) -> None:
+    try:
+        with _TRAINING_STATUS_LOCK: _TRAINING_STATUS.update(phase="migration",message="Migration und Datensatzauswahl",progress_current=1,progress_total=4)
+        result=train_model()
+        with _TRAINING_STATUS_LOCK: _TRAINING_STATUS.update(running=False,phase="finished",finished_at=_now(),progress_current=4,message="Training abgeschlossen",result=result)
+    except Exception as exc:
+        with _TRAINING_STATUS_LOCK: _TRAINING_STATUS.update(running=False,phase="failed",finished_at=_now(),last_error=f"{type(exc).__name__}: {exc}",message="Training fehlgeschlagen")
+
+def start_training_job() -> tuple[dict,int]:
+    try:
+        with hydro_training_lock(): pass
+    except BlockingIOError: return {"ok":False,"status":"busy",**training_status()},409
+    with _TRAINING_STATUS_LOCK:
+        if _TRAINING_STATUS["running"]: return {"ok":False,"status":"busy",**_TRAINING_STATUS},409
+        run_id=str(uuid.uuid4()); _TRAINING_STATUS.update(running=True,phase="queued",started_at=_now(),finished_at=None,progress_current=0,progress_total=4,message="Training eingeplant",last_error=None,run_id=run_id,result=None)
+    threading.Thread(target=_training_worker,args=(run_id,),name="hydro-training",daemon=True).start()
+    return {"ok":True,"status":"accepted","run_id":run_id},202
 
 def _write_model_manifest(model_dir: Path, meta: dict) -> dict:
     sig = model_integrity_signature(model_dir)
@@ -1593,12 +1715,19 @@ def hydro_ml_maintenance() -> dict:
     now_dt=datetime.now(timezone.utc); db_size_before=HYDRO_SAMPLE_DB_PATH.stat().st_size if HYDRO_SAMPLE_DB_PATH.exists() else 0
     fail_days=_cfg_int("HYDRO_FAILED_SAMPLE_RETENTION_DAYS", 30, 1, 3650)
     data_days=_cfg_int("HYDRO_DATASET_RETENTION_DAYS", 365, 1, 3650)
-    report={"deleted_failure_rows":0,"deleted_dataset_rows":0,"deleted_training_runs":0,"deleted_candidates":0,"deleted_history_versions":0,"db_size_before":db_size_before}
+    q_days=_cfg_int("HYDRO_Q_HISTORY_RETENTION_DAYS",30,1,3650)
+    _,lag_hi=_lag_bounds_min(); minimum_q_days=max(1,math.ceil(lag_hi/1440.0)+1)
+    report={"deleted_failure_rows":0,"deleted_dataset_rows":0,"deleted_q_history_rows":0,"deleted_training_runs":0,"deleted_candidates":0,"deleted_history_versions":0,"db_size_before":db_size_before}
+    if q_days < minimum_q_days:
+        report.update(status="refused",reason="q_history_retention_below_lag_and_validation_window",minimum_q_history_retention_days=minimum_q_days)
+        return report
     with _sample_db() as con:
         fail_cut=(now_dt-timedelta(days=fail_days)).isoformat().replace("+00:00","Z")
         data_cut=(now_dt-timedelta(days=data_days)).isoformat().replace("+00:00","Z")
         cur=con.execute("DELETE FROM sample_failures WHERE failed_at < ?", (fail_cut,)); report["deleted_failure_rows"]=cur.rowcount
         cur=con.execute("DELETE FROM labeled_samples WHERE sample_start_time < ?", (data_cut,)); report["deleted_dataset_rows"]=cur.rowcount
+        q_cut=(now_dt-timedelta(days=q_days)).isoformat().replace("+00:00","Z")
+        cur=con.execute("DELETE FROM q_history WHERE measured_at < ?",(q_cut,)); report["deleted_q_history_rows"]=cur.rowcount
         old=[r[0] for r in con.execute("SELECT run_id FROM training_runs ORDER BY created_at DESC LIMIT -1 OFFSET 50").fetchall()]
         for run_id in old: con.execute("DELETE FROM training_runs WHERE run_id=?", (run_id,))
         report["deleted_training_runs"]=len(old)
@@ -1609,6 +1738,7 @@ def hydro_ml_maintenance() -> dict:
             for victim in entries[keep:]:
                 shutil.rmtree(victim, ignore_errors=True); report[key]+=1
     report["db_size_after"] = HYDRO_SAMPLE_DB_PATH.stat().st_size if HYDRO_SAMPLE_DB_PATH.exists() else 0
+    report["status"] = "ok"
     return report
 
 def flood_risk_status() -> dict:

@@ -1059,6 +1059,7 @@ DIRS=(
     train_data/hydro/static/generated
     train_data/hydro/live
     train_data/hydro/impact
+    train_data/hydro/ml
     data/config
     data/radar
     data

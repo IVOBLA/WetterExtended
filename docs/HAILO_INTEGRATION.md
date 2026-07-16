@@ -6681,3 +6681,21 @@ sind Bestandteil der Abnahme.
 Datensatz beginnt mit B416 neu. Bei aktiver Gewitterlage werden voraussichtlich zwei
 bis sechs Wochen benötigt, weil nur voneinander unabhängige Regenereignisse zählen.
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.
+
+### B417 — Readiness lud den gesamten Datensatz; Training blockierte den Webserver ✅ erledigt
+
+**Root-Cause:** Statusfragen und Datensatzarbeit nutzten denselben synchronen Pfad:
+Readiness deserialisierte alle Samples und startete Migrationen; Training blockierte
+den Flask-Worker. **Fix:** Readiness nutzt gecachte SQL-Aggregate, Pending-Zeilen und
+Q-Historie sind begrenzt in SQLite abgefragt, und Training läuft mit sichtbarem Status
+im Hintergrund unter einem nicht blockierenden Cross-Process-`flock`. Die
+Admin-Endpunkte waren bereits durch den zentralen `before_request`-Präfixschutz
+geschützt. `@require_role("admin")` ist Defense-in-Depth und schließt keine zuvor
+offene Sicherheitslücke. Sandbox-Leermessung: 0 Samples; belastbare RAM- und
+Laufzeitwerte sind auf dem Raspberry Pi mit Produktivdaten zu erheben.
+
+**Tests:** Compile-, Lock-, SQL-, Migrations-, Maintenance-, Sampling-, Auth- und
+Frontend-Prüfungen gehören zur B417-Abnahme.
+
+**Phasen-Status:** Phase A — der Hydro-ML-Pfad ist Pi-tauglich. Phase B (Hailo-8 U-Net)
+unverändert blockiert.
