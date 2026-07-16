@@ -45,7 +45,7 @@ kann install.sh das nicht automatisch machen, so muss im terminal angezeigt werd
 
 Das trainieren der modelle muss zu einem definierbaren Zeitpunkt durchgeführt werden können.
 
-Zielhardware: Raspberry Pi 5 B, Hailo-8 AI, 16GB, 26 TOPS
+Zielhardware: Raspberry Pi 5 B, Hailo-8 AI, 8GB, 26 TOPS
 
 Die aktuellen positionen und die verhergesagten positionen (+ pfeile) müssen als KMZ (für import in eine andere Karte) exportiert werden können.
 
