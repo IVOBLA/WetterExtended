@@ -46,7 +46,10 @@ def test_successful_fetch_triggers_flood_risk_evaluation(tmp_path, monkeypatch):
 
     assert result["status"]["ok"] is True
     assert len(calls) == 1, "evaluate_live_flood_risk() wurde nicht beim erfolgreichen Fetch ausgelöst"
-    assert calls[0].get("live") is result
+    assert calls[0].get("live", {}).get("fetched_at") == result["fetched_at"]
+    assert [s["station_id"] for s in calls[0].get("live", {}).get("stations") or []] == [
+        s["station_id"] for s in result["stations"]
+    ]
 
 
 def test_flood_risk_evaluation_failure_does_not_break_fetch(tmp_path, monkeypatch):

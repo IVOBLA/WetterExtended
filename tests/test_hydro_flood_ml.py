@@ -46,12 +46,15 @@ def test_cell_in_catchment_increases_precip_features(monkeypatch):
     monkeypatch.setattr(hydro_impact, "catchment_diagnostics", lambda sid: {"catchment_geometry_available": True, "catchment_geometry_status": "ok", "catchment_feature_count": 1, "catchment_area_geometry_km2": 1, "catchment_signature": "x"})
 
     station = {"station_id": "S1", "mark_q_m3s": 10, "q_m3s": 5}
-    inside = {"contour_geo": [[0.02, 0.02], [0.08, 0.02], [0.08, 0.08], [0.02, 0.08], [0.02, 0.02]], "lat": 0.05, "lon": 0.05, "nowcast_rr_mm15": 6, "core_ratio": 0.7}
-    outside = {"contour_geo": [[0.2, 0.2], [0.3, 0.2], [0.3, 0.3], [0.2, 0.3], [0.2, 0.2]], "lat": 0.25, "lon": 0.25, "nowcast_rr_mm15": 100}
-    row = hydro_flood_ml.build_feature_row(station, cells=[inside, outside])
-    assert row["cell_catchment_count"] == 1
-    assert row["effective_catchment_precip_sum_mm"] == 6
-    assert row["cell_catchment_overlap_area_km2_sum"] > 0
+    inside = {"id": "C1", "contour_geo": [[0.02, 0.02], [0.08, 0.02], [0.08, 0.08], [0.02, 0.08], [0.02, 0.02]], "lat": 0.05, "lon": 0.05, "nowcast_rr_mm15": 6, "core_ratio": 0.7}
+    outside = {"id": "C2", "contour_geo": [[0.2, 0.2], [0.3, 0.2], [0.3, 0.3], [0.2, 0.3], [0.2, 0.2]], "lat": 0.25, "lon": 0.25, "nowcast_rr_mm15": 100}
+    row_with_inside = hydro_flood_ml.build_feature_row(station, cells=[inside, outside])
+    row_only_outside = hydro_flood_ml.build_feature_row(station, cells=[outside])
+    assert row_with_inside["cell_catchment_count"] == 1
+    assert row_only_outside["cell_catchment_count"] == 0
+    assert row_with_inside["effective_catchment_precip_sum_mm"] > 0
+    assert row_only_outside["effective_catchment_precip_sum_mm"] == 0
+    assert row_with_inside["cell_catchment_overlap_area_km2_sum"] > 0
 
 
 def test_live_output_has_no_horizons_or_w_forecast():

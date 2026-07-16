@@ -102,6 +102,28 @@ Suche im Export Zeilen mit forecast_evaluation_stale=true und flood_expected=tru
 bei current_q_above_threshold=false. Erwartung: keine. Jeder Treffer ist eine
 fortgeschriebene Altwarnung.
 
+### AC-015 — Prüfe Testfixtures auf geometrische Konsistenz
+Ein Test, der load_station_catchment_index mit einem Polygon patcht und
+catchment_diagnostics mit einer davon abweichenden Fläche, erzeugt Zahlen ohne
+physikalische Bedeutung. Suche in tests/ nach catchment_area_geometry_km2 und
+vergleiche den Wert mit der Fläche der gepatchten Geometrie. Jede Abweichung um mehr
+als Faktor 2 ist zu melden; Konstantenassertions auf abgeleitete Niederschlagswerte in
+solchen Tests prüfen nichts.
+
+### AC-016 — Prüfe Sandbox-Fehler gegen den Pi
+pytest in der Codex-Sandbox liefert andere Zahlen als der Pi, weil Abhängigkeiten und
+Python-Version abweichen. Fehlende Module erzeugen Collection-Errors, und pytest bricht
+dann die gesamte Sammlung ab — dreistellige Fehlerzahlen sind dann ein Artefakt.
+Maßgeblich ist install_pytest.log vom Pi. Sandbox-Fehler, die auf dem Pi grün sind,
+sind nicht zu reparieren.
+
+### AC-017 — Prüfe, ob Zellen im Einzugsgebiet gezählt werden
+Werte im 24h-Export je Station input_cell_count und contributing_cell_count aus.
+Erwartung: bei Zellen im Land ist contributing_cell_count für mindestens eine Station
+> 0. Ist er über einen ganzen Gewittertag durchgehend 0 bei input_cell_count > 0, wird
+die Zell-Catchment-Zuordnung nicht ausgewertet — sofort melden.
+
+
 ---
 
 ## Erledigt
