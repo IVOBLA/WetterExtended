@@ -295,8 +295,19 @@ def fetch_hydro_live(force: bool = False) -> dict:
         # Abhaengigkeit); Niederschlag/Einzugsgebiet bleibt dann "nicht bewertbar",
         # Q-Trend und Hochwassergefahr funktionieren trotzdem unabhaengig davon.
         try:
-            from hydro_flood_ml import evaluate_live_flood_risk
-            evaluate_live_flood_risk(live=result)
+            from hydro_flood_ml import HYDRO_RISK_PATH, _atomic_json, _read_json as _read_risk_json, evaluate_live_flood_risk, load_latest_cell_frame
+            cells, cell_meta = load_latest_cell_frame()
+            if cells is not None:
+                evaluate_live_flood_risk(live=result, cells=cells)
+            else:
+                existing = _read_risk_json(HYDRO_RISK_PATH, {})
+                if isinstance(existing, dict) and existing.get("stations"):
+                    existing["status"] = "deferred_missing_cell_snapshot"
+                    existing["deferred_reason"] = cell_meta
+                    existing["hydro_live_updated_at"] = result.get("fetched_at")
+                    _atomic_json(HYDRO_RISK_PATH, existing)
+                else:
+                    evaluate_live_flood_risk(live=result, cells=[])
         except Exception:
             pass
         _write_status(result["status"])

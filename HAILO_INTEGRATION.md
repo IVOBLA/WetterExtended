@@ -15,3 +15,5 @@ FES liefert typischerweise einen ca. 15-minütigen Bildtakt. Beim TIFF wird eine
 ## Hydro-Flood-ML
 
 Hydro-Flood-Modelle liegen getrennt unter `train_data/models/hydro_flood/` und sind nicht Teil des Zellbewegungs- oder Hailo-Inferenzpfades. `ML_CELL_FEATURES` und bestehende Bewegungsmodelle werden durch Hydro-Flood-Risk nicht invalidiert.
+
+Hydro-Flood-Regressor verarbeitet tabellarische Catchment-/Q-Merkmale auf der CPU. Es gibt dafür keine Hailo-Pflicht, kein Dummy-HEF und keine Scheinbeschleunigung. Ein Hailo-Ausfall blockiert die physikalische Hydro-Fallback-Berechnung nicht.

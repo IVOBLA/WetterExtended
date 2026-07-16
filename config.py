@@ -1442,6 +1442,8 @@ HYDRO_FORECAST_SINGLE_HIT_DWELL_MIN = 10.0
 # Abflussbeiwert (Anteil 0..1 des Niederschlags, der oberflaechlich abfliesst) und
 # grobe Routing-Daempfung. Konfigurierbar via runtime_overrides.json. Grobe Schaetzung,
 # kein Ersatz fuer amtliche Hochwasserwarnungen.
+HYDRO_FORECAST_SAMPLE_STEP_MIN = 5
+HYDRO_FALLBACK_ROUTING_TAU_MIN = 60
 HYDRO_FORECAST_RUNOFF_COEFF = 0.4
 HYDRO_FORECAST_ROUTING_ATTENUATION = 1.0
 # P63: Pufferradius (km) um den betroffenen Flussabschnitt, in dem Watchlist-Orte als
