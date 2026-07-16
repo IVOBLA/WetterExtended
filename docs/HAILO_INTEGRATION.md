@@ -6542,3 +6542,35 @@ Diagnose-Report erkennt `missing`/`empty`/`ok`, Exporteintrag erhalten, `AICheck
 Diagnosen. **Nach dem nächsten Export prüfen:** `diagnostics/train_data/association/*.json`
 vorhanden? Falls `status="empty"` → die Diagnose wird nicht geschrieben (AC-001); falls
 `status="ok"` → Kalibrierung von `ASSOC_MAX_COST` möglich (AC-002).
+
+### B407 — Pauschaler `.zip`-Ausschluss verwarf legitime Nutzdaten; AIChecks.md dokumentierte statt anzuweisen ✅ erledigt
+
+**Root-Cause:** B406 hat die Rekursion mit einem zu breiten Mittel bekämpft. Sie entsteht
+ausschließlich dadurch, dass `_latest_export_base_dir()` die eigenen Export-ZIPs unter
+`train_data/evaluation/latest_export/` ablegt und die Exportliste das gesamte
+`evaluation`-Verzeichnis mitnimmt — `_EXPORT_EXCLUDE_DIRS = {"latest_export"}` deckt das
+**vollständig** ab.
+
+Der zusätzliche `_EXPORT_EXCLUDE_SUFFIXES = {".zip"}` griff dagegen **projektweit** und verwarf
+jedes `.zip` an jeder Stelle, auch legitime Nutzdaten (z. B. heruntergeladene Archive unter
+`external_responses`), die für die Fehlersuche wertvoll sind und mit der Rekursion nichts zu tun
+haben. Der Kommentar begründete ihn mit „ein Debug-Archiv darf kein anderes Archiv enthalten" —
+das ist die Symptombeschreibung, nicht die Ursache.
+
+**Fix:** `_EXPORT_EXCLUDE_SUFFIXES` ersatzlos entfernt; `_is_excluded_from_export()` prüft nur noch
+den Verzeichnisausschluss. Tests entsprechend geschärft: eigenes Export-ZIP bleibt gefiltert,
+Fremd-ZIP wird exportiert.
+
+**Zweiter Teil — `AIChecks.md`:** Die Datei war als Befundsammlung angelegt (99 Zeilen mit Belegen,
+Messtabellen, Herleitungen) und doppelte damit den Changelog. Sie enthält jetzt **ausschließlich
+Arbeitsanweisungen**: imperativ, ausführbar, jede mit konkreter Datenquelle, ohne Herleitung. Der
+Grund einer Anweisung steht im Changelog, hier steht nur der Auftrag. AC-001 bis AC-010 neu
+formuliert (Diagnose-Präsenz, `ASSOC_MAX_COST`, Transition-Schwellen, Quellen-Rangfolge über
+mehrere Lagen, Sattel-Schwelle, Split-Auftreten, Ledger-Eindeutigkeit, `_UF`-Stellen,
+`training_meta.json`, Fremdarchive im Export).
+
+**Tests:** `tests/test_b407_aichecks_arbeitsanweisungen.py` — Zweck deklariert, keine
+Messtabellen/Befunde, alle Einträge imperativ, jede Anweisung mit Datenquelle, eigenes Export-ZIP
+gefiltert, Fremd-ZIP erhalten, Suffix-Filter entfernt, `_EXPORT_EXCLUDE_DIRS` unverändert.
+
+**Phasen-Status:** Phase A — Export filtert gezielt, AIChecks.md ist handlungsleitend.

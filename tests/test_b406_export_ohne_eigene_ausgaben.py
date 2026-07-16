@@ -6,10 +6,23 @@ import pytest
 import debug_export
 
 
-def test_zip_files_are_excluded():
-    """KERNREGRESSION: Ein Debug-Archiv darf kein anderes Archiv enthalten."""
+def test_own_export_zip_is_excluded():
+    """KERNREGRESSION: Die eigenen Export-ZIPs duerfen nicht erneut verpackt werden."""
     p = Path("train_data/evaluation/latest_export/wetterextended_debug2.zip")
     assert debug_export._is_excluded_from_export(p)
+
+
+def test_foreign_zip_is_kept():
+    """B407: Ein .zip AUSSERHALB von latest_export ist legitime Nutzdatei.
+
+    Der pauschale Suffix-Filter aus B406 haette es verworfen -- z. B. heruntergeladene
+    Archive unter external_responses, die fuer die Fehlersuche wertvoll sind.
+    """
+    for p in (Path("train_data/external_responses/radar_archive.zip"),
+              Path("train_data/models/v_20260715/model_bundle.zip")):
+        assert not debug_export._is_excluded_from_export(p), (
+            f"{p} faelschlich ausgeschlossen — nur latest_export gehoert gefiltert"
+        )
 
 
 def test_latest_export_dir_is_excluded():
@@ -35,10 +48,20 @@ def test_iter_files_skips_own_exports(tmp_path):
     assert "wetterextended_debug2.zip" not in files, "Eigener Export wurde erneut verpackt"
 
 
-def test_iter_files_on_single_zip_yields_nothing(tmp_path):
-    z = tmp_path / "wetterextended_debug1.zip"
+def test_iter_files_on_own_export_zip_yields_nothing(tmp_path):
+    """Ein ZIP INNERHALB von latest_export bleibt ausgeschlossen."""
+    d = tmp_path / "latest_export"
+    d.mkdir()
+    z = d / "wetterextended_debug1.zip"
     z.write_bytes(b"PK\x03\x04")
     assert list(debug_export._iter_files(z)) == []
+
+
+def test_iter_files_keeps_foreign_zip(tmp_path):
+    """B407: Ein ZIP ausserhalb von latest_export wird exportiert."""
+    z = tmp_path / "radar_archive.zip"
+    z.write_bytes(b"PK\x03\x04")
+    assert list(debug_export._iter_files(z)) == [z]
 
 
 def test_diagnosis_report_detects_missing(tmp_path):
