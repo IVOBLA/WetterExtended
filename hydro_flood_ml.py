@@ -25,7 +25,7 @@ HYDRO_ACCURACY_HISTORY_PATH = HYDRO_ML_DIR / "hydro_flood_accuracy_history.jsonl
 HYDRO_RISK_PATH = Path("train_data/hydro/impact/latest_hydro_flood_risk.json")
 HYDRO_MODEL_CURRENT_DIR = Path("train_data/models/hydro_flood/current")
 MIN_TRAINING_SAMPLES = int(os.getenv("HYDRO_FLOOD_ML_MIN_SAMPLES", "20"))
-FEATURE_SCHEMA_VERSION = "b411_live_catchment_v3"
+FEATURE_SCHEMA_VERSION = "b416_live_catchment_v4"
 HYDRO_SAMPLE_DB_PATH = HYDRO_ML_DIR / "hydro_flood_samples.sqlite3"
 _DEFAULT_HYDRO_SAMPLE_DB_PATH = HYDRO_SAMPLE_DB_PATH
 _DEFAULT_HYDRO_DATASET_JSONL_PATH = HYDRO_DATASET_JSONL_PATH
@@ -616,7 +616,7 @@ def _precip_from_cells(station: dict, cells: list[dict]) -> dict:
         if rate is None: continue
         cell_area = _f(cell.get("cell_area_km2") or cell.get("area_km2"), None)
         if cell_area is None: cell_area = hydro_impact._area_km2(poly)
-        cid = str(cell.get("id") or cell.get("cell_id") or cell.get("track_id") or "unknown")
+        cid = str(cell.get("id") or cell.get("cell_id") or cell.get("track_id"))
         modes=set(); raw_hits=[]
         for pt in _interp_track(_forecast_points(cell, poly), step):
             moved = translate(poly, xoff=float(pt["lon"])-base_lon, yoff=float(pt["lat"])-base_lat)
@@ -632,7 +632,8 @@ def _precip_from_cells(station: dict, cells: list[dict]) -> dict:
             raw_hits.append((off, oa, ratio))
         if raw_hits:
             offs=[x[0] for x in raw_hits]; areas=[x[1] for x in raw_hits]; intervals=_hit_intervals(offs, step)
-            cell_stats[cid] = {"cell_id": cid, "currently_inside": 0 in offs, "forecast_entry": min(offs) > 0, "entry_offset_min": min(offs), "exit_offset_min": max(i["exit_offset_min"] for i in intervals), "first_entry_offset_min": min(offs), "last_exit_offset_min": max(i["exit_offset_min"] for i in intervals), "dwell_time_min": sum(i["duration_min"] for i in intervals), "total_dwell_time_min": sum(i["duration_min"] for i in intervals), "continuous_max_dwell_min": max(i["duration_min"] for i in intervals), "hit_interval_count": len(intervals), "hit_intervals": intervals, "cell_area_km2": round(cell_area,3), "max_overlap_area_km2": round(max(areas),3), "mean_overlap_area_km2": round(sum(areas)/len(areas),3), "overlap_area_time_km2_min": round(sum(areas)*step,3), "rain_rate_mm_h": round(rate,3), "rain_rate_source": rate_src, "intensity_forecast_mode": "persistence", "forecast_mode_used": sorted(modes)}
+            identity = {key: cell[key] for key in ("lineage_id", "parent_cell_ids", "origin_type", "tracking_state") if cell.get(key) not in (None, "")}
+            cell_stats[cid] = {"cell_id": cid, **identity, "currently_inside": 0 in offs, "forecast_entry": min(offs) > 0, "entry_offset_min": min(offs), "exit_offset_min": max(i["exit_offset_min"] for i in intervals), "first_entry_offset_min": min(offs), "last_exit_offset_min": max(i["exit_offset_min"] for i in intervals), "dwell_time_min": sum(i["duration_min"] for i in intervals), "total_dwell_time_min": sum(i["duration_min"] for i in intervals), "continuous_max_dwell_min": max(i["duration_min"] for i in intervals), "hit_interval_count": len(intervals), "hit_intervals": intervals, "cell_area_km2": round(cell_area,3), "max_overlap_area_km2": round(max(areas),3), "mean_overlap_area_km2": round(sum(areas)/len(areas),3), "overlap_area_time_km2_min": round(sum(areas)*step,3), "rain_rate_mm_h": round(rate,3), "rain_rate_source": rate_src, "intensity_forecast_mode": "persistence", "forecast_mode_used": sorted(modes)}
     series=[]; raw_total=0.0; eff_total=0.0; dedup_total=0.0; spatial_dedup=False; routed=0.0; prev_off=None
     max_forecast = 0
     try:
@@ -722,7 +723,12 @@ def build_feature_row(station: dict, live: dict|None=None, cells: list[dict]|Non
     precip_quality_label = {"observed": "hoch", "cell_derived": "mittel", "no_relevant_cell": "hoch", "catchment_geometry_missing": "nicht bewertbar", "missing": "nicht bewertbar"}.get(precip_status, "mittel")
     eff_sum_out = eff_sum if precip_evaluable else None
     trend = _q_trend_fields(sid, q, q_measured_at, trend_history)
-    return {**obs, **cellp, "station_id": sid, "station_name": live_station.get("name") or live_station.get("station_name") or station.get("name") or sid, "river": live_station.get("river") or station.get("river") or station.get("river_name") or "", "station_lat": _f(station.get("lat"), _f(live_station.get("lat"))), "station_lon": _f(station.get("lon"), _f(live_station.get("lon"))), "current_q_m3s": q, "current_q_measured_at": q_measured_at, "current_q_timestamp_source": q_timestamp_source, "current_q_missing": q is None, "station_q_threshold_m3s": thr, "mark_q_m3s": thr, "station_q_threshold_missing": thr is None, "station_q_threshold_source": src if thr is not None else "missing", "current_q_ratio_threshold": ratio, "current_q_distance_to_threshold_m3s": qdist, "current_q_above_threshold": bool(thr is not None and q is not None and q >= thr), **trend, "current_data_age_min": _f(live_station.get("data_age_min")), "data_age_min": _f(live_station.get("data_age_min")), "hydro_data_stale": False, "catchment_geometry_available": cellp.get("catchment_geometry_available", False), "catchment_geometry_status": cellp.get("catchment_geometry_status"), "catchment_feature_count": cellp.get("catchment_feature_count", 0), "catchment_area_geometry_km2": cellp.get("catchment_area_geometry_km2"), "catchment_area_km2": _f(station.get("catchment_area_km2"), cellp.get("catchment_area_geometry_km2") or 0.0), "upstream_catchment_count": len(station.get("upstream_catchment_ids") or []), "impact_eligible": bool(station.get("impact_effective", station.get("impact_eligible", True))), "source_quality": station.get("source_quality"), "topology_source": station.get("topology_source"), "upstream_source_quality": station.get("upstream_source_quality"), "effective_catchment_precip_sum_mm": eff_sum_out, "effective_catchment_precip_weighted_sum_mm": (eff_sum if use_obs else cellp["cell_catchment_precip_weighted_sum_mm"]) if precip_evaluable else None, "effective_catchment_precip_max_rate_mm_h": obs["observed_catchment_precip_max_rate_mm_h"] if use_obs else cellp["cell_catchment_max_intensity"], "effective_catchment_precip_mean_rate_mm_h": obs["observed_catchment_precip_mean_rate_mm_h"] if use_obs else cellp["cell_catchment_max_intensity"], "effective_precip_source_type": eff_type, "effective_precip_source_quality": obs["observed_precip_source_quality"] if use_obs else ("medium" if eff_type in {"nowcast","cell_derived"} else "missing"), "effective_precip_is_proxy": eff_type in {"cell_derived","proxy"}, "effective_precip_missing": eff_type == "missing", "precip_evaluable": precip_evaluable, "precip_status": precip_status, "precip_status_label": precip_status_label, "precip_quality_label": precip_quality_label, "precip_source_type": eff_type, "precip_source_quality": obs["observed_precip_source_quality"] if use_obs else ("medium" if eff_type != "missing" else "missing"), "precip_is_observed": use_obs, "precip_is_proxy": eff_type in {"cell_derived","proxy"}, "precip_source_name": obs.get("precip_source_name") or (eff_type if precip_evaluable else None), "precip_source_timestamp": obs.get("precip_source_timestamp"), "precip_source_age_min": obs.get("observed_precip_data_age_min")}
+    diagnostics = cellp.get("cell_diagnostics") if isinstance(cellp.get("cell_diagnostics"), list) else []
+    contributing_cell_ids = sorted({str(d["cell_id"]) for d in diagnostics if isinstance(d, dict) and d.get("cell_id") not in (None, "")})
+    contributing_lineage_ids = sorted({str(d["lineage_id"]) for d in diagnostics if isinstance(d, dict) and d.get("lineage_id") not in (None, "")})
+    precip_event_evaluable = bool(cells is not None and precip_evaluable)
+    precip_event_active = bool(precip_event_evaluable and contributing_cell_ids)
+    return {**obs, **cellp, "contributing_cell_ids": contributing_cell_ids, "contributing_lineage_ids": contributing_lineage_ids, "precip_event_active": precip_event_active, "precip_event_evaluable": precip_event_evaluable, "station_id": sid, "station_name": live_station.get("name") or live_station.get("station_name") or station.get("name") or sid, "river": live_station.get("river") or station.get("river") or station.get("river_name") or "", "station_lat": _f(station.get("lat"), _f(live_station.get("lat"))), "station_lon": _f(station.get("lon"), _f(live_station.get("lon"))), "current_q_m3s": q, "current_q_measured_at": q_measured_at, "current_q_timestamp_source": q_timestamp_source, "current_q_missing": q is None, "station_q_threshold_m3s": thr, "mark_q_m3s": thr, "station_q_threshold_missing": thr is None, "station_q_threshold_source": src if thr is not None else "missing", "current_q_ratio_threshold": ratio, "current_q_distance_to_threshold_m3s": qdist, "current_q_above_threshold": bool(thr is not None and q is not None and q >= thr), **trend, "current_data_age_min": _f(live_station.get("data_age_min")), "data_age_min": _f(live_station.get("data_age_min")), "hydro_data_stale": False, "catchment_geometry_available": cellp.get("catchment_geometry_available", False), "catchment_geometry_status": cellp.get("catchment_geometry_status"), "catchment_feature_count": cellp.get("catchment_feature_count", 0), "catchment_area_geometry_km2": cellp.get("catchment_area_geometry_km2"), "catchment_area_km2": _f(station.get("catchment_area_km2"), cellp.get("catchment_area_geometry_km2") or 0.0), "upstream_catchment_count": len(station.get("upstream_catchment_ids") or []), "impact_eligible": bool(station.get("impact_effective", station.get("impact_eligible", True))), "source_quality": station.get("source_quality"), "topology_source": station.get("topology_source"), "upstream_source_quality": station.get("upstream_source_quality"), "effective_catchment_precip_sum_mm": eff_sum_out, "effective_catchment_precip_weighted_sum_mm": (eff_sum if use_obs else cellp["cell_catchment_precip_weighted_sum_mm"]) if precip_evaluable else None, "effective_catchment_precip_max_rate_mm_h": obs["observed_catchment_precip_max_rate_mm_h"] if use_obs else cellp["cell_catchment_max_intensity"], "effective_catchment_precip_mean_rate_mm_h": obs["observed_catchment_precip_mean_rate_mm_h"] if use_obs else cellp["cell_catchment_max_intensity"], "effective_precip_source_type": eff_type, "effective_precip_source_quality": obs["observed_precip_source_quality"] if use_obs else ("medium" if eff_type in {"nowcast","cell_derived"} else "missing"), "effective_precip_is_proxy": eff_type in {"cell_derived","proxy"}, "effective_precip_missing": eff_type == "missing", "precip_evaluable": precip_evaluable, "precip_status": precip_status, "precip_status_label": precip_status_label, "precip_quality_label": precip_quality_label, "precip_source_type": eff_type, "precip_source_quality": obs["observed_precip_source_quality"] if use_obs else ("medium" if eff_type != "missing" else "missing"), "precip_is_observed": use_obs, "precip_is_proxy": eff_type in {"cell_derived","proxy"}, "precip_source_name": obs.get("precip_source_name") or (eff_type if precip_evaluable else None), "precip_source_timestamp": obs.get("precip_source_timestamp"), "precip_source_age_min": obs.get("observed_precip_data_age_min")}
 
 
 def heuristic_score(row: dict) -> dict:
@@ -829,11 +835,11 @@ def _feature_vector(row: dict) -> list[float]:
     vals = []
     snap = row.get("features") if isinstance(row.get("features"), dict) else row
     for name in HYDRO_FLOOD_ML_FEATURES:
-        v = snap.get(name)
+        v = snap.get(name, HYDRO_FEATURE_IMPUTATION.get(name))
         if isinstance(v, bool):
             vals.append(1.0 if v else 0.0)
         else:
-            vals.append(_f(v, 0.0) or 0.0)
+            vals.append(float(v))
     return vals
 
 
@@ -845,9 +851,37 @@ def _missing_required_features(row: dict) -> list[str]:
     snap = row.get("features") if isinstance(row.get("features"), dict) else row
     return [k for k in HYDRO_REQUIRED_FEATURES if snap.get(k) is None]
 
+def validate_trainable_sample(row: dict) -> tuple[bool, list[str]]:
+    reasons: list[str] = []
+    if row.get("sample_kind") != SAMPLE_KIND_LIVE: reasons.append("sample_kind_invalid")
+    if row.get("feature_snapshot_complete") is not True: reasons.append("feature_snapshot_incomplete")
+    if row.get("feature_schema_version") != FEATURE_SCHEMA_VERSION: reasons.append("feature_schema_version_mismatch")
+    if row.get("feature_schema_hash") != _feature_schema_hash(): reasons.append("feature_schema_hash_mismatch")
+    features = row.get("features")
+    if not isinstance(features, dict):
+        reasons.append("features_not_dict"); features = {}
+    unknown = sorted(set(features) - set(HYDRO_FLOOD_ML_FEATURES))
+    if unknown: reasons.append("feature_names_incompatible:" + ",".join(unknown))
+    for name in HYDRO_REQUIRED_FEATURES:
+        if name not in features:
+            reasons.append(f"required_feature_missing:{name}")
+            continue
+        value = features[name]
+        if not isinstance(value, (int, float, bool)) or isinstance(value, complex) or not math.isfinite(float(value)):
+            reasons.append(f"required_feature_non_finite_or_non_numeric:{name}")
+    for name in HYDRO_MISSING_INDICATOR_FEATURES:
+        if name in features and (type(features[name]) not in (int, float, bool) or float(features[name]) not in (0.0, 1.0)):
+            reasons.append(f"availability_flag_invalid:{name}")
+    target = row.get("target_q_delta_m3s")
+    if not isinstance(target, (int, float)) or isinstance(target, bool) or not math.isfinite(float(target)):
+        reasons.append("target_q_delta_invalid")
+    if row.get("target_missing") is not False: reasons.append("target_missing_not_false")
+    if not row.get("station_id"): reasons.append("station_id_missing")
+    if _dt(row.get("sample_start_time")) is None: reasons.append("sample_start_time_invalid")
+    return not reasons, reasons
+
 def _sample_is_trainable_live(row: dict) -> bool:
-    kind = row.get("sample_kind") or (SAMPLE_KIND_LIVE if row.get("feature_schema_version") == FEATURE_SCHEMA_VERSION else None)
-    return kind == SAMPLE_KIND_LIVE and row.get("feature_snapshot_complete", True) is True and row.get("feature_schema_version") == FEATURE_SCHEMA_VERSION and _f(row.get("target_q_delta_m3s")) is not None and not row.get("target_missing")
+    return validate_trainable_sample(row)[0]
 
 def _sample_db() -> sqlite3.Connection:
     HYDRO_ML_DIR.mkdir(parents=True, exist_ok=True)
@@ -881,13 +915,32 @@ def _mark_migration(con: sqlite3.Connection, migration_id: str, meta: dict) -> N
     con.execute("INSERT OR REPLACE INTO schema_migrations(migration_id, applied_at, rows_imported, rows_legacy_moved, rows_invalid, payload) VALUES(?,?,?,?,?,?)", (migration_id, meta.get("migration_at") or _now(), int(meta.get("rows_imported", meta.get("rows_live_kept", 0)) or 0), int(meta.get("rows_legacy_moved", 0) or 0), int(meta.get("rows_invalid", meta.get("rows_invalid_dropped", 0)) or 0), json.dumps(meta, ensure_ascii=False, default=str)))
 
 def migrate_productive_dataset() -> dict:
+    superseded = invalid_count = 0
+    now = _now()
+    with _sample_db() as con:
+        con.execute("BEGIN IMMEDIATE")
+        for table in ("pending_samples", "labeled_samples"):
+            for payload_text, in con.execute(f"SELECT payload FROM {table}").fetchall():
+                row = json.loads(payload_text)
+                if row.get("feature_schema_version") == "b411_live_catchment_v3":
+                    reason = "schema_version_superseded_b415"; superseded += 1
+                elif table == "labeled_samples":
+                    ok, reasons = validate_trainable_sample(row)
+                    if ok: continue
+                    reason = reasons[0]; invalid_count += 1
+                else:
+                    continue
+                sample_id = row.get("sample_id") or hashlib.sha256(payload_text.encode()).hexdigest()
+                con.execute("INSERT OR REPLACE INTO sample_failures(sample_id, station_id, failed_at, reason, payload) VALUES(?,?,?,?,?)", (sample_id, str(row.get("station_id") or ""), now, reason, payload_text))
+                con.execute(f"DELETE FROM {table} WHERE sample_id=?", (sample_id,))
+        con.execute("COMMIT")
     migration_id = "b410_jsonl_to_sqlite_v1"
     with _sample_db() as con:
         if _migration_applied(con, migration_id):
             row=con.execute("SELECT payload FROM schema_migrations WHERE migration_id=?", (migration_id,)).fetchone()
             meta=json.loads(row[0]) if row and row[0] else {"migration_id": migration_id}
             meta["already_applied"] = True
-            return meta
+            return {**meta, "rows_schema_superseded": superseded, "rows_invalid_b416": invalid_count}
         rows = _jsonl_rows(HYDRO_DATASET_JSONL_PATH)
         live=[]; legacy=[]; invalid=[]
         con.execute("BEGIN IMMEDIATE")
@@ -920,7 +973,7 @@ def migrate_productive_dataset() -> dict:
     old=_read_json(HYDRO_TRAINING_META_PATH,{})
     old["b410_dataset_migration"] = meta
     _atomic_json(HYDRO_TRAINING_META_PATH, old)
-    return meta
+    return {**meta, "rows_schema_superseded": superseded, "rows_invalid_b416": invalid_count}
 
 def migrate_pending_jsonl_to_sqlite() -> dict:
     migration_id="b411_pending_jsonl_to_sqlite_v1"
@@ -972,7 +1025,7 @@ def record_pending_samples(rows: list[dict], live: dict | None = None, cells_met
             missing = _missing_required_features({"features": features})
             sig = {"station": sid, "start": start, "features": features, "catchment": row.get("catchment_geometry_status"), "cells": cells_meta}
             sample_id = hashlib.sha256(json.dumps(sig, sort_keys=True, default=str).encode()).hexdigest()
-            payload = {"sample_id": sample_id, "sample_kind": SAMPLE_KIND_LIVE, "feature_schema_version": FEATURE_SCHEMA_VERSION, "feature_schema_hash": _feature_schema_hash(), "feature_snapshot_complete": not missing, "missing_required_features": missing, "station_id": sid, "sample_start_time": start, "current_q_m3s": row.get("current_q_m3s"), "station_q_threshold_m3s": row.get("station_q_threshold_m3s"), "features": features, "catchment_signature": _hash_obj({"status": row.get("catchment_geometry_status"), "area": row.get("catchment_area_geometry_km2")}), "cell_frame_hash": (cells_meta or {}).get("hash"), "config_signature": _hash_obj({k: runtime_config.get(k, getattr(config, k, None)) for k in ("HYDRO_FORECAST_SAMPLE_STEP_MIN","HYDRO_FORECAST_RUNOFF_COEFF","HYDRO_FALLBACK_ROUTING_TAU_MIN")}), "labeled": False, "created_at": now}
+            payload = {"sample_id": sample_id, "sample_kind": SAMPLE_KIND_LIVE, "feature_schema_version": FEATURE_SCHEMA_VERSION, "feature_schema_hash": _feature_schema_hash(), "feature_snapshot_complete": not missing, "missing_required_features": missing, "station_id": sid, "sample_start_time": start, "current_q_m3s": row.get("current_q_m3s"), "station_q_threshold_m3s": row.get("station_q_threshold_m3s"), "contributing_cell_ids": sorted(set(row.get("contributing_cell_ids") or [])), "contributing_lineage_ids": sorted(set(row.get("contributing_lineage_ids") or [])), "contributing_cell_count": int(row.get("contributing_cell_count") or 0), "precip_event_active": row.get("precip_event_active") is True, "precip_event_evaluable": row.get("precip_event_evaluable") is True, "features": features, "catchment_signature": _hash_obj({"status": row.get("catchment_geometry_status"), "area": row.get("catchment_area_geometry_km2")}), "cell_frame_hash": (cells_meta or {}).get("hash"), "config_signature": _hash_obj({k: runtime_config.get(k, getattr(config, k, None)) for k in ("HYDRO_FORECAST_SAMPLE_STEP_MIN","HYDRO_FORECAST_RUNOFF_COEFF","HYDRO_FALLBACK_ROUTING_TAU_MIN")}), "labeled": False, "created_at": now}
             cur = con.execute("INSERT OR IGNORE INTO pending_samples(sample_id, station_id, sample_start_time, created_at, payload) VALUES(?,?,?,?,?)", (sample_id, sid, start, now, json.dumps(payload, ensure_ascii=False, default=str)))
             added += cur.rowcount
         con.execute("COMMIT")
@@ -1023,17 +1076,17 @@ def readiness_status() -> dict:
     usable=[r for r in rows if _sample_is_trainable_live(r)]
     valid_q=sum(1 for r in usable if _f(r.get("target_q_delta_m3s")) is not None)
     stations={r.get("station_id") for r in usable}
-    events={_event_key(r, None) for r in usable}
+    analysis=analyze_training_dataset(usable)
     times=[_dt(r.get("sample_start_time") or r.get("created_at")) for r in usable]
     times=[t for t in times if t]
     span=((max(times)-min(times)).total_seconds()/86400.0) if len(times)>=2 else 0.0
-    reasons=[]
+    reasons=list(analysis["readiness_reasons"])
     if len(usable) < MIN_TRAINING_SAMPLES: reasons.append("insufficient_regression_samples")
     if valid_q < MIN_TRAINING_SAMPLES: reasons.append("insufficient_valid_q_delta_targets")
     if len(stations) < 1: reasons.append("missing_station_coverage")
     pos=sum(1 for r in rows if r.get("target_flood_expected") is True); neg=sum(1 for r in rows if r.get("target_flood_expected") is False)
     coverage=dict(Counter((r.get("effective_precip_source_type") or "missing") for r in rows))
-    return {"enabled": True, "model_available": (HYDRO_MODEL_CURRENT_DIR/HYDRO_MODEL_FILENAME).exists(), "sample_count": len(usable), "regression_sample_count": len(usable), "valid_target_q_delta_count": valid_q, "feature_complete_count": sum(1 for r in rows if r.get("feature_snapshot_complete") is True), "schema_compatible_count": sum(1 for r in rows if r.get("feature_schema_version") == FEATURE_SCHEMA_VERSION), "event_count": len(events), "time_span_days": round(span,3), "station_count": len(stations), "threshold_labeled_count": pos+neg, "positive_threshold_events": pos, "negative_threshold_events": neg, "positive_samples": pos, "negative_samples": neg, "stations_with_threshold": len({r.get("station_id") for r in rows if not r.get("station_q_threshold_missing")}), "stations_without_threshold": len({r.get("station_id") for r in rows if r.get("station_q_threshold_missing")}), "precip_source_coverage": coverage, "last_training_at": meta.get("last_training_at"), "last_dataset_build_at": meta.get("last_dataset_build_at"), "readiness_status": "ready" if not reasons else "fallback", "rejection_reasons": reasons}
+    return {"enabled": True, "model_available": (HYDRO_MODEL_CURRENT_DIR/HYDRO_MODEL_FILENAME).exists(), "sample_count": len(usable), "regression_sample_count": len(usable), "valid_target_q_delta_count": valid_q, "feature_complete_count": sum(1 for r in rows if r.get("feature_snapshot_complete") is True), "schema_compatible_count": sum(1 for r in rows if r.get("feature_schema_version") == FEATURE_SCHEMA_VERSION), "event_count": analysis["event_count"], "time_span_days": round(span,3), "station_count": len(stations), "threshold_labeled_count": pos+neg, "positive_threshold_events": pos, "negative_threshold_events": neg, "positive_samples": pos, "negative_samples": neg, "stations_with_threshold": len({r.get("station_id") for r in rows if not r.get("station_q_threshold_missing")}), "stations_without_threshold": len({r.get("station_id") for r in rows if r.get("station_q_threshold_missing")}), "precip_source_coverage": coverage, "last_training_at": meta.get("last_training_at"), "last_dataset_build_at": meta.get("last_dataset_build_at"), "readiness_status": "ready" if not reasons else "fallback", "rejection_reasons": reasons}
 
 def _event_cells(row: dict) -> set[str]:
     values = row.get("contributing_lineage_ids") or row.get("contributing_cell_ids")
@@ -1048,31 +1101,61 @@ def _event_key(row: dict, previous: dict | None = None) -> str:
 
 def _assign_event_ids(rows: list[dict]) -> list[list[dict]]:
     gap = _cfg_int("HYDRO_EVENT_GAP_MIN", 180, 10, 1440)
+    dry_gap = _cfg_int("HYDRO_EVENT_DRY_GAP_MIN", 30, 1, 1440)
     by_station = {}
     for row in sorted(rows, key=lambda r: (str(r.get("station_id") or ""), str(r.get("sample_start_time") or r.get("created_at") or ""))):
         by_station.setdefault(str(row.get("station_id") or ""), []).append(row)
     events=[]
     for sid, station_rows in by_station.items():
-        cur=[]; cur_cells=set(); prev_dt=None; event_no=0
+        cur=[]; cur_cells=set(); prev_dt=None; dry_since=None; event_start=None
         for row in station_rows:
             dt=_dt(row.get("sample_start_time") or row.get("created_at"))
             cells=_event_cells(row)
-            precip_active=bool(row.get("precip_event_active", (row.get("contributing_cell_count") or 0) > 0))
-            prev_active=bool(cur[-1].get("precip_event_active", (cur[-1].get("contributing_cell_count") or 0) > 0)) if cur else False
+            precip_active=row.get("precip_event_active") is True
             separated = False
             if cur and prev_dt and dt and (dt-prev_dt).total_seconds()/60.0 > gap:
                 separated = True
-            if cur and cells and cur_cells and cells.isdisjoint(cur_cells):
+            if cur and precip_active and dry_since and dt and (dt-dry_since).total_seconds()/60.0 >= dry_gap:
                 separated = True
-            if cur and precip_active and not prev_active and prev_dt and dt and (dt-prev_dt).total_seconds()/60.0 > gap:
+            if cur and not precip_active and event_start and dt and (dt-event_start).total_seconds()/60.0 >= gap:
                 separated = True
             if cur and separated:
-                events.append(cur); event_no += 1; cur=[]; cur_cells=set()
-            eid=f"{sid}:event:{event_no}"
-            row["event_id"] = eid
+                events.append(cur); cur=[]; cur_cells=set(); event_start=None
+            if not cur: event_start = dt
             cur.append(row); cur_cells |= cells; prev_dt = dt or prev_dt
+            if precip_active: dry_since = None
+            elif dry_since is None: dry_since = dt
         if cur: events.append(cur)
+    events.sort(key=lambda ev: _dt(ev[0].get("sample_start_time") or ev[0].get("created_at")) or datetime.min.replace(tzinfo=timezone.utc))
+    for event in events:
+        sid = str(event[0].get("station_id") or "")
+        start = event[0].get("sample_start_time") or event[0].get("created_at") or ""
+        lineage = sorted(set().union(*(_event_cells(row) for row in event)))
+        digest = hashlib.sha256(json.dumps(lineage, separators=(",", ":")).encode()).hexdigest()
+        event_id = hashlib.sha256(f"{sid}|{start}|{digest}".encode()).hexdigest()
+        for row in event: row["event_id"] = event_id
     return events
+
+def analyze_training_dataset(rows: list[dict]) -> dict:
+    events = _assign_event_ids(rows)
+    min_train = _cfg_int("HYDRO_ML_MIN_TRAIN_EVENTS", 2, 1, 100000)
+    min_val = _cfg_int("HYDRO_ML_MIN_VALIDATION_EVENTS", 1, 1, 100000)
+    split = max(min_train, min(len(events)-min_val, int(len(events)*0.8))) if len(events) >= min_train + min_val else len(events)
+    train_events, validation_events = events[:split], events[split:]
+    def time_range(group):
+        values = [_dt(r.get("sample_start_time") or r.get("created_at")) for ev in group for r in ev]
+        values = [v for v in values if v]
+        return [min(values).isoformat() if values else None, max(values).isoformat() if values else None]
+    train_range, val_range = time_range(train_events), time_range(validation_events)
+    while validation_events and train_range[1] and val_range[0] and _dt(train_range[1]) > _dt(val_range[0]) and len(train_events) > min_train:
+        validation_events.insert(0, train_events.pop())
+        train_range, val_range = time_range(train_events), time_range(validation_events)
+    if train_range[1] and val_range[0]: assert _dt(train_range[1]) <= _dt(val_range[0])
+    reasons=[]
+    if len(events) < min_train + min_val: reasons.append("insufficient_independent_events")
+    if len(train_events) < min_train: reasons.append("insufficient_train_events")
+    if len(validation_events) < min_val: reasons.append("insufficient_validation_events")
+    return {"events": events, "event_count": len(events), "train_events": train_events, "validation_events": validation_events, "train_time_range": train_range, "validation_time_range": val_range, "station_count": len({r.get("station_id") for r in rows}), "readiness_reasons": reasons}
 
 
 
@@ -1211,18 +1294,17 @@ def _load_artifact(path: Path) -> dict:
         return pickle.loads(path.read_bytes())
 
 def _split_by_events(rows: list[dict]) -> tuple[list[dict], list[dict], dict]:
-    events=_assign_event_ids(rows)
+    analysis=analyze_training_dataset(rows); events=analysis["events"]
     min_train=_cfg_int("HYDRO_ML_MIN_TRAIN_EVENTS", 2, 1, 100000)
     min_val=_cfg_int("HYDRO_ML_MIN_VALIDATION_EVENTS", 1, 1, 100000)
     if len(events) < min_train + min_val:
         train_events=events; val_events=[]
     else:
-        split=max(min_train, min(len(events)-min_val, int(len(events)*0.8)))
-        train_events=events[:split]; val_events=events[split:]
+        train_events=analysis["train_events"]; val_events=analysis["validation_events"]
     train=[r for ev in train_events for r in ev]; val=[r for ev in val_events for r in ev]
     train_ids={r.get("event_id") for r in train}; val_ids={r.get("event_id") for r in val}
     overlap=sorted(x for x in train_ids & val_ids if x)
-    meta={"train_event_count": len(train_events), "validation_event_count": len(val_events), "event_count": len(events), "event_split_overlap": overlap, "independent_event_status": "ok" if not overlap and len(train_events)>=min_train and len(val_events)>=min_val else "insufficient_independent_events", "train_time_range": [train[0].get("sample_start_time") if train else None, train[-1].get("sample_start_time") if train else None], "validation_time_range": [val[0].get("sample_start_time") if val else None, val[-1].get("sample_start_time") if val else None]}
+    meta={"train_event_count": len(train_events), "validation_event_count": len(val_events), "event_count": len(events), "event_split_overlap": overlap, "independent_event_status": "ok" if not overlap and len(train_events)>=min_train and len(val_events)>=min_val else "insufficient_independent_events", "train_time_range": analysis["train_time_range"], "validation_time_range": analysis["validation_time_range"]}
     return train, val, meta
 
 def _active_model_mae(val: list[dict]) -> float | None:
@@ -1264,11 +1346,20 @@ def train_model() -> dict:
     rows=load_trainable_labeled_samples(True)
     if len(rows) < MIN_TRAINING_SAMPLES:
         status = readiness_status(); status.update({"status": "insufficient_data", "fallback_reason": ",".join(status.get("rejection_reasons") or []), "dataset_migration": migration})
+        run_id = "rejected_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        status.update({"run_id": run_id, "trained_at": _now(), "promoted": False})
+        _atomic_json(HYDRO_TRAINING_META_PATH, status)
+        with _sample_db() as con:
+            con.execute("INSERT OR REPLACE INTO training_runs(run_id, created_at, payload) VALUES(?,?,?)", (run_id, status["trained_at"], json.dumps(status, ensure_ascii=False, default=str)))
         return status
     rows.sort(key=lambda r: str(r.get("sample_start_time") or r.get("created_at") or ""))
     train,val,split_meta=_split_by_events(rows)
     if split_meta.get("independent_event_status") != "ok" or not val:
-        return {"status": "insufficient_independent_events", "promoted": False, **split_meta}
+        meta = {"status": "insufficient_independent_events", "promoted": False, "run_id": "rejected_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"), "trained_at": _now(), **split_meta}
+        _atomic_json(HYDRO_TRAINING_META_PATH, meta)
+        with _sample_db() as con:
+            con.execute("INSERT OR REPLACE INTO training_runs(run_id, created_at, payload) VALUES(?,?,?)", (meta["run_id"], meta["trained_at"], json.dumps(meta, ensure_ascii=False, default=str)))
+        return meta
     X_train=[_feature_vector(r) for r in train]
     y_train=[(_f(r.get("target_q_delta_m3s"),0.0) or 0.0) - (_f((r.get("features") or r).get("physical_predicted_q_delta_m3s"),0.0) or 0.0) for r in train]
     X_val=[_feature_vector(r) for r in val]
