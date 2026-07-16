@@ -230,7 +230,7 @@ def flood_risk_input_hash(live: dict | None = None, cells: list[dict] | None = N
         catch_sig = {}
     model_meta = _read_json(HYDRO_MODEL_CURRENT_DIR / "metadata.json", {})
     hydro_cfg = {k: runtime_config.get(k, getattr(config, k, None)) for k in ("HYDRO_FORECAST_SAMPLE_STEP_MIN", "HYDRO_FALLBACK_ROUTING_TAU_MIN", "HYDRO_FORECAST_RUNOFF_COEFF", "HYDRO_FORECAST_ROUTING_ATTENUATION", "HYDRO_MIN_OVERLAP_AREA_KM2", "HYDRO_MIN_OVERLAP_RATIO_CELL", "ML_FORECAST_HORIZONS_MIN")}
-    payload = {"live": live_sig, "station_thresholds": overrides, "global_threshold": runtime_config.get("HYDRO_MAP_MARK_Q_M3S", getattr(config, "HYDRO_MAP_MARK_Q_M3S", None)), "objects": _objects_signature(cells), "q_trend": _trend_cache_signature(), "catchments": catch_sig, "hydro_config": hydro_cfg, "model": {"schema": model_meta.get("feature_schema_version"), "trained_at": model_meta.get("trained_at"), "promoted": model_meta.get("promoted"), "signature": model_signature(HYDRO_MODEL_CURRENT_DIR)}}
+    payload = {"live": live_sig, "station_thresholds": overrides, "global_threshold": runtime_config.get("HYDRO_MAP_MARK_Q_M3S", getattr(config, "HYDRO_MAP_MARK_Q_M3S", None)), "objects": _objects_signature(cells), "q_trend": _trend_cache_signature(), "catchments": catch_sig, "hydro_config": hydro_cfg, "model": {"schema": model_meta.get("feature_schema_version"), "trained_at": model_meta.get("trained_at"), "promoted": model_meta.get("promoted"), "signature": model_stat_signature(HYDRO_MODEL_CURRENT_DIR)}}
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -772,11 +772,15 @@ def evaluate_live_flood_risk(stations: list[dict]|None=None, live: dict|None=Non
     trend_history = load_q_trend_history()
     cells_meta = _objects_signature(cells or [])
     frame_meta = (live or {}).get("cell_frame_meta") if isinstance(live, dict) else None
+    try:
+        model_context = load_active_hydro_model()
+    except Exception as exc:
+        model_context = {"load_error": exc, "signature": model_stat_signature(HYDRO_MODEL_CURRENT_DIR), "model_cache_status": "miss"}
     for st in stations or []:
         row = build_feature_row(st, live=live, cells=cells, trend_history=trend_history)
         if cells == [] and isinstance(frame_meta, dict) and frame_meta.get("status") == "ok" and int(frame_meta.get("raw_cell_count") or 0) == 0:
             row.update({"precip_status": "no_relevant_cell", "precip_status_label": "keine relevante Zelle im aktuellen oder prognostizierten Einzugsgebiet", "precip_evaluable": True, "effective_precip_source_type": "none", "effective_catchment_precip_sum_mm": 0.0})
-        pred = predict_q_delta(row)
+        pred = predict_q_delta(row, model_context=model_context)
         row_for_score = {**row, **pred}
         sc = heuristic_score(row_for_score); sc.update(pred); sc.pop("hydro_flood_risk_score", None); sc.pop("confidence", None)
         full = {**row, **sc, "generated_at": generated, "flood_probability": None}
@@ -1162,16 +1166,32 @@ def _file_sha256(path: Path) -> str | None:
     except OSError:
         return None
 
-def model_signature(model_dir: Path | None = None) -> dict:
+def model_stat_signature(model_dir: Path | None = None) -> dict:
+    """Return the cheap stat-only key used to invalidate the model cache."""
     model_dir = model_dir or HYDRO_MODEL_CURRENT_DIR
-    mp=model_dir/HYDRO_MODEL_FILENAME; mt=model_dir/"metadata.json"
-    out={"path": str(mp), "exists": mp.exists(), "metadata_path": str(mt), "metadata_exists": mt.exists()}
-    for prefix,path in (("model",mp),("metadata",mt)):
+    mp=model_dir/HYDRO_MODEL_FILENAME; mt=model_dir/"metadata.json"; mf=model_dir/"manifest.json"
+    out={"path": str(mp), "inode": None, "mtime_ns": None, "size": None,
+         "metadata_mtime_ns": None, "metadata_size": None,
+         "manifest_mtime_ns": None, "manifest_size": None,
+         "feature_schema_version": FEATURE_SCHEMA_VERSION}
+    for prefix,path in (("",mp),("metadata_",mt),("manifest_",mf)):
         try:
-            st=path.stat(); out[f"{prefix}_mtime_ns"]=st.st_mtime_ns; out[f"{prefix}_size"]=st.st_size; out[f"{prefix}_sha256"]=_file_sha256(path)
+            st=path.stat(); out[f"{prefix}mtime_ns"]=st.st_mtime_ns; out[f"{prefix}size"]=st.st_size
+            if not prefix: out["inode"] = st.st_ino
         except OSError:
-            out[f"{prefix}_mtime_ns"]=None; out[f"{prefix}_size"]=None; out[f"{prefix}_sha256"]=None
+            continue
     return out
+
+def model_integrity_signature(model_dir: Path | None = None) -> dict:
+    """Return expensive SHA256 values used only for integrity checks and diagnostics."""
+    model_dir = model_dir or HYDRO_MODEL_CURRENT_DIR
+    sig = model_stat_signature(model_dir)
+    sig.update({
+        "model_sha256": _file_sha256(model_dir/HYDRO_MODEL_FILENAME),
+        "metadata_sha256": _file_sha256(model_dir/"metadata.json"),
+        "manifest_sha256": _file_sha256(model_dir/"manifest.json"),
+    })
+    return sig
 
 def _dump_artifact(path: Path, artifact: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1280,17 +1300,17 @@ def train_model() -> dict:
     prev_meta=_read_json(HYDRO_MODEL_CURRENT_DIR/"metadata.json", {})
     meta={"status":"trained", "run_id": run_id, "model_type": model_type, "feature_schema_version": FEATURE_SCHEMA_VERSION, "feature_schema_hash": _feature_schema_hash(), "feature_names": HYDRO_FLOOD_ML_FEATURES, "imputation_rule": "Samples mit fehlenden Pflichtfeatures werden vom produktiven Training ausgeschlossen; Modellvektor erhält nur für kompatible vollständige Snapshots numerische Werte.", "trained_at": _now(), "last_training_at": _now(), "sample_count": len(rows), "station_count": len({r.get("station_id") for r in rows}), "event_count": len({_event_key(r) for r in rows}), "candidate_mae": round(mae,4), "mae": round(mae,4), "rmse": round(rmse,4), "physical_fallback_mae": round(fb_mae,4), "active_model_mae": round(active_mae,4) if active_mae is not None else None, "promotion_baseline": "active_model" if active_mae is not None and active_mae <= fb_mae else "physical_fallback", "promoted": promoted, "promotion_decision": "promoted" if promoted else "rejected", "promotion_reason": "candidate_beats_selected_baseline" if promoted else "validation_not_better_than_physical_or_active_baseline", "previous_active_version": prev_meta.get("new_active_version") or prev_meta.get("trained_at"), "new_active_version": run_id, "model_filename": HYDRO_MODEL_FILENAME, **split_meta}
     _atomic_json(cand/"metadata.json", meta); _atomic_json(cand/"validation.json", {"candidate_mae": mae, "physical_fallback_mae": fb_mae, "active_model_mae": active_mae, **split_meta})
-    meta["model_signature"] = model_signature(cand); _atomic_json(cand/"metadata.json", meta); _write_model_manifest(cand, meta)
+    meta["model_signature"] = model_integrity_signature(cand); _atomic_json(cand/"metadata.json", meta); _write_model_manifest(cand, meta)
     if promoted:
         _promote_candidate(cand, meta)
-        meta["active_model_signature"] = model_signature(HYDRO_MODEL_CURRENT_DIR)
+        meta["active_model_signature"] = model_integrity_signature(HYDRO_MODEL_CURRENT_DIR)
     _atomic_json(HYDRO_TRAINING_META_PATH, meta)
     with _sample_db() as con:
         con.execute("INSERT OR REPLACE INTO training_runs(run_id, created_at, payload) VALUES(?,?,?)", (run_id, meta["trained_at"], json.dumps(meta, ensure_ascii=False, default=str)))
     return meta
 
 def _write_model_manifest(model_dir: Path, meta: dict) -> dict:
-    sig = model_signature(model_dir)
+    sig = model_integrity_signature(model_dir)
     manifest = {"manifest_schema_version": "b411_model_manifest_v1", "created_at": _now(), "model_filename": HYDRO_MODEL_FILENAME, "model_sha256": sig.get("model_sha256"), "metadata_payload_sha256": sig.get("metadata_sha256"), "artifact_schema_hash": meta.get("feature_schema_hash"), "feature_schema_version": meta.get("feature_schema_version"), "feature_names": meta.get("feature_names"), "promoted": bool(meta.get("promoted"))}
     _atomic_json(model_dir/"manifest.json", manifest)
     return manifest
@@ -1303,26 +1323,41 @@ def _validate_model_integrity(model_dir: Path = HYDRO_MODEL_CURRENT_DIR) -> dict
     if not meta_path.exists() or not model_path.exists() or not manifest_path.exists():
         raise ValueError("model_integrity_error:missing_file")
     manifest=_read_json(manifest_path, {})
-    sig=model_signature(model_dir)
-    if sig.get("model_sha256") != manifest.get("model_sha256"):
-        raise ValueError("model_integrity_error:hash_mismatch")
-    if sig.get("metadata_sha256") != manifest.get("metadata_payload_sha256"):
-        if meta.get("promoted") is True:
-            manifest["metadata_payload_sha256"] = sig.get("metadata_sha256")
-        else:
-            raise ValueError("model_integrity_error:hash_mismatch")
+    if manifest.get("manifest_schema_version") != "b411_model_manifest_v1":
+        raise ValueError("model_integrity_error:manifest_schema_unsupported")
+    manifest_fields = {"manifest_schema_version", "model_filename", "model_sha256", "metadata_payload_sha256", "artifact_schema_hash", "feature_schema_version", "feature_names", "promoted"}
+    if not manifest_fields.issubset(manifest):
+        raise ValueError("model_integrity_error:manifest_field_mismatch")
+    if (manifest.get("model_filename") != HYDRO_MODEL_FILENAME
+            or manifest.get("feature_schema_version") != meta.get("feature_schema_version")
+            or manifest.get("feature_names") != meta.get("feature_names")
+            or manifest.get("promoted") is not bool(meta.get("promoted"))):
+        raise ValueError("model_integrity_error:manifest_field_mismatch")
     if meta.get("feature_schema_hash") != manifest.get("artifact_schema_hash") or meta.get("feature_schema_hash") != _feature_schema_hash():
         raise ValueError("model_integrity_error:schema_hash_mismatch")
+    sig=model_integrity_signature(model_dir)
+    if sig.get("model_sha256") != manifest.get("model_sha256"):
+        raise ValueError("model_integrity_error:model_hash_mismatch")
+    if sig.get("metadata_sha256") != manifest.get("metadata_payload_sha256"):
+        raise ValueError("model_integrity_error:metadata_hash_mismatch")
     if meta.get("feature_schema_version") != FEATURE_SCHEMA_VERSION or meta.get("feature_names") != HYDRO_FLOOD_ML_FEATURES or not meta.get("promoted"):
         raise ValueError("model_integrity_error:metadata_mismatch")
     art=_load_artifact(model_path)
     if art.get("feature_schema_hash") != _feature_schema_hash() or art.get("feature_names") != HYDRO_FLOOD_ML_FEATURES:
         raise ValueError("model_integrity_error:artifact_schema_mismatch")
+    probe_row = {name: HYDRO_FEATURE_IMPUTATION.get(name, 0.0) for name in HYDRO_FLOOD_ML_FEATURES}
+    probe_vec = _feature_vector(probe_row)
+    if art.get("type") == "feature_linear_residual":
+        model=art["model"]; probe=float(model["slope"]*probe_vec[int(model["feature_idx"])] + model["intercept"])
+    else:
+        probe=float(art["model"].predict([probe_vec])[0])
+    if not math.isfinite(probe):
+        raise ValueError("model_integrity_error:non_finite_probe_inference")
     return {"metadata": meta, "artifact": art, "signature": sig, "manifest": manifest}
 
 def load_active_hydro_model(force_reload: bool = False) -> dict:
-    sig=model_signature(HYDRO_MODEL_CURRENT_DIR)
-    key=json.dumps({"path": sig.get("path"), "mtime_ns": sig.get("model_mtime_ns"), "size": sig.get("model_size"), "metadata_mtime_ns": sig.get("metadata_mtime_ns"), "schema": FEATURE_SCHEMA_VERSION}, sort_keys=True)
+    sig=model_stat_signature(HYDRO_MODEL_CURRENT_DIR)
+    key=json.dumps(sig, sort_keys=True)
     with _MODEL_CACHE_LOCK:
         if not force_reload and _MODEL_CACHE.get("key") == key:
             return {**_MODEL_CACHE, "model_cache_status": "hit"}
@@ -1333,12 +1368,16 @@ def load_active_hydro_model(force_reload: bool = False) -> dict:
         _MODEL_CACHE.clear(); _MODEL_CACHE.update({"key": key, "metadata": meta, "artifact": art, "signature": sig, "model_loaded_at": loaded_at, "model_version": meta.get("new_active_version") or meta.get("trained_at")})
         return {**_MODEL_CACHE, "model_cache_status": "miss"}
 
-def predict_q_delta(row: dict) -> dict:
+def predict_q_delta(row: dict, model_context: dict | None = None) -> dict:
     q=_f(row.get("current_q_m3s")); phys=max(0.0, _f(row.get("physical_predicted_q_delta_m3s"), 0.0) or 0.0); phys_max=max(0.0, (q or 0.0)+phys) if q is not None else None
-    base={"physical_predicted_q_delta_m3s": phys, "ml_predicted_q_delta_m3s": None, "predicted_q_delta_m3s": phys if q is not None else None, "predicted_q_max_m3s": phys_max, "prediction_source": "physical_fallback" if q is not None else "not_evaluable", "model_version": None, "model_rejection_reason": None, "model_cache_status": None, "model_loaded_at": None, "model_signature": model_signature(HYDRO_MODEL_CURRENT_DIR)}
+    context_signature = model_context.get("signature") if isinstance(model_context, dict) else model_stat_signature(HYDRO_MODEL_CURRENT_DIR)
+    base={"physical_predicted_q_delta_m3s": phys, "ml_predicted_q_delta_m3s": None, "predicted_q_delta_m3s": phys if q is not None else None, "predicted_q_max_m3s": phys_max, "prediction_source": "physical_fallback" if q is not None else "not_evaluable", "model_version": None, "model_rejection_reason": None, "model_cache_status": None, "model_loaded_at": None, "model_signature": context_signature}
     try:
-        loaded=load_active_hydro_model(); meta=loaded["metadata"]; art=loaded["artifact"]
+        loaded=model_context if model_context is not None else load_active_hydro_model()
+        if loaded.get("load_error") is not None: raise loaded["load_error"]
+        meta=loaded["metadata"]; art=loaded["artifact"]
         base.update({"model_cache_status": loaded.get("model_cache_status"), "model_loaded_at": loaded.get("model_loaded_at"), "model_version": loaded.get("model_version"), "model_signature": loaded.get("signature")})
+        if model_context is not None and loaded.get("model_cache_status") == "miss": loaded["model_cache_status"] = "hit"
         if not meta.get("promoted"): base["model_rejection_reason"]="model_not_promoted"; return base
         if meta.get("feature_schema_version") != FEATURE_SCHEMA_VERSION or meta.get("feature_names") != HYDRO_FLOOD_ML_FEATURES: base["model_rejection_reason"]="feature_schema_mismatch"; return base
         vec=_feature_vector(row)

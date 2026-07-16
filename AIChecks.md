@@ -124,6 +124,19 @@ Erwartung: bei Zellen im Land ist contributing_cell_count für mindestens eine S
 die Zell-Catchment-Zuordnung nicht ausgewertet — sofort melden.
 
 
+### AC-018 — Prüfe Modellintegritätsfehler im Export
+Suche im 24h-Export nach model_rejection_reason. Erwartung: leer oder
+"model_not_promoted". Jedes Auftreten von model_integrity_error ist zu melden, mit
+der genauen Kennung (model_hash_mismatch, metadata_hash_mismatch,
+manifest_field_mismatch, schema_hash_mismatch, non_finite_probe_inference) und dem
+Zeitpunkt des letzten Trainings aus hydro_flood_training_meta.json.
+
+### AC-019 — Prüfe Modell-Cache-Trefferquote
+Werte model_cache_status je Stationszeile im Export aus. Erwartung: genau ein "miss"
+je Auswertungslauf, alle weiteren Stationen "hit". Mehrere "miss" pro Lauf bedeuten,
+dass der Stat-Key instabil ist — Ursache melden, nicht den Cache vergrößern.
+
+
 ---
 
 ## Erledigt

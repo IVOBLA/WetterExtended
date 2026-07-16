@@ -6644,3 +6644,13 @@ gefiltert, Fremd-ZIP erhalten, Suffix-Filter entfernt, `_EXPORT_EXCLUDE_DIRS` un
 - **Einordnung B412:** B412 hat den Test korrekt auf den echten Shapely-Pfad umgestellt und dadurch den Befund sichtbar gemacht. Diese Aufklärung war die vorgesehene Arbeitsteilung und kein Versäumnis.
 
 **Phasen-Status:** Phase A — Hydro-Testsuite aussagekräftig. Phase B (Hailo-8 U-Net) unverändert blockiert.
+
+### B415 — Integritätsprüfung heilte sich selbst; Modellhash lief pro Station ✅ erledigt
+
+**Root-Cause:** `model_signature()` vermischte die häufige Cache-Invalidierung mit der kryptografischen Integritätsprüfung. Dadurch wurden Modell und Metadaten pro Station vollständig gehasht; zugleich ersetzte die `promoted`-Ausnahme bei einer Metadatenabweichung den erwarteten Hash im Speicher durch den tatsächlichen Hash und heilte die Prüfung selbst.
+
+**Fix:** `model_stat_signature()` liefert ausschließlich den Stat-Key einschließlich Inode, Modell-, Metadaten- und Manifest-Zeit/Größe. `model_integrity_signature()` berechnet die drei SHA256-Werte nur bei Cache-Miss, erzwungenem Reload, Promotion oder gezielter Diagnose. Die `promoted`-Ausnahme ist entfernt, Modell- und Metadatenabweichungen besitzen getrennte Kennungen, alle acht Manifestfelder werden geprüft und nach der Deserialisierung läuft eine endliche Probeinferenz mit den vorhandenen Imputationswerten beziehungsweise Feature-Defaults. `evaluate_live_flood_risk()` lädt einen Modellkontext vor der Stationsschleife und reicht ihn weiter.
+
+**Tests:** Die B415-Integritätstests manipulieren Modell, promotete und nicht promotete Metadaten, Manifest und Schema, prüfen unbekannte Manifestversionen, nicht endliche Probeausgaben, den gültigen ML-Pfad und das unveränderte Manifest. Der I/O-Test belegt bei 80 synthetischen Stationen höchstens drei Hashaufrufe und genau eine Deserialisierung; der zweite Lauf erzeugt null Hashaufrufe. Touch und gleich großer Verzeichnistausch prüfen Stat-Key und Inode. Die Sandbox-Nachhermessung dauerte 0,018 s bei 0 verfügbaren Stationen; eine belastbare Vorher-/Nachhermessung war ohne Raspberry-Pi-Datenbestand nicht möglich und muss deshalb bei der verbindlichen Pi-Abnahme mit dem dokumentierten Messbefehl ergänzt werden.
+
+**Phasen-Status:** Phase A — Modellartefakte sind manipulationsfest, die Stationsschleife ist I/O-frei. Phase B (Hailo-8 U-Net) unverändert blockiert.
