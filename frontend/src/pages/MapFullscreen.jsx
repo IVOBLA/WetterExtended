@@ -275,6 +275,7 @@ export default function MapFullscreen() {
   const [lightningAge,   setLightningAge]   = useState(15)  // Minuten
   const [hydroStations, setHydroStations] = useState({ type:'FeatureCollection', features: [] })
   const [hydroCatchments, setHydroCatchments] = useState({})
+  const [hydroFloodRisk, setHydroFloodRisk] = useState({})
   const [frames,       setFrames]       = useState([])
   const [currentIdx,   setCurrentIdx]   = useState(-1)
   const [playing,      setPlaying]      = useState(false)
@@ -364,6 +365,10 @@ export default function MapFullscreen() {
       if (bounds?.bounds) setRadarBounds(bounds.bounds)
       if (lightningData?.strikes) setLightning(lightningData.strikes)
       api.get('/api/hydro/stations?map=1').then(d => setHydroStations(hydroFeatureCollection(d))).catch(() => setHydroStations({ type:'FeatureCollection', features: [] }))
+      api.get('/api/hydro/flood-risk').then(d => {
+        const rows = Array.isArray(d?.stations) ? d.stations : []
+        setHydroFloodRisk(Object.fromEntries(rows.map(r => [String(r.station_id), r])))
+      }).catch(() => setHydroFloodRisk({}))
 
       // Schritt 2: Frame-Timestamp bestimmen, objects/forecast synchron laden
       let latestTs = null
@@ -676,18 +681,30 @@ export default function MapFullscreen() {
           const coords = f.geometry?.coordinates || []
           if (coords.length < 2) return null
           const impact = p.last_hydro_impact || {}
-          const popup = normalizeHydroFloodPopup(p, {})
+          const flood = hydroFloodRisk[String(p.station_id)] || {}
+          const popup = normalizeHydroFloodPopup(p, flood)
           const color = hydroTrendColor(popup.trendStatus)
-          const hasFloodWarning = p.flood_expected === true
+          const hasFloodWarning = flood.flood_expected === true || p.flood_expected === true
           const loadCatchment = () => api.get(`/api/hydro/station/${p.station_id}/catchment`).then(d => setHydroCatchments(prev => ({ ...prev, [p.station_id]: hydroFeatureCollection(d) }))).catch(() => {})
           const popupContent = (
               <Popup>
                   <div><strong>{p.name || p.station_id}</strong></div>
                   <div>Gewässer: {p.river || '—'}</div>
-                  <div>Q: {popup.currentQLabel} m³/s</div>
+                  <div>Q aktuell: {popup.currentQLabel} m³/s</div>
                   <div>Tendenz: {popup.trendLabel} ({popup.trendDeltaLabel})</div>
-                  <div>W: {p.w_cm ?? '—'} cm</div>
-                  <div>Messzeit: {p.measured_at || '—'}</div>
+                  <div>Q-Messzeit: {popup.currentQTimestampLabel}</div>
+                  <div>Q prognostiziert max: {popup.predictedQMaxLabel} m³/s</div>
+                  <div>Q ≥ Grenzwert: {popup.thresholdExceededLabel}</div>
+                  <div>Abstand zu Q ≥: {popup.distanceLabel} m³/s</div>
+                  <div>Niederschlag EZG: {popup.precipValue}</div>
+                  <div>Niederschlagsdaten EZG: {popup.precipStatusLabel}{popup.precipQualityLabel !== 'nicht bewertbar' ? ` · Qualität ${popup.precipQualityLabel}` : ''}</div>
+                  <div>Beitragende Zellen: {popup.contributingCellCountLabel}</div>
+                  <div>Davon aktuell im EZG: {popup.currentCellCountLabel}</div>
+                  <div>Ziehen in das EZG: {popup.incomingCellCountLabel}</div>
+                  <div>EZG-Aufenthaltsdauer: {popup.dwellTimeLabel}</div>
+                  <div><strong>Hochwassergefahr: {popup.floodLabel}</strong></div>
+                  <div>Gründe: {popup.reasonsLabel}</div>
+                  {popup.warningItems.length > 0 && <div>Hinweise: {popup.warningItems.join(', ')}</div>}
                   <div>letzter Hydro-Impact: {impact.cell_id ? `${impact.cell_id} (${impact.status})` : '—'}</div>
                   <div>Status: {p.status || '—'}</div>
                   {p.marked && <div><strong>Markiert: Q ≥ Schwelle</strong></div>}

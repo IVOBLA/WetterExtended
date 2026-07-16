@@ -1131,12 +1131,17 @@ export default function MapView() {
                   <div>Tendenz: {popup.trendLabel} ({popup.trendDeltaLabel})</div>
                   <div>Q-Messzeit: {popup.currentQTimestampLabel}</div>
                   {popup.currentQTimestampSourceLabel === 'Fetch-Zeitpunkt, Messzeit fehlt' && <div>Q-Zeitpunkt: {popup.currentQTimestampSourceLabel}</div>}
-                  <div>Q ≥ Grenzwert: {popup.thresholdLabel}{popup.thresholdLabel !== '—' ? ' m³/s' : ''} ({popup.thresholdSourceLabel})</div>
+                  <div>Q prognostiziert max: {popup.predictedQMaxLabel} m³/s</div>
+                  <div>Q ≥ Grenzwert: {popup.thresholdExceededLabel}</div>
+                  <div>Grenzwert: {popup.thresholdLabel}{popup.thresholdLabel !== '—' ? ' m³/s' : ''} ({popup.thresholdSourceLabel})</div>
                   <div>Abstand zu Q ≥: {popup.distanceLabel} m³/s</div>
                   <div>Niederschlag EZG: {popup.precipValue}</div>
                   <div>Niederschlagsdaten EZG: {popup.precipStatusLabel}{popup.precipQualityLabel !== 'nicht bewertbar' ? ` · Qualität ${popup.precipQualityLabel}` : ''}</div>
+                  <div>Beitragende Zellen: {popup.contributingCellCountLabel}</div>
+                  <div>Davon aktuell im EZG: {popup.currentCellCountLabel}</div>
+                  <div>Ziehen in das EZG: {popup.incomingCellCountLabel}</div>
+                  <div>EZG-Aufenthaltsdauer: {popup.dwellTimeLabel}</div>
                   <div><strong>Hochwassergefahr: {popup.floodLabel}</strong></div>
-                  {flood.flood_probability != null && <div>ML-Wahrscheinlichkeit: {Math.round(flood.flood_probability * 100)}%</div>}
                   <div>Datenalter Hydro: {popup.dataAgeLabel} min</div>
                   <div>Gründe: {popup.reasonsLabel}</div>
                   {popup.warningItems.length > 0 && <div>Hinweise: {popup.warningItems.join(', ')}</div>}
