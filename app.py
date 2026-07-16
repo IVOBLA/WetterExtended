@@ -5728,12 +5728,18 @@ def api_hydro_verification():
 def api_hydro_flood_risk():
     def _load():
         import hydro_flood_ml, hydro_fetch
+        from flask import request
         live = hydro_fetch.load_latest_hydro_live(max_age_seconds=None)
-        cells = _latest_objects()
+        cells, cell_meta = hydro_flood_ml.load_latest_cell_frame()
+        live = {**(live or {}), "cell_frame_meta": cell_meta}
+        include_debug = request.args.get("include_debug") in {"1", "true", "yes"}
         doc = hydro_flood_ml.HYDRO_RISK_PATH.exists() and hydro_flood_ml._read_json(hydro_flood_ml.HYDRO_RISK_PATH, None)
-        if hydro_flood_ml.is_flood_risk_cache_valid(doc, live=live, cells=cells):
+        if cell_meta.get("status") in {"stale", "missing", "invalid", "error"}:
+            cached = doc if isinstance(doc, dict) else {"stations": []}
+            return {**cached, "status": "deferred_stale_cell_snapshot" if cell_meta.get("status") == "stale" else "deferred_missing_cell_snapshot", "cell_frame_path": cell_meta.get("path"), "cell_frame_timestamp": cell_meta.get("frame_timestamp"), "cell_frame_age_min": cell_meta.get("frame_age_min"), "cell_frame_status": cell_meta.get("status"), "warning": "Hydro-Flood-Risk-Cache wegen fehlendem oder veraltetem Zellframe nicht überschrieben."}
+        if hydro_flood_ml.is_flood_risk_cache_valid(doc, live=live, cells=cells or []):
             return doc
-        return hydro_flood_ml.evaluate_live_flood_risk(live=live, cells=cells)
+        return hydro_flood_ml.evaluate_live_flood_risk(live=live, cells=cells or [], include_debug=include_debug)
     return _hydro_safe(_load, "hydro_flood_risk_error")
 
 @app.route("/api/hydro/flood-risk/status")
