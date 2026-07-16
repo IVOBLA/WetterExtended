@@ -23,6 +23,7 @@ def test_train_model_writes_joblib_and_predicts(monkeypatch, tmp_path):
     assert meta["model_filename"] == "model.joblib"
     meta["promoted"] = True
     (h.HYDRO_MODEL_CURRENT_DIR / "metadata.json").write_text(json.dumps(meta), encoding="utf-8")
+    h._write_model_manifest(h.HYDRO_MODEL_CURRENT_DIR, meta)
     pred = h.predict_q_delta(_row(41))
     assert pred["prediction_source"] == "hydro_ml"
     assert pred["predicted_q_max_m3s"] >= pred["physical_predicted_q_delta_m3s"]
