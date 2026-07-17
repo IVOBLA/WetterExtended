@@ -670,6 +670,7 @@ def _precip_from_cells(station: dict, cells: list[dict]) -> dict:
             identity = {key: cell[key] for key in ("lineage_id", "parent_cell_ids", "origin_type", "tracking_state") if cell.get(key) not in (None, "")}
             cell_stats[cid] = {"cell_id": cid, **identity, "currently_inside": 0 in offs, "forecast_entry": min(offs) > 0, "entry_offset_min": min(offs), "exit_offset_min": max(i["exit_offset_min"] for i in intervals), "first_entry_offset_min": min(offs), "last_exit_offset_min": max(i["exit_offset_min"] for i in intervals), "dwell_time_min": sum(i["duration_min"] for i in intervals), "total_dwell_time_min": sum(i["duration_min"] for i in intervals), "continuous_max_dwell_min": max(i["duration_min"] for i in intervals), "hit_interval_count": len(intervals), "hit_intervals": intervals, "cell_area_km2": round(cell_area,3), "max_overlap_area_km2": round(max(areas),3), "mean_overlap_area_km2": round(sum(areas)/len(areas),3), "overlap_area_time_km2_min": round(sum(areas)*step,3), "rain_rate_mm_h": round(rate,3), "rain_rate_source": rate_src, "intensity_forecast_mode": "persistence", "forecast_mode_used": sorted(modes)}
     series=[]; raw_total=0.0; eff_total=0.0; dedup_total=0.0; spatial_dedup=False; routed=0.0; prev_off=None
+    t0_contributions: list[dict] = []
     max_forecast = 0
     try:
         horizons = [int(h) for h in runtime_config.get("ML_FORECAST_HORIZONS_MIN", getattr(config, "ML_FORECAST_HORIZONS_MIN", [60]))]
@@ -693,6 +694,18 @@ def _precip_from_cells(station: dict, cells: list[dict]) -> dict:
                 spatial_dedup=True; continue
             raw_q += runoff_coeff * part["rate"] * ea / 3.6
             eff_area += ea; active.add(part["cell_id"])
+            if off == 0:
+                # P74: nur der gemessene Zeitschritt wird zum Gedächtnis; alles > 0
+                # ist Prognose und darf nie als Beleg für gefallenen Regen gelten.
+                t0_contributions.append({
+                    "cell_id": part["cell_id"],
+                    "lineage_id": (cell_stats.get(part["cell_id"], {}) or {}).get("lineage_id"),
+                    "eff_overlap_area_km2": round(ea, 4),
+                    "rain_rate_mm_h": round(float(part["rate"]), 4),
+                    "rain_rate_source": part["rate_source"],
+                    "runoff_coeff": round(runoff_coeff, 4),
+                    "raw_delta_q_m3s": round(runoff_coeff * float(part["rate"]) * ea / 3.6, 5),
+                })
             if not cell_stats.get(part["cell_id"], {}).get("currently_inside"): incoming.add(part["cell_id"])
             occupied = geom if occupied is None else unary_union([occupied, geom])
             cs=cell_stats[part["cell_id"]]
@@ -714,7 +727,7 @@ def _precip_from_cells(station: dict, cells: list[dict]) -> dict:
     label="aus erkannter Regenzelle abgeleitet" if contributing else "keine relevante Zelle im aktuellen oder prognostizierten Einzugsgebiet"
     raw_overlap_area_time_km2_min = round(raw_total * step, 3)
     effective_overlap_area_time_km2_min = round(eff_total * step, 3)
-    return {**cdiag, "input_cell_count": len(cells or []), "cell_catchment_count": contributing, "contributing_cell_count": contributing, "current_cell_count": current, "incoming_cell_count": incoming, "cell_catchment_precip_sum_mm": round(total_rain / max(cdiag.get("catchment_area_geometry_km2") or 1.0, 1e-6) / 1000.0, 3), "cell_catchment_precip_weighted_sum_mm": round(total_rain / max(cdiag.get("catchment_area_geometry_km2") or 1.0, 1e-6) / 1000.0, 3), "cell_catchment_max_intensity": round(max([d.get("rain_rate_mm_h",0) for d in diags] or [0]),3), "cell_catchment_area_km2_sum": round(sum(d.get("cell_area_km2",0) for d in diags),3), "cell_catchment_overlap_area_km2_sum": round(raw_total,3), "raw_overlap_area_km2_sum": round(raw_total,3), "effective_overlap_area_km2": round(max([x["effective_overlap_area_km2"] for x in series] or [0]),3), "overlap_deduplicated_area_km2": round(dedup_total,3), "spatial_dedup_applied": spatial_dedup, "cell_catchment_overlap_ratio_max": round(max([d.get("max_overlap_area_km2",0)/max(d.get("cell_area_km2",1),1e-6) for d in diags] or [0]),4), "cell_precip_source_type": source if contributing else "none", "geometry_quality": "shapely", "routing_tau_min": round(tau,3), "routing_tau_source": tau_source, "precip_evaluable_by_geometry": True, "precip_status": status, "precip_status_label": label, "total_rain_volume_m3": round(total_rain,3), "total_runoff_volume_m3": round(total_runoff,3), "total_dwell_time_min": round(sum(d.get("dwell_time_min",0) for d in diags),3), "max_cell_dwell_time_min": round(max([d.get("dwell_time_min",0) for d in diags] or [0]),3), "max_overlap_area_km2": round(max([d.get("max_overlap_area_km2",0) for d in diags] or [0]),3), "raw_overlap_area_time_km2_min": raw_overlap_area_time_km2_min, "effective_overlap_area_time_km2_min": effective_overlap_area_time_km2_min, "overlap_area_time_km2_min": effective_overlap_area_time_km2_min, "physical_predicted_q_delta_m3s": round(pred_delta,4), "physical_predicted_q_max_m3s": round(max(0.0, q0+pred_delta),4), "first_entry_offset_min": min([d.get("entry_offset_min") for d in diags] or [None]), "last_exit_offset_min": max([d.get("exit_offset_min") for d in diags] or [None]), "rain_rate_mm_h_max": round(max([d.get("rain_rate_mm_h",0) for d in diags] or [0]),3), "rain_rate_mm_h_mean": round(sum(d.get("rain_rate_mm_h",0) for d in diags)/contributing,3) if contributing else 0.0, "rain_rate_mm_h_area_weighted": round((sum(d.get("rain_rate_mm_h",0)*d.get("max_overlap_area_km2",0) for d in diags) / max(sum(d.get("max_overlap_area_km2",0) for d in diags), 1e-6)),3) if contributing else 0.0, "cell_diagnostics": diags, "station_runoff_series": series[:24]}
+    return {**cdiag, "input_cell_count": len(cells or []), "cell_catchment_count": contributing, "contributing_cell_count": contributing, "current_cell_count": current, "incoming_cell_count": incoming, "cell_catchment_precip_sum_mm": round(total_rain / max(cdiag.get("catchment_area_geometry_km2") or 1.0, 1e-6) / 1000.0, 3), "cell_catchment_precip_weighted_sum_mm": round(total_rain / max(cdiag.get("catchment_area_geometry_km2") or 1.0, 1e-6) / 1000.0, 3), "cell_catchment_max_intensity": round(max([d.get("rain_rate_mm_h",0) for d in diags] or [0]),3), "cell_catchment_area_km2_sum": round(sum(d.get("cell_area_km2",0) for d in diags),3), "cell_catchment_overlap_area_km2_sum": round(raw_total,3), "raw_overlap_area_km2_sum": round(raw_total,3), "effective_overlap_area_km2": round(max([x["effective_overlap_area_km2"] for x in series] or [0]),3), "overlap_deduplicated_area_km2": round(dedup_total,3), "spatial_dedup_applied": spatial_dedup, "cell_catchment_overlap_ratio_max": round(max([d.get("max_overlap_area_km2",0)/max(d.get("cell_area_km2",1),1e-6) for d in diags] or [0]),4), "cell_precip_source_type": source if contributing else "none", "geometry_quality": "shapely", "routing_tau_min": round(tau,3), "routing_tau_source": tau_source, "precip_evaluable_by_geometry": True, "precip_status": status, "precip_status_label": label, "total_rain_volume_m3": round(total_rain,3), "total_runoff_volume_m3": round(total_runoff,3), "total_dwell_time_min": round(sum(d.get("dwell_time_min",0) for d in diags),3), "max_cell_dwell_time_min": round(max([d.get("dwell_time_min",0) for d in diags] or [0]),3), "max_overlap_area_km2": round(max([d.get("max_overlap_area_km2",0) for d in diags] or [0]),3), "raw_overlap_area_time_km2_min": raw_overlap_area_time_km2_min, "effective_overlap_area_time_km2_min": effective_overlap_area_time_km2_min, "overlap_area_time_km2_min": effective_overlap_area_time_km2_min, "physical_predicted_q_delta_m3s": round(pred_delta,4), "physical_predicted_q_max_m3s": round(max(0.0, q0+pred_delta),4), "first_entry_offset_min": min([d.get("entry_offset_min") for d in diags] or [None]), "last_exit_offset_min": max([d.get("exit_offset_min") for d in diags] or [None]), "rain_rate_mm_h_max": round(max([d.get("rain_rate_mm_h",0) for d in diags] or [0]),3), "rain_rate_mm_h_mean": round(sum(d.get("rain_rate_mm_h",0) for d in diags)/contributing,3) if contributing else 0.0, "rain_rate_mm_h_area_weighted": round((sum(d.get("rain_rate_mm_h",0)*d.get("max_overlap_area_km2",0) for d in diags) / max(sum(d.get("max_overlap_area_km2",0) for d in diags), 1e-6)),3) if contributing else 0.0, "cell_diagnostics": diags, "station_runoff_series": series[:24], "precip_ledger_t0": t0_contributions}
 
 def _observed_precip(station: dict) -> dict:
     p = station.get("observed_precip") if isinstance(station.get("observed_precip"), dict) else {}
@@ -849,7 +862,7 @@ def evaluate_live_flood_risk(stations: list[dict]|None=None, live: dict|None=Non
     if stations is None:
         import hydro_api
         stations = [f.get("properties") or {} for f in hydro_api.station_features(include_disabled=False).get("features", [])]
-    generated = _now(); public_rows=[]; internal_rows=[]
+    generated = _now(); public_rows=[]; internal_rows=[]; ledger_entries: list[dict] = []
     trend_history = load_q_trend_history()
     cells_meta = _objects_signature(cells or [])
     frame_meta = (live or {}).get("cell_frame_meta") if isinstance(live, dict) else None
@@ -867,13 +880,21 @@ def evaluate_live_flood_risk(stations: list[dict]|None=None, live: dict|None=Non
         full = {**row, **sc, "generated_at": generated, "flood_probability": None}
         if isinstance(frame_meta, dict):
             full.update({"cell_frame_path": frame_meta.get("path"), "cell_frame_timestamp": frame_meta.get("frame_timestamp"), "cell_frame_age_min": frame_meta.get("frame_age_min"), "cell_frame_status": frame_meta.get("cell_frame_status") or frame_meta.get("status")})
+        for entry in (full.pop("precip_ledger_t0", None) or []):
+            ledger_entries.append({**entry, "station_id": full.get("station_id")})
         internal_rows.append(full)
         public_rows.append(full if include_debug else _public_flood_row(full))
+    if write and isinstance(frame_meta, dict) and frame_meta.get("status") == "ok":
+        ledger_meta = append_precip_ledger(ledger_entries, frame_meta.get("frame_timestamp"))
+        ledger_meta["ledger_rows_purged"] = purge_precip_ledger()
+    else:
+        ledger_meta = {"ledger_status": "not_written", "ledger_rows_written": 0, "ledger_rows_purged": 0}
     pending_meta = record_pending_samples(internal_rows, live=live, cells_meta=cells_meta) if write else {"pending_added": 0, "pending_total": None}
     materialize_meta = materialize_pending_samples(live=None) if write else {"labeled_added": 0}
     doc = {"status":"ok", "payload_scope": "admin_diagnostics" if include_debug else "public", "payload_schema_version": "b419_admin_diagnostics_v1" if include_debug else "b411_public_v1", "generated_at": generated, "input_hash": flood_risk_input_hash(live=live, cells=cells or [], cell_frame_meta=frame_meta), "stations": public_rows, "pending_samples": pending_meta, "materialized_samples": materialize_meta, "readiness": readiness_status(), "cell_frame_path": (frame_meta or {}).get("path") if isinstance(frame_meta, dict) else None, "cell_frame_timestamp": (frame_meta or {}).get("frame_timestamp") if isinstance(frame_meta, dict) else None, "cell_frame_age_min": (frame_meta or {}).get("frame_age_min") if isinstance(frame_meta, dict) else None, "cell_frame_status": (frame_meta or {}).get("cell_frame_status") if isinstance(frame_meta, dict) else None}
     if include_debug:
         doc["debug_stations"] = internal_rows
+        doc["precip_ledger"] = ledger_meta
     if write and not include_debug: _atomic_json(HYDRO_RISK_PATH, doc)
     return doc
 
@@ -980,6 +1001,13 @@ def _sample_db() -> sqlite3.Connection:
     con.execute("CREATE TABLE IF NOT EXISTS schema_migrations (migration_id TEXT PRIMARY KEY, applied_at TEXT, rows_imported INTEGER DEFAULT 0, rows_legacy_moved INTEGER DEFAULT 0, rows_invalid INTEGER DEFAULT 0, payload TEXT)")
     con.execute("CREATE TABLE IF NOT EXISTS q_history (station_id TEXT NOT NULL, measured_at TEXT NOT NULL, fetched_at TEXT, q_m3s REAL, data_age_min REAL, source TEXT, PRIMARY KEY(station_id, measured_at))")
     con.execute("CREATE INDEX IF NOT EXISTS idx_q_history_station_time ON q_history(station_id, measured_at)")
+    # P74: Gedächtnis des bereits gefallenen Zellniederschlags je Einzugsgebiet.
+    # Ein Eintrag = ein Frame x eine Station x eine Zelle, bewertet bei Offset 0
+    # (also gemessen, nicht prognostiziert) und bereits räumlich dedupliziert.
+    # Der Primärschlüssel macht wiederholte Läufe auf demselben Frame idempotent
+    # und verhindert damit Doppelzählung.
+    con.execute("CREATE TABLE IF NOT EXISTS catchment_precip_ledger (station_id TEXT NOT NULL, frame_timestamp TEXT NOT NULL, cell_id TEXT NOT NULL, written_at TEXT, eff_overlap_area_km2 REAL, rain_rate_mm_h REAL, rain_rate_source TEXT, runoff_coeff REAL, raw_delta_q_m3s REAL, lineage_id TEXT, PRIMARY KEY(station_id, frame_timestamp, cell_id))")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_ledger_station_frame ON catchment_precip_ledger(station_id, frame_timestamp)")
     existing={r[1] for r in con.execute("PRAGMA table_info(labeled_samples)")}
     for name,kind in (("sample_kind","TEXT"),("feature_schema_version","TEXT"),("feature_schema_hash","TEXT"),("feature_snapshot_complete","INTEGER"),("target_missing","INTEGER"),("target_q_delta_m3s","REAL"),("event_id","TEXT"),("cell_frame_hash","TEXT"),("precip_event_active","INTEGER")):
         if name not in existing: con.execute(f"ALTER TABLE labeled_samples ADD COLUMN {name} {kind}")
@@ -987,6 +1015,70 @@ def _sample_db() -> sqlite3.Connection:
     con.execute("CREATE INDEX IF NOT EXISTS idx_labeled_station_time ON labeled_samples(station_id, sample_start_time)")
     con.execute("CREATE INDEX IF NOT EXISTS idx_labeled_readiness ON labeled_samples(feature_schema_version, feature_snapshot_complete, target_missing)")
     return con
+
+def ledger_retention_min() -> int:
+    """Rückhaltezeit des Niederschlagsgedächtnisses in Minuten.
+
+    Default ist die obere Grenze des Pegel-Reaktionsfensters (HYDRO_LAG_WINDOW_MIN):
+    länger zurückliegender Regen kann den Pegel definitionsgemäß nicht mehr erstmals
+    anheben. Explizit gesetztes HYDRO_PRECIP_LEDGER_RETENTION_MIN hat Vorrang.
+    """
+    explicit = runtime_config.get("HYDRO_PRECIP_LEDGER_RETENTION_MIN", getattr(config, "HYDRO_PRECIP_LEDGER_RETENTION_MIN", None))
+    if explicit is not None:
+        try:
+            return max(0, min(720, int(explicit)))
+        except (TypeError, ValueError):
+            pass
+    return max(0, min(720, int(round(_lag_bounds_min()[1]))))
+
+
+def ledger_enabled() -> bool:
+    value = runtime_config.get("HYDRO_PRECIP_LEDGER_ENABLED", getattr(config, "HYDRO_PRECIP_LEDGER_ENABLED", True))
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "no", "off"}
+    return bool(value)
+
+
+def append_precip_ledger(entries: list[dict], frame_timestamp: str | None) -> dict:
+    """Schreibt die bei Offset 0 bewerteten Zellbeiträge in das Gedächtnis.
+
+    Ohne echten Frame-Timestamp wird nichts geschrieben: die Zeitbasis muss laut
+    zieldefinition.txt aus echten Frame-Timestamps stammen, nie aus Annahmen.
+    INSERT OR REPLACE auf dem Primärschlüssel macht Wiederholungen desselben Frames
+    folgenlos.
+    """
+    if not ledger_enabled():
+        return {"ledger_status": "disabled", "ledger_rows_written": 0}
+    if not frame_timestamp:
+        return {"ledger_status": "frame_timestamp_missing", "ledger_rows_written": 0}
+    rows = [e for e in (entries or []) if isinstance(e, dict) and e.get("station_id") and e.get("cell_id")]
+    if not rows:
+        return {"ledger_status": "ok", "ledger_rows_written": 0}
+    now = _now()
+    try:
+        with _sample_db() as con:
+            con.executemany(
+                "INSERT OR REPLACE INTO catchment_precip_ledger(station_id,frame_timestamp,cell_id,written_at,eff_overlap_area_km2,rain_rate_mm_h,rain_rate_source,runoff_coeff,raw_delta_q_m3s,lineage_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                [(str(r["station_id"]), str(frame_timestamp), str(r["cell_id"]), now,
+                  _f(r.get("eff_overlap_area_km2"), 0.0), _f(r.get("rain_rate_mm_h"), 0.0),
+                  r.get("rain_rate_source"), _f(r.get("runoff_coeff"), 0.0),
+                  _f(r.get("raw_delta_q_m3s"), 0.0), r.get("lineage_id")) for r in rows])
+    except sqlite3.Error as exc:
+        return {"ledger_status": f"error:{type(exc).__name__}", "ledger_rows_written": 0}
+    return {"ledger_status": "ok", "ledger_rows_written": len(rows)}
+
+
+def purge_precip_ledger(now: datetime | None = None) -> int:
+    """Entfernt Gedächtniseinträge außerhalb der Rückhaltezeit. Gibt gelöschte Zeilen zurück."""
+    retention = ledger_retention_min()
+    cutoff = ((now or datetime.now(timezone.utc)) - timedelta(minutes=retention)).isoformat().replace("+00:00", "Z")
+    try:
+        with _sample_db() as con:
+            cur = con.execute("DELETE FROM catchment_precip_ledger WHERE frame_timestamp < ?", (cutoff,))
+            return int(cur.rowcount or 0)
+    except sqlite3.Error:
+        return 0
+
 
 def _q_history_signature():
     try:

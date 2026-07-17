@@ -340,6 +340,16 @@ beginnen, und der Block muss eines der Wörter .json, .jsonl, grep, Log, log, Ex
 oder Pi enthalten. Die Schlüsselwortliste im Test wird nie erweitert — der Block passt
 sich an. Ein Block ohne diese Wörter hat keine überprüfbare Datenquelle.
 
+### AC-054 — Prüfe das Niederschlagsgedächtnis auf Doppelzählung und Wachstum
+Im Debug-Export auf dem Pi ausführen:
+  sqlite3 train_data/hydro/ml/hydro_flood_samples.sqlite3 "SELECT COUNT(*), COUNT(DISTINCT frame_timestamp), MIN(frame_timestamp), MAX(frame_timestamp) FROM catchment_precip_ledger;"
+  sqlite3 train_data/hydro/ml/hydro_flood_samples.sqlite3 "SELECT station_id, frame_timestamp, cell_id, COUNT(*) c FROM catchment_precip_ledger GROUP BY 1,2,3 HAVING c > 1;"
+Die zweite Abfrage muss leer bleiben — jede Zeile dort ist eine Doppelzählung und
+verfälscht den prognostizierten Abfluss nach oben. Liegt die Spanne zwischen MIN und
+MAX über HYDRO_PRECIP_LEDGER_RETENTION_MIN (Default 180 min, siehe
+runtime_overrides.json), läuft purge_precip_ledger nicht: melden, das Wachstum ist
+sonst auf dem Pi unbegrenzt.
+
 ---
 
 ## Erledigt

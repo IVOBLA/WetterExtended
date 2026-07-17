@@ -7049,3 +7049,41 @@ durchgesetzt.
 **Phasen-Status:** Phase A — Testsuite auf dem Pi grün, Serie B412–B428 abgeschlossen.
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
 Trainingsdaten.
+
+### P74 — Einzugsgebiets-Niederschlagsgedächtnis, Teil 1: Persistenz ✅ erledigt
+
+**Befund:** `_precip_from_cells()` bewertete nur Offsets ≥ 0. Verließ eine Zelle das
+Einzugsgebiet oder zerfiel sie, verschwand ihr Niederschlagsbeitrag im nächsten Lauf
+ersatzlos: `contributing_cell_count` fiel auf 0, `precip_status` wurde
+`no_relevant_cell`, `physical_predicted_q_delta_m3s` wurde 0. Laut
+`HYDRO_LAG_WINDOW_MIN = [20, 180]` erreicht dieser Regen den Pegel aber erst 20 bis
+180 Minuten später — das System vergaß ihn genau dann, wenn er wirksam wurde.
+
+**Ursache:** Der bei Offset 0 berechnete, räumlich deduplizierte Zellbeitrag wurde
+nirgends persistiert und war im Folgelauf nicht rekonstruierbar.
+
+**Fix:** Neue Tabelle `catchment_precip_ledger` im bestehenden
+`hydro_flood_samples.sqlite3` (kein neuer Store, kein unbegrenztes JSONL — Konsequenz
+aus B417). Ein Eintrag je Frame × Station × Zelle, geschrieben ausschließlich für den
+gemessenen Zeitschritt Offset 0. Der Primärschlüssel
+`(station_id, frame_timestamp, cell_id)` mit `INSERT OR REPLACE` macht wiederholte
+Läufe auf demselben Frame idempotent und verhindert Doppelzählung. Ohne echten
+`frame_timestamp` wird nichts geschrieben (Zeitbasis-Regel aus `zieldefinition.txt`).
+`purge_precip_ledger()` hält den Bestand auf `HYDRO_PRECIP_LEDGER_RETENTION_MIN`
+(Default: obere Grenze des Lag-Fensters, 180 min) begrenzt; das Wachstum ist damit
+konstant beschränkt — relevant für den Pi.
+
+**Abgrenzung:** P74 erzeugt nur den Datenbestand. Das ausgelieferte Ergebnis bleibt
+byte-identisch; `precip_ledger_t0` wird vor `internal_rows` aus der Row entfernt und
+steht in keiner Key-Liste von `_public_flood_row()` (Payload-Hygiene B419). Die
+Auswertung im Routing folgt in P75.
+
+**Tests:** `tests/test_p74_precip_ledger.py` — Tabellenanlage, Schreiben, Idempotenz
+bei wiederholtem Frame, Akkumulation über Frames, Abweisung ohne Frame-Timestamp,
+Abschaltbarkeit, Retention-Default aus dem Lag-Fenster, selektives Purge,
+Payload-Hygiene.
+
+**Phasen-Status:** Phase A — Serie B412–B428 abgeschlossen; P74 ergänzt die Persistenz
+des Niederschlagsgedächtnisses. P75 (Auswertung im Routing) steht aus. Phase B
+(Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
+Trainingsdaten.
