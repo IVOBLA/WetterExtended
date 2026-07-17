@@ -92,15 +92,19 @@ def _quality_target_for_horizon(horizon_key: str) -> float:
     return QUALITY_TARGET_MAE_KM_CONFIGURABLE_DEFAULT.get(horizon_key, 2.0)
 
 
-def _mae_by_horizon(records: list) -> dict:
-    values: dict[str, list[float]] = {}
+def _mae_by_horizon(records: list) -> dict[float, float]:
+    """Mittlerer mae_km je Horizont. Schlüssel: Horizont in Minuten."""
+    values: dict[float, list[float]] = {}
     for rec in records:
         for horizon in rec.get("horizons", []):
             h = horizon.get("horizon")
             v = horizon.get("mae_km")
             if h is None or not isinstance(v, (int, float)) or v <= 0:
                 continue
-            key = str(int(h)) if isinstance(h, (int, float)) and float(h).is_integer() else str(h)
+            try:
+                key = float(h)
+            except (TypeError, ValueError):
+                continue
             values.setdefault(key, []).append(float(v))
     return {h: round(sum(vals) / len(vals), 3) for h, vals in values.items() if vals}
 
@@ -175,6 +179,22 @@ def check_drift() -> dict:
     mae_recent = _mean_mae(recent_recs)
     mae_baseline = _mean_mae(baseline_recs)
     mae_recent_short = _mean_mae_for_horizons(recent_recs, DRIFT_SHORT_HORIZON_MAX_MIN)
+    mae_recent_by_horizon = _mae_by_horizon(recent_recs)
+    mae_baseline_by_horizon = _mae_by_horizon(baseline_recs)
+    common_horizons = sorted(mae_recent_by_horizon.keys() & mae_baseline_by_horizon.keys())
+    skipped_horizons = sorted(mae_recent_by_horizon.keys() ^ mae_baseline_by_horizon.keys())
+    delta_by_horizon = {
+        horizon: round(mae_recent_by_horizon[horizon] - mae_baseline_by_horizon[horizon], 3)
+        for horizon in common_horizons
+    }
+    short_deltas = {
+        horizon: delta
+        for horizon, delta in delta_by_horizon.items()
+        if horizon <= DRIFT_SHORT_HORIZON_MAX_MIN
+    }
+    triggering_horizons = sorted(
+        horizon for horizon, delta in short_deltas.items() if delta > DRIFT_MAE_THRESHOLD_KM
+    )
 
     result = {
         "drift_detected": False,
@@ -182,6 +202,11 @@ def check_drift() -> dict:
         "mae_recent_km": mae_recent,
         "mae_baseline_km": mae_baseline,
         "mae_recent_short_km": mae_recent_short,
+        "mae_recent_by_horizon": mae_recent_by_horizon,
+        "mae_baseline_by_horizon": mae_baseline_by_horizon,
+        "delta_by_horizon": delta_by_horizon,
+        "triggering_horizons": triggering_horizons,
+        "skipped_horizons_not_in_both_windows": skipped_horizons,
         "short_horizon_max_min": DRIFT_SHORT_HORIZON_MAX_MIN,
         "abs_threshold_km": DRIFT_MAE_ABS_MAX_KM,
         "quality_target_met": None,
@@ -199,51 +224,51 @@ def check_drift() -> dict:
         "message": "Zu wenige Messpunkte für Drift-Analyse.",
     }
 
-    if (
-        mae_recent is not None
-        and mae_baseline is not None
-        and len(recent_recs) >= DRIFT_MIN_POINTS
-        and len(baseline_recs) >= DRIFT_MIN_POINTS
-    ):
-        delta = mae_recent - mae_baseline
-        result["delta_km"] = round(delta, 3)
+    if len(recent_recs) >= DRIFT_MIN_POINTS and len(baseline_recs) >= DRIFT_MIN_POINTS:
+        delta = max(short_deltas.values()) if short_deltas else None
+        result["delta_km"] = delta
 
-        if delta > DRIFT_MAE_THRESHOLD_KM:
+        if triggering_horizons:
             result["drift_detected"] = True
             result["drift_reason"] = "relative"
             result["model_status"] = "drift"
             result["message"] = (
-                f"⚠️ Model-Drift erkannt: MAE verschlechtert um {delta:.2f} km "
-                f"(recent={mae_recent:.2f} km vs. baseline={mae_baseline:.2f} km, "
+                f"⚠️ Model-Drift erkannt: Kurzhorizont-MAE verschlechtert um {delta:.2f} km "
+                f"(Horizonte={triggering_horizons}, "
                 f"Threshold={DRIFT_MAE_THRESHOLD_KM} km)"
             )
             debug_log(f"[DRIFT] {result['message']}")
-        elif mae_recent < mae_baseline:
+        elif delta is None:
+            result["model_status"] = "unknown"
+            result["message"] = "Keine gemeinsamen Kurzhorizonte für relative Drift-Analyse."
+        elif all(value < 0 for value in short_deltas.values()):
             result["model_status"] = "improved"
             result["message"] = (
                 f"ℹ️ Modellqualität verbessert: delta={delta:+.2f} km "
-                f"(recent={mae_recent:.2f} km, baseline={mae_baseline:.2f} km)"
+                f"(größtes Kurzhorizont-Delta={delta:+.2f} km)"
             )
         else:
             result["model_status"] = "stable"
             result["message"] = (
                 f"Model stabil: delta={delta:+.2f} km "
-                f"(recent={mae_recent:.2f} km, baseline={mae_baseline:.2f} km)"
+                f"(größtes Kurzhorizont-Delta={delta:+.2f} km)"
             )
 
     if len(recent_recs) >= DRIFT_MIN_POINTS:
         mae_by_horizon = _mae_by_horizon(recent_recs)
         quality_target_by_horizon = {}
         for h, actual in mae_by_horizon.items():
-            target = _quality_target_for_horizon(h)
-            quality_target_by_horizon[h] = {
+            horizon_key = str(int(h)) if h.is_integer() else str(h)
+            target = _quality_target_for_horizon(horizon_key)
+            quality_target_by_horizon[horizon_key] = {
                 "target_km": target,
                 "actual_mae_km": actual,
                 "met": actual <= target,
-                "editable": not _horizon_is_fixed_target(h),
+                "editable": not _horizon_is_fixed_target(horizon_key),
             }
         violation_horizon = next(
-            (h for h, actual in mae_by_horizon.items() if actual is not None and actual > _quality_target_for_horizon(h)),
+            (str(int(h)) if h.is_integer() else str(h) for h, actual in mae_by_horizon.items()
+             if actual is not None and actual > _quality_target_for_horizon(str(int(h)) if h.is_integer() else str(h))),
             None,
         )
         result["quality_target_by_horizon"] = quality_target_by_horizon

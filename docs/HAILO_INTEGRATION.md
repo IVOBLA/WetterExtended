@@ -6889,3 +6889,51 @@ nicht dauerhaft geschlossen ist.
 **Phasen-Status:** Phase A — Drift-Alarme nur bei ausgeliefertem Modell. Da derzeit
 100 % kinematisch ausgeliefert wird, sind bis zur ersten erfolgreichen Promotion
 keine Drift-Mails zu erwarten. Phase B (Hailo-8 U-Net) unverändert blockiert.
+
+### B425 — Relativer Drift-Trigger poolte alle Horizonte; jeder Horizont besser, trotzdem "Drift" ✅ erledigt
+
+**Root-Cause und Herkunft:** Laut KI-Analyse-Report vom 17.07.2026, Befund F3,
+bildete `_mean_mae()` einen ungewichteten Mittelwert aus allen Horizonten. Da der MAE
+mit dem Vorhersagehorizont steigt, veränderte bereits ein höherer Anteil langlebiger
+Zellen mit h40/h60 den Pool-Wert, ohne dass das Modell auf einem einzigen Horizont
+schlechter sein musste (Simpsons Paradox).
+
+**Live-Beleg:** Der Export zeigte durchgehend Verbesserungen:
+
+| Horizont | recent (24 h) | baseline (168 h) | Bewertung |
+|---|---:|---:|---|
+| h10 | 3,7 km | 4,0 km | besser |
+| h20 | 6,5 km | 7,9 km | besser |
+| h30 | 9,6 km | 11,4 km | besser |
+| h40 | 11,8 km | 14,1 km | besser |
+| h60 | 14,8 km | 17,0 km | besser |
+
+Trotzdem meldete der gepoolte Hauptpfad Drift. B165 hatte lediglich den
+Kurzhorizont-Wächter und `mae_recent_short_km` als Zusatzsicht ergänzt, den relativen
+Trigger jedoch nicht umgestellt. Eine Zusatzsicht behebt keinen falschen Hauptpfad.
+
+**Fix und neue Trigger-Regel:** `_mae_by_horizon()` mittelt `mae_km` getrennt je
+Horizont. Im Wortlaut gilt: „Für jeden in recent und baseline gemeinsamen Horizont
+wird `delta_h = recent_h - baseline_h` berechnet; relativen Drift löst genau dann
+mindestens ein `delta_h > DRIFT_MAE_THRESHOLD_KM` mit
+`h <= DRIFT_SHORT_HORIZON_MAX_MIN` aus.“ Lange Horizonte sind wegen seltener
+Zellüberlebensdauer und des stärkeren Wettereinflusses zu rauschanfällig, um den
+Modellalarm auszulösen. Nur einseitig vorhandene Horizonte werden nicht aufgefüllt,
+sondern in `skipped_horizons_not_in_both_windows` ausgewiesen. Die Statusdatei legt
+zusätzlich beide Horizonttabellen, die Deltas und auslösenden Horizonte offen;
+`delta_km` ist das größte Kurzhorizont-Delta.
+
+`_mean_mae_for_horizons()` bleibt für B165 unverändert erhalten. `_mean_mae()` bleibt
+in `check_drift()` für die rückwärtskompatiblen, rein informativen Statusfelder
+`mae_recent_km` und `mae_baseline_km` aufgerufen; der relative Trigger verwendet
+diese Pool-Werte nicht mehr. Damit liegt kein toter `_mean_mae()` vor. Absolute
+Qualitätsprüfung, Schwellwerte und Alarm-Gate bleiben unverändert.
+
+**Tests:** Neun B425-Regressionstests decken Live-Konstellation, explizites Simpsons
+Paradox samt altem auslösendem Pool-Wert, h10- und h60-Verschlechterung, einseitige
+und fehlende gemeinsame Horizonte, leere Daten, Statusfelder, maximales
+Kurzhorizont-Delta sowie die unveränderte absolute Qualitätsprüfung ab. Die B165- und
+bestehenden Drift-Qualitätstests sichern die Verträglichkeit.
+
+**Phasen-Status:** Phase A — Drift-Trigger misst je Horizont. Phase B (Hailo-8 U-Net)
+unverändert blockiert.

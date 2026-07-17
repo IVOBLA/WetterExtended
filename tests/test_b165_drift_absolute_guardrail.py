@@ -80,10 +80,10 @@ def test_no_absolute_alarm_without_ml_model(monkeypatch):
     assert res["drift_detected"] is False
 
 
-def test_relative_drift_still_detected(monkeypatch):
-    # baseline gut, recent deutlich schlechter → relativer Pfad löst aus.
-    recent = [_rec(1 + i, [{"horizon": 60, "mae_km": 8.0}]) for i in range(4)]
-    baseline = [_rec(40 + i, [{"horizon": 60, "mae_km": 1.0}]) for i in range(4)]
+def test_relative_short_horizon_drift_still_detected(monkeypatch):
+    # baseline gut, recent auf h10 deutlich schlechter → relativer Pfad löst aus.
+    recent = [_rec(1 + i, [{"horizon": 10, "mae_km": 8.0}]) for i in range(4)]
+    baseline = [_rec(40 + i, [{"horizon": 10, "mae_km": 1.0}]) for i in range(4)]
     monkeypatch.setattr(dd, "_read_history", lambda: recent + baseline, raising=True)
 
     res = dd.check_drift()

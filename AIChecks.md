@@ -14,6 +14,20 @@ die stehen in `docs/HAILO_INTEGRATION.md` beim jeweiligen B-/P-Eintrag.
 
 ## Offen
 
+### AC-046 — Prüfe Drift-Meldungen gegen die Horizont-Tabelle
+Vergleiche im 24h-Export `train_data/evaluation/drift_status.json`
+(`drift_detected`, `delta_by_horizon`) mit
+`train_data/evaluation/accuracy_history.jsonl` (`mae_km` je Horizont, recent gegen
+baseline). Meldet der Trigger Drift, obwohl jeder einzelne Horizont gleich gut oder
+besser ist, poolt er wieder über Horizonte — melden. Ein gepoolter Mittelwert über
+Horizonte mit unterschiedlichem Wertebereich ist keine Qualitätsaussage.
+
+### AC-047 — Prüfe übersprungene Horizonte
+Werte im 24h-Export `train_data/evaluation/drift_status.json` das Feld
+`skipped_horizons_not_in_both_windows` aus. Werden dauerhaft dieselben Horizonte
+übersprungen, fehlt einem Fenster systematisch Datenmaterial — Ursache in der
+Fensterlänge oder der Zell-Lebensdauer suchen und melden.
+
 ### AC-044 — Prüfe Drift-Mails gegen den Ausliefermodus
 Vergleiche im 24h-Export jede `[DRIFT-MAIL]`-Zeile im Service-Log mit
 `delivered_mode_counts` aus `train_data/evaluation/accuracy_history.jsonl` zum selben
