@@ -105,8 +105,9 @@ fortgeschriebene Altwarnung.
 ### AC-015 — Prüfe Testfixtures auf geometrische Konsistenz
 Ein Test, der load_station_catchment_index mit einem Polygon patcht und
 catchment_diagnostics mit einer davon abweichenden Fläche, erzeugt Zahlen ohne
-physikalische Bedeutung. Suche in tests/ nach catchment_area_geometry_km2 und
-vergleiche den Wert mit der Fläche der gepatchten Geometrie. Jede Abweichung um mehr
+physikalische Bedeutung. Ausführen:
+  grep -rn "catchment_area_geometry_km2" tests/
+Vergleiche je Treffer den Wert mit der Fläche der gepatchten Geometrie. Jede Abweichung um mehr
 als Faktor 2 ist zu melden; Konstantenassertions auf abgeleitete Niederschlagswerte in
 solchen Tests prüfen nichts.
 
@@ -143,13 +144,13 @@ und leerer contributing_lineage_ids-Liste. Erwartung: null. Jeden Treffer als Ve
 des Zellbezugs im Produktivpfad melden; die Liste nicht im Test füllen.
 
 ### AC-021 — Prüfe Eventverteilung vor jedem Training
-Vor jeder ML-Reaktivierung ausführen:
+Vor jeder ML-Reaktivierung für das Log ausführen:
   python -c "import hydro_flood_ml as h; r=h.analyze_training_dataset(h.load_trainable_labeled_samples(False)); print(r['event_count'], r['train_time_range'], r['validation_time_range'])"
 Erwartung: event_count >= HYDRO_ML_MIN_TRAIN_EVENTS + HYDRO_ML_MIN_VALIDATION_EVENTS,
 und train_time_range endet vor validation_time_range. Überlappende Bereiche verwerfen.
 
 ### AC-022 — Prüfe Ausschlussgründe im Datensatz
-Werte sample_failures nach Grund gruppiert aus. Häuft sich ein Grund über 5 % der
+Werte im Export sample_failures nach Grund gruppiert aus. Häuft sich ein Grund über 5 % der
 Gesamtsamples, die Ursache im Produktivpfad suchen und als Befund melden; die
 Validierung nicht lockern.
 
@@ -158,15 +159,15 @@ Werte im 24h-Export die Laufzeit von /api/hydro/flood-risk/status aus. Liegt sie
 2 s, ist der Readiness-Cache unwirksam. Ursache melden — nicht das Polling-Intervall erhöhen.
 
 ### AC-024 — Prüfe Q-History-Wachstum
-Werte q_history-Zeilen und Datenbankgröße aus. Wachstum über
+Werte im Export q_history-Zeilen und Datenbankgröße aus. Wachstum über
 HYDRO_Q_HISTORY_RETENTION_DAYS bedeutet, dass der Maintenance-Job zu prüfen ist.
 
 ### AC-025 — Prüfe Sampling-Rate
-Zähle Samples je Station und Tag, getrennt nach precip_event_active. No-cell-Samples
+Zähle im Export Samples je Station und Tag, getrennt nach precip_event_active. No-cell-Samples
 müssen unter HYDRO_ML_MAX_NO_CELL_SAMPLES_PER_DAY bleiben.
 
 ### AC-026 — Prüfe, ob Extremereignisse erhalten bleiben
-Samples mit current_q_above_threshold=true dürfen durch Subsampling nie entfernt
+Samples im Export mit current_q_above_threshold=true dürfen durch Subsampling nie entfernt
 werden. Einen Rückgang nach Maintenance sofort melden.
 
 ### AC-027 — Prüfe Targetverteilung
@@ -176,7 +177,7 @@ Werte im 24h-Export target_q_delta_m3s aus. Erwartung: keine negativen Werte, un
 Zähle im Export Zeilen mit observed_precip_available=true, getrennt nach observed_precip_used_in_forecast. Werte die Gründe unter observed_precip_rejection_reason gruppiert aus. Häuft sich ein Grund, ist entweder die Qualitätsschwelle falsch oder die Quelle liefert anders als spezifiziert — beides melden, nicht die Schwelle senken.
 
 ### AC-029 — Prüfe Niederschlags-Volumenbilanz
-Werte bei gleichzeitig vorhandener Messung und Zellprognose precip_window_overlap_min und precip_window_gap_min aus. Erwartung: overlap = 0. Jeder Wert > 0 bedeutet ein zeitlich überlappendes Intervall; die Messung muss abgelehnt werden, damit keine überhöhte Q-Prognose entsteht — sofort melden.
+Werte im Export bei gleichzeitig vorhandener Messung und Zellprognose precip_window_overlap_min und precip_window_gap_min aus. Erwartung: overlap = 0. Jeder Wert > 0 bedeutet ein zeitlich überlappendes Intervall; die Messung muss abgelehnt werden, damit keine überhöhte Q-Prognose entsteht — sofort melden.
 
 
 ### AC-030 — Prüfe den öffentlichen Payload auf interne Felder
@@ -212,7 +213,7 @@ Migration nur im Cronjob — melden. Zwischen Upgrade und Migration entstehen ke
 Labels.
 
 ### AC-035 — Prüfe Trainingsstatus über Prozessgrenzen
-Rufe /api/admin/hydro/flood-risk/retrain/status während eines laufenden Trainings
+Rufe laut Pi-Log /api/admin/hydro/flood-risk/retrain/status während eines laufenden Trainings
 mehrfach ab. Zeigen manche Antworten "idle", ist der Status prozesslokal und die
 409-Zusage nicht eingehalten — melden.
 
@@ -223,15 +224,35 @@ Erwartung: null. Jeder Treffer bedeutet, dass die inkrementelle Vergabe nicht gr
 und readiness_status() wieder auf 0 Events zählt — melden, nicht die Zählung ändern.
 
 ### AC-037 — Prüfe die Eventverteilung auf Plausibilität
-Gruppiere labeled_samples nach event_id. Enthält ein Event mehr als 50 % aller Samples,
+Gruppiere im Export labeled_samples nach event_id. Enthält ein Event mehr als 50 % aller Samples,
 greift die Trennung nicht: HYDRO_EVENT_DRY_GAP_MIN und die No-cell-Gruppierung prüfen.
 Eine hohe Eventzahl allein ist kein Erfolg — sie muss die Wetterlage abbilden.
 
 ### AC-038 — Prüfe Readiness gegen die Trainingssicht
-Vergleiche readiness_status()["event_count"] mit
+Vergleiche im Log readiness_status()["event_count"] mit
 analyze_training_dataset(load_trainable_labeled_samples(False))["event_count"].
 Weichen sie um mehr als 10 % ab, ist die Nachführung nach dem Training ausgeblieben
 oder der Readiness-Cache invalidiert nicht — melden.
+
+### AC-039 — Prüfe Bestandstests nach jeder Vertragsänderung
+Ändert ein Prompt eine Signatur, den Payload-Umfang, eine Validierungsregel oder ein
+DB-Schema, führe vor dem Abschlussbericht aus:
+  python -m pytest -q tests/test_*hydro*.py 2>&1 | tail -1
+Eine Auswahl der neu geschriebenen Tests genügt nicht — eine Vertragsänderung betrifft
+jeden Test, der den Vertrag nutzt. Neue Fehler in Altbeständen sind im Log zu melden.
+
+### AC-040 — Prüfe auf Kommentarleichen nach Migrationen
+Nach jeder Datenquellen-Migration ausführen:
+  grep -rn "Datei-Tail\|jsonl\|JSONL" hydro_flood_ml.py
+Ein Docstring oder Kommentar, der eine abgelöste Quelle beschreibt, ist gefährlicher
+als keiner — er führt die nächste Analyse in die Irre. Treffer melden.
+
+### AC-041 — Prüfe Testisolation im Gesamtlauf
+Ein Test, der isoliert grün und im Gesamtlauf rot ist, deutet auf Kontamination
+(sys.modules, eingefrorene Modulkonstanten, offene Dateihandles). Vergleiche im Log:
+  python -m pytest -q tests/test_XXX.py 2>&1 | tail -1
+  python -m pytest -q 2>&1 | grep "test_XXX"
+Bei Abweichung den Verursacher suchen und dort reparieren, nicht im Opfer.
 
 ---
 

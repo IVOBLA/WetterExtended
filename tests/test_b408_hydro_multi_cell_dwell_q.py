@@ -16,7 +16,7 @@ def cell(cid, x1, y1, x2, y2, rate=10, **kw):
 
 
 def eval_cells(cells, q=1.0):
-    return hydro_flood_ml.evaluate_live_flood_risk(stations=[{"station_id":"s1","q_m3s":q,"mark_q_m3s":99}], cells=cells, write=False)["stations"][0]
+    return hydro_flood_ml.evaluate_live_flood_risk(stations=[{"station_id":"s1","q_m3s":q,"mark_q_m3s":99}], cells=cells, write=False, include_debug=True)["stations"][0]
 
 
 def test_incoming_cell_uses_productive_forecast_not_raw_ml(tmp_path, monkeypatch):

@@ -5,8 +5,12 @@ import hydro_api
 import hydro_flood_ml
 
 
-def _write_history(path: Path, rows):
-    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+def _write_history(tmp_path, monkeypatch, rows):
+    monkeypatch.setattr(hydro_flood_ml, "HYDRO_ML_DIR", tmp_path)
+    monkeypatch.setattr(hydro_flood_ml, "HYDRO_DATASET_JSONL_PATH", tmp_path / "dataset.jsonl")
+    monkeypatch.setattr(hydro_flood_ml, "HYDRO_SAMPLE_DB_PATH", tmp_path / "samples.sqlite3")
+    for row in rows:
+        hydro_flood_ml.append_hydro_history({"fetched_at": row["measured_at"], "stations": [row]})
 
 
 def _patch_thresholds(monkeypatch):
@@ -21,7 +25,9 @@ def _patch_thresholds(monkeypatch):
 
 def test_missing_history_gives_insufficient_history(tmp_path, monkeypatch):
     _patch_thresholds(monkeypatch)
-    monkeypatch.setattr(hydro_flood_ml, "HYDRO_HISTORY_PATH", tmp_path / "missing.jsonl")
+    monkeypatch.setattr(hydro_flood_ml, "HYDRO_ML_DIR", tmp_path)
+    monkeypatch.setattr(hydro_flood_ml, "HYDRO_DATASET_JSONL_PATH", tmp_path / "dataset.jsonl")
+    monkeypatch.setattr(hydro_flood_ml, "HYDRO_SAMPLE_DB_PATH", tmp_path / "samples.sqlite3")
     row = hydro_flood_ml.build_feature_row({"station_id": "S1", "q_m3s": 1, "measured_at": "2026-06-25T12:00:00Z"})
     assert row["q_trend_status"] == "insufficient_history"
     assert row["current_q_trend_10min"] is None
@@ -29,9 +35,7 @@ def test_missing_history_gives_insufficient_history(tmp_path, monkeypatch):
 
 def test_rising_trend_is_detected(tmp_path, monkeypatch):
     _patch_thresholds(monkeypatch)
-    hist = tmp_path / "hydro_history.jsonl"
-    _write_history(hist, [{"station_id": "S1", "measured_at": "2026-06-25T11:00:00Z", "q_m3s": 1.0}])
-    monkeypatch.setattr(hydro_flood_ml, "HYDRO_HISTORY_PATH", hist)
+    _write_history(tmp_path, monkeypatch, [{"station_id": "S1", "measured_at": "2026-06-25T11:00:00Z", "q_m3s": 1.0}])
     trend = hydro_flood_ml.load_q_trend_history()
     row = hydro_flood_ml.build_feature_row({"station_id": "S1", "q_m3s": 1.1, "measured_at": "2026-06-25T12:00:00Z"}, trend_history=trend)
     assert row["q_trend_status"] == "rising"
@@ -41,9 +45,7 @@ def test_rising_trend_is_detected(tmp_path, monkeypatch):
 
 def test_falling_trend_is_detected(tmp_path, monkeypatch):
     _patch_thresholds(monkeypatch)
-    hist = tmp_path / "hydro_history.jsonl"
-    _write_history(hist, [{"station_id": "S1", "measured_at": "2026-06-25T11:30:00Z", "q_m3s": 1.2}])
-    monkeypatch.setattr(hydro_flood_ml, "HYDRO_HISTORY_PATH", hist)
+    _write_history(tmp_path, monkeypatch, [{"station_id": "S1", "measured_at": "2026-06-25T11:30:00Z", "q_m3s": 1.2}])
     trend = hydro_flood_ml.load_q_trend_history()
     row = hydro_flood_ml.build_feature_row({"station_id": "S1", "q_m3s": 1.0, "measured_at": "2026-06-25T12:00:00Z"}, trend_history=trend)
     assert row["q_trend_status"] == "falling"
@@ -52,9 +54,7 @@ def test_falling_trend_is_detected(tmp_path, monkeypatch):
 
 def test_small_change_under_threshold_is_stable(tmp_path, monkeypatch):
     _patch_thresholds(monkeypatch)
-    hist = tmp_path / "hydro_history.jsonl"
-    _write_history(hist, [{"station_id": "S1", "measured_at": "2026-06-25T11:50:00Z", "q_m3s": 100.0}])
-    monkeypatch.setattr(hydro_flood_ml, "HYDRO_HISTORY_PATH", hist)
+    _write_history(tmp_path, monkeypatch, [{"station_id": "S1", "measured_at": "2026-06-25T11:50:00Z", "q_m3s": 100.0}])
     trend = hydro_flood_ml.load_q_trend_history()
     row = hydro_flood_ml.build_feature_row({"station_id": "S1", "q_m3s": 100.01, "measured_at": "2026-06-25T12:00:00Z"}, trend_history=trend)
     assert row["q_trend_status"] == "stable"
@@ -71,9 +71,7 @@ def test_build_feature_row_uses_trend_history_and_old_callers_are_compatible(mon
 
 def test_evaluate_live_flood_risk_exposes_trend_fields(tmp_path, monkeypatch):
     _patch_thresholds(monkeypatch)
-    hist = tmp_path / "hydro_history.jsonl"
-    _write_history(hist, [{"station_id": "S1", "measured_at": "2026-06-25T11:50:00Z", "q_m3s": 1.0}])
-    monkeypatch.setattr(hydro_flood_ml, "HYDRO_HISTORY_PATH", hist)
+    _write_history(tmp_path, monkeypatch, [{"station_id": "S1", "measured_at": "2026-06-25T11:50:00Z", "q_m3s": 1.0}])
     live = {"stations": [{"station_id": "S1", "q_m3s": 1.1, "measured_at": "2026-06-25T12:00:00Z"}]}
     doc = hydro_flood_ml.evaluate_live_flood_risk(stations=[{"station_id": "S1"}], live=live, write=False)
     row = doc["stations"][0]
@@ -85,12 +83,10 @@ def test_evaluate_live_flood_risk_exposes_trend_fields(tmp_path, monkeypatch):
 
 def test_load_q_trend_history_includes_old_rows_without_wallclock_cutoff(tmp_path, monkeypatch):
     """B270-Regression: kein Cutoff gegen datetime.now(); nur Tail-Budget begrenzt."""
-    hist = tmp_path / "hydro_history.jsonl"
-    _write_history(hist, [
+    _write_history(tmp_path, monkeypatch, [
         {"station_id": "S1", "measured_at": "2020-01-01T11:00:00Z", "q_m3s": 1.0},
         {"station_id": "S1", "measured_at": "2020-01-01T11:50:00Z", "q_m3s": 2.0},
     ])
-    monkeypatch.setattr(hydro_flood_ml, "HYDRO_HISTORY_PATH", hist)
     trend = hydro_flood_ml.load_q_trend_history()
     assert [row["q_m3s"] for row in trend["S1"]] == [1.0, 2.0]
 
@@ -98,9 +94,7 @@ def test_load_q_trend_history_includes_old_rows_without_wallclock_cutoff(tmp_pat
 def test_build_feature_row_trend_works_regardless_of_real_wallclock_time(tmp_path, monkeypatch):
     """B270-Regression: Trend relativ zu current_dt statt echter Wanduhrzeit."""
     _patch_thresholds(monkeypatch)
-    hist = tmp_path / "hydro_history.jsonl"
-    _write_history(hist, [{"station_id": "S1", "q_m3s": 1.0, "measured_at": "2020-01-01T11:50:00Z"}])
-    monkeypatch.setattr(hydro_flood_ml, "HYDRO_HISTORY_PATH", hist)
+    _write_history(tmp_path, monkeypatch, [{"station_id": "S1", "q_m3s": 1.0, "measured_at": "2020-01-01T11:50:00Z"}])
     doc = hydro_flood_ml.evaluate_live_flood_risk(
         stations=[{"station_id": "S1", "mark_q_m3s": 10, "q_m3s": 1.5, "measured_at": "2020-01-01T12:00:00Z"}],
         write=False,
