@@ -7023,3 +7023,29 @@ Der bestehende Test für Q-Labeling ohne W-Features bleibt unverändert.
 **Phasen-Status:** Phase A — Testsuite grün, Datensatz-Export konsistent. Damit ist die
 Serie B412–B427 abgeschlossen. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert;
 sie wartet auf ausreichende Trainingsdaten.
+
+### B428 — AC-052 nannte keine Datenquelle im Sinne der B407-Regel ✅ erledigt
+
+**Root-Cause:** Der Text von AC-052 stammte aus dem B428-Vorgängerprompt B427 und
+wurde ohne Prüfung gegen `test_b407_aichecks_arbeitsanweisungen` übernommen. Er nannte
+den Git-Status zwar in Prosa als Datenquelle, enthielt aber keines der sieben vom Test
+akzeptierten Schlüsselwörter. Dieselbe Ursache hatte bereits AC-015, behoben in B422.
+
+**Fix:** AC-052 nennt nun den auslösenden `install_pytest.log`, den konkreten
+`grep`-Befehl, das mögliche Artefakt `hydro_flood_dataset.jsonl` und den betroffenen
+Debug-Export. Der fachliche Check auf Testartefakte im Arbeitsbaum bleibt erhalten;
+die wirkungslose Zeile „Datenquelle: Git-Status des Arbeitsbaums“ entfällt. AC-053
+schreibt zusätzlich vor, jeden neuen AIChecks-Block vor dem Anhängen gegen beide
+B407-Regeln zu prüfen.
+
+**Vollständige Prüfung:** Vor dem Fix war unter allen 52 offenen Blöcken nur AC-052
+ohne akzeptierte Datenquelle; kein Block verletzte die Imperativregel. Nach dem Fix
+erfüllen AC-052 und der neue AC-053 beide Regeln. Die Schlüsselwortliste und die
+Verbliste in `tests/test_b407_aichecks_arbeitsanweisungen.py` blieben unverändert.
+Jeder Prompt, der einen AIChecks-Block vorgibt, muss den Text vorher gegen beide
+B407-Regeln prüfen: Die Regel steht seit B407 im Changelog und wird durch einen Test
+durchgesetzt.
+
+**Phasen-Status:** Phase A — Testsuite auf dem Pi grün, Serie B412–B428 abgeschlossen.
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
+Trainingsdaten.
