@@ -2928,3 +2928,13 @@ entsprechenden Meldung abgewiesen.
 Liegt für ein Einzugsgebiet ein gemessener Niederschlag ausreichender Qualität mit bekanntem Messzeitraum vor, fließt er zusätzlich zum prognostizierten Zellniederschlag in die prognostizierte Pegelentwicklung ein. Das Popup weist die verwendete Quelle aus.
 
 Ist die Messung zu alt, zeitlich überlappend oder ihre Qualität unzureichend, beruht die Prognose allein auf den Zelldaten; das Popup kennzeichnet den Rückfall und seinen Grund. Die Hydro-Hochwasseranzeige bleibt eine lokale Orientierungshilfe und ist kein Ersatz für amtliche Hochwasserwarnungen.
+
+### Nachwirkung bereits durchgezogener Regenzellen
+
+Zieht eine Regenzelle durch ein oberliegendes Einzugsgebiet und verlässt es wieder oder löst sich auf, endet ihre Wirkung auf den Pegel nicht sofort: Das Wasser braucht je nach Einzugsgebiet 20 bis 180 Minuten bis zur Messstelle. Die prognostizierte Pegelentwicklung berücksichtigt diesen bereits gefallenen Niederschlag weiter, solange er innerhalb des Reaktionsfensters der Station liegt.
+
+Im Popup einer Station ist erkennbar, ob eine solche Nachwirkung eingerechnet ist, vor wie vielen Minuten die letzte Zelle das Einzugsgebiet berührt hat und welcher Anteil der Prognose auf bereits gefallenem statt auf erwartetem Regen beruht. Steht dort keine Nachwirkung, lag im Reaktionsfenster kein auswertbarer Zelldurchzug vor.
+
+Im Admin-Panel lässt sich einstellen, ob die Nachwirkung berücksichtigt wird (`HYDRO_PRECIP_LEDGER_ENABLED`) und wie lange gefallener Regen nachwirkt (`HYDRO_PRECIP_LEDGER_RETENTION_MIN`; leer bedeutet die obere Grenze des Reaktionsfensters). `HYDRO_LEDGER_MAX_GAP_MIN` begrenzt die überbrückte Lücke zwischen Radarbildern, damit ein Radarausfall nicht als Dauerregen gewertet wird.
+
+Die Hydro-Hochwasseranzeige bleibt eine lokale Orientierungshilfe und ist kein Ersatz für amtliche Hochwasserwarnungen.
