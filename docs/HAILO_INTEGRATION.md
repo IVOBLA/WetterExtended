@@ -6824,3 +6824,29 @@ Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.
 **Lehre:** Eine Vertragsänderung betrifft alle Tests, die den Vertrag nutzen, nicht nur die neu geschriebenen. Künftige Prompts, die Signatur, Payload-Umfang, Validierungsregel oder DB-Schema ändern, führen deshalb `pytest -q` über alle `tests/test_*hydro*.py` in der Verifikationsliste, nicht nur über eine Auswahl.
 
 **Phasenstand:** Phase A — Serie B412–B421 abgeschlossen und testseitig konsolidiert. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert. Die verbindliche Live-Abnahme (`event_id IS NULL = 0`, plausible `event_count` und vollständiger Pi-Testlauf) bleibt auf dem Raspberry Pi offen.
+
+### B423 — P71-Drift-Alarm las die Sample-Zahl unter einem nie geschriebenen Schlüssel ✅ erledigt
+
+**Root-Cause und Herkunft:** Laut KI-Analyse-Report vom 17.07.2026, Befund F1,
+lasen sowohl die Richtungs- als auch die Geschwindigkeitsauswertung in
+`drift_detector.check_drift()` die Sample-Zahl nur unter `samples` beziehungsweise
+`n`. `accuracy_tracker._stat_errors()` schreibt sie jedoch unter `count`. Dadurch war
+`_n` stets 0 und das unveränderte Gate `_n >= _min_pts` stets geschlossen. Der Alarm
+war seit Einführung von P71 strukturell tot. Jede bisherige Aussage „kein
+Richtungsdrift“ war keine Messung, sondern ein Nichtergebnis.
+
+**Fix und Live-Beleg:** Beide Leser bevorzugen nun `count` und behalten `samples` und
+`n` als Fallback für historische Datensätze. Die Schreibseite, Schwellwerte,
+Gate-Logik und der Alarmversand bleiben unverändert. Im Live-Export stand für h10
+`count=435` und `p90_direction_error_deg=106.9°`, während
+`direction_drift_alarm=false` und `direction_drift_by_horizon={}` gemeldet wurden.
+Mit dem reparierten Leser überschreiten diese Werte sowohl Mindestzahl als auch
+Schwelle und schalten die Kennzahl scharf.
+
+**Tests:** Regressionstests verwenden die Live-Werte für Richtungs- und
+Geschwindigkeitsalarm, sichern das Minimum von 20 Samples und den unveränderten
+Schwellwert ab und prüfen die Altdaten-Fallbacks `samples`/`n`, ein leeres Dict sowie
+`count=None`.
+
+**Phasen-Status:** Phase A — P71-Kennzahl scharf. Phase B (Hailo-8 U-Net) unverändert
+blockiert.

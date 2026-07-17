@@ -254,6 +254,20 @@ Ein Test, der isoliert grün und im Gesamtlauf rot ist, deutet auf Kontamination
   python -m pytest -q 2>&1 | grep "test_XXX"
 Bei Abweichung den Verursacher suchen und dort reparieren, nicht im Opfer.
 
+### AC-042 — Prüfe, ob der Richtungs-Drift-Alarm auslösen kann
+Vergleiche im 24h-Export die Schlüssel in accuracy_history.jsonl
+(direction_stats_by_horizon) mit den in drift_detector.py gelesenen. Ausführen:
+  grep -n '_v.get(' drift_detector.py
+Jeder gelesene Schlüssel muss im Export vorkommen. Liest der Detektor einen Schlüssel,
+den accuracy_tracker nicht schreibt, ist der Alarm tot — melden.
+
+### AC-043 — Prüfe Alarm gegen Kennzahl im Export
+Vergleiche im Export drift_status.json (direction_drift_alarm) mit
+accuracy_history.jsonl (p90_direction_error_deg, count je Horizont). Liegt p90 über
+DRIFT_DIRECTION_THRESHOLD_DEG bei count >= DRIFT_DIRECTION_SPEED_MIN_POINTS, muss der
+Alarm true sein. Jede Abweichung ist zu melden — ein Alarm, der nie auslöst, ist keine
+Entwarnung.
+
 ---
 
 ## Erledigt
