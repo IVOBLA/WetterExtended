@@ -23,7 +23,7 @@ def _rec(age_h, mae, short=None):
 def _isolate(tmp_path, monkeypatch):
     monkeypatch.setattr(dd, "_EVAL_DIR", str(tmp_path), raising=True)
     monkeypatch.setattr(dd, "_STATUS_FILE", str(tmp_path / "drift_status.json"), raising=True)
-    monkeypatch.setattr(dd, "_has_ml_model", lambda: True, raising=True)
+    monkeypatch.setattr(dd, "_ml_model_is_delivered", lambda: True, raising=True)
     monkeypatch.setattr(dd, "DRIFT_MIN_POINTS", 1, raising=True)
     yield
 

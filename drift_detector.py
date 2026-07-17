@@ -42,6 +42,9 @@ DRIFT_SHORT_HORIZON_MAX_MIN = float(os.getenv("DRIFT_SHORT_HORIZON_MAX_MIN", "30
 _EVAL_DIR = SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/")
 _HISTORY_FILE = os.path.join(_EVAL_DIR, "accuracy_history.jsonl")
 _STATUS_FILE = os.path.join(_EVAL_DIR, "drift_status.json")
+_MODELS_BASE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "train_data", "models"
+)
 
 
 def _horizon_is_fixed_target(horizon_key: str) -> bool:
@@ -341,22 +344,44 @@ def check_drift() -> dict:
     return result
 
 
-def _has_ml_model() -> bool:
-    """
-    Gibt True zurueck wenn mindestens eine trainierte Modell-Version vorhanden ist.
-    Ohne ML-Modell ist Drift-Detection nicht relevant (kinematischer Fallback-Modus).
-    Prueft train_data/models/current/ (Symlink/Dir) und train_data/models/v_*-Verzeichnisse.
-    """
-    import glob as _glob
+def _ml_delivery_suppression_reason() -> Optional[str]:
+    """Liefert den Grund, aus dem kein ausgeliefertes ML-Modell belegt ist."""
+    if not os.path.isdir(os.path.join(_MODELS_BASE, "current")):
+        return "no_promoted_model"
 
-    models_base = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "train_data", "models"
-    )
-    if not os.path.isdir(models_base):
-        return False
-    if os.path.isdir(os.path.join(models_base, "current")):
-        return True
-    return len(_glob.glob(os.path.join(models_base, "v_*"))) > 0
+    records = _read_history()
+    if not records:
+        return "delivered_mode_unreadable"
+    delivered = records[-1].get("delivered_mode_counts")
+    if not isinstance(delivered, dict):
+        return "delivered_mode_unreadable"
+
+    try:
+        ml_count = sum(
+            int(count or 0)
+            for horizon_counts in delivered.values()
+            if isinstance(horizon_counts, dict)
+            for mode, count in horizon_counts.items()
+            if mode == "ml"
+        )
+    except (TypeError, ValueError):
+        return "delivered_mode_unreadable"
+    return None if ml_count > 0 else "delivered_mode_kinematic_only"
+
+
+def _ml_model_is_delivered() -> bool:
+    """True nur, wenn tatsaechlich ein ML-Modell ausgeliefert wird."""
+    return _ml_delivery_suppression_reason() is None
+
+
+def _persist_status(status: dict) -> None:
+    """Schreibt einen nach dem Drift-Check ergänzten Status bestmöglich zurück."""
+    os.makedirs(_EVAL_DIR, exist_ok=True)
+    try:
+        with open(_STATUS_FILE, "w", encoding="utf-8") as f:
+            json.dump(status, f, indent=2, ensure_ascii=False)
+    except Exception as exc:
+        debug_log(f"[DRIFT] Konnte drift_status.json nicht schreiben: {exc}")
 
 
 def check_and_alert(eval_result: Optional[dict] = None) -> dict:
@@ -369,10 +394,14 @@ def check_and_alert(eval_result: Optional[dict] = None) -> dict:
     status = check_drift()
 
     if status.get("drift_detected"):
-        if not _has_ml_model():
+        if not _ml_model_is_delivered():
+            suppression_reason = _ml_delivery_suppression_reason()
+            status["alert_suppressed"] = True
+            status["alert_suppression_reason"] = suppression_reason
+            _persist_status(status)
             debug_log(
-                "[DRIFT] Drift erkannt, aber kein ML-Modell vorhanden — "
-                "kein E-Mail-Alarm (kinematischer Fallback-Modus aktiv)."
+                f"[DRIFT] Drift-Alarm unterdrueckt ({suppression_reason}) — "
+                "kein ausgeliefertes ML-Modell eindeutig belegt."
             )
         else:
             try:

@@ -14,6 +14,19 @@ die stehen in `docs/HAILO_INTEGRATION.md` beim jeweiligen B-/P-Eintrag.
 
 ## Offen
 
+### AC-044 — Prüfe Drift-Mails gegen den Ausliefermodus
+Vergleiche im 24h-Export jede `[DRIFT-MAIL]`-Zeile im Service-Log mit
+`delivered_mode_counts` aus `train_data/evaluation/accuracy_history.jsonl` zum selben
+Zeitpunkt. Wurde bei 100 % `kinematic_fallback` eine Mail versendet, greift das Gate
+nicht — melden. Prüfe zusätzlich, ob `train_data/evaluation/drift_status.json` bei
+unterdrückten Alarmen `alert_suppression_reason` trägt.
+
+### AC-045 — Prüfe verworfene Trainingsversionen im Modellverzeichnis
+Suche im Service-Log nach `[TRAINING] REJECTED` und vergleiche mit dem Inhalt von
+`train_data/models/`. Ein `v_*`-Verzeichnis einer verworfenen Version darf keinen
+Alarm, keine Promotion und keinen Fallback-Guard aushebeln. Häufen sich verworfene
+Verzeichnisse, ist zusätzlich die Retention zu melden.
+
 ### AC-001 — Prüfe, ob die Assoziations-Diagnose geschrieben wird
 Werte `diagnostics/diagnosis_presence.json` aus dem Export aus.
 - `status="ok"` → AC-002 durchführen.
