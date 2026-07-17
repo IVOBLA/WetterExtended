@@ -4,7 +4,8 @@ import hydro_flood_ml as h
 def _base(**kw):
     row={k:1.0 for k in h.HYDRO_REQUIRED_FEATURES}
     row.update({k:None for k in h.HYDRO_OPTIONAL_FEATURES})
-    row.update({'station_id':'s','sample_kind':h.SAMPLE_KIND_LIVE,'feature_schema_version':h.FEATURE_SCHEMA_VERSION,'feature_snapshot_complete':True,'target_q_delta_m3s':0.2,'target_missing':False})
+    row.update({'station_id':'s','sample_start_time':'2026-01-01T00:00:00Z','sample_kind':h.SAMPLE_KIND_LIVE,'feature_schema_version':h.FEATURE_SCHEMA_VERSION,'feature_snapshot_complete':True,'target_q_delta_m3s':0.2,'target_missing':False})
+    row['feature_schema_hash'] = h._feature_schema_hash()
     row.update(kw)
     features=h._feature_snapshot(row)
     row['features']=features

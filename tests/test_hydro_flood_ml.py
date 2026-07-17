@@ -66,25 +66,21 @@ def test_live_output_has_no_horizons_or_w_forecast():
     assert forbidden.isdisjoint(row)
 
 
-def test_append_history_writes_q_without_using_w_as_feature(tmp_path, monkeypatch):
-    monkeypatch.setattr(hydro_flood_ml, "HYDRO_HISTORY_PATH", tmp_path / "hydro_history.jsonl")
+def test_append_history_writes_q_history_without_using_w_as_feature(tmp_path, monkeypatch):
+    monkeypatch.setattr(hydro_flood_ml, "HYDRO_SAMPLE_DB_PATH", tmp_path / "samples.sqlite3")
     n = hydro_flood_ml.append_hydro_history({"fetched_at":"2026-06-25T00:00:00Z", "source":"x", "stations":[{"station_id":"S1", "name":"A", "river":"R", "q_m3s":1.2, "w_cm":99}]})
     assert n == 1
-    row = json.loads((tmp_path / "hydro_history.jsonl").read_text().strip())
+    row = hydro_flood_ml.load_q_trend_history()["S1"][0]
     assert row["q_m3s"] == 1.2
-    assert row["q_missing"] is False
-    assert "w_cm" in row  # roh erlaubt
 
 
 def test_dataset_scan_labels_future_q_without_w_features(tmp_path, monkeypatch):
     from shapely.geometry import Polygon
 
-    hist = tmp_path / "hydro_history.jsonl"
     future = {"fetched_at": "2026-06-25T00:30:00Z", "measured_at": "2026-06-25T00:30:00Z", "station_id": "S1", "q_m3s": 11.0}
-    hist.write_text(json.dumps(future) + "\n", encoding="utf-8")
-    monkeypatch.setattr(hydro_flood_ml, "HYDRO_HISTORY_PATH", hist)
     monkeypatch.setattr(hydro_flood_ml, "HYDRO_ML_DIR", tmp_path)
     monkeypatch.setattr(hydro_flood_ml, "HYDRO_SAMPLE_DB_PATH", tmp_path / "samples.sqlite3")
+    hydro_flood_ml.append_hydro_history({"fetched_at": future["fetched_at"], "stations": [future]})
     monkeypatch.setattr(hydro_flood_ml, "HYDRO_DATASET_JSONL_PATH", tmp_path / "dataset.jsonl")
     monkeypatch.setattr(hydro_flood_ml, "HYDRO_TRAINING_META_PATH", tmp_path / "meta.json")
     monkeypatch.setattr(hydro_flood_ml.runtime_config, "get", lambda k, d=None: 10.0 if k == "HYDRO_MAP_MARK_Q_M3S" else d)

@@ -46,13 +46,13 @@ def test_eighty_stations_hash_and_deserialize_once_then_hit(monkeypatch, tmp_pat
     monkeypatch.setattr(h, "load_q_trend_history", lambda: {})
     stations = [{"station_id": str(i)} for i in range(80)]
 
-    first = h.evaluate_live_flood_risk(stations=stations, live={}, cells=[], write=False)
+    first = h.evaluate_live_flood_risk(stations=stations, live={}, cells=[], write=False, include_debug=True)
     assert len(first["stations"]) == 80
     assert hashes <= 3
     assert loads == 1
     assert [row["model_cache_status"] for row in first["stations"]].count("miss") == 1
     hashes = 0
-    second = h.evaluate_live_flood_risk(stations=stations, live={}, cells=[], write=False)
+    second = h.evaluate_live_flood_risk(stations=stations, live={}, cells=[], write=False, include_debug=True)
     assert len(second["stations"]) == 80
     assert hashes == 0
     assert loads == 1

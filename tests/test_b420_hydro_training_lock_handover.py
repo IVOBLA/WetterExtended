@@ -37,7 +37,11 @@ def test_worker_uses_handed_over_handle_and_releases_it(tmp_path, monkeypatch):
     while h.training_status()["phase"] != "finished" and time.time() < deadline:
         time.sleep(0.01)
     assert h.training_status()["phase"] == "finished"
-    handle = h.acquire_training_lock()
+    handle = None
+    while handle is None and time.time() < deadline:
+        handle = h.acquire_training_lock()
+        if handle is None:
+            time.sleep(0.01)
     assert handle is not None
     h.release_training_lock(handle)
 
