@@ -1459,6 +1459,10 @@ HYDRO_TREND_MIN_DELTA_REL_PCT = 0.03
 # Eigenständige Hydro-Flood-ML-Features; strikt getrennt von ML_CELL_FEATURES.
 HYDRO_CELL_FRAME_MAX_AGE_MIN = 30
 HYDRO_ROUTING_TAIL_MIN = 180
+# P74: Gedächtnis des bereits gefallenen Zellniederschlags je Einzugsgebiet.
+# Rückhaltezeit None = obere Grenze von HYDRO_LAG_WINDOW_MIN (Pegel-Reaktionsfenster).
+HYDRO_PRECIP_LEDGER_ENABLED = True
+HYDRO_PRECIP_LEDGER_RETENTION_MIN = None
 HYDRO_PENDING_RETENTION_HOURS = 72
 HYDRO_FAILED_SAMPLE_RETENTION_DAYS = 30
 HYDRO_DATASET_RETENTION_DAYS = 365
