@@ -154,7 +154,7 @@ def test_drift_status_keeps_drift_true_and_adds_diagnosis(monkeypatch, tmp_path)
     monkeypatch.setattr(dd, "_HISTORY_FILE", str(tmp_path / "accuracy_history.jsonl"), raising=True)
     monkeypatch.setattr(dd, "_STATUS_FILE", str(tmp_path / "drift_status.json"), raising=True)
     monkeypatch.setattr(dd, "DRIFT_MIN_POINTS", 1, raising=True)
-    monkeypatch.setattr(dd, "_has_ml_model", lambda: True)
+    monkeypatch.setattr(dd, "_ml_model_is_delivered", lambda: True)
     _write_jsonl(tmp_path / "forecast_error_details.jsonl", [_row(i, err=5.0) for i in range(10)])
     _write_jsonl(tmp_path / "accuracy_history.jsonl", [
         {

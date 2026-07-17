@@ -90,7 +90,7 @@ def test_drift_mail_not_sent_when_model_improves(monkeypatch):
     now = dd.datetime.now(dd.timezone.utc)
     sent = []
     monkeypatch.setattr(dd, "_read_history", lambda: _history(now, 20, 11))
-    monkeypatch.setattr(dd, "_has_ml_model", lambda: True)
+    monkeypatch.setattr(dd, "_ml_model_is_delivered", lambda: True)
     monkeypatch.setattr(dd, "DRIFT_MAE_THRESHOLD_KM", 2.0)
     monkeypatch.setattr("email_notifier.send_drift_alert", lambda status: sent.append(status))
     status = dd.check_and_alert()
@@ -102,7 +102,7 @@ def test_drift_mail_sent_on_real_drift(monkeypatch):
     now = dd.datetime.now(dd.timezone.utc)
     sent = []
     monkeypatch.setattr(dd, "_read_history", lambda: _history(now, 10, 15))
-    monkeypatch.setattr(dd, "_has_ml_model", lambda: True)
+    monkeypatch.setattr(dd, "_ml_model_is_delivered", lambda: True)
     monkeypatch.setattr(dd, "DRIFT_MAE_THRESHOLD_KM", 2.0)
     monkeypatch.setattr("email_notifier.send_drift_alert", lambda status: sent.append(status))
     status = dd.check_and_alert()

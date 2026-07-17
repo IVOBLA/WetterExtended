@@ -6850,3 +6850,42 @@ Schwellwert ab und prüfen die Altdaten-Fallbacks `samples`/`n`, ein leeres Dict
 
 **Phasen-Status:** Phase A — P71-Kennzahl scharf. Phase B (Hailo-8 U-Net) unverändert
 blockiert.
+
+### B424 — Drift-Mails im kinematischen Fallback: Gate prüfte ein Verzeichnis statt die Auslieferung ✅ erledigt
+
+**Root-Cause und Herkunft:** Laut KI-Analyse-Report vom 17.07.2026, Befund F2,
+beantwortete `_has_ml_model()` lediglich, ob irgendwo ein Modellverzeichnis lag. Der
+Aufrufer behandelte dies fälschlich als Beleg einer ML-Auslieferung. Insbesondere ein
+bei der Promotion verworfenes Trainingsartefakt blieb als Versionsverzeichnis liegen
+und öffnete dadurch das Mail-Gate. Der Docstring benannte die Absicht korrekt:
+„Ohne ML-Modell ist Drift-Detection nicht relevant“. Die letzte Zeile unterlief sie.
+Eine Absicht im Kommentar ist keine Prüfung im Code.
+
+**Live-Beleg:** Um 01:01:56Z wurde die Trainingsversion
+`v_2026-07-16T01-00-03Z` mit ML-MAE 13,99 km gegenüber der kinematischen Baseline
+von 9,17 km als `REJECTED` verworfen. `delivered_mode_counts` belegte zugleich je
+Horizont 506/506 kinematische Auslieferungen. Trotzdem wurde um 01:20:48Z eine
+Drift-Mail versendet.
+
+**Fix und Kriterium:** Der fehlerträchtige Name und die Suche nach
+Trainingsartefakten entfallen. Das Gate prüft zuerst die Promotion-Zusage
+`train_data/models/current` und danach `delivered_mode_counts` im jüngsten lesbaren
+Datensatz von `accuracy_history.jsonl`. Es gilt im Wortlaut: „`current` existiert UND
+ML-Anteil > 0 → alarmieren; `current` existiert, ML-Anteil == 0 → nicht alarmieren;
+`current` fehlt → nicht alarmieren; `delivered_mode_counts` nicht lesbar → nicht
+alarmieren.“ Beide Quellen müssen zustimmen: `current` kann nach einem Ladefehler
+veraltet sein, während die Auslieferungsmessung bei einer frischen Promotion noch
+hinterherhinken kann. Im Zweifel bleibt der Alarm aus. Unterdrückungen werden mit
+`alert_suppressed=true` und dem eindeutigen Grund `no_promoted_model`,
+`delivered_mode_kinematic_only` oder `delivered_mode_unreadable` im weiterhin
+drift-positiven `drift_status.json` sichtbar.
+
+**Tests:** Acht Regressionstests bilden das verworfene Versionsartefakt, rein
+kinematische und positive ML-Auslieferung, widersprüchliche Quellen, fehlende sowie
+unlesbare Historie, fehlende Modellbasis und den Nicht-Drift-Fall ab. Der Mailversand
+ist vollständig abgefangen. Der positive ML-Fall belegt ausdrücklich, dass das Gate
+nicht dauerhaft geschlossen ist.
+
+**Phasen-Status:** Phase A — Drift-Alarme nur bei ausgeliefertem Modell. Da derzeit
+100 % kinematisch ausgeliefert wird, sind bis zur ersten erfolgreichen Promotion
+keine Drift-Mails zu erwarten. Phase B (Hailo-8 U-Net) unverändert blockiert.

@@ -3,7 +3,7 @@ tests/test_b165_drift_absolute_guardrail.py
 
 B165/B246: Der Kurzhorizont-Grenzwert ist ein Qualitätsziel und löst ohne relative Verschlechterung keinen Drift-Alarm aus.
 
-_read_history und _has_ml_model werden gemockt; _STATUS_FILE/_EVAL_DIR auf tmp gelenkt.
+_read_history und _ml_model_is_delivered werden gemockt; _STATUS_FILE/_EVAL_DIR auf tmp gelenkt.
 
 Ausführbar: python3 -m pytest tests/test_b165_drift_absolute_guardrail.py -v
 """
@@ -28,7 +28,7 @@ def _rec(age_h, horizons):
 def _isolate(tmp_path, monkeypatch):
     monkeypatch.setattr(dd, "_EVAL_DIR", str(tmp_path), raising=True)
     monkeypatch.setattr(dd, "_STATUS_FILE", str(tmp_path / "drift_status.json"), raising=True)
-    monkeypatch.setattr(dd, "_has_ml_model", lambda: True, raising=True)
+    monkeypatch.setattr(dd, "_ml_model_is_delivered", lambda: True, raising=True)
     yield
 
 
@@ -70,7 +70,7 @@ def test_long_horizon_does_not_trigger_short_guardrail(monkeypatch):
 
 
 def test_no_absolute_alarm_without_ml_model(monkeypatch):
-    monkeypatch.setattr(dd, "_has_ml_model", lambda: False, raising=True)
+    monkeypatch.setattr(dd, "_ml_model_is_delivered", lambda: False, raising=True)
     recent = [_rec(1 + i, [{"horizon": 10, "mae_km": 10.0}]) for i in range(4)]
     baseline = [_rec(40 + i, [{"horizon": 10, "mae_km": 10.0}]) for i in range(4)]
     monkeypatch.setattr(dd, "_read_history", lambda: recent + baseline, raising=True)
