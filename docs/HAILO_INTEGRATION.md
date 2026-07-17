@@ -6983,3 +6983,43 @@ vorhandenen Budget-Isolations- und Circuit-Breaker-Tests bleiben einbezogen.
 
 **Phasen-Status:** Phase A — providerweites Open-Meteo-Budget wirksam. Phase B
 (Hailo-8 U-Net) unverändert blockiert.
+
+### B427 — dataset.jsonl hatte zwei Schreiber; die Migration löschte den Export ✅ erledigt
+
+**Root-Cause und Herkunft:** Der letzte rote Pi-Test nach B422 zeigte, dass
+`hydro_flood_dataset.jsonl` zwei Schreiber mit gegenläufiger Semantik hatte:
+`export_labeled_samples_jsonl()` bildete die als Source of Truth dienende SQLite-DB
+ab, während `migrate_productive_dataset()` dieselbe Datei als Migrationsquelle las und
+die gefilterte Liste zurückschrieb. Bei leerer Quelle schrieb die Migration eine leere
+Liste und konnte damit einen Export löschen.
+
+**Beide Ursachen und Fix:** Zusätzlich war der Defaultpfad des Exports beim Import
+eingefroren. Das ist dieselbe im Projekt dokumentierte Fehlerklasse wie
+`accuracy_tracker.HISTORY_FILE`: Ein Laufzeit-Patch der Modulkonstante erreichte das
+Default-Argument nicht. Testläufe schrieben deshalb vor B427 nach
+`train_data/hydro/ml/` statt nach `tmp_path`. Der Export löst einen optionalen Pfad nun
+erst beim Aufruf auf; explizite Pfade behalten Vorrang. Die Migration schreibt ihre
+gefilterte Quelle nur zurück, wenn tatsächlich Quellzeilen vorhanden waren, markiert
+den Eigentumsübergang im Migrationspayload und erzeugt abschließend das JSONL-Abbild
+aus SQLite.
+
+**Eigentumsregel:** SQLite schreibt; die Migration liest die JSONL einmalig und
+übergibt anschließend die Eigentümerschaft an den SQLite-Export. Die JSONL ist danach
+ausschließlich Abbild. Der Datenverlust war produktiv latent, weil der frühe Return bei
+`already_applied` ihn seit B420 verdeckte; bei `install.sh --mode=full` oder nach einem
+Zurücksetzen von `schema_migrations` wäre er eingetreten.
+
+**Pfad-Default-Befund:** Die Suche in `hydro_flood_ml.py` fand neben dem behobenen
+Export noch `_validate_model_integrity(model_dir: Path =
+HYDRO_MODEL_CURRENT_DIR)`. Dieser Treffer bleibt bewusst unverändert und benötigt eine
+eigene Prüfung seiner Aufrufer und Laufzeit-Patch-Semantik.
+
+**Tests:** Neun B427-Regressionstests prüfen dynamischen und expliziten Exportpfad,
+leere und nichtleere Migrationsquellen, SQLite-Export nach der Migration,
+Bestandsverhalten für Legacy-Zeilen, den unveränderten zweiten Lauf, das
+Eigentumsmerkmal im Payload, die Abfolge Export–Migration–Export und den Dataset-Scan.
+Der bestehende Test für Q-Labeling ohne W-Features bleibt unverändert.
+
+**Phasen-Status:** Phase A — Testsuite grün, Datensatz-Export konsistent. Damit ist die
+Serie B412–B427 abgeschlossen. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert;
+sie wartet auf ausreichende Trainingsdaten.

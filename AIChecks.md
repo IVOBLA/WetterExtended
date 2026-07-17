@@ -308,6 +308,29 @@ DRIFT_DIRECTION_THRESHOLD_DEG bei count >= DRIFT_DIRECTION_SPEED_MIN_POINTS, mus
 Alarm true sein. Jede Abweichung ist zu melden — ein Alarm, der nie auslöst, ist keine
 Entwarnung.
 
+
+### AC-050 — Prüfe den Datensatz-Export gegen SQLite
+Vergleiche im 24h-Export die Zeilenzahl von hydro_flood_dataset.jsonl mit der Zahl der
+trainierbaren labeled_samples aus dem SQLite-Snapshot. Weichen sie ab, ist der Export
+nicht aktuell oder wurde überschrieben. Ist die JSONL leer bei gefüllter Datenbank, hat
+ein zweiter Schreiber sie geleert — sofort melden. Datenquelle: 24h-Export mit
+hydro_flood_dataset.jsonl und SQLite-Snapshot.
+
+### AC-051 — Prüfe eingefrorene Pfad-Defaults
+Ausführen:
+  grep -nE "def .*\(.*: *Path *= *[A-Z_]+" hydro_flood_ml.py accuracy_tracker.py
+Ein Default-Argument mit einer Modulkonstante wird beim Import eingefroren und folgt
+keinem Laufzeit-Patch. Jeder Treffer ist zu melden — Tests, die den Pfad patchen,
+schreiben sonst ins echte train_data/. Datenquelle: die Funktionssignaturen im
+aktuellen Arbeitsbaum.
+
+### AC-052 — Prüfe Testartefakte im Arbeitsbaum
+Nach jedem Testlauf ausführen:
+  git status --short
+Erscheinen Dateien unter train_data/, hat ein Test an einem eingefrorenen Pfad
+geschrieben statt in tmp_path. Melden — solche Tests verändern den Produktivbestand.
+Datenquelle: Git-Status des Arbeitsbaums unmittelbar nach dem Testlauf.
+
 ---
 
 ## Erledigt

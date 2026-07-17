@@ -1090,13 +1090,14 @@ def migrate_productive_dataset() -> dict:
                     r.setdefault("sample_kind", SAMPLE_KIND_LEGACY); legacy.append(r)
                 else:
                     invalid.append(r)
-            meta={"migration_id": migration_id, "migration_at": _now(), "rows_before": len(rows), "rows_imported": len(live), "rows_live_kept": len(live), "rows_legacy_moved": len(legacy), "rows_invalid": len(invalid), "rows_invalid_dropped": len(invalid), "source": str(HYDRO_DATASET_JSONL_PATH), "store": "sqlite"}
+            meta={"migration_id": migration_id, "migration_at": _now(), "rows_before": len(rows), "rows_imported": len(live), "rows_live_kept": len(live), "rows_legacy_moved": len(legacy), "rows_invalid": len(invalid), "rows_invalid_dropped": len(invalid), "source": str(HYDRO_DATASET_JSONL_PATH), "store": "sqlite", "jsonl_ownership_transferred_to_export": True}
             _mark_migration(con, migration_id, meta)
             con.execute("COMMIT")
         except Exception:
             con.execute("ROLLBACK")
             raise
-    _write_jsonl(HYDRO_DATASET_JSONL_PATH, live)
+    if rows:
+        _write_jsonl(HYDRO_DATASET_JSONL_PATH, live)
     if legacy:
         existing = {r.get("sample_id"): r for r in _jsonl_rows(HYDRO_DATASET_PATH) if r.get("sample_id")}
         for r in legacy:
@@ -1105,6 +1106,7 @@ def migrate_productive_dataset() -> dict:
     old=_read_json(HYDRO_TRAINING_META_PATH,{})
     old["b410_dataset_migration"] = meta
     _atomic_json(HYDRO_TRAINING_META_PATH, old)
+    export_labeled_samples_jsonl()
     return {**meta, "rows_schema_superseded": superseded, "rows_invalid_b416": invalid_count}
 
 def migrate_pending_jsonl_to_sqlite() -> dict:
@@ -1897,7 +1899,8 @@ def build_deferred_public_risk(live_doc: dict, cell_frame_meta: dict, previous_d
     doc["stations"] = [_public_flood_row(r) for r in doc.get("stations") or [] if isinstance(r, dict)]
     return doc
 
-def export_labeled_samples_jsonl(path: Path = HYDRO_DATASET_JSONL_PATH) -> dict:
+def export_labeled_samples_jsonl(path: Path | None = None) -> dict:
+    path = path or HYDRO_DATASET_JSONL_PATH
     rows = load_trainable_labeled_samples(False)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd,tmp=tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
