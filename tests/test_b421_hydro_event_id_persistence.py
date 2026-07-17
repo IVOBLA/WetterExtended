@@ -24,7 +24,7 @@ def _environment(monkeypatch, tmp_path):
 
 def _productive_sample(monkeypatch, minute, lineage, active=True):
     diagnostics = [{"cell_id": "cell-1", "lineage_id": lineage}] if active else []
-    monkeypatch.setattr(h, "_precip_from_cells", lambda station, cells: {
+    monkeypatch.setattr(h, "_precip_from_cells", lambda station, cells, ledger_rows=None: {
         "cell_diagnostics": diagnostics, "contributing_cell_count": len(diagnostics),
         "cell_catchment_count": len(diagnostics), "cell_precip_source_type": "cell_derived" if active else "none",
         "cell_catchment_precip_sum_mm": 1.0 if active else 0.0,

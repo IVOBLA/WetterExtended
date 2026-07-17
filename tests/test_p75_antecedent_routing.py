@@ -70,3 +70,22 @@ def test_missing_antecedent_age_is_not_imputed_as_fresh():
 def test_debug_only_keys_stay_out_of_public_payload():
     public = hydro_flood_ml._public_flood_row({"station_id": "9001", "antecedent_series": [{"offset_min": -5}], "precip_ledger_t0": [{"cell_id": "c1"}], "antecedent_status": "ok", "generated_at": "x"})
     assert "antecedent_series" not in public and "precip_ledger_t0" not in public and public["antecedent_status"] == "ok"
+
+def test_build_feature_row_forwards_ledger_rows_unchanged(monkeypatch):
+    received = {}
+
+    def fake_precip(station, cells, ledger_rows=None):
+        received["ledger_rows"] = ledger_rows
+        return {
+            "cell_precip_source_type": "none",
+            "cell_catchment_precip_sum_mm": 0.0,
+            "cell_catchment_precip_weighted_sum_mm": 0.0,
+            "cell_catchment_max_intensity": 0.0,
+        }
+
+    monkeypatch.setattr(hydro_flood_ml, "_precip_from_cells", fake_precip)
+    ledger = [{"frame_timestamp": "unique", "cell_id": "ledger-cell"}]
+
+    hydro_flood_ml.build_feature_row({"station_id": "9001"}, cells=[], ledger_rows=ledger)
+
+    assert received["ledger_rows"] is ledger
