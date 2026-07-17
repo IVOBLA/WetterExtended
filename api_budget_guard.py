@@ -18,6 +18,7 @@ Gruppen ohne Eintrag haben KEIN Limit (over_budget == False -> rueckwaertskompat
 """
 import json
 import os
+import re
 from datetime import datetime, timezone
 
 try:
@@ -55,11 +56,14 @@ def _today() -> str:
 
 def group_for(service: str) -> str:
     """Bildet einen kanonischen Service-Namen auf seine Budget-Gruppe ab.
-    Alle 'openmeteo*'-Dienste teilen das providerweite Open-Meteo-Kontingent."""
-    s = (service or "").lower()
-    if s.startswith("openmeteo"):
+    Alle Open-Meteo-Dienste teilen das providerweite Kontingent — unabhängig davon,
+    ob der Servicename Bindestriche, Unterstriche oder Grossbuchstaben enthaelt.
+    """
+    service_lower = (service or "").lower()
+    prefix = re.sub(r"[^a-z0-9]", "", service_lower)
+    if prefix.startswith("openmeteo"):
         return "openmeteo"
-    return s
+    return service_lower
 
 
 def _budgets() -> dict:

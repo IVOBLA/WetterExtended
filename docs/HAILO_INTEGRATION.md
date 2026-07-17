@@ -6937,3 +6937,49 @@ bestehenden Drift-Qualitätstests sichern die Verträglichkeit.
 
 **Phasen-Status:** Phase A — Drift-Trigger misst je Horizont. Phase B (Hailo-8 U-Net)
 unverändert blockiert.
+
+### B426 — Open-Meteo-Tagesbudget griff nur für Servicenamen ohne Trennzeichen ✅ erledigt
+
+**Root-Cause und Herkunft:** Laut KI-Analyse-Report vom 17.07.2026, Befund F4,
+prüfte `group_for()` nur `s.startswith("openmeteo")`. Der Docstring benannte die
+Absicht korrekt („Alle 'openmeteo*'-Dienste teilen das providerweite Kontingent“),
+doch der Präfixvergleich unterlief sie: Die realen Namen beginnen nach der
+Kleinschreibung überwiegend mit `open-meteo`. Vier von fünf Endpunktfamilien liefen
+daher in eigenen Gruppen ohne Budgeteintrag und somit ungedeckelt. Unbemerkt blieb
+der Fehler, weil die Gesamtsumme stets unter dem Limit lag; der Schutz wurde nie
+gebraucht und war deshalb unbemerkt wirkungslos.
+
+**Beleg aus `api_budget.json/counts` vor der Umstellung:**
+
+| Gruppe | Requests/Tag | Limit |
+|---|---:|---:|
+| `openmeteo` | 649 | 9000 |
+| `open-meteo-outlook` | 135 | keines |
+| `open-meteo-700hpa` | 106 | keines |
+| `open-meteo-synoptic` | 106 | keines |
+| `open-meteo-atmosphere-arome` | 40 | keines |
+| `open-meteo-atmosphere-pressure` | 40 | keines |
+| `open-meteo-atmosphere-gfs` | 40 | keines |
+
+Die gemessene Summe beträgt **1156 Requests/Tag** und damit 12,8 % des unveränderten
+Limits von 9000. Die Korrektur blockiert beim Umstieg folglich nicht sofort die
+Datenquellen.
+
+**Fix und Zählerverhalten:** Nur für den Präfixvergleich entfernt `group_for()` alle
+nicht-alphanumerischen Zeichen aus dem kleingeschriebenen Namen. Erkannte
+Open-Meteo-Varianten werden `openmeteo` zugeordnet; für jeden anderen Provider wird
+weiterhin der kleingeschriebene Originalname einschließlich seiner Trennzeichen
+zurückgegeben. Servicenamen und Fremdrequests bleiben unverändert. Es gibt bewusst
+keine Migration kurzlebiger Tageszähler. Verwaiste Gruppen bleiben am selben Tag in
+der JSON-Datei erhalten; `_reset_if_new_day()` ersetzt `counts` beim UTC-Tageswechsel
+vollständig, eine zusätzliche Aufräumroutine existiert nicht.
+
+**Tests:** Die erweiterten Budget-Guard-Tests prüfen fünf bindestrichhaltige
+Open-Meteo-Endpunktvarianten, die bisherigen Schreibweisen, Leerzeichen,
+Groß-/Kleinschreibung, leere Werte und `None`. Regressionstests sichern die
+unveränderten Gruppen `blitzortung` und `geosphere-tawes`, das bei 9000 Requests
+greifende Providerlimit sowie weiterhin unbegrenzte unbekannte Dienste. Die
+vorhandenen Budget-Isolations- und Circuit-Breaker-Tests bleiben einbezogen.
+
+**Phasen-Status:** Phase A — providerweites Open-Meteo-Budget wirksam. Phase B
+(Hailo-8 U-Net) unverändert blockiert.

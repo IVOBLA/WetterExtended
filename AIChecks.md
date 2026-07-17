@@ -14,6 +14,19 @@ die stehen in `docs/HAILO_INTEGRATION.md` beim jeweiligen B-/P-Eintrag.
 
 ## Offen
 
+### AC-048 — Prüfe Budgetgruppen gegen die Servicenamen
+Werte im 24h-Export `train_data/evaluation/api_budget.json` unter `counts` aus. Jede
+Gruppe muss einen Eintrag in `config.API_DAILY_BUDGET` haben oder bewusst unbegrenzt
+sein. Erscheinen mehrere Gruppen desselben Providers (z. B. `openmeteo` neben
+`open-meteo-*`), greift die Normalisierung in `group_for()` nicht — melden. Eine
+Gruppe ohne Limit ist ungedeckelt.
+
+### AC-049 — Prüfe die Summe der Provider-Requests gegen das Limit
+Summiere im 24h-Export `train_data/evaluation/api_budget.json` unter `counts` alle
+Gruppen eines Providers und vergleiche mit `config.API_DAILY_BUDGET`. Nähert sich die
+Summe dem Limit (> 70 %), ist die Abrufkadenz zu melden — nicht das Limit anzuheben.
+Das Projektziel ist, unnötige Fremdrequests zu vermeiden.
+
 ### AC-046 — Prüfe Drift-Meldungen gegen die Horizont-Tabelle
 Vergleiche im 24h-Export `train_data/evaluation/drift_status.json`
 (`drift_detected`, `delta_by_horizon`) mit
