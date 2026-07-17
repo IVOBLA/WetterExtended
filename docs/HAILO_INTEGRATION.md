@@ -7103,3 +7103,50 @@ Trainingsdaten.
 **Tests:** `tests/test_p75_antecedent_routing.py` prüft Ausschluss des aktuellen Frames, Retention, Bucketing, Mittelung, Lückendeckelung, neutrale Historie, Nachwirkung, Schema, Imputation und Payload-Hygiene.
 
 **Phasen-Status:** Phase A — Serie B412–B428 abgeschlossen; P74/P75 schließen das Einzugsgebiets-Niederschlagsgedächtnis ab. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert und wartet auf ausreichende Trainingsdaten.
+
+### B429 — Der automatische Debug-Export erreichte das Admin-Panel nie: gepusht und gelöscht ✅ erledigt
+
+**Befund:** Das Admin-Panel bot den nächtlichen Export (Timer 23:59) nie zum Download an.
+Angezeigt wurde bestenfalls der letzte manuell erzeugte Stand.
+
+**Ursache:** `debug_export.persist_latest_export()` — die einzige Funktion, die
+`train_data/evaluation/latest_export/latest_export_meta.json` schreibt und damit
+`/api/admin/export/latest/meta` versorgt — hatte im gesamten Produktivcode genau einen
+Aufrufer: `app.py:1091`, den manuellen Export-Button.
+`tools/publish_latest_debug_export_branch.py` baute die Volumes, pushte sie in den Branch
+`debug-export-latest` und löschte sie anschließend im `finally`-Block
+(`path.unlink(missing_ok=True)`). Der automatische Export existierte damit nur auf GitHub.
+Die Kommentare in `app.py:1227` und `Logs.jsx:53` („egal ob manuell oder automatisch")
+beschrieben eine Absicht aus B350, die im automatischen Pfad nie implementiert wurde.
+
+**Zweite Folge derselben Ursache:** Scheiterte der Push (Übergrößen-Abbruch nach B141,
+kein Netz, fehlender Deploy-Key), wurden die fertig gebauten Volumes trotzdem gelöscht.
+Der teuerste Schritt — der Bau auf dem Pi — ging verloren, ohne dass ein Download
+übrig blieb.
+
+**Fix:** `persist_for_admin_panel()` legt die Volumes **vor** dem Push an dem Ort ab, den
+die Route liest. Die Reihenfolge ist bindend: der lokale Download gelingt ohne Netz,
+ohne GitHub und ohne Größenlimit — er ist das robustere Artefakt, der Branch der
+Zweitweg. Ein Fehler beim Persistieren verhindert den Push nicht (Log-Warnung), ein
+Fehler beim Push macht die Persistenz nicht rückgängig. `_export_base_dir()` spiegelt
+die Auflösung aus `app.py` (`WETTEREXTENDED_EXPORT_BASE_DIR`, sonst Projektverzeichnis);
+eine Abweichung hätte den Fix wirkungslos gemacht. `--dry-run` persistiert nicht — ein
+Testlauf verändert keinen Systemzustand.
+
+**Zusätzlich:** Der automatische Pfad setzt `export_reason = "scheduled_branch_publish"`
+(`create_debug_export_volumes` vergibt für beide Pfade `last_24h_debug_run`). Die
+Logs-Seite zeigt neben Zeitpunkt, Teilanzahl und Größe nun „automatisch" bzw. „manuell".
+
+**Speicherplatz:** `persist_latest_export()` wechselt atomar über ein Tmp-Verzeichnis und
+ersetzt den Vorstand; der Bedarf unter `latest_export/` bleibt konstant bei einem Export
+(Volume-Limit 90 MB je Teil) und wächst auf dem Pi nicht an.
+
+**Tests:** `tests/test_b429_scheduled_export_persisted.py` — Existenz des Aufrufs,
+Reihenfolge Persistenz vor Push, `export_reason` gesetzt bei unberührten übrigen
+Manifest-Feldern, Übereinstimmung der Basisverzeichnis-Auflösung mit `app.py`,
+Persistenzfehler blockiert den Push nicht, Ende-zu-Ende auf Dateiebene
+(schreiben → `load_latest_export_meta` → `latest_export_part_path`),
+Herkunftsanzeige im Frontend.
+
+**Phasen-Status:** Phase A — Serie B412–B428 abgeschlossen, B429 ergänzt. Phase B
+(Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.

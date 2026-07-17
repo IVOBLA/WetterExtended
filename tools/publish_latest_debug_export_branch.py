@@ -26,6 +26,7 @@ DEFAULT_MAX_SOURCE_TOTAL_MB = 512
 DEFAULT_MAX_ZIP_MB = 90
 LOG_PREFIX = "[DEBUG-EXPORT-BRANCH]"
 LOCK_PATH = Path("/tmp/wetterextended_debug_export_branch.lock")
+EXPORT_REASON_SCHEDULED = "scheduled_branch_publish"
 FORBIDDEN_BRANCHES = {"main", "master"}
 
 
@@ -188,10 +189,44 @@ def check_write_access(repo_dir: Path, branch: str) -> None:
     log("GitHub-Schreibtest erfolgreich.")
 
 
+def _export_base_dir(repo_dir: Path) -> Path:
+    """Basisverzeichnis für latest_export/ — identisch zur Auflösung in app.py.
+
+    app.py bevorzugt WETTEREXTENDED_EXPORT_BASE_DIR und fällt sonst auf das
+    Projektverzeichnis zurück; app.config["DEBUG_EXPORT_BASE_DIR"] existiert nur in
+    Tests. Weicht das Tool hiervon ab, schreibt es an einen Ort, den die Route
+    /api/admin/export/latest/meta nicht liest — der Fix wäre wirkungslos.
+    """
+    env_base = os.environ.get("WETTEREXTENDED_EXPORT_BASE_DIR")
+    return Path(env_base or repo_dir).expanduser().resolve()
+
+
+def persist_for_admin_panel(parts: "list[tuple[Path, str]]", manifest: dict, repo_dir: Path) -> dict | None:
+    """B429: Legt den automatisch erstellten Export dort ab, wo ihn das Admin-Panel findet.
+
+    Wird vor dem Push aufgerufen: der lokale Download soll auch dann existieren, wenn
+    GitHub nicht erreichbar ist oder ein Volume das Push-Limit überschreitet. Ein
+    Fehler hier darf den Push nicht verhindern — der Branch bleibt der Zweitweg.
+    """
+    sys.path.insert(0, str(repo_dir))
+    from config import SAVE_PATHS  # pylint: disable=import-outside-toplevel
+    from debug_export import persist_latest_export  # pylint: disable=import-outside-toplevel
+
+    try:
+        meta = persist_latest_export(parts, manifest, save_paths=SAVE_PATHS, base_dir=_export_base_dir(repo_dir))
+        log(f"Für Admin-Panel persistiert: {meta.get('part_count')} Teil(e), "
+            f"{format_mb(meta.get('total_bytes') or 0)} MB, Grund '{meta.get('export_reason')}'.")
+        return meta
+    except Exception as exc:  # pylint: disable=broad-except
+        log(f"WARNUNG: Persistenz für das Admin-Panel fehlgeschlagen ({exc}). "
+            "Der Push in den Branch wird trotzdem versucht.")
+        return None
+
+
 def create_export(repo_dir: Path, hours: int, max_source_total_mb: int, max_zip_mb: int) -> tuple[list[tuple[Path, str]], dict]:
     sys.path.insert(0, str(repo_dir))
     from config import SAVE_PATHS  # pylint: disable=import-outside-toplevel
-    from debug_export import create_debug_export_volumes  # pylint: disable=import-outside-toplevel
+    from debug_export import create_debug_export_volumes, persist_latest_export  # pylint: disable=import-outside-toplevel
 
     volume_max_bytes = max_zip_mb * 1024 * 1024
     log(
@@ -204,6 +239,10 @@ def create_export(repo_dir: Path, hours: int, max_source_total_mb: int, max_zip_
         hours=hours,
         volume_max_bytes=volume_max_bytes,
     )
+    # B429: Herkunft kennzeichnen. create_debug_export_volumes setzt für jeden Pfad
+    # "last_24h_debug_run"; ohne diese Unterscheidung ist im Admin-Panel nicht
+    # erkennbar, ob der angebotene Export vom Timer oder vom Button stammt.
+    manifest = {**manifest, "export_reason": EXPORT_REASON_SCHEDULED}
     return parts, manifest
 
 
@@ -290,6 +329,14 @@ def publish(args: argparse.Namespace) -> None:
             zip_size_bytes = sum(path.stat().st_size for path, _name in parts)
             filename = parts[0][1] if len(parts) == 1 else f"{Path(*args.target_path.parts).stem}_parts.zip"
             log(f"Debug-Volumes erstellt: {len(parts)} Teile ({format_mb(zip_size_bytes)} MB gesamt).")
+            # B429: zuerst lokal für das Admin-Panel ablegen, dann pushen. Der finally-
+            # Block löscht die Quell-Volumes; ohne diese Kopie wäre der automatische
+            # Export nirgends herunterladbar. Reihenfolge ist bindend: der Push darf
+            # scheitern, der Download muss trotzdem existieren.
+            if args.dry_run:
+                log("Dry-run: keine Persistenz für das Admin-Panel.")
+            else:
+                persist_for_admin_panel(parts, export_manifest, args.repo_dir)
             max_zip_bytes = args.max_zip_mb * 1024 * 1024
             oversized = [(path, name) for path, name in parts if path.stat().st_size > max_zip_bytes]
             if oversized:

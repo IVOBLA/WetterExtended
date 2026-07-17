@@ -311,6 +311,7 @@ function Logs() {
             })}
             {' '}· {latestExport.part_count} Teil{latestExport.part_count === 1 ? '' : 'e'}
             {' '}· {(latestExport.total_bytes / 1024 / 1024).toFixed(1)} MB
+            {' '}· {latestExport.export_reason === 'scheduled_branch_publish' ? 'automatisch' : 'manuell'}
           </span>
           <button
             onClick={downloadLatestExport}

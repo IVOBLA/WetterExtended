@@ -369,6 +369,17 @@ Folge von P75 und kein Fehler. Wächst die Zahl der Zeilen mit p75_antecedent_v1
 mehrere Tage mit Zellaktivität dagegen nicht, greift die Sample-Aufzeichnung nicht:
 melden. Alte Zeilen niemals löschen — sie belegen die Historie.
 
+### AC-057 — Prüfe, ob der nächtliche Export im Admin-Panel ankommt
+Nach einem Lauf des Timers auf dem Pi ausführen:
+  systemctl status wetterprojekt-debug-export-branch.service --no-pager | tail -5
+  cat train_data/evaluation/latest_export/latest_export_meta.json
+  journalctl -u wetterprojekt-debug-export-branch.service --since "-2 days" | grep -E "Für Admin-Panel persistiert|Persistenz .* fehlgeschlagen"
+Fehlt latest_export_meta.json, obwohl der Service erfolgreich lief, oder ist
+export_reason dort nicht "scheduled_branch_publish", während created_at_utc älter als
+der letzte Timer-Lauf ist, dann persistiert der automatische Export nicht: melden — das
+Panel bietet dann nur den alten manuellen Stand an. Eine Warnzeile "Persistenz für das
+Admin-Panel fehlgeschlagen" im Log ist immer zu melden, auch wenn der Push gelang.
+
 ---
 
 ## Erledigt
