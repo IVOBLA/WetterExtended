@@ -13,7 +13,7 @@ dd = importlib.import_module("drift_detector")
 
 def _rec(age_h, mae, short=None):
     ts = (datetime.now(timezone.utc) - timedelta(hours=age_h)).isoformat(timespec="seconds")
-    horizons = [{"horizon": 60, "mae_km": mae}]
+    horizons = [{"horizon": 20, "mae_km": mae}]
     if short is not None:
         horizons.append({"horizon": 10, "mae_km": short})
     return {"timestamp_utc": ts, "horizons": horizons}
