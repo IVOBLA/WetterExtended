@@ -288,7 +288,7 @@ def check_drift() -> dict:
                     continue
                 _p90 = _v.get("p90_direction_error_deg")
                 _median = _v.get("median_direction_error_deg")
-                _n = int(_v.get("samples", _v.get("n", 0)) or 0)
+                _n = int(_v.get("count", _v.get("samples", _v.get("n", 0))) or 0)
                 _dir_by_h[_hk] = {"median_deg": _median, "p90_deg": _p90, "samples": _n, "threshold_deg": _dir_thr}
                 if _p90 is not None and _n >= _min_pts and _p90 > _dir_thr:
                     _dir_alarm = True
@@ -300,7 +300,7 @@ def check_drift() -> dict:
                     continue
                 _p90 = _v.get("p90_speed_error_kmh")
                 _median = _v.get("median_speed_error_kmh")
-                _n = int(_v.get("samples", _v.get("n", 0)) or 0)
+                _n = int(_v.get("count", _v.get("samples", _v.get("n", 0))) or 0)
                 _spd_by_h[_hk] = {"median_kmh": _median, "p90_kmh": _p90, "samples": _n, "threshold_kmh": _spd_thr}
                 if _p90 is not None and _n >= _min_pts and _p90 > _spd_thr:
                     _spd_alarm = True
