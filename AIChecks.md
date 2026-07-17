@@ -325,11 +325,20 @@ schreiben sonst ins echte train_data/. Datenquelle: die Funktionssignaturen im
 aktuellen Arbeitsbaum.
 
 ### AC-052 — Prüfe Testartefakte im Arbeitsbaum
-Nach jedem Testlauf ausführen:
+Nach jedem Testlauf, der install_pytest.log erzeugt, zusätzlich ausführen:
   git status --short
-Erscheinen Dateien unter train_data/, hat ein Test an einem eingefrorenen Pfad
-geschrieben statt in tmp_path. Melden — solche Tests verändern den Produktivbestand.
-Datenquelle: Git-Status des Arbeitsbaums unmittelbar nach dem Testlauf.
+  git status --short | grep -c "train_data/" || true
+Erscheint eine Datei unter train_data/ — etwa hydro_flood_dataset.jsonl —, hat ein Test
+an einem beim Import eingefrorenen Pfad-Default geschrieben statt in tmp_path. Melden:
+solche Tests verändern den Produktivbestand und verfälschen den nächsten Debug-Export.
+
+### AC-053 — Prüfe neue AIChecks-Blöcke gegen die B407-Regeln
+Vor dem Anhängen eines Blocks ausführen:
+  python -m pytest -q tests/test_b407_aichecks_arbeitsanweisungen.py
+Der Titel muss mit einem Verb aus der Liste in test_aichecks_entries_are_imperative
+beginnen, und der Block muss eines der Wörter .json, .jsonl, grep, Log, log, Export
+oder Pi enthalten. Die Schlüsselwortliste im Test wird nie erweitert — der Block passt
+sich an. Ein Block ohne diese Wörter hat keine überprüfbare Datenquelle.
 
 ---
 
