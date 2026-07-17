@@ -13,11 +13,25 @@ def _isolate(tmp_path, monkeypatch):
     yield
 
 
-def test_group_mapping():
-    assert bg.group_for("openmeteo_icon_d2") == "openmeteo"
-    assert bg.group_for("openmeteo_extended_15min") == "openmeteo"
-    assert bg.group_for("geosphere_nowcast") == "geosphere_nowcast"
-    assert bg.group_for("") == ""
+@pytest.mark.parametrize(
+    ("service", "expected"),
+    [
+        ("Open-Meteo-700hPa", "openmeteo"),
+        ("Open-Meteo-synoptic", "openmeteo"),
+        ("Open-Meteo-Outlook", "openmeteo"),
+        ("Open-Meteo-Atmosphere-icon_d2", "openmeteo"),
+        ("Open-Meteo-700hPa-single", "openmeteo"),
+        ("openmeteo_icon_d2", "openmeteo"),
+        ("OpenMeteo", "openmeteo"),
+        ("open meteo", "openmeteo"),
+        ("Blitzortung", "blitzortung"),
+        ("GeoSphere-TAWES", "geosphere-tawes"),
+        ("", ""),
+        (None, ""),
+    ],
+)
+def test_group_mapping(service, expected):
+    assert bg.group_for(service) == expected
 
 
 def test_counting_and_enforcement():
@@ -33,6 +47,28 @@ def test_no_limit_group_never_blocks():
     for _ in range(50):
         bg.record_request("geosphere_nowcast")
     assert bg.over_budget("geosphere_nowcast") is False
+
+
+def test_hyphenated_openmeteo_service_uses_provider_budget(monkeypatch):
+    monkeypatch.setattr(bg, "_budgets", lambda: {"openmeteo": 9000})
+    monkeypatch.setattr(
+        bg,
+        "_load_state",
+        lambda: {"counts": {"openmeteo": 9000}},
+    )
+
+    assert bg.over_budget("Open-Meteo-700hPa") is True
+
+
+def test_unknown_service_remains_unlimited(monkeypatch):
+    monkeypatch.setattr(bg, "_budgets", lambda: {"openmeteo": 9000})
+    monkeypatch.setattr(
+        bg,
+        "_load_state",
+        lambda: {"counts": {"geosphere-tawes": 9000}},
+    )
+
+    assert bg.over_budget("GeoSphere-TAWES") is False
 
 
 def test_daily_reset(monkeypatch):
