@@ -85,3 +85,4 @@ binäre Warngrenzen-Überschreitung (gemessen/prognostiziert), betroffene Flussa
 auf der Karte; ML-Hydro-Features bleiben auf impact_eligible_auto-Stationen gegatet.
 
 Beobachtungspunkt (seit 2026-07-10): samples=0 im Bewegungs-Dataset (dataset_builder.py) bei konvektionsarmer Wetterlage ist erwartbar (Zellen erreichen ML_SEQUENCE_LENGTH=6 nicht) und kein Bugfix-Anlass; erst bei anhaltendem samples=0 TROTZ ausreichend langlebiger Zellen (aktive Gewitterlage, vgl. date_counters in cell_lineage_state.json) erneut als Problem pruefen.
+Bereits durch ein Einzugsgebiet gezogener Zellniederschlag muss über die Dauer des Pegel-Reaktionsfensters (HYDRO_LAG_WINDOW_MIN) weiterwirken; die Prognose darf nicht auf null zurückfallen, sobald die Zelle das Gebiet verlassen hat oder zerfallen ist.

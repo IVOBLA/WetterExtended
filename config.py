@@ -1463,6 +1463,9 @@ HYDRO_ROUTING_TAIL_MIN = 180
 # Rückhaltezeit None = obere Grenze von HYDRO_LAG_WINDOW_MIN (Pegel-Reaktionsfenster).
 HYDRO_PRECIP_LEDGER_ENABLED = True
 HYDRO_PRECIP_LEDGER_RETENTION_MIN = None
+# P75: Größte Frame-Lücke (min), über die Niederschlag noch integriert wird. Größere
+# Lücken werden auf diesen Wert gedeckelt, damit Radarausfälle keinen Dauerregen erzeugen.
+HYDRO_LEDGER_MAX_GAP_MIN = 20
 HYDRO_PENDING_RETENTION_HOURS = 72
 HYDRO_FAILED_SAMPLE_RETENTION_DAYS = 30
 HYDRO_DATASET_RETENTION_DAYS = 365
@@ -1507,6 +1510,12 @@ HYDRO_FLOOD_ML_FEATURES = [
     "physical_predicted_q_delta_m3s",
     "physical_predicted_q_max_m3s",
     "data_age_min",
+    "antecedent_rain_volume_m3",
+    "antecedent_runoff_volume_m3",
+    "antecedent_routed_delta_q_m3s",
+    "antecedent_cell_count",
+    "antecedent_frame_count",
+    "antecedent_last_hit_age_min",
     "threshold_available_flag",
     "q_trend_available_flag",
     "cell_entry_available_flag",
@@ -1519,6 +1528,7 @@ HYDRO_FLOOD_ML_FEATURES = [
     "observed_precip_available_flag",
     "precip_source_measured_flag",
     "precip_source_cell_forecast_flag",
+    "antecedent_available_flag",
 ]
 
 # --- P68: Signierte Bias-Korrektur des kinematischen Fallbacks ---

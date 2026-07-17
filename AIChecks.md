@@ -350,6 +350,25 @@ MAX über HYDRO_PRECIP_LEDGER_RETENTION_MIN (Default 180 min, siehe
 runtime_overrides.json), läuft purge_precip_ledger nicht: melden, das Wachstum ist
 sonst auf dem Pi unbegrenzt.
 
+### AC-055 — Prüfe, ob das Niederschlagsgedächtnis im Forecast ankommt
+Nach einem Zelldurchzug auf dem Pi ausführen:
+  curl -s localhost/api/hydro/flood-risk | python3 -m json.tool | grep -E "antecedent_(status|last_hit_age_min|routed_delta_q_m3s)"
+  grep -c "antecedent_status" train_data/hydro/impact/latest_hydro_flood_risk.json
+Ist antecedent_status über Stunden durchgehend "no_history", obwohl der Debug-Export
+Zellen im Einzugsgebiet zeigt, schreibt P74 nicht: melden. Steht antecedent_status auf
+"ok" und antecedent_routed_delta_q_m3s bleibt dennoch exakt 0.0, während
+antecedent_runoff_volume_m3 > 0 ist, läuft die Kaskade nicht aus der Vergangenheit an —
+ebenfalls melden, der gefallene Regen bleibt dann wirkungslos.
+
+### AC-056 — Prüfe den Trainingsbestand nach dem Schemawechsel auf p75_antecedent_v1
+Im Debug-Export ausführen:
+  sqlite3 train_data/hydro/ml/hydro_flood_samples.sqlite3 "SELECT feature_schema_version, COUNT(*) FROM labeled_samples GROUP BY 1;"
+  curl -s localhost/api/hydro/flood-risk/status | python3 -m json.tool | grep -A3 readiness
+Dass Zeilen mit b418_live_catchment_v5 nicht mehr trainierbar sind, ist die dokumentierte
+Folge von P75 und kein Fehler. Wächst die Zahl der Zeilen mit p75_antecedent_v1 über
+mehrere Tage mit Zellaktivität dagegen nicht, greift die Sample-Aufzeichnung nicht:
+melden. Alte Zeilen niemals löschen — sie belegen die Historie.
+
 ---
 
 ## Erledigt

@@ -26,7 +26,7 @@ HYDRO_ACCURACY_HISTORY_PATH = HYDRO_ML_DIR / "hydro_flood_accuracy_history.jsonl
 HYDRO_RISK_PATH = Path("train_data/hydro/impact/latest_hydro_flood_risk.json")
 HYDRO_MODEL_CURRENT_DIR = Path("train_data/models/hydro_flood/current")
 MIN_TRAINING_SAMPLES = int(os.getenv("HYDRO_FLOOD_ML_MIN_SAMPLES", "20"))
-FEATURE_SCHEMA_VERSION = "b418_live_catchment_v5"
+FEATURE_SCHEMA_VERSION = "p75_antecedent_v1"
 HYDRO_SAMPLE_DB_PATH = HYDRO_ML_DIR / "hydro_flood_samples.sqlite3"
 HYDRO_MAINTENANCE_STATUS_PATH = HYDRO_ML_DIR / "hydro_ml_maintenance_latest.json"
 _DEFAULT_HYDRO_SAMPLE_DB_PATH = HYDRO_SAMPLE_DB_PATH
@@ -46,6 +46,9 @@ HYDRO_FLOOD_ML_FEATURES = list(getattr(config, "HYDRO_FLOOD_ML_FEATURES", [
     "cell_catchment_area_km2_sum", "rain_rate_mm_h_max", "rain_rate_mm_h_mean",
     "rain_rate_mm_h_area_weighted", "first_entry_offset_min", "last_exit_offset_min",
     "physical_predicted_q_delta_m3s", "physical_predicted_q_max_m3s", "data_age_min",
+    "antecedent_rain_volume_m3", "antecedent_runoff_volume_m3",
+    "antecedent_routed_delta_q_m3s", "antecedent_cell_count",
+    "antecedent_frame_count", "antecedent_last_hit_age_min",
 ]))
 
 HYDRO_OPTIONAL_FEATURES = {
@@ -56,10 +59,12 @@ HYDRO_OPTIONAL_FEATURES = {
     "observed_catchment_precip_max_rate_mm_h", "observed_catchment_precip_mean_rate_mm_h",
     "observed_precip_data_age_min", "observed_precip_available_flag",
     "precip_source_measured_flag", "precip_source_cell_forecast_flag",
+    "antecedent_last_hit_age_min", "antecedent_available_flag",
 }
 HYDRO_MISSING_INDICATOR_FEATURES = [
     "threshold_available_flag", "q_trend_available_flag",
     "cell_entry_available_flag", "data_age_available_flag",
+    "antecedent_available_flag",
 ]
 HYDRO_REQUIRED_FEATURES = [f for f in HYDRO_FLOOD_ML_FEATURES if f not in HYDRO_OPTIONAL_FEATURES]
 HYDRO_FEATURE_IMPUTATION = {
@@ -79,6 +84,9 @@ HYDRO_FEATURE_IMPUTATION = {
     "observed_precip_available_flag": 0.0,
     "precip_source_measured_flag": 0.0,
     "precip_source_cell_forecast_flag": 0.0,
+    # Ein fehlendes Alter darf nie frisch aussehen; der Flag unterscheidet den Fall.
+    "antecedent_last_hit_age_min": 1000000.0,
+    "antecedent_available_flag": 0.0,
 }
 for _flag in HYDRO_MISSING_INDICATOR_FEATURES:
     if _flag not in HYDRO_FLOOD_ML_FEATURES:
@@ -605,13 +613,18 @@ def _empty_precip_result(station: dict, cells: list[dict] | None, *, geometry_av
         "physical_predicted_q_delta_m3s": 0.0,
         "physical_predicted_q_max_m3s": q0,
         "first_entry_offset_min": None, "last_exit_offset_min": None,
+        "antecedent_rain_volume_m3": 0.0, "antecedent_runoff_volume_m3": 0.0,
+        "antecedent_routed_delta_q_m3s": 0.0, "antecedent_cell_count": 0,
+        "antecedent_frame_count": 0, "antecedent_last_hit_age_min": None,
+        "antecedent_max_gap_min": 0.0, "antecedent_window_min": 0,
+        "antecedent_status": "not_evaluable", "antecedent_series": [],
         "rain_rate_mm_h_max": 0.0, "rain_rate_mm_h_mean": 0.0,
         "rain_rate_mm_h_area_weighted": 0.0,
         "cell_diagnostics": [], "station_runoff_series": [],
     })
     return base
 
-def _precip_from_cells(station: dict, cells: list[dict]) -> dict:
+def _precip_from_cells(station: dict, cells: list[dict], ledger_rows: list[dict] | None = None) -> dict:
     try:
         import hydro_impact
         from shapely.affinity import translate
@@ -679,7 +692,21 @@ def _precip_from_cells(station: dict, cells: list[dict]) -> dict:
         max_forecast = 60
     tail = _cfg_int("HYDRO_ROUTING_TAIL_MIN", int(min(max(tau*3, step), 180)), 0, 360)
     max_offset = max([max(per_time) if per_time else 0, max_forecast]) + tail
-    for off in range(0, int(max_offset) + step, step):
+    ante = _antecedent_from_ledger(ledger_rows, step, ledger_retention_min(), runoff_coeff)
+    hist_by_off = ante.pop("hist_by_off", {})
+    start_off = min([0] + list(hist_by_off)) if hist_by_off else 0
+    hist_series = []
+    for off in range(int(start_off), int(max_offset) + step, step):
+        if off < 0:
+            # P75: bereits gefallener Regen füllt den Linearspeicher, damit `routed`
+            # bei Offset 0 den real vorhandenen Speicherinhalt trägt statt 0.
+            raw_q_hist = float(hist_by_off.get(off, 0.0))
+            dt_hist = step if prev_off is None else max(0, off - prev_off)
+            alpha_hist = 1.0 - math.exp(-dt_hist / tau) if dt_hist > 0 else 0.0
+            routed = routed * (1.0 - alpha_hist) + raw_q_hist * attenuation * alpha_hist
+            prev_off = off
+            hist_series.append({"offset_min": off, "raw_delta_q_m3s": round(raw_q_hist, 4), "routed_delta_q_m3s": round(routed, 4)})
+            continue
         parts=sorted(per_time.get(off, []), key=lambda x: x["rate"], reverse=True)
         occupied=None; raw_area=sum(x["raw_area_km2"] for x in parts); raw_q=0.0; eff_area=0.0
         active=set(); incoming=set()
@@ -727,7 +754,7 @@ def _precip_from_cells(station: dict, cells: list[dict]) -> dict:
     label="aus erkannter Regenzelle abgeleitet" if contributing else "keine relevante Zelle im aktuellen oder prognostizierten Einzugsgebiet"
     raw_overlap_area_time_km2_min = round(raw_total * step, 3)
     effective_overlap_area_time_km2_min = round(eff_total * step, 3)
-    return {**cdiag, "input_cell_count": len(cells or []), "cell_catchment_count": contributing, "contributing_cell_count": contributing, "current_cell_count": current, "incoming_cell_count": incoming, "cell_catchment_precip_sum_mm": round(total_rain / max(cdiag.get("catchment_area_geometry_km2") or 1.0, 1e-6) / 1000.0, 3), "cell_catchment_precip_weighted_sum_mm": round(total_rain / max(cdiag.get("catchment_area_geometry_km2") or 1.0, 1e-6) / 1000.0, 3), "cell_catchment_max_intensity": round(max([d.get("rain_rate_mm_h",0) for d in diags] or [0]),3), "cell_catchment_area_km2_sum": round(sum(d.get("cell_area_km2",0) for d in diags),3), "cell_catchment_overlap_area_km2_sum": round(raw_total,3), "raw_overlap_area_km2_sum": round(raw_total,3), "effective_overlap_area_km2": round(max([x["effective_overlap_area_km2"] for x in series] or [0]),3), "overlap_deduplicated_area_km2": round(dedup_total,3), "spatial_dedup_applied": spatial_dedup, "cell_catchment_overlap_ratio_max": round(max([d.get("max_overlap_area_km2",0)/max(d.get("cell_area_km2",1),1e-6) for d in diags] or [0]),4), "cell_precip_source_type": source if contributing else "none", "geometry_quality": "shapely", "routing_tau_min": round(tau,3), "routing_tau_source": tau_source, "precip_evaluable_by_geometry": True, "precip_status": status, "precip_status_label": label, "total_rain_volume_m3": round(total_rain,3), "total_runoff_volume_m3": round(total_runoff,3), "total_dwell_time_min": round(sum(d.get("dwell_time_min",0) for d in diags),3), "max_cell_dwell_time_min": round(max([d.get("dwell_time_min",0) for d in diags] or [0]),3), "max_overlap_area_km2": round(max([d.get("max_overlap_area_km2",0) for d in diags] or [0]),3), "raw_overlap_area_time_km2_min": raw_overlap_area_time_km2_min, "effective_overlap_area_time_km2_min": effective_overlap_area_time_km2_min, "overlap_area_time_km2_min": effective_overlap_area_time_km2_min, "physical_predicted_q_delta_m3s": round(pred_delta,4), "physical_predicted_q_max_m3s": round(max(0.0, q0+pred_delta),4), "first_entry_offset_min": min([d.get("entry_offset_min") for d in diags] or [None]), "last_exit_offset_min": max([d.get("exit_offset_min") for d in diags] or [None]), "rain_rate_mm_h_max": round(max([d.get("rain_rate_mm_h",0) for d in diags] or [0]),3), "rain_rate_mm_h_mean": round(sum(d.get("rain_rate_mm_h",0) for d in diags)/contributing,3) if contributing else 0.0, "rain_rate_mm_h_area_weighted": round((sum(d.get("rain_rate_mm_h",0)*d.get("max_overlap_area_km2",0) for d in diags) / max(sum(d.get("max_overlap_area_km2",0) for d in diags), 1e-6)),3) if contributing else 0.0, "cell_diagnostics": diags, "station_runoff_series": series[:24], "precip_ledger_t0": t0_contributions}
+    return {**cdiag, **ante, "antecedent_routed_delta_q_m3s": round(hist_series[-1]["routed_delta_q_m3s"], 4) if hist_series else 0.0, "antecedent_series": hist_series[-24:], "input_cell_count": len(cells or []), "cell_catchment_count": contributing, "contributing_cell_count": contributing, "current_cell_count": current, "incoming_cell_count": incoming, "cell_catchment_precip_sum_mm": round(total_rain / max(cdiag.get("catchment_area_geometry_km2") or 1.0, 1e-6) / 1000.0, 3), "cell_catchment_precip_weighted_sum_mm": round(total_rain / max(cdiag.get("catchment_area_geometry_km2") or 1.0, 1e-6) / 1000.0, 3), "cell_catchment_max_intensity": round(max([d.get("rain_rate_mm_h",0) for d in diags] or [0]),3), "cell_catchment_area_km2_sum": round(sum(d.get("cell_area_km2",0) for d in diags),3), "cell_catchment_overlap_area_km2_sum": round(raw_total,3), "raw_overlap_area_km2_sum": round(raw_total,3), "effective_overlap_area_km2": round(max([x["effective_overlap_area_km2"] for x in series] or [0]),3), "overlap_deduplicated_area_km2": round(dedup_total,3), "spatial_dedup_applied": spatial_dedup, "cell_catchment_overlap_ratio_max": round(max([d.get("max_overlap_area_km2",0)/max(d.get("cell_area_km2",1),1e-6) for d in diags] or [0]),4), "cell_precip_source_type": source if contributing else "none", "geometry_quality": "shapely", "routing_tau_min": round(tau,3), "routing_tau_source": tau_source, "precip_evaluable_by_geometry": True, "precip_status": status, "precip_status_label": label, "total_rain_volume_m3": round(total_rain,3), "total_runoff_volume_m3": round(total_runoff,3), "total_dwell_time_min": round(sum(d.get("dwell_time_min",0) for d in diags),3), "max_cell_dwell_time_min": round(max([d.get("dwell_time_min",0) for d in diags] or [0]),3), "max_overlap_area_km2": round(max([d.get("max_overlap_area_km2",0) for d in diags] or [0]),3), "raw_overlap_area_time_km2_min": raw_overlap_area_time_km2_min, "effective_overlap_area_time_km2_min": effective_overlap_area_time_km2_min, "overlap_area_time_km2_min": effective_overlap_area_time_km2_min, "physical_predicted_q_delta_m3s": round(pred_delta,4), "physical_predicted_q_max_m3s": round(max(0.0, q0+pred_delta),4), "first_entry_offset_min": min([d.get("entry_offset_min") for d in diags] or [None]), "last_exit_offset_min": max([d.get("exit_offset_min") for d in diags] or [None]), "rain_rate_mm_h_max": round(max([d.get("rain_rate_mm_h",0) for d in diags] or [0]),3), "rain_rate_mm_h_mean": round(sum(d.get("rain_rate_mm_h",0) for d in diags)/contributing,3) if contributing else 0.0, "rain_rate_mm_h_area_weighted": round((sum(d.get("rain_rate_mm_h",0)*d.get("max_overlap_area_km2",0) for d in diags) / max(sum(d.get("max_overlap_area_km2",0) for d in diags), 1e-6)),3) if contributing else 0.0, "cell_diagnostics": diags, "station_runoff_series": series[:24], "precip_ledger_t0": t0_contributions}
 
 def _observed_precip(station: dict) -> dict:
     p = station.get("observed_precip") if isinstance(station.get("observed_precip"), dict) else {}
@@ -788,14 +815,14 @@ def _q_timestamp(live_station: dict) -> tuple[str | None, str]:
     return None, "missing"
 
 
-def build_feature_row(station: dict, live: dict|None=None, cells: list[dict]|None=None, trend_history: dict[str, list[dict]]|None=None) -> dict:
+def build_feature_row(station: dict, live: dict|None=None, cells: list[dict]|None=None, trend_history: dict[str, list[dict]]|None=None, ledger_rows: list[dict]|None=None) -> dict:
     sid = str(station.get("station_id") or "")
     live_station = station
     if live:
         by = {str(s.get("station_id")): {**s, "fetched_at": s.get("fetched_at") or live.get("fetched_at")} for s in live.get("stations", []) if isinstance(s, dict)}; live_station = {**station, **(by.get(sid) or {})}
     q = _f(live_station.get("q_m3s")); q_measured_at, q_timestamp_source = _q_timestamp(live_station); thr, src = _threshold(station)
     forcing_station = {**station, **live_station}
-    obs = _observed_precip(live_station); cellp = _apply_observed_precip_forcing(forcing_station, obs, _precip_from_cells(forcing_station, cells if cells is not None else [{}]))
+    obs = _observed_precip(live_station); cellp = _apply_observed_precip_forcing(forcing_station, obs, _precip_from_cells(forcing_station, cells if cells is not None else [{}], ledger_rows=ledger_rows))
     use_obs = bool(obs["observed_precip_available"])
     eff_type = "measured" if use_obs else (cellp["cell_precip_source_type"] if cellp["cell_precip_source_type"] != "missing" else "missing")
     eff_sum = obs["observed_catchment_precip_sum_mm"] if use_obs else cellp["cell_catchment_precip_sum_mm"]
@@ -855,7 +882,7 @@ def heuristic_score(row: dict) -> dict:
     return {**base, "flood_expected": expected, "flood_evaluable": True, "current_threshold_evaluable": True, "current_q_above_threshold": False, "forecast_flood_evaluable": True, "flood_status": "ok", "reasons": reasons, "warning_reasons": warnings, "prediction_source": "physical_fallback", "predicted_q_delta_m3s": predicted_delta, "predicted_q_max_m3s": predicted_q}
 
 def _public_flood_row(row: dict) -> dict:
-    keys = ["station_id","station_name","river","station_lat","station_lon","current_q_m3s","current_q_measured_at","current_q_missing","current_data_age_min","data_age_min","hydro_data_stale","station_q_threshold_m3s","station_q_threshold_missing","current_q_distance_to_threshold_m3s","current_q_ratio_threshold","current_q_above_threshold","current_threshold_evaluable","q_trend_status","q_trend_delta_m3s","q_trend_per_hour","q_trend_reference_window_min","already_rising_flag","current_q_trend_10min","current_q_trend_30min","current_q_trend_60min","predicted_q_max_m3s","prediction_source","forecast_flood_evaluable","forecast_evaluation_stale","forecast_evaluation_generated_at","forecast_evaluation_age_min","stale_predicted_q_max_m3s","stale_prediction_generated_at","input_cell_count","contributing_cell_count","current_cell_count","incoming_cell_count","effective_catchment_precip_sum_mm","effective_precip_source_type","effective_precip_source_quality","precip_evaluable","precip_status","precip_status_label","precip_quality_label","precip_is_observed","precip_source_name","precip_source_age_min","observed_precip_used_in_forecast","total_dwell_time_min","max_cell_dwell_time_min","overlap_area_time_km2_min","first_entry_offset_min","last_exit_offset_min","rain_rate_mm_h_max","rain_rate_mm_h_mean","catchment_geometry_available","catchment_geometry_status","catchment_area_km2","flood_expected","flood_evaluable","flood_status","reasons","warning_reasons","generated_at"]
+    keys = ["station_id","station_name","river","station_lat","station_lon","current_q_m3s","current_q_measured_at","current_q_missing","current_data_age_min","data_age_min","hydro_data_stale","station_q_threshold_m3s","station_q_threshold_missing","current_q_distance_to_threshold_m3s","current_q_ratio_threshold","current_q_above_threshold","current_threshold_evaluable","q_trend_status","q_trend_delta_m3s","q_trend_per_hour","q_trend_reference_window_min","already_rising_flag","current_q_trend_10min","current_q_trend_30min","current_q_trend_60min","predicted_q_max_m3s","prediction_source","forecast_flood_evaluable","forecast_evaluation_stale","forecast_evaluation_generated_at","forecast_evaluation_age_min","stale_predicted_q_max_m3s","stale_prediction_generated_at","input_cell_count","contributing_cell_count","current_cell_count","incoming_cell_count","effective_catchment_precip_sum_mm","effective_precip_source_type","effective_precip_source_quality","precip_evaluable","precip_status","precip_status_label","precip_quality_label","precip_is_observed","precip_source_name","precip_source_age_min","observed_precip_used_in_forecast","antecedent_status","antecedent_window_min","antecedent_last_hit_age_min","antecedent_runoff_volume_m3","antecedent_routed_delta_q_m3s","total_dwell_time_min","max_cell_dwell_time_min","overlap_area_time_km2_min","first_entry_offset_min","last_exit_offset_min","rain_rate_mm_h_max","rain_rate_mm_h_mean","catchment_geometry_available","catchment_geometry_status","catchment_area_km2","flood_expected","flood_evaluable","flood_status","reasons","warning_reasons","generated_at"]
     return {k: row.get(k) for k in keys if k in row}
 
 def evaluate_live_flood_risk(stations: list[dict]|None=None, live: dict|None=None, cells: list[dict]|None=None, write: bool=True, include_debug: bool=False) -> dict:
@@ -866,12 +893,13 @@ def evaluate_live_flood_risk(stations: list[dict]|None=None, live: dict|None=Non
     trend_history = load_q_trend_history()
     cells_meta = _objects_signature(cells or [])
     frame_meta = (live or {}).get("cell_frame_meta") if isinstance(live, dict) else None
+    ledger_by_station = load_precip_ledger((frame_meta or {}).get("frame_timestamp") if isinstance(frame_meta, dict) else None)
     try:
         model_context = load_active_hydro_model()
     except Exception as exc:
         model_context = {"load_error": exc, "signature": model_stat_signature(HYDRO_MODEL_CURRENT_DIR), "model_cache_status": "miss"}
     for st in stations or []:
-        row = build_feature_row(st, live=live, cells=cells, trend_history=trend_history)
+        row = build_feature_row(st, live=live, cells=cells, trend_history=trend_history, ledger_rows=ledger_by_station.get(str(st.get("station_id") or "")))
         if cells == [] and isinstance(frame_meta, dict) and frame_meta.get("status") == "ok" and int(frame_meta.get("raw_cell_count") or 0) == 0:
             row.update({"precip_status": "no_relevant_cell", "precip_status_label": "keine relevante Zelle im aktuellen oder prognostizierten Einzugsgebiet", "precip_evaluable": True, "effective_precip_source_type": "none", "effective_catchment_precip_sum_mm": 0.0})
         pred = predict_q_delta(row, model_context=model_context)
@@ -925,6 +953,7 @@ def _feature_snapshot(row: dict) -> dict:
     snap["observed_precip_available_flag"] = 1.0 if row.get("observed_precip_available") else 0.0
     snap["precip_source_measured_flag"] = 1.0 if row.get("observed_precip_used_in_forecast") else 0.0
     snap["precip_source_cell_forecast_flag"] = 1.0 if int(row.get("contributing_cell_count") or 0) > 0 else 0.0
+    snap["antecedent_available_flag"] = 1.0 if row.get("antecedent_status") == "ok" else 0.0
     for key, default in HYDRO_FEATURE_IMPUTATION.items():
         if snap.get(key) is None:
             snap[key] = default
@@ -1078,6 +1107,90 @@ def purge_precip_ledger(now: datetime | None = None) -> int:
             return int(cur.rowcount or 0)
     except sqlite3.Error:
         return 0
+
+
+def load_precip_ledger(frame_timestamp: str | None, now: datetime | None = None) -> dict[str, list[dict]]:
+    """Liest das Niederschlagsgedächtnis, gruppiert nach Station.
+
+    Strikt `frame_timestamp < aktueller Frame`: der laufende Frame wird live berechnet
+    und darf nie zusätzlich aus dem Gedächtnis stammen — sonst Doppelzählung.
+    Einmal pro Lauf aufrufen, nicht je Station (N+1-Abfragen sind auf dem Pi spürbar).
+    """
+    if not ledger_enabled() or not frame_timestamp:
+        return {}
+    ref = _dt(frame_timestamp) or (now or datetime.now(timezone.utc))
+    cutoff = (ref - timedelta(minutes=ledger_retention_min())).isoformat().replace("+00:00", "Z")
+    try:
+        with _sample_db() as con:
+            rows = list(con.execute(
+                "SELECT station_id, frame_timestamp, cell_id, eff_overlap_area_km2, rain_rate_mm_h, raw_delta_q_m3s FROM catchment_precip_ledger WHERE frame_timestamp < ? AND frame_timestamp >= ? ORDER BY station_id, frame_timestamp",
+                (str(frame_timestamp), cutoff)))
+    except sqlite3.Error:
+        return {}
+    out: dict[str, list[dict]] = {}
+    for sid, fts, cid, area, rate, dq in rows:
+        d = _dt(fts)
+        if d is None:
+            continue
+        minutes_ago = (ref - d).total_seconds() / 60.0
+        if minutes_ago <= 0:
+            continue
+        out.setdefault(str(sid), []).append({
+            "frame_timestamp": fts, "cell_id": str(cid), "minutes_ago": minutes_ago,
+            "eff_overlap_area_km2": _f(area, 0.0) or 0.0, "rain_rate_mm_h": _f(rate, 0.0) or 0.0,
+            "raw_delta_q_m3s": _f(dq, 0.0) or 0.0})
+    return out
+
+
+def _antecedent_from_ledger(ledger_rows: list[dict] | None, step: int, retention: int, runoff_coeff: float) -> dict:
+    """Verdichtet Gedächtniszeilen zu Zuflüssen je negativem Offset plus Kennzahlen.
+
+    Buckets liegen bei höchstens -step: ein zwei Minuten alter Frame darf nicht auf
+    Offset 0 fallen und dort den live berechneten Frame doppelt zählen.
+    Mehrere Frames im selben Bucket werden gemittelt, weil raw_delta_q_m3s eine Rate
+    (m³/s) ist und keine Menge. Volumina nutzen den echten Abstand zum Vorgängerframe,
+    gedeckelt auf HYDRO_LEDGER_MAX_GAP_MIN — eine Frame-Lücke von drei Stunden darf
+    nicht als drei Stunden Dauerregen integriert werden.
+    """
+    empty = {"hist_by_off": {}, "antecedent_rain_volume_m3": 0.0, "antecedent_runoff_volume_m3": 0.0,
+             "antecedent_cell_count": 0, "antecedent_frame_count": 0, "antecedent_last_hit_age_min": None,
+             "antecedent_max_gap_min": 0.0, "antecedent_window_min": retention,
+             "antecedent_status": "no_history"}
+    rows = [r for r in (ledger_rows or []) if isinstance(r, dict) and 0 < float(r.get("minutes_ago") or 0) <= retention]
+    if not rows:
+        return empty
+    max_gap = _cfg_int("HYDRO_LEDGER_MAX_GAP_MIN", 20, step, 180)
+    by_frame: dict[str, list[dict]] = {}
+    for r in rows:
+        by_frame.setdefault(str(r["frame_timestamp"]), []).append(r)
+    frames = sorted(by_frame, key=lambda k: by_frame[k][0]["minutes_ago"], reverse=True)  # ältester zuerst
+    bucket_sums: dict[int, list[float]] = {}
+    rain_volume = 0.0
+    prev_age = None
+    gaps = []
+    for fts in frames:
+        group = by_frame[fts]
+        age = float(group[0]["minutes_ago"])
+        frame_q = sum(float(g.get("raw_delta_q_m3s") or 0.0) for g in group)
+        off = -max(step, int(round(age / step)) * step)
+        bucket_sums.setdefault(off, []).append(frame_q)
+        dt = max_gap if prev_age is None else min(max_gap, max(0.0, prev_age - age))
+        if prev_age is not None:
+            gaps.append(prev_age - age)
+        rain_volume += sum(float(g.get("rain_rate_mm_h") or 0.0) * float(g.get("eff_overlap_area_km2") or 0.0) for g in group) * (dt / 60.0) * 1000.0
+        prev_age = age
+    hist_by_off = {off: (sum(v) / len(v)) for off, v in bucket_sums.items()}
+    return {
+        "hist_by_off": hist_by_off,
+        "antecedent_rain_volume_m3": round(rain_volume, 3),
+        "antecedent_runoff_volume_m3": round(rain_volume * runoff_coeff, 3),
+        "antecedent_cell_count": len({r["cell_id"] for r in rows}),
+        "antecedent_frame_count": len(frames),
+        "antecedent_last_hit_age_min": round(min(float(r["minutes_ago"]) for r in rows), 2),
+        "antecedent_max_gap_min": round(max(gaps or [0.0]), 2),
+        "antecedent_window_min": retention,
+        "antecedent_status": "ok",
+    }
 
 
 def _q_history_signature():

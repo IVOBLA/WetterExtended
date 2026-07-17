@@ -7087,3 +7087,19 @@ Payload-Hygiene.
 des Niederschlagsgedächtnisses. P75 (Auswertung im Routing) steht aus. Phase B
 (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
 Trainingsdaten.
+
+### P75 — Einzugsgebiets-Niederschlagsgedächtnis, Teil 2: Auswertung im Routing ✅ erledigt
+
+**Befund:** Die Routing-Kaskade in `_precip_from_cells()` startete bei Offset 0 und damit in jedem Lauf mit `routed = 0.0`. Der seit P74 vorhandene Ledger wurde nicht gelesen; bereits gefallener Niederschlag konnte deshalb trotz des Reaktionsfensters nicht nachwirken.
+
+**Fix:** `load_precip_ledger()` liest das Gedächtnis einmal je Lauf, strikt vor dem aktuellen Frame. `_antecedent_from_ledger()` verdichtet die Zeilen zu negativen Offsets, mittelt Raten im selben Bucket und deckelt Integrationslücken mit `HYDRO_LEDGER_MAX_GAP_MIN`. Die Routing-Kaskade läuft aus der Vergangenheit an, sodass ihr Speicher bei Offset 0 den realen Inhalt trägt. Vergangenheitswerte verändern die bestehenden Prognoseaggregate nicht direkt, sondern wirken ausschließlich über `routed`.
+
+**Neue Merkmale:** `antecedent_rain_volume_m3`, `antecedent_runoff_volume_m3`, `antecedent_routed_delta_q_m3s`, `antecedent_cell_count`, `antecedent_frame_count`, `antecedent_last_hit_age_min` und `antecedent_available_flag`. Fehlendes Alter wird mit 1000000.0 imputiert.
+
+**Bewusste Konsequenz:** `FEATURE_SCHEMA_VERSION` steigt auf `p75_antecedent_v1`. Alte Samples bleiben unverändert erhalten, sind wegen des Schemawechsels aber nicht mehr trainierbar; `readiness_status()` zählt neu.
+
+**Konfiguration:** `HYDRO_PRECIP_LEDGER_ENABLED`, `HYDRO_PRECIP_LEDGER_RETENTION_MIN` und `HYDRO_LEDGER_MAX_GAP_MIN` sind im Admin-Panel wartbar.
+
+**Tests:** `tests/test_p75_antecedent_routing.py` prüft Ausschluss des aktuellen Frames, Retention, Bucketing, Mittelung, Lückendeckelung, neutrale Historie, Nachwirkung, Schema, Imputation und Payload-Hygiene.
+
+**Phasen-Status:** Phase A — Serie B412–B428 abgeschlossen; P74/P75 schließen das Einzugsgebiets-Niederschlagsgedächtnis ab. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert und wartet auf ausreichende Trainingsdaten.
