@@ -307,6 +307,7 @@ def fetch_hydro_live(force: bool = False) -> dict:
             else:
                 existing = _read_risk_json(HYDRO_RISK_PATH, {})
                 previous = existing if isinstance(existing, dict) and existing.get("stations") else None
+                evaluate_live_flood_risk(live=result, cells=[])
                 _atomic_json(HYDRO_RISK_PATH, build_deferred_public_risk(result, cell_meta, previous))
         except Exception as exc:
             result["status"].update({"hydro_flood_eval_status": "error", "hydro_flood_eval_error": f"{type(exc).__name__}: {exc}", "hydro_flood_eval_at": _utc_now().isoformat().replace("+00:00", "Z")})
