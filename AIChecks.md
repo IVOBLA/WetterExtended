@@ -382,6 +382,39 @@ Admin-Panel fehlgeschlagen" im Log ist immer zu melden, auch wenn der Push gelan
 
 ---
 
+### AC-058 — Prüfe Hydro-Flood-Risk auf Store-Defekt und Antwortgröße
+
+**Datenquellen im Export:**
+- `api_logs/nginx/nginx_access.log`
+- `api_logs/journal/wetterprojekt-admin.service.log`
+- `hydro_ml/hydro_flood_samples_snapshot.sqlite3`
+- `train_data/hydro/impact/` (Verzeichnisinhalt)
+- `manifest.json` → `scanned_roots`
+
+**Durchzuführen:**
+
+1. Aus `nginx_access.log` alle `GET /api/hydro/flood-risk`-Zeilen extrahieren und die
+   Antwortgrößen (vorletztes Feld) auszählen. Bei mehr als 20 Stationen ist jede
+   Antwort unter 2000 Bytes eine Fehlerantwort. Bei konstant 105 Bytes prüfen, ob die
+   Meldung `DatabaseError: database disk image is malformed` lautet (47 Zeichen →
+   105 Bytes compact). Befund melden mit Anzahl und Zeitspanne.
+2. In `wetterprojekt-admin.service.log` nach `[API-FAIL] hydro_api:` suchen, Fehlertypen
+   auszählen und ersten/letzten Zeitstempel angeben. Mehr als 5 Vorkommen in 24 h ist
+   ein Befund.
+3. Auf `hydro_flood_samples_snapshot.sqlite3` `PRAGMA integrity_check` ausführen. Bei
+   Meldungen die betroffene `rootpage` über
+   `SELECT type,name,rootpage FROM sqlite_master WHERE rootpage=<n>` auflösen und die
+   Tabelle benennen. Jede Abweichung von `ok` ist ein Befund.
+4. Prüfen, ob `hydro_impact/latest_hydro_flood_risk.json` im Export enthalten ist.
+   Fehlt sie, obwohl `manifest.json` → `scanned_roots` das Verzeichnis
+   `train_data/hydro/impact` listet, wurde der Risk-Cache nie geschrieben — Befund.
+5. Falls `latest_hydro_flood_risk.json` vorhanden ist: `sample_store_status` prüfen.
+   Wert `degraded` ist ein Befund; `sample_store_faults[].stage` benennen.
+6. `train_data/hydro/live/hydro_status.json` NICHT als Beleg für Fehlerfreiheit
+   verwenden. `_mark_cache` in `hydro_fetch.py` baut die Datei bei jedem Cache-Treffer
+   aus `latest_hydro.json["status"]` neu auf und löscht dabei `hydro_flood_eval_error`.
+   Maßgeblich sind Journal und Antwortgröße.
+
 ## Erledigt
 
 _(Format: `AC-xxx — Kurztitel · YYYY-MM-DD · Ergebnis in einem Satz.)_

@@ -28,7 +28,7 @@ def test_write_and_debug_are_independent(monkeypatch, tmp_path, write, debug):
     assert h.HYDRO_RISK_PATH.exists() is (write and not debug)
     assert doc["payload_scope"] == ("admin_diagnostics" if debug else "public")
     if debug:
-        assert doc["payload_schema_version"] == "b419_admin_diagnostics_v1"
+        assert doc["payload_schema_version"] == "b430_admin_diagnostics_v1"
 
 
 def test_write_false_does_not_touch_cache(monkeypatch, tmp_path):

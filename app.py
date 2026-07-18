@@ -5732,6 +5732,12 @@ def api_hydro_flood_risk():
         cells, cell_meta = hydro_flood_ml.load_latest_cell_frame()
         live = {**(live or {}), "cell_frame_meta": cell_meta}
         doc = hydro_flood_ml.HYDRO_RISK_PATH.exists() and hydro_flood_ml._read_json(hydro_flood_ml.HYDRO_RISK_PATH, None)
+        # B430: Ein Cache mit falschem oder fehlendem payload_scope wird verworfen und
+        # neu berechnet, statt den Endpunkt dauerhaft mit einer Exception zu blockieren.
+        # Der Guard bleibt aktiv — er darf nur nie einen public-Payload durchlassen,
+        # nicht die Neuberechnung verhindern.
+        if isinstance(doc, dict) and doc.get("payload_scope") != "public":
+            doc = None
         if isinstance(doc, dict):
             hydro_flood_ml.require_public_payload_scope(doc)
         if cell_meta.get("status") in {"stale", "missing", "invalid", "error"}:

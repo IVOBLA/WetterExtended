@@ -346,6 +346,36 @@ def _tail_history_rows(path: Path | None = None, max_bytes: int = 400 * 1024) ->
     return rows
 
 
+_SAMPLE_STORE_FAULTS: list[dict] = []
+
+
+def reset_sample_store_faults() -> None:
+    """Setzt den Fehlerspeicher zurück. Genau einmal je Auswertungslauf aufrufen."""
+    _SAMPLE_STORE_FAULTS.clear()
+
+
+def record_sample_store_fault(stage: str, exc: BaseException) -> None:
+    """Vermerkt einen Store-Fehler, ohne den Anzeigepfad abzubrechen.
+
+    B430: Ein Defekt der Trainings-SQLite (live: `q_history` korrupt, 178 Vorkommen
+    am 2026-07-17) darf Grenzwertvergleich, Niederschlag und Hochwasserbewertung nicht
+    mitreißen — die werden ohne SQLite berechnet. Der Fehler muss aber im Payload
+    sichtbar bleiben: er verschwand bisher spurlos, weil `_mark_cache` in
+    hydro_fetch.py den Statusschlüssel beim nächsten Cache-Treffer überschreibt.
+    """
+    _SAMPLE_STORE_FAULTS.append({"stage": stage, "error": f"{type(exc).__name__}: {exc}"})
+
+
+def sample_store_status() -> dict:
+    """Aggregierter Zustand des Sample-/Historien-Stores für den Payload."""
+    if not _SAMPLE_STORE_FAULTS:
+        return {"sample_store_status": "ok", "sample_store_faults": []}
+    return {
+        "sample_store_status": "degraded",
+        "sample_store_faults": list(_SAMPLE_STORE_FAULTS),
+    }
+
+
 def load_q_trend_history() -> dict[str, list[dict]]:
     """Laedt Q-Historie aus dem Byte-begrenzten Datei-Tail ohne Wanduhr-Cutoff.
 
@@ -355,10 +385,16 @@ def load_q_trend_history() -> dict[str, list[dict]]:
     genau die dafuer relevante Historie faelschlich ausschliessen.
     """
     out: dict[str, list[dict]] = {}
-    with _sample_db() as con:
-        source_rows = ({"station_id": r[0], "measured_at": r[1], "q_m3s": r[2]} for r in con.execute(
-            "SELECT station_id,measured_at,q_m3s FROM q_history ORDER BY measured_at DESC LIMIT 5000"))
-        source_rows = list(source_rows)
+    # B430: Ist q_history defekt, fehlt nur das Tendenz-Feld. Grenzwert, Niederschlag
+    # und Hochwasserbewertung stammen aus hydro_live + Zellframe und bleiben gültig.
+    try:
+        with _sample_db() as con:
+            source_rows = ({"station_id": r[0], "measured_at": r[1], "q_m3s": r[2]} for r in con.execute(
+                "SELECT station_id,measured_at,q_m3s FROM q_history ORDER BY measured_at DESC LIMIT 5000"))
+            source_rows = list(source_rows)
+    except sqlite3.Error as exc:
+        record_sample_store_fault("q_trend_history", exc)
+        return out
     for row in source_rows:
         sid = str(row.get("station_id") or "")
         q = _f(row.get("q_m3s"))
@@ -890,6 +926,7 @@ def evaluate_live_flood_risk(stations: list[dict]|None=None, live: dict|None=Non
         import hydro_api
         stations = [f.get("properties") or {} for f in hydro_api.station_features(include_disabled=False).get("features", [])]
     generated = _now(); public_rows=[]; internal_rows=[]; ledger_entries: list[dict] = []
+    reset_sample_store_faults()
     trend_history = load_q_trend_history()
     cells_meta = _objects_signature(cells or [])
     frame_meta = (live or {}).get("cell_frame_meta") if isinstance(live, dict) else None
@@ -913,13 +950,37 @@ def evaluate_live_flood_risk(stations: list[dict]|None=None, live: dict|None=Non
         internal_rows.append(full)
         public_rows.append(full if include_debug else _public_flood_row(full))
     if write and isinstance(frame_meta, dict) and frame_meta.get("status") == "ok":
-        ledger_meta = append_precip_ledger(ledger_entries, frame_meta.get("frame_timestamp"))
-        ledger_meta["ledger_rows_purged"] = purge_precip_ledger()
+        try:
+            ledger_meta = append_precip_ledger(ledger_entries, frame_meta.get("frame_timestamp"))
+            ledger_meta["ledger_rows_purged"] = purge_precip_ledger()
+        except sqlite3.Error as exc:
+            record_sample_store_fault("precip_ledger", exc)
+            ledger_meta = {"ledger_status": "store_error", "ledger_rows_written": 0, "ledger_rows_purged": 0}
     else:
         ledger_meta = {"ledger_status": "not_written", "ledger_rows_written": 0, "ledger_rows_purged": 0}
-    pending_meta = record_pending_samples(internal_rows, live=live, cells_meta=cells_meta) if write else {"pending_added": 0, "pending_total": None}
-    materialize_meta = materialize_pending_samples(live=None) if write else {"labeled_added": 0}
-    doc = {"status":"ok", "payload_scope": "admin_diagnostics" if include_debug else "public", "payload_schema_version": "b419_admin_diagnostics_v1" if include_debug else "b411_public_v1", "generated_at": generated, "input_hash": flood_risk_input_hash(live=live, cells=cells or [], cell_frame_meta=frame_meta), "stations": public_rows, "pending_samples": pending_meta, "materialized_samples": materialize_meta, "readiness": readiness_status(), "cell_frame_path": (frame_meta or {}).get("path") if isinstance(frame_meta, dict) else None, "cell_frame_timestamp": (frame_meta or {}).get("frame_timestamp") if isinstance(frame_meta, dict) else None, "cell_frame_age_min": (frame_meta or {}).get("frame_age_min") if isinstance(frame_meta, dict) else None, "cell_frame_status": (frame_meta or {}).get("cell_frame_status") if isinstance(frame_meta, dict) else None}
+    # B430: Sample-Aufzeichnung ist ein Nebenpfad des Trainings. Ein Store-Defekt darf
+    # die Auslieferung der Anzeige nicht verhindern — bis 2026-07-17 riss ein korruptes
+    # q_history den kompletten Endpunkt mit (105-Byte-Fehlerantwort, 178 Vorkommen).
+    if write:
+        try:
+            pending_meta = record_pending_samples(internal_rows, live=live, cells_meta=cells_meta)
+        except sqlite3.Error as exc:
+            record_sample_store_fault("record_pending_samples", exc)
+            pending_meta = {"pending_added": 0, "pending_total": None, "pending_status": "store_error"}
+        try:
+            materialize_meta = materialize_pending_samples(live=None)
+        except sqlite3.Error as exc:
+            record_sample_store_fault("materialize_pending_samples", exc)
+            materialize_meta = {"labeled_added": 0, "materialize_status": "store_error"}
+    else:
+        pending_meta = {"pending_added": 0, "pending_total": None}
+        materialize_meta = {"labeled_added": 0}
+    try:
+        readiness_meta = readiness_status()
+    except sqlite3.Error as exc:
+        record_sample_store_fault("readiness_status", exc)
+        readiness_meta = {"enabled": True, "readiness_status": "unavailable", "rejection_reasons": ["sample_store_error"]}
+    doc = {"status":"ok", "payload_scope": "admin_diagnostics" if include_debug else "public", "payload_schema_version": "b430_admin_diagnostics_v1" if include_debug else "b430_public_v1", "generated_at": generated, "input_hash": flood_risk_input_hash(live=live, cells=cells or [], cell_frame_meta=frame_meta), "stations": public_rows, "pending_samples": pending_meta, "materialized_samples": materialize_meta, "readiness": readiness_meta, **sample_store_status(), "cell_frame_path": (frame_meta or {}).get("path") if isinstance(frame_meta, dict) else None, "cell_frame_timestamp": (frame_meta or {}).get("frame_timestamp") if isinstance(frame_meta, dict) else None, "cell_frame_age_min": (frame_meta or {}).get("frame_age_min") if isinstance(frame_meta, dict) else None, "cell_frame_status": (frame_meta or {}).get("cell_frame_status") if isinstance(frame_meta, dict) else None}
     if include_debug:
         doc["debug_stations"] = internal_rows
         doc["precip_ledger"] = ledger_meta

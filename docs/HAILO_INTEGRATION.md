@@ -7150,3 +7150,44 @@ Herkunftsanzeige im Frontend.
 
 **Phasen-Status:** Phase A — Serie B412–B428 abgeschlossen, B429 ergänzt. Phase B
 (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B430 — Ein Defekt der Trainings-SQLite schaltete die gesamte Hochwasseranzeige ab ✅ erledigt
+
+`/api/hydro/flood-risk` lieferte am 2026-07-17 über 17 Stunden ausschließlich
+105-Byte-Fehlerantworten (144 Requests im nginx-Log, jeder exakt 105 Bytes). Alle 85
+Stationen zeigten im Kartenpopup "nicht bewertbar", obwohl Q, Messzeit und Grenzwert
+verfügbar waren.
+
+Ursache: `evaluate_live_flood_risk` brauchte die Sample-SQLite synchron an vier
+Stellen — `load_q_trend_history` (Tendenz), `record_pending_samples` und
+`materialize_pending_samples` (Trainingsdatensammlung) und `readiness_status`
+(Statusanzeige). Die Tabelle `q_history` war korrupt (`PRAGMA integrity_check`:
+`Tree 3437 ... Rowid out of order`, 164425 Zeilen, migriert per B417). Der daraus
+geworfene `sqlite3.DatabaseError: database disk image is malformed` wurde von
+`_hydro_safe` in `{"ok": false, ...}` ohne `data` übersetzt; `hydro.js:55` machte
+daraus `[]` und das Frontend renderte für jede Station `flood = {}`.
+
+Grenzwertvergleich, Niederschlag, beitragende Zellen und Hochwasserbewertung werden
+aus `hydro_live` + Zellframe + Geometrie berechnet und brauchen die SQLite gar nicht.
+Ein Nebenpfad der Trainingsdatensammlung riss die Anzeige mit.
+
+Behoben:
+- `load_q_trend_history` liefert bei Store-Defekt `{}`; nur das Tendenz-Feld fehlt dann.
+- Aufzeichnung, Materialisierung, Readiness und Ledger-Schreibpfad einzeln gekapselt.
+- Neuer Payload-Schlüssel `sample_store_status` / `sample_store_faults`: der Defekt
+  bleibt sichtbar, statt spurlos zu verschwinden. Bisher überschrieb `_mark_cache` in
+  `hydro_fetch.py` den Fehlerschlüssel beim nächsten Cache-Treffer —
+  `hydro_status.json` meldete `{"ok": true, "error": null}` trotz 178 Fehlern.
+- `app.py`: ein Cache mit falschem `payload_scope` wird verworfen und neu berechnet,
+  statt den Endpunkt ohne Selbstheilung zu blockieren.
+- `payload_schema_version` auf `b430_public_v1` / `b430_admin_diagnostics_v1` gehoben.
+
+Nicht Gegenstand von B430: die Korruption selbst (Erkennung, Quarantäne, Wiederaufbau,
+Ursache) — siehe B431.
+
+Tests: `tests/test_hydro_flood_store_isolation.py`
+Prüfanweisung: AC-058
+
+**Phasen-Status:** Phase A — Serie B412–B429 abgeschlossen, B430 ergänzt (Entkopplung
+Anzeigepfad ↔ Sample-Store). B431 offen: Integrität der Sample-SQLite. Phase B
+(Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
