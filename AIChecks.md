@@ -483,3 +483,22 @@ _(Format: `AC-xxx — Kurztitel · YYYY-MM-DD · Ergebnis in einem Satz.)_
 6. Widerspricht `hydro_flood_eval_status: ok` den `[API-FAIL] hydro_api`-Zeilen im
    Journal, ist das immer ein Befund — dann scheitert der Endpunkt an einer Stelle, die
    der Eval-Block nicht sieht.
+
+### AC-062 — Einzugsgebiets-Überlappung aus dem Export nachrechnen
+
+**Datenquellen:** `hydro_static/station_catchments.geojson`,
+`hydro_static/station_network_index.json`, der neueste Frame unter `objects/`,
+`config/train_data/runtime_overrides.json` und `manifest.json`.
+
+1. `dropped_expected_files` prüfen und jeden Eintrag als Befund melden.
+2. Fehlt `station_catchments.geojson`, obwohl `scanned_roots` sie nennt, stammt der
+   Export von vor B434; die weiteren Schritte entfallen.
+3. Stationspolygon über `properties.station_id` laden und mit jeder Zellkontur
+   (`contour_geo`) schneiden; Schnittfläche in km² bestimmen.
+4. Sowohl `HYDRO_MIN_OVERLAP_AREA_KM2` als auch `HYDRO_MIN_OVERLAP_RATIO_CELL` prüfen.
+5. Regenrate in der Reihenfolge `nowcast_rain_rate_1h`, `rain_rate_mm_h`,
+   `precip_rate_mm_h`, `nowcast_rr_mm15 × 4`, zuletzt `intensity`-Proxy bestimmen.
+   `severity.rain_mm_h` ist nicht die verwendete Quelle.
+6. Abweichungen von `contributing_cell_count` in
+   `hydro_impact/latest_hydro_flood_risk.json` mit Schnittfläche und Schwellen melden.
+7. `contributing_cell_count: null` bedeutet „nicht berechnet“ und ist nicht 0.

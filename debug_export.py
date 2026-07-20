@@ -119,12 +119,31 @@ _ALWAYS_INCLUDE_NAMES = {
 }
 _EXCLUDED_NAMES = {".admin_password"}
 _EXCLUDED_PARTS = {".git", "node_modules", "venv", ".venv", "__pycache__", "frontend/dist"}
+# B434: Diese Menge muss jede Datei enthalten, die weiter unten in `roots` unter der
+# Sektion "hydro_static" angemeldet wird. `_is_excluded` greift in
+# `_build_candidates_with_diagnostics` VOR der force-Auswertung — eine hier fehlende
+# Datei wird also verworfen, egal mit welchem force-Flag sie angemeldet ist.
+# station_catchments.geojson fehlte bis zum Export vom 2026-07-17 und war zugleich die
+# einzige Quelle der Einzugsgebietspolygone (hydro_impact.CATCHMENTS_PATH,
+# hydro_api.catchment). Ohne sie ist die Kernfrage des Hydro-Subsystems — liegt eine
+# Zelle im Einzugsgebiet — nachträglich nicht beantwortbar.
+# Der Regressionsschutz steht in tests/test_b434_hydro_static_export.py.
 _HYDRO_STATIC_EXPORT_ALLOWLIST = {
     "hydro_static_status.json",
     "station_network_index.json",
+    "station_catchments.geojson",
     "hydro_upstream_diagnostics.json",
     "hydro_static_coverage.json",
 }
+# B434: Einzige Quelle für die unter "hydro_static" angemeldeten Dateien. Der Test
+# test_b434_hydro_static_export.py prüft, dass jeder Name hier auch in
+# _HYDRO_STATIC_EXPORT_ALLOWLIST steht — sonst meldet der Export eine Datei an, die
+# er selbst verwirft.
+HYDRO_STATIC_EXPORT_FILES = (
+    Path("train_data/hydro/static/generated/hydro_static_status.json"),
+    Path("train_data/hydro/static/generated/station_catchments.geojson"),
+    Path("train_data/hydro/static/generated/station_network_index.json"),
+)
 _TIMESTAMP_PATTERNS = (
     re.compile(r"(?P<stamp>\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})"),
     re.compile(r"(?P<stamp>\d{8}_\d{6})"),
@@ -403,9 +422,7 @@ def _build_candidates_with_diagnostics(base_dir: Path, save_paths: dict | None) 
         ("evaluation", Path(save_paths.get("evaluation", "train_data/evaluation")), False),
         ("external_responses/hydro", Path(save_paths.get("hydro", "train_data/hydro/live")), False),
         ("hydro_impact", Path("train_data/hydro/impact"), False),
-        ("hydro_static", Path("train_data/hydro/static/generated/hydro_static_status.json"), True),
-        ("hydro_static", Path("train_data/hydro/static/generated/station_catchments.geojson"), True),
-        ("hydro_static", Path("train_data/hydro/static/generated/station_network_index.json"), True),
+        *[("hydro_static", path, True) for path in HYDRO_STATIC_EXPORT_FILES],
         ("hydro_ml", Path("train_data/hydro/ml"), False),
         ("hydro_ml", Path("train_data/models/hydro_flood/current"), False),
         ("external_responses/hydro", Path("train_data/external_responses/hydro"), False),
@@ -472,10 +489,21 @@ def _build_candidates_with_diagnostics(base_dir: Path, save_paths: dict | None) 
     # Die einzige Grenze ist jetzt _file_in_window (24h); die Größe regelt der Volume-Split
     # (B128, komprimiert). Keine Kürzung mehr.
 
+    # B434: Eine in roots angemeldete Datei, die es nicht ins Kandidaten-Set schafft,
+    # war bis 2026-07-17 nicht erkennbar — missing_expected_sections prüft nur
+    # Sektionen. station_catchments.geojson wurde deshalb monatelang angemeldet,
+    # verworfen und nicht vermisst.
+    selected = {candidate.src.resolve() for candidate in candidates.values()}
+    dropped_expected = []
+    for rel in HYDRO_STATIC_EXPORT_FILES:
+        full = base_dir / rel
+        if full.is_file() and full.resolve() not in selected:
+            dropped_expected.append(str(rel))
     diagnostics = {
         "candidates_count": len(candidates),
         "scanned_roots": sorted(scanned_roots),
         "excluded_files_count": excluded_files_count,
+        "dropped_expected_files": dropped_expected,
     }
     return list(candidates.values()), diagnostics
 
@@ -1070,6 +1098,7 @@ def create_debug_export_zip(
                 "scanned_roots": diagnostics["scanned_roots"],
                 "skipped_old_files": skipped_old_files,
                 "excluded_files_count": diagnostics["excluded_files_count"] + len(excluded_files),
+                "dropped_expected_files": diagnostics.get("dropped_expected_files", []),
                 "max_files": max_files,
                 "max_total_bytes": max_total_bytes,
                 "hydro_export": hydro_info,
