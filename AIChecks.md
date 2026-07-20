@@ -543,3 +543,26 @@ Verzeichnis `train_data/hydro/ml/` und `train_data/hydro/ml/quarantine/`.
 4. In `train_data/hydro/ml/` nach `*.pre_b437.*`-Sicherungen und in `quarantine/` nach
    Originalen suchen. Häufen sich diese über mehrere Deploys, deutet das auf
    wiederkehrende Korruption hin (Hardware/Stromversorgung) — als Verdacht melden.
+
+### AC-065 — Prüfe pending_samples auf nicht-objekt-wertige Payloads
+
+**Datenquellen im Export:** `hydro_ml/hydro_flood_samples_snapshot.sqlite3`;
+`api_logs/journal/wetterprojekt-admin.service.log`;
+`train_data/hydro/ml/hydro_ml_maintenance_latest.json`.
+
+**Durchzuführen:**
+
+1. Auf `hydro_flood_samples_snapshot.sqlite3` zählen:
+   `SELECT COUNT(*) FROM pending_samples WHERE payload NOT LIKE '{%'`. Jeder Treffer ist
+   ein nicht-objekt-wertiger Payload und ein Befund — Anzahl und, falls vorhanden,
+   `sample_id`/`created_at` melden.
+2. Im Admin-Journal nach `'float' object has no attribute 'get'` und allgemein nach
+   `AttributeError` in `hydro_api`-Zeilen suchen. Jedes Vorkommen mit Zeitstempel
+   melden.
+3. Falls ein Materialisierungsergebnis vorliegt (Scheduler-Log oder
+   `hydro_ml_maintenance_latest.json`), `malformed_pending_skipped` prüfen. Ein Wert > 0
+   ist zu melden; hält er über mehrere Läufe an, wurden kaputte Zeilen nicht entfernt —
+   dann ist die B438-Bereinigung nicht wirksam.
+4. Nicht `quick_check` allein als Beweis für gesunde Samples werten: strukturell
+   intakte B-Trees (quick_check == ok) können inhaltlich kaputte Payloads enthalten.
+   Die Zählung aus Schritt 1 ist die maßgebliche Prüfung.

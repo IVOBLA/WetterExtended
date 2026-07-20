@@ -7419,3 +7419,37 @@ Prüfanweisung: AC-064
 DB-Selbstheilung). Die Hydro-SQLite ist damit auf allen drei Wegen abgesichert: Deploy
 (B437), Neustart (B436), manuell (B432). Phase B (Hailo-8 U-Net) bleibt unverändert
 blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B438 — Ein einzelner kaputter pending-Payload riss die gesamte Bewertung ab ✅ erledigt
+
+Nach B430–B437 war die Hydro-Sample-DB strukturell intakt (`sample_db_integrity` → ok),
+der Endpunkt `/api/hydro/flood-risk` scheiterte am 2026-07-20 aber weiter mit
+111-Byte-Antworten: `AttributeError: 'float' object has no attribute 'get'` (43× im
+Journal in zwei Minuten).
+
+Ursache: `materialize_pending_samples` (hydro_flood_ml.py:1602) nahm bedingungslos an,
+dass jeder aus `pending_samples.payload` deserialisierte Wert ein Dict ist. Eine Zeile
+enthielt einen Nicht-Objekt-Payload (eine nackte Zahl), `json.loads` lieferte einen
+float, `float.get('station_id')` warf. Weil `materialize_pending_samples` nur im
+Schreibpfad läuft (`write=True`), war der Fehler in `write=False`-Diagnoseläufen
+unsichtbar; weil `AttributeError` keine `sqlite3.Error` ist, griff die B430-Kapselung
+nicht. Der wahrscheinliche Entstehungsweg: ein teilweise beschädigter Payload einer bei
+der B432-Reparatur blockweise geretteten Zeile — strukturell gültiges JSON, das
+`quick_check` nicht als Defekt sieht.
+
+Wie schon bei B430 durfte ein einzelner defekter Datensatz nicht die Bewertung für alle
+Stationen abschalten. Behoben:
+- Nur gültige JSON-**Objekte** werden verarbeitet; jeder andere Payload (ungültiges
+  JSON, Zahl, String, Array, null) wird gezählt und übersprungen statt zu werfen.
+- Die verworfene Anzahl erscheint als `malformed_pending_skipped` im Ergebnis.
+- Unlesbare Zeilen werden einmalig aus `pending_samples` entfernt
+  (`payload NOT LIKE '{%'`), damit sie nicht bei jedem Lauf erneut belasten. Gültige,
+  noch nicht fällige Samples bleiben unberührt.
+
+Tests: `tests/test_b438_malformed_pending_payload.py`
+Prüfanweisung: AC-065
+
+**Phasen-Status:** Phase A — Serie B412–B437 abgeschlossen, B438 ergänzt (Robustheit der
+Sample-Materialisierung). Die Hydro-Kette ist damit gegen strukturelle (B432) und
+inhaltliche (B438) Payload-Defekte abgesichert. Phase B (Hailo-8 U-Net) bleibt
+unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
