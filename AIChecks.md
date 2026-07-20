@@ -580,3 +580,22 @@ Verzeichnis `train_data/hydro/ml/` und `train_data/hydro/ml/quarantine/`.
 3. Gegenprobe, dass die Warn-Sperre weiterhin zurückgenommen wird: nach einer
    Gewitterlage muss `[WARN-RESET]` für die betroffenen Orte im Log erscheinen. Fehlt es
    dauerhaft, würden Orte nach dem ersten Alarm nicht wieder warnen — Befund.
+### AC-067 — Prüfe den persistenten Warn-Cooldown
+
+**Datenquellen im Export:** `train_data/evaluation/warn_cooldown.json`;
+`api_logs/journal/*.log`.
+
+**Durchzuführen:**
+
+1. Aus den Journalen alle `[EMAIL] Warnung gesendet: <Ort>` mit Zeitstempel je Ort
+   extrahieren. Liegen für denselben Ort zwei Sendungen näher als WARN_COOLDOWN_S
+   (Default 900 s) beieinander, ist der Cooldown unwirksam — Befund mit beiden
+   Zeitstempeln.
+2. Prüfen, ob `warn_cooldown.json` existiert und je Ort einen plausiblen letzten
+   Sendezeitpunkt führt. Fehlt die Datei trotz gesendeter Warnungen, greift die
+   Persistenz nicht — Befund.
+3. `[WARN-CD] … Cooldown aktiv … Alarm unterdrückt` im Log gegenzählen: Es belegt, dass
+   das Gate arbeitet. Bei häufigen `[EMAIL] Warnung gesendet` ohne jedes
+   `[WARN-CD]`-Suppress über Stunden ist zu prüfen, ob das Gate umgangen wird.
+4. Nicht den cell_id-basierten B98-Schutz als alleinigen Beleg werten — der ist durch
+   ID-Wechsel umgehbar. Maßgeblich ist der ortsbasierte Abstand aus Schritt 1.
