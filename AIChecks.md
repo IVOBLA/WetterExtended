@@ -418,3 +418,23 @@ Admin-Panel fehlgeschlagen" im Log ist immer zu melden, auch wenn der Push gelan
 ## Erledigt
 
 _(Format: `AC-xxx — Kurztitel · YYYY-MM-DD · Ergebnis in einem Satz.)_
+
+### AC-059 — Prüfe WAL-Wachstum und Verbindungs-Lebenszyklus der Sample-DB
+
+**Datenquellen:** Livezugriff auf dem Pi; `manifest.json` → `excluded_files`;
+`hydro_ml/hydro_ml_snapshot_status.json`.
+
+**Durchzuführen:**
+
+1. Auf dem Pi die WAL-Größe im Verhältnis zur Hauptdatei bestimmen:
+   `ls -la train_data/hydro/ml/hydro_flood_samples.sqlite3*`
+   Ist die `-wal`-Datei größer als 10 % der Hauptdatei, ist der Checkpoint blockiert —
+   Befund melden mit beiden Größen.
+2. Offene Filedeskriptoren auf die DB je Dienst zählen:
+   `for s in wetterprojekt wetterprojekt-scheduler wetterprojekt-admin; do
+      pid=$(systemctl show -p MainPID --value $s); echo -n "$s: ";
+      ls -l /proc/$pid/fd 2>/dev/null | grep -c hydro_flood_samples; done`
+   Mehr als 2 gleichzeitig offene Deskriptoren je Dienst sind ein Befund.
+3. Im Quelltext prüfen, dass keine neue rohe Verwendung hinzugekommen ist:
+   `python3 -c "t=open('hydro_flood_ml.py').read(); print(t.count('_sample_db()') - t.count('with _sample_db() as'))"`
+   Ergebnis muss exakt `1` sein (die Definitionszeile). Jeder andere Wert ist ein Befund.

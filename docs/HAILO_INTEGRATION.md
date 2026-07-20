@@ -7191,3 +7191,36 @@ Prüfanweisung: AC-058
 **Phasen-Status:** Phase A — Serie B412–B429 abgeschlossen, B430 ergänzt (Entkopplung
 Anzeigepfad ↔ Sample-Store). B431 offen: Integrität der Sample-SQLite. Phase B
 (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B431 — Keine einzige SQLite-Verbindung der Hydro-ML-Datenbank wurde je geschlossen ✅ erledigt
+
+`_sample_db()` gab eine rohe `sqlite3.Connection` zurück. Alle 23 Aufrufstellen im
+Modul und alle Tests benutzen `with _sample_db() as con:` — aber
+`sqlite3.Connection.__exit__` ist ein Transaktions-Kontextmanager, kein
+Ressourcen-Kontextmanager: er committet oder rollt zurück und schließt **nicht**.
+Im gesamten Modul gab es kein `con.close()` (verifiziert: `grep -c "_sample_db()"` = 24,
+`grep -c "with _sample_db() as"` = 23, `grep -n "con.close()"` ohne Treffer).
+
+Wirkung auf dem Pi: Die DB läuft im WAL-Modus, drei systemd-Dienste greifen parallel zu.
+Jeder offene Leser hält eine WAL-Leseschranke und verhindert den Checkpoint. Zusätzlich
+führt `_sample_db()` bei jedem Aufruf ~15 Schema-Statements aus (CREATE TABLE/INDEX
+IF NOT EXISTS, ALTER TABLE-Prüfung). Pro `/api/hydro/flood-risk`-Request laufen fünf
+solche Aufrufe; der Endpunkt wurde am 2026-07-17 144-mal aufgerufen.
+
+Behoben: `_sample_db` ist jetzt ein `@contextmanager`, der bei Erfolg committet, bei
+Ausnahme zurückrollt und im `finally` immer schließt. Die reine Öffnungsfunktion heißt
+`_open_sample_db()`. Der Umbau ist an allen 23 Aufrufstellen und in allen bestehenden
+Tests transparent — keine Call-Site musste geändert werden.
+
+Ausdrücklich **nicht** behauptet: dass dieser Leak die Korruption von `q_history`
+verursacht hat. Der Zusammenhang ist plausibel, aber nicht belegt. Der Leak ist ein
+eigenständiger Ressourcenfehler und musste vor dem Wiederaufbau der Datenbank (B432)
+geschlossen sein.
+
+Tests: `tests/test_b431_sample_db_lifecycle.py`
+Prüfanweisung: AC-059
+
+**Phasen-Status:** Phase A — Serie B412–B430 abgeschlossen, B431 ergänzt
+(Verbindungs-Lebenszyklus). B432 offen: Integrität und Wiederaufbau der Sample-SQLite.
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
+Trainingsdaten.
