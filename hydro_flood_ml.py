@@ -1593,12 +1593,31 @@ def materialize_pending_samples(live: dict | None = None, migration_lock_handle=
     lo,_=_lag_bounds_min(); eligible=(now_dt-timedelta(minutes=lo)).isoformat().replace("+00:00","Z")
     expired=(now_dt-timedelta(hours=retention_h)).isoformat().replace("+00:00","Z")
     with _sample_db() as con:
-        normal=con.execute("SELECT payload FROM pending_samples WHERE sample_start_time <= ? AND created_at > ? ORDER BY sample_start_time LIMIT ?",(eligible,expired,batch)).fetchall()
+        normal=con.execute("SELECT payload, created_at FROM pending_samples WHERE sample_start_time <= ? AND created_at > ? ORDER BY sample_start_time LIMIT ?",(eligible,expired,batch)).fetchall()
         remaining=max(0,batch-len(normal))
-        old=con.execute("SELECT payload FROM pending_samples WHERE created_at <= ? ORDER BY created_at LIMIT ?",(expired,remaining)).fetchall() if remaining else []
-        pending=[json.loads(r[0]) for r in normal+old]; loaded=len(pending)
+        old=con.execute("SELECT payload, created_at FROM pending_samples WHERE created_at <= ? ORDER BY created_at LIMIT ?",(expired,remaining)).fetchall() if remaining else []
+        # B438: Ein einzelner kaputter Payload (nicht-JSON oder JSON-Nicht-Objekt, z.B.
+        # eine nackte Zahl) darf nicht die gesamte Materialisierung und damit die
+        # Hochwasseranzeige für alle Stationen abschließen. Am 2026-07-20 warf ein
+        # float-Payload `AttributeError: 'float' object has no attribute 'get'` und
+        # blockierte den Endpunkt (43 Fehler in 2 Minuten) — obwohl die DB nach der
+        # B432-Reparatur strukturell intakt war (quick_check == ok).
+        pending=[]; malformed=0
+        for _row in normal+old:
+            try:
+                _obj=json.loads(_row[0])
+            except (json.JSONDecodeError, TypeError, ValueError):
+                _obj=None
+            if isinstance(_obj, dict):
+                _obj.setdefault("created_at", _row[1])
+                pending.append(_obj)
+            else:
+                malformed+=1
+        loaded=len(pending)
         con.execute("BEGIN IMMEDIATE")
         for sample in pending:
+            if not isinstance(sample, dict):
+                malformed+=1; continue
             sid=str(sample.get("station_id") or "")
             label=_label_from_future({"measured_at":sample.get("sample_start_time"),"q_m3s":_f(sample.get("current_q_m3s"))},_future_q_rows(con,sid,sample.get("sample_start_time")),_f(sample.get("station_q_threshold_m3s")))
             is_expired=str(sample.get("created_at") or "") <= expired
@@ -1611,11 +1630,25 @@ def materialize_pending_samples(live: dict | None = None, migration_lock_handle=
             _assign_incremental_event_id(con, payload)
             vals=_labeled_values(payload)
             con.execute("INSERT OR REPLACE INTO labeled_samples(sample_id,station_id,sample_start_time,labeled_at,payload,sample_kind,feature_schema_version,feature_schema_hash,feature_snapshot_complete,target_missing,target_q_delta_m3s,event_id,cell_frame_hash,precip_event_active) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(payload.get("sample_id"),sid,payload.get("sample_start_time"),now,json.dumps(payload,ensure_ascii=False,default=str),*vals)); added+=1
+        if malformed:
+            # B438: Unlesbare Payloads einmalig entfernen, damit sie nicht bei jedem
+            # Lauf erneut geladen und übersprungen werden. rowid ist stabil und
+            # unabhängig vom (nicht deserialisierbaren) Inhalt.
+            con.execute(
+                "DELETE FROM pending_samples WHERE rowid IN ("
+                "SELECT rowid FROM pending_samples WHERE payload NOT LIKE '{%')"
+            )
         con.execute("COMMIT")
         pending_remaining=con.execute("SELECT COUNT(*) FROM pending_samples").fetchone()[0]
         dataset_count=con.execute("SELECT COUNT(*) FROM labeled_samples WHERE sample_kind=?",(SAMPLE_KIND_LIVE,)).fetchone()[0]
     if added: export_labeled_samples_jsonl()
-    return {"labeled_added":added,"failed_expired":failed,"loaded_pending":loaded,"pending_remaining":pending_remaining,"dataset_count":dataset_count,"store":"sqlite"}
+    # B438: malformed>0 bedeutet, dass unlesbare pending-Payloads übersprungen wurden.
+    # Sie werden hier gezählt und (unten, falls vorhanden) aus der Tabelle entfernt,
+    # damit sie den Lauf nicht bei jedem Aufruf erneut belasten.
+    result = {"labeled_added":added,"failed_expired":failed,"loaded_pending":loaded,"pending_remaining":pending_remaining,"dataset_count":dataset_count,"store":"sqlite"}
+    if malformed:
+        result["malformed_pending_skipped"] = malformed
+    return result
 
 def load_trainable_labeled_samples(trainable_only: bool = False) -> list[dict]:
     if trainable_only:
