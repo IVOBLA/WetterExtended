@@ -33,6 +33,12 @@ else:
     _LIVE_DIR = _BASE_DIR
 LATEST_FILE = _LIVE_DIR / "latest_hydro.json"
 STATUS_FILE = _LIVE_DIR / "hydro_status.json"
+# B433: Der Zustand der Hochwasserbewertung bekommt eine eigene Datei. In
+# hydro_status.json wurde er bei jedem Cache-Treffer geloescht, weil _mark_cache den
+# Status aus latest_hydro.json["status"] neu aufbaut — und dort steht er nie, weil
+# LATEST_FILE vor dem Eval-Block geschrieben wird. 178 DatabaseError am 2026-07-17
+# blieben so 17 Stunden unsichtbar.
+FLOOD_EVAL_STATUS_FILE = _LIVE_DIR / "hydro_flood_eval_status.json"
 
 
 def _utc_now() -> datetime:
@@ -232,6 +238,23 @@ def _write_status(status: dict) -> None:
     _atomic_write_json(STATUS_FILE, current)
 
 
+def _write_flood_eval_status(status: str, **fields) -> None:
+    """Schreibt den Zustand der Hochwasserbewertung in eine eigene Datei.
+
+    B433: Kein Cache-Pfad fasst diese Datei an. Es gibt genau einen Schreiber — den
+    Eval-Block in fetch_hydro_live. Auch der Erfolgsfall wird protokolliert: fehlt die
+    Datei, ist die Bewertung nachweislich nie gelaufen. Vorher bedeutete ein fehlender
+    Schluessel gleichzeitig "lief gut", "lief nie" und "Fehler wurde ueberschrieben".
+    """
+    doc = {"hydro_flood_eval_status": status, "hydro_flood_eval_at": _iso_z()}
+    doc.update({k: v for k, v in fields.items() if v is not None})
+    try:
+        _atomic_write_json(FLOOD_EVAL_STATUS_FILE, doc)
+    except Exception:
+        # Diagnose darf den Abruf nie abbrechen.
+        pass
+
+
 def _mark_cache(data: dict, error: str | None = None) -> dict:
     out = dict(data)
     status = dict(out.get("status") or {})
@@ -303,14 +326,36 @@ def fetch_hydro_live(force: bool = False) -> dict:
             cells, cell_meta = load_latest_cell_frame()
             result["cell_frame_meta"] = cell_meta
             if cells is not None:
-                evaluate_live_flood_risk(live=result, cells=cells)
+                doc = evaluate_live_flood_risk(live=result, cells=cells)
+                _write_flood_eval_status(
+                    "ok",
+                    mode="evaluated",
+                    station_count=len(doc.get("stations") or []),
+                    cell_frame_status=cell_meta.get("cell_frame_status") or cell_meta.get("status"),
+                    cell_frame_timestamp=cell_meta.get("frame_timestamp"),
+                    # B430: ein Defekt des Sample-Stores schaltet die Anzeige nicht mehr ab,
+                    # muss hier aber sichtbar bleiben.
+                    sample_store_status=doc.get("sample_store_status"),
+                    sample_store_faults=doc.get("sample_store_faults"),
+                    risk_path_written=str(HYDRO_RISK_PATH),
+                )
             else:
                 existing = _read_risk_json(HYDRO_RISK_PATH, {})
                 previous = existing if isinstance(existing, dict) and existing.get("stations") else None
-                evaluate_live_flood_risk(live=result, cells=[])
-                _atomic_json(HYDRO_RISK_PATH, build_deferred_public_risk(result, cell_meta, previous))
+                deferred = build_deferred_public_risk(result, cell_meta, previous)
+                _atomic_json(HYDRO_RISK_PATH, deferred)
+                _write_flood_eval_status(
+                    "deferred",
+                    mode="deferred",
+                    deferred_reason=deferred.get("deferred_reason"),
+                    station_count=len(deferred.get("stations") or []),
+                    cell_frame_status=cell_meta.get("cell_frame_status") or cell_meta.get("status"),
+                    cell_frame_timestamp=cell_meta.get("frame_timestamp"),
+                    risk_path_written=str(HYDRO_RISK_PATH),
+                )
         except Exception as exc:
             result["status"].update({"hydro_flood_eval_status": "error", "hydro_flood_eval_error": f"{type(exc).__name__}: {exc}", "hydro_flood_eval_at": _utc_now().isoformat().replace("+00:00", "Z")})
+            _write_flood_eval_status("error", error=f"{type(exc).__name__}: {exc}")
         _write_status(result["status"])
         _log_api_call_safe(response, raw, duration_ms)
         return result

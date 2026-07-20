@@ -5771,7 +5771,18 @@ def api_admin_hydro_sample_db_integrity():
 
 @app.route("/api/hydro/flood-risk/status")
 def api_hydro_flood_risk_status():
-    return _hydro_safe(lambda: __import__("hydro_flood_ml").flood_risk_status(), "hydro_flood_risk_status_error")
+    def _load():
+        import hydro_fetch, hydro_flood_ml
+        base = hydro_flood_ml.flood_risk_status()
+        # B433: Der Eval-Zustand kommt aus seiner eigenen Datei. Bis dahin wurde er in
+        # hydro_status.json bei jedem Cache-Treffer geloescht — 178 DatabaseError am
+        # 2026-07-17 blieben so 17 Stunden unsichtbar. Fehlt die Datei, ist die
+        # Bewertung nachweislich nie gelaufen; das ist jetzt unterscheidbar.
+        eval_doc = hydro_flood_ml._read_json(hydro_fetch.FLOOD_EVAL_STATUS_FILE, None)
+        if not isinstance(eval_doc, dict):
+            eval_doc = {"hydro_flood_eval_status": "never_ran"}
+        return {**base, **eval_doc}
+    return _hydro_safe(_load, "hydro_flood_risk_status_error")
 
 @app.route("/api/hydro/flood-risk/accuracy")
 def api_hydro_flood_risk_accuracy():
