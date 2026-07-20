@@ -7530,3 +7530,29 @@ Prüfanweisung: AC-067
 **Phasen-Status:** Phase A — Serie B412–B440 abgeschlossen, B441 ergänzt (persistenter
 Ort-Cooldown). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
 ausreichende Trainingsdaten.
+
+### B442 — Speed-/Sektor-Diagnose als KI-Arbeitsanweisung im Export ✅ erledigt
+
+Die Prüfung auf überhöhte Zuggeschwindigkeit (~100 km/h, fachlich unplausibel für
+Kärntner Gewitter) und den daraus folgenden fehlerhaften Prognose-Sektor lag bisher nur
+als manuelles Skript vor. Sie ist jetzt als AC-068 in `AIChecks.md` hinterlegt, damit die
+nächtliche KI-Analyse sie bei jedem Export mit auswertet.
+
+Die Anweisung nennt die Datenquellen (`objects/latest_objects.json`,
+`objects/train_data/objects/*.json`) und weist an: `speed_kmh` gegen das reale
+Frame-Intervall aus `history[]` halten, die Korrelation hohe Speed ↔ kurzes `real_dt` als
+Hypothese prüfen, den Zickzack der Prognose über die bearing-Änderung je Horizont messen
+und die Kausalität (Sektor als Folge der Speed vs. eigenständiges Prognose-Problem)
+einordnen. B407-konform: Imperativ-Titel, Datenquellen benannt, keine Messwerte/Befunde
+im AIChecks-Text.
+
+Der eigentliche Code-Fix (dt-Guard in object_tracking.py, ggf. Kegel-/Horizont-
+Konsistenz) bleibt einem Folge-Prompt vorbehalten und wird erst nach Auswertung dieser
+Anweisung geschrieben.
+
+Tests: `tests/test_b442_aichecks_speed_sektor.py`
+Prüfanweisung: AC-068 (dieser Eintrag selbst)
+
+**Phasen-Status:** Phase A — Serie B412–B441 abgeschlossen, B442 ergänzt (Speed/Sektor-
+Diagnose im Export). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet
+auf ausreichende Trainingsdaten.
