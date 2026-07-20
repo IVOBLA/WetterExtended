@@ -457,7 +457,7 @@ _(Format: `AC-xxx — Kurztitel · YYYY-MM-DD · Ergebnis in einem Satz.)_
 5. Melde aus Reparaturberichten `rows_copied`, `rows_skipped` und `quarantine_path`.
    `rows_skipped > 0` ist endgültiger Datenverlust und immer ein Befund.
 
-### AC-061 — Zustand der Hochwasserbewertung auswerten
+### AC-061 — Werte den Zustand der Hochwasserbewertung aus
 
 **Datenquellen im Export:**
 - `train_data/hydro/live/hydro_flood_eval_status.json`
@@ -484,7 +484,7 @@ _(Format: `AC-xxx — Kurztitel · YYYY-MM-DD · Ergebnis in einem Satz.)_
    Journal, ist das immer ein Befund — dann scheitert der Endpunkt an einer Stelle, die
    der Eval-Block nicht sieht.
 
-### AC-062 — Einzugsgebiets-Überlappung aus dem Export nachrechnen
+### AC-062 — Prüfe die Einzugsgebiets-Überlappung aus dem Export
 
 **Datenquellen:** `hydro_static/station_catchments.geojson`,
 `hydro_static/station_network_index.json`, der neueste Frame unter `objects/`,
