@@ -415,6 +415,37 @@ Admin-Panel fehlgeschlagen" im Log ist immer zu melden, auch wenn der Push gelan
    aus `latest_hydro.json["status"]` neu auf und löscht dabei `hydro_flood_eval_error`.
    Maßgeblich sind Journal und Antwortgröße.
 
+### AC-068 — Prüfe Zuggeschwindigkeit und Prognose-Sektor der Zellen auf Plausibilität
+
+**Datenquellen im Export:**
+- `objects/latest_objects.json` (jüngster Frame)
+- `objects/train_data/objects/*.json` (Verlauf der letzten Frames)
+
+**Durchzuführen:**
+
+1. Für jede Zelle im jüngsten Frame `speed_kmh` gegen den realen Frame-Abstand halten:
+   aus `history[-2].timestamp` und `history[-1].timestamp` das reale Intervall
+   `real_dt` in Minuten bilden (Format `%Y-%m-%d_%H-%M-%S`). Prüfmaßstab: Kärntner
+   Gewitterzellen ziehen typisch mit 15–50 km/h. Jede Zelle mit `speed_kmh > 60` melden,
+   zusammen mit ihrem `real_dt`.
+2. Korrelation prüfen: Tritt hohe `speed_kmh` systematisch bei kleinem `real_dt`
+   (unter ~3 min) auf, ist das ein Hinweis auf eine dt-Skalierung, die bei zu kurzem
+   Frame-Abstand nach oben treibt (nominal sind Frames ~5 min auseinander). Diesen
+   Zusammenhang je betroffener Zelle als Hypothese melden — nicht als bestätigten Fehler,
+   solange der Code nicht eingesehen wurde (`code_ref`/`beleg` beachten).
+3. Zickzack der Prognose prüfen: aus den Prognosepunkten je Horizont einer Zelle die
+   Peilung (bearing) zwischen aufeinanderfolgenden Punkten bilden und die größte
+   Richtungsänderung zwischen zwei Segmenten bestimmen. Änderungen über ~45° kennzeichnen
+   eine springende Prognoselinie, aus der der Unsicherheitskegel einen fehlerhaften
+   Sektor zeichnet. Betroffene Zell-IDs mit der größten Richtungsänderung melden.
+4. Kausalität einordnen: Tritt der Prognose-Zickzack ausschließlich bei den Zellen mit
+   überhöhter `speed_kmh` auf, ist der fehlerhafte Sektor voraussichtlich Folge der
+   Geschwindigkeit — dann als zusammenhängender Befund melden. Tritt er auch bei Zellen
+   mit plausibler Geschwindigkeit auf, als eigenständiges Prognose-Problem melden.
+5. `speed_kmh`-Werte am oberen Deckel (nahe `MAX_CELL_SPEED_KMH`) getrennt melden: Sie
+   deuten auf ein Clamping hin, das die eigentliche Fehlskalierung nur kappt, statt sie
+   zu verhindern.
+
 ## Erledigt
 
 _(Format: `AC-xxx — Kurztitel · YYYY-MM-DD · Ergebnis in einem Satz.)_
