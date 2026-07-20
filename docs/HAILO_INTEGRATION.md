@@ -7319,3 +7319,29 @@ Prüfanweisung: AC-062
 (Einzugsgebietsgeometrie im Debug-Export). Die Serie B430–B434 zum Ausfall der
 Hochwasseranzeige vom 2026-07-17 ist damit vollständig. Phase B (Hailo-8 U-Net) bleibt
 unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B435 — AC-061 und AC-062 verletzten die B407-Imperativregel ✅ erledigt
+
+Der pytest-Lauf nach B430–B434 meldete `1 failed`:
+`test_b407_aichecks_arbeitsanweisungen::test_aichecks_entries_are_imperative` mit
+`Keine Arbeitsanweisung: ### AC-061 — Zustand der Hochwasserbewertung auswerten`.
+
+Der Test verlangt, dass der Titel nach dem Gedankenstrich mit einem Imperativ-Verb aus
+der festen Liste beginnt. Gegen das Live-Repo geprüft waren nur zwei Titel regelwidrig:
+AC-061 („Zustand …") und AC-062 („Einzugsgebiets- …") stellten das Verb ans Ende.
+AC-058/059/060 waren beim Einspielen von B430–B434 bereits imperativ formuliert. Der
+assert bricht beim ersten Verstoß ab, daher wurde nur AC-061 gemeldet.
+
+Behoben: AC-061 → „Werte den Zustand der Hochwasserbewertung aus", AC-062 → „Prüfe die
+Einzugsgebiets-Überlappung aus dem Export". Textkörper unverändert. Die
+Nummern-Verweise in B430–B434 bleiben gültig.
+
+Hinweis: Die erste B435-Fassung unterstellte, alle fünf Titel AC-058–062 seien defekt,
+und brach korrekt per Pre-Flight-ABORT ab, weil ihr AC-058-Anker nicht existierte. Diese
+Fassung ändert nur die zwei tatsächlich betroffenen Zeilen.
+
+Kein neuer Test: der bestehende B407-Test ist die Regression und läuft jetzt grün.
+
+**Phasen-Status:** Phase A — Serie B412–B434 abgeschlossen, B435 ergänzt (Formkorrektur
+AIChecks). Der Gesamtlauf ist wieder grün. Phase B (Hailo-8 U-Net) bleibt unverändert
+blockiert; sie wartet auf ausreichende Trainingsdaten.
