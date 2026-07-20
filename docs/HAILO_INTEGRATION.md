@@ -7482,3 +7482,26 @@ Prüfanweisung: keine (reines Frontend-Verhalten, nicht aus Export prüfbar).
 **Phasen-Status:** Phase A — Serie B412–B438 abgeschlossen, B439 ergänzt (Karten-Popup-
 Interaktion). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
 ausreichende Trainingsdaten.
+
+### B440 — Entwarnungen werden über keinen Kanal mehr gesendet ✅ erledigt
+
+Horst-Entscheidung 2026-07-20: All-clear/Entwarnung darf über keinen Kanal raus. Bisher
+galt das nur für WhatsApp (B108); `main.py` sendete bei `_cleared` weiterhin eine
+E-Mail-Entwarnung über `send_allclear_email`.
+
+Behoben: Der E-Mail-Entwarnungs-Block in `main.py` ist entfernt (kein Import, kein
+Aufruf). Der daran gekoppelte Zustands-Reset bleibt erhalten und läuft jetzt still: Ist
+ein zuvor gewarnter Ort frei von Zellen, werden `_location_warned` und `_warned_cells`
+für ihn zurückgenommen (`[WARN-RESET]`-Log), ohne dass eine Nachricht rausgeht. Ohne
+diesen Reset würde ein Ort nach dem ersten Alarm nie wieder warnen, weil das B98-Gate
+jede spätere Zelle unterdrückt.
+
+`send_allclear_email`/`send_allclear_wa` bleiben als ungenutzte Funktionen stehen (kein
+Aufrufer mehr); ihr Entfernen wäre ein eigener Aufräum-Schritt.
+
+Tests: `tests/test_b440_no_allclear.py`
+Prüfanweisung: AC-066
+
+**Phasen-Status:** Phase A — Serie B412–B439 abgeschlossen, B440 ergänzt (keine
+Entwarnung). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
+ausreichende Trainingsdaten.

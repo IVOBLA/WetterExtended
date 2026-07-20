@@ -1268,32 +1268,26 @@ def main_loop():
                 except Exception as _e:
                     debug_log(f"[WA] Warnung fehlgeschlagen: {_e}")
 
-            # ── E-Mail: Entwarnung (nur wenn vorher gewarnt wurde) ────────
+            # ── Entwarnung: KEIN Versand über irgendeinen Kanal (B440) ────
+            # Horst-Entscheidung 2026-07-20: All-clear/Entwarnung darf weder per
+            # E-Mail noch per WhatsApp gesendet werden. Der frühere E-Mail-Aufruf
+            # ist vollständig entfernt.
+            #
+            # Der an die frühere Entwarnung gekoppelte Zustands-Reset MUSS bleiben:
+            # Ohne ihn blieben _location_warned und _warned_cells dauerhaft gesetzt,
+            # und ein Ort würde nach dem ersten Alarm nie wieder warnen (B98-Gate).
+            # Ist ein zuvor gewarnter Ort frei von Zellen (_cleared) und der
+            # Radarframe aktuell, wird die Warn-Sperre für ihn zurückgenommen — still.
             if _cleared:
-                try:
-                    from email_notifier import send_allclear_email
-                    for _loc_name in sorted(_cleared):
-                        if _loc_name not in _location_warned:
-                            # Kein Alarm gesendet → keine Entwarnung nötig
-                            continue
-                        _emails = _loc_email_map.get(_loc_name, "")
-                        if _emails:
-                            ok = send_allclear_email(_loc_name, _emails)
-                            if ok:
-                                _location_warned.discard(_loc_name)
-                                _warned_cells.pop(_loc_name, None)  # B98: neue Zellen können wieder warnen
-                                debug_log(f"[EMAIL] Entwarnung gesendet: {_loc_name}")
-                            else:
-                                debug_log(
-                                    f"[EMAIL] Entwarnung fehlgeschlagen — "
-                                    f"Warnstatus bleibt aktiv: {_loc_name}"
-                                )
-                except Exception as _e:
-                    debug_log(f"[EMAIL] Entwarnung fehlgeschlagen: {_e}")
+                for _loc_name in sorted(_cleared):
+                    if _loc_name in _location_warned:
+                        _location_warned.discard(_loc_name)
+                        _warned_cells.pop(_loc_name, None)  # B98: neue Zellen können wieder warnen
+                        debug_log(f"[WARN-RESET] {_loc_name}: keine Zellen mehr — Warn-Sperre zurückgenommen (keine Entwarnung gesendet)")
 
             # ── WhatsApp: Entwarnung bewusst NICHT implementiert ─────────
-            # Design-Entscheidung (B108): WhatsApp sendet ausschließlich Warnungen.
-            # Entwarnungen erfolgen nur per E-Mail.
+            # Design-Entscheidung (B108/B440): Es werden ausschließlich Warnungen
+            # gesendet, über keinen Kanal Entwarnungen.
 
             _prev_location_hit_names = _current_hit_names
 
