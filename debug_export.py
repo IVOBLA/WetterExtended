@@ -301,6 +301,10 @@ def _is_excluded(path: Path, base_dir: Path) -> bool:
         return True
     if path.name in {"hydro_flood_samples.sqlite3", "hydro_flood_samples.sqlite3-wal", "hydro_flood_samples.sqlite3-shm"}:
         return True
+    if "quarantine" in rel.split("/") and rel.startswith("train_data/hydro/ml/"):
+        return True
+    if path.name.startswith("hydro_flood_samples.rebuild.sqlite3"):
+        return True
     if path.suffix.lower() == ".zip" and ("/" not in rel or rel.startswith("data/")):
         return True
     if rel.startswith("train_data/hydro/static/"):

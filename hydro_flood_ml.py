@@ -29,6 +29,8 @@ MIN_TRAINING_SAMPLES = int(os.getenv("HYDRO_FLOOD_ML_MIN_SAMPLES", "20"))
 FEATURE_SCHEMA_VERSION = "p75_antecedent_v1"
 HYDRO_SAMPLE_DB_PATH = HYDRO_ML_DIR / "hydro_flood_samples.sqlite3"
 HYDRO_MAINTENANCE_STATUS_PATH = HYDRO_ML_DIR / "hydro_ml_maintenance_latest.json"
+HYDRO_SAMPLE_DB_QUARANTINE_DIR = HYDRO_ML_DIR / "quarantine"
+HYDRO_SAMPLE_DB_INTEGRITY_PATH = HYDRO_ML_DIR / "hydro_sample_db_integrity.json"
 _DEFAULT_HYDRO_SAMPLE_DB_PATH = HYDRO_SAMPLE_DB_PATH
 _DEFAULT_HYDRO_DATASET_JSONL_PATH = HYDRO_DATASET_JSONL_PATH
 HYDRO_MODEL_ROOT_DIR = Path("train_data/models/hydro_flood")
@@ -2222,6 +2224,178 @@ def export_labeled_samples_jsonl(path: Path | None = None) -> dict:
         except Exception: pass
     return {"sqlite_row_count": len(rows), "jsonl_snapshot_row_count": len(rows), "snapshot_generated_at": _now(), "snapshot_source_db_sha": _file_sha256(HYDRO_SAMPLE_DB_PATH), "path": str(path)}
 
+_SAMPLE_DB_TABLES = (
+    "pending_samples", "labeled_samples", "sample_failures",
+    "training_runs", "schema_migrations", "q_history", "catchment_precip_ledger",
+)
+
+
+def sample_db_integrity(max_messages: int = 50) -> dict:
+    """Prüft die Sample-DB per quick_check und benennt betroffene Tabellen."""
+    path = HYDRO_SAMPLE_DB_PATH
+    if not path.exists():
+        return {"integrity_status": "missing", "db_path": str(path), "checked_at": _now()}
+    con = None
+    try:
+        con = sqlite3.connect(str(path), timeout=30)
+        messages = [str(row[0]) for row in con.execute("PRAGMA quick_check")]
+        if messages == ["ok"]:
+            return {"integrity_status": "ok", "db_path": str(path), "checked_at": _now(),
+                    "message_count": 0, "affected_tables": [], "messages": []}
+        rootpages: set[int] = set()
+        for message in messages:
+            if message.startswith("Tree "):
+                try:
+                    rootpages.add(int(message.split("Tree ", 1)[1].split(" ", 1)[0]))
+                except (IndexError, ValueError):
+                    continue
+        affected: set[str] = set()
+        for rootpage in sorted(rootpages):
+            for _kind, name in con.execute(
+                "SELECT type,name FROM sqlite_master WHERE rootpage=?", (rootpage,)
+            ):
+                affected.add(str(name))
+        return {
+            "integrity_status": "corrupt", "db_path": str(path), "checked_at": _now(),
+            "message_count": len(messages), "affected_rootpages": sorted(rootpages),
+            "affected_tables": sorted(affected), "messages": messages[:max_messages],
+        }
+    except sqlite3.Error as exc:
+        return {"integrity_status": "check_error", "db_path": str(path),
+                "checked_at": _now(), "error": f"{type(exc).__name__}: {exc}"}
+    finally:
+        if con is not None:
+            try:
+                con.close()
+            except sqlite3.Error:
+                pass
+
+
+def _copy_table_rows(src: sqlite3.Connection, dst: sqlite3.Connection, table: str) -> dict:
+    """Kopiert lesbare Tabellenzeilen und isoliert defekte rowid-Bereiche."""
+    columns = [row[1] for row in src.execute(f"PRAGMA table_info({table})")]
+    if not columns:
+        return {"table": table, "status": "absent", "copied": 0, "skipped": 0}
+    collist = ",".join(f'"{column}"' for column in columns)
+    placeholders = ",".join("?" for _ in columns)
+    insert = f'INSERT OR IGNORE INTO "{table}" ({collist}) VALUES ({placeholders})'
+
+    def _insert(rows) -> int:
+        dst.executemany(insert, rows)
+        return len(rows)
+
+    try:
+        rows = src.execute(f'SELECT {collist} FROM "{table}"').fetchall()
+        return {"table": table, "status": "copied_bulk", "copied": _insert(rows), "skipped": 0}
+    except sqlite3.DatabaseError:
+        pass
+    try:
+        bounds = src.execute(f'SELECT MIN(rowid), MAX(rowid) FROM "{table}"').fetchone()
+    except sqlite3.DatabaseError:
+        bounds = None
+    if not bounds or bounds[0] is None:
+        return {"table": table, "status": "unreadable", "copied": 0, "skipped": None}
+    lo, hi = int(bounds[0]), int(bounds[1])
+    copied = skipped = 0
+
+    def _range(start: int, end: int) -> None:
+        nonlocal copied, skipped
+        try:
+            rows = src.execute(
+                f'SELECT {collist} FROM "{table}" WHERE rowid BETWEEN ? AND ?',
+                (start, end),
+            ).fetchall()
+            copied += _insert(rows)
+            return
+        except sqlite3.DatabaseError:
+            pass
+        if start >= end:
+            skipped += 1
+            return
+        middle = (start + end) // 2
+        _range(start, middle)
+        _range(middle + 1, end)
+
+    for start in range(lo, hi + 1, 500):
+        _range(start, min(start + 499, hi))
+    return {"table": table, "status": "copied_partial", "copied": copied, "skipped": skipped}
+
+
+def repair_sample_db(dry_run: bool = False, lock_handle=None) -> dict:
+    """Rettet lesbare Zeilen und verschiebt das defekte Original in Quarantäne."""
+    report: dict = {"repair_at": _now(), "dry_run": bool(dry_run)}
+    integrity = sample_db_integrity()
+    report["integrity_before"] = integrity
+    if integrity.get("integrity_status") == "ok":
+        report["repair_status"] = "not_needed"
+        return report
+    if integrity.get("integrity_status") == "missing":
+        report["repair_status"] = "no_database"
+        return report
+    if dry_run:
+        report["repair_status"] = "would_repair"
+        return report
+
+    with hydro_training_lock(lock_handle):
+        rebuild = HYDRO_ML_DIR / "hydro_flood_samples.rebuild.sqlite3"
+        rebuild.unlink(missing_ok=True)
+        src = dst = None
+        try:
+            src = sqlite3.connect(str(HYDRO_SAMPLE_DB_PATH), timeout=30)
+            ddl = [row[0] for row in src.execute(
+                "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL "
+                "AND name NOT LIKE 'sqlite_%' ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END"
+            )]
+            dst = sqlite3.connect(str(rebuild), timeout=30, isolation_level=None)
+            for statement in ddl:
+                dst.execute(statement)
+            dst.execute("BEGIN IMMEDIATE")
+            report["tables"] = [_copy_table_rows(src, dst, table) for table in _SAMPLE_DB_TABLES]
+            dst.execute("COMMIT")
+            dst.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except sqlite3.Error as exc:
+            report.update(repair_status="rebuild_failed", error=f"{type(exc).__name__}: {exc}")
+            rebuild.unlink(missing_ok=True)
+            _atomic_json(HYDRO_SAMPLE_DB_INTEGRITY_PATH, report)
+            return report
+        finally:
+            for con in (src, dst):
+                if con is not None:
+                    try:
+                        con.close()
+                    except sqlite3.Error:
+                        pass
+
+        verify = sqlite3.connect(str(rebuild), timeout=30)
+        try:
+            check = [row[0] for row in verify.execute("PRAGMA quick_check")]
+        finally:
+            verify.close()
+        if check != ["ok"]:
+            report.update(repair_status="rebuild_not_clean", rebuild_check=check[:20])
+            rebuild.unlink(missing_ok=True)
+            _atomic_json(HYDRO_SAMPLE_DB_INTEGRITY_PATH, report)
+            return report
+
+        HYDRO_SAMPLE_DB_QUARANTINE_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        quarantine = HYDRO_SAMPLE_DB_QUARANTINE_DIR / f"hydro_flood_samples.{stamp}.sqlite3"
+        shutil.move(str(HYDRO_SAMPLE_DB_PATH), str(quarantine))
+        for suffix in ("-wal", "-shm"):
+            sidecar = Path(str(HYDRO_SAMPLE_DB_PATH) + suffix)
+            if sidecar.exists():
+                shutil.move(str(sidecar), str(quarantine) + suffix)
+        os.replace(str(rebuild), str(HYDRO_SAMPLE_DB_PATH))
+        report.update(
+            quarantine_path=str(quarantine), repair_status="repaired",
+            rows_copied=sum(int(table.get("copied") or 0) for table in report["tables"]),
+            rows_skipped=sum(int(table.get("skipped") or 0) for table in report["tables"]),
+        )
+        report["integrity_after"] = sample_db_integrity()
+    _atomic_json(HYDRO_SAMPLE_DB_INTEGRITY_PATH, report)
+    return report
+
+
 def hydro_ml_maintenance() -> dict:
     now_dt=datetime.now(timezone.utc); db_size_before=HYDRO_SAMPLE_DB_PATH.stat().st_size if HYDRO_SAMPLE_DB_PATH.exists() else 0
     fail_days=_cfg_int("HYDRO_FAILED_SAMPLE_RETENTION_DAYS", 30, 1, 3650)
@@ -2231,6 +2405,15 @@ def hydro_ml_maintenance() -> dict:
     report={"deleted_failure_rows":0,"deleted_dataset_rows":0,"deleted_q_history_rows":0,"deleted_training_runs":0,"deleted_candidates":0,"deleted_history_versions":0,"db_size_before":db_size_before}
     if q_days < minimum_q_days:
         report.update(status="refused",reason="q_history_retention_below_lag_and_validation_window",minimum_q_history_retention_days=minimum_q_days)
+        _atomic_json(HYDRO_MAINTENANCE_STATUS_PATH, report)
+        return report
+    integrity = sample_db_integrity()
+    _atomic_json(HYDRO_SAMPLE_DB_INTEGRITY_PATH, integrity)
+    report["integrity_status"] = integrity.get("integrity_status")
+    report["integrity_affected_tables"] = integrity.get("affected_tables") or []
+    if integrity.get("integrity_status") != "ok":
+        report["status"] = "degraded_sample_db"
+        report["db_size_after"] = db_size_before
         _atomic_json(HYDRO_MAINTENANCE_STATUS_PATH, report)
         return report
     with _sample_db() as con:

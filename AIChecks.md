@@ -438,3 +438,21 @@ _(Format: `AC-xxx — Kurztitel · YYYY-MM-DD · Ergebnis in einem Satz.)_
 3. Im Quelltext prüfen, dass keine neue rohe Verwendung hinzugekommen ist:
    `python3 -c "t=open('hydro_flood_ml.py').read(); print(t.count('_sample_db()') - t.count('with _sample_db() as'))"`
    Ergebnis muss exakt `1` sein (die Definitionszeile). Jeder andere Wert ist ein Befund.
+
+### AC-060 — Prüfe die Integrität der Hydro-ML-Sample-Datenbank
+
+**Datenquellen im Export:**
+- `hydro_ml/hydro_sample_db_integrity.json`
+- `hydro_ml/hydro_ml_maintenance_latest.json`
+- `hydro_ml/hydro_flood_samples_snapshot.sqlite3`
+- `api_logs/journal/wetterprojekt-scheduler.service.log`
+
+1. Melde jeden `integrity_status` außer `ok` samt `affected_tables`, `message_count`
+   und `checked_at`. Fehlt das Feld trotz Wartungsbericht, melde eine Version vor B432.
+2. Melde `status=degraded_sample_db` aus dem Wartungsbericht.
+3. Führe unabhängig `PRAGMA quick_check` auf dem Snapshot aus und löse jede `Tree <n>`-
+   Nummer über `sqlite_master.rootpage` auf. Melde Abweichungen zum Zustandsbericht.
+4. Suche im Scheduler-Journal nach `WARNUNG Hydro-ML Sample-DB defekt` und melde jedes
+   Vorkommen mit Zeitstempel und Tabellenliste.
+5. Melde aus Reparaturberichten `rows_copied`, `rows_skipped` und `quarantine_path`.
+   `rows_skipped > 0` ist endgültiger Datenverlust und immer ein Befund.
