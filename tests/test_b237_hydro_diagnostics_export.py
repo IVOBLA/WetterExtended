@@ -50,5 +50,7 @@ def test_export_includes_diagnostics_excludes_heavy_geojson(tmp_path):
     (gen / "hydro_upstream_graph.json").write_text("{}", encoding="utf-8")
     assert debug_export._is_excluded(gen / "hydro_upstream_diagnostics.json", base) is False
     assert debug_export._is_excluded(gen / "hydro_static_coverage.json", base) is False
-    assert debug_export._is_excluded(gen / "station_catchments.geojson", base) is True
+    # B434: Die Einzugsgebietsgeometrie ist für die nachträgliche Prüfung der
+    # Hydro-Zellüberlappung erforderlich und wird deshalb gezielt exportiert.
+    assert debug_export._is_excluded(gen / "station_catchments.geojson", base) is False
     assert debug_export._is_excluded(gen / "hydro_upstream_graph.json", base) is True

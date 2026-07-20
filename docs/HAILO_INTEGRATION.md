@@ -7297,3 +7297,25 @@ Prüfanweisung: AC-061
 (Fehlersichtbarkeit der Hochwasserbewertung). B434 offen: Einzugsgebietsgeometrie im
 Debug-Export. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
 ausreichende Trainingsdaten.
+
+### B434 — Die Einzugsgebietsgeometrie wurde zum Export angemeldet und sofort wieder verworfen ✅ erledigt
+
+`station_catchments.geojson` war mit `force=True` unter `hydro_static` angemeldet, wurde
+aber zuvor von `_is_excluded` verworfen, weil der Name in der Allowlist fehlte. Damit
+fehlte im Debug-Export ausgerechnet die einzige Quelle der Einzugsgebietspolygone,
+während `missing_expected_sections` keinen Mangel meldete.
+
+Behoben:
+- `station_catchments.geojson` steht in der Allowlist.
+- `HYDRO_STATIC_EXPORT_FILES` ist die gemeinsame Quelle für Anmeldung und Test.
+- `_build_candidates_with_diagnostics` meldet vorhandene, aber verworfene angemeldete
+  Dateien als `dropped_expected_files` im Manifest.
+- Rohdaten unter `train_data/hydro/static/source/` bleiben ausgeschlossen.
+
+Tests: `tests/test_b434_hydro_static_export.py`
+Prüfanweisung: AC-062
+
+**Phasen-Status:** Phase A — Serie B412–B433 abgeschlossen, B434 ergänzt
+(Einzugsgebietsgeometrie im Debug-Export). Die Serie B430–B434 zum Ausfall der
+Hochwasseranzeige vom 2026-07-17 ist damit vollständig. Phase B (Hailo-8 U-Net) bleibt
+unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
