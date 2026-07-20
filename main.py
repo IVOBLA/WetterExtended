@@ -1216,6 +1216,22 @@ def main_loop():
                         del _location_warn_pending[_lname]
 
             if _ready_to_warn:
+                # B441: Persistenter, ortsbasierter Warn-Cooldown VOR dem Versand.
+                # Der cell_id-basierte B98-Schutz oben ist umgehbar, weil cell_ids bei
+                # Merge/Split/Reaktivierung wechseln — dieselbe Zelle galt dann als neu
+                # und warnte erneut. Dieses Gate greift pro Ort, kanalübergreifend und
+                # neustartfest.
+                try:
+                    import warn_cooldown as _wcd
+                    _allowed = _wcd.filter_allowed(_ready_to_warn)
+                    _suppressed = set(_ready_to_warn) - _allowed
+                    for _sname in sorted(_suppressed):
+                        debug_log(f"[WARN-CD] {_sname}: Ort-Cooldown aktiv — Warnung unterdrückt.")
+                    _ready_to_warn = _allowed
+                except Exception as _e_cd:
+                    debug_log(f"[WARN-CD] Cooldown-Prüfung fehlgeschlagen (fahre ohne fort): {_e_cd}")
+
+            if _ready_to_warn:
                 try:
                     from email_notifier import send_warning_email
                     for _loc_hit in location_hits:
@@ -1234,6 +1250,14 @@ def main_loop():
                                 _cid = _earliest_cell_id(_loc_hit)
                                 if _cid:
                                     _warned_cells.setdefault(_loc_hit["name"], set()).add(_cid)
+                                # B441: Ort-Cooldown persistent setzen (kanalübergreifend,
+                                # neustartfest). Wird hier gesetzt, sobald mindestens ein
+                                # Kanal erfolgreich war — der E-Mail-Versand ist der führende.
+                                try:
+                                    import warn_cooldown as _wcd_mark
+                                    _wcd_mark.mark_sent(_loc_hit["name"])
+                                except Exception as _e_mark:
+                                    debug_log(f"[WARN-CD] mark_sent fehlgeschlagen: {_e_mark}")
                                 debug_log(f"[EMAIL] Warnung gesendet: {_loc_hit['name']}")
                 except Exception as _e:
                     debug_log(f"[EMAIL] Warnung fehlgeschlagen: {_e}")

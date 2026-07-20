@@ -7505,3 +7505,28 @@ Prüfanweisung: AC-066
 **Phasen-Status:** Phase A — Serie B412–B439 abgeschlossen, B440 ergänzt (keine
 Entwarnung). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
 ausreichende Trainingsdaten.
+### B441 — Warn-Cooldown griff nicht: an cell_id gekoppelt und nur im RAM ✅ erledigt
+
+Horst-Befund 2026-07-20: Alarme feuerten zu dicht, auch ohne Neustart. Zwei Ursachen:
+1. Der B98-Schutz merkte sich pro `cell_id`. cell_ids wechseln bei Merge/Split/
+   Reaktivierung (Logs: `lineage_merged_from`, `abweichende ID`); dieselbe physische
+   Zelle galt dann als neu und warnte Frame für Frame erneut — ohne Neustart.
+2. Der Zeit-Cooldown `WARN_COOLDOWN_S` (900 s, „Safety-Net") lag nur in zwei getrennten
+   In-Memory-Dicts (email_notifier, whatsapp_notifier). Nicht persistent (jeder der 7
+   Neustarts in 90 min setzte ihn zurück) und erst in der Versandschicht wirksam, also
+   pro Kanal statt ortsweit. Der benachbarte Drift-Cooldown ist längst persistent, der
+   Warn-Cooldown war es nicht.
+
+Behoben: Neues Modul `warn_cooldown.py` führt einen Cooldown **pro Ort**, unabhängig von
+der cell_id, **persistent** (`train_data/evaluation/warn_cooldown.json`, atomarer
+Write). main.py filtert `_ready_to_warn` mit `filter_allowed(...)` **vor** dem Versand
+über beide Kanäle und setzt nach erfolgreichem E-Mail-Versand `mark_sent(...)`. Der
+cell_id-basierte B98-Schutz und die In-Memory-Cooldowns der Notifier bleiben als
+ergänzende Schichten bestehen; das neue Gate sitzt davor und ist maßgeblich.
+
+Tests: `tests/test_b441_warn_cooldown.py`
+Prüfanweisung: AC-067
+
+**Phasen-Status:** Phase A — Serie B412–B440 abgeschlossen, B441 ergänzt (persistenter
+Ort-Cooldown). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
+ausreichende Trainingsdaten.
