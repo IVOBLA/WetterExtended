@@ -1072,7 +1072,9 @@ def validate_trainable_sample(row: dict) -> tuple[bool, list[str]]:
 def _sample_is_trainable_live(row: dict) -> bool:
     return validate_trainable_sample(row)[0]
 
-def _sample_db() -> sqlite3.Connection:
+def _open_sample_db () -> sqlite3.Connection:
+    """Öffnet die Sample-DB und stellt das Schema sicher. Ruft der Aufrufer direkt auf,
+    ist er selbst für `close()` verantwortlich. Im Normalfall `_sample_db` benutzen."""
     HYDRO_ML_DIR.mkdir(parents=True, exist_ok=True)
     if HYDRO_DATASET_JSONL_PATH != _DEFAULT_HYDRO_DATASET_JSONL_PATH and HYDRO_SAMPLE_DB_PATH.parent != HYDRO_DATASET_JSONL_PATH.parent:
         db_path = HYDRO_DATASET_JSONL_PATH.parent / "hydro_flood_samples.sqlite3"
@@ -1105,6 +1107,44 @@ def _sample_db() -> sqlite3.Connection:
     con.execute("CREATE INDEX IF NOT EXISTS idx_labeled_station_time ON labeled_samples(station_id, sample_start_time)")
     con.execute("CREATE INDEX IF NOT EXISTS idx_labeled_readiness ON labeled_samples(feature_schema_version, feature_snapshot_complete, target_missing)")
     return con
+
+
+@contextmanager
+def _sample_db():
+    """Sample-DB als Ressourcen-Kontextmanager: commit/rollback UND close.
+
+    B431: Vorher gab die gleichnamige öffentliche Funktion eine rohe
+    `sqlite3.Connection` zurück, die an allen
+    23 Aufrufstellen mit `with ... as con:` benutzt wurde. `sqlite3.Connection.__exit__`
+    ist aber ein Transaktions-Kontextmanager — er committet oder rollt zurück und
+    schließt die Verbindung **nicht**. Es gab im ganzen Modul kein `con.close()`.
+    Auf dem Pi laufen drei Dienste parallel auf derselben WAL-Datenbank; jeder offene
+    Leser blockiert den WAL-Checkpoint.
+
+    Das Verhalten der bisherigen Aufrufstellen bleibt exakt erhalten: bei Erfolg wird
+    committet (mit isolation_level=None nur relevant nach explizitem BEGIN IMMEDIATE,
+    davon gibt es 7 Stellen), bei Ausnahme wird zurückgerollt. Neu ist ausschließlich
+    das garantierte `close()` im finally.
+    """
+    con = _open_sample_db ()
+    try:
+        yield con
+    except BaseException:
+        try:
+            con.rollback()
+        except sqlite3.Error:
+            pass
+        raise
+    else:
+        try:
+            con.commit()
+        except sqlite3.Error:
+            pass
+    finally:
+        try:
+            con.close()
+        except sqlite3.Error:
+            pass
 
 def ledger_retention_min() -> int:
     """Rückhaltezeit des Niederschlagsgedächtnisses in Minuten.
