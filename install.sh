@@ -2264,6 +2264,110 @@ else
 fi
 
 # ==============================================================================
+# PHASE 8.95 — Hydro-Sample-DB-Integrität (B437)
+# ==============================================================================
+# Prüft die Hydro-ML-Sample-SQLite auf Korruption und repariert sie im Upgrade-Modus
+# automatisch. Hintergrund: Auf dem Pi sind ungeplante Neustarts der Normalfall; eine
+# unter WAL beschädigte q_history schaltete am 2026-07-17 die gesamte Hochwasseranzeige
+# ab (B430–B436). B436 heilt beim nächsten Scheduler-Neustart selbst — dieser Schritt
+# macht die Heilung schon beim Deploy deterministisch und sichtbar.
+CURRENT_PHASE="Phase 8.95 — Hydro-DB-Integrität"
+log_step "Phase 8.95 — Hydro-Sample-DB-Integrität (B437)"
+
+_HYDRO_DB="$TARGET/train_data/hydro/ml/hydro_flood_samples.sqlite3"
+
+if [[ "$MODE" == "full" ]]; then
+    # Full-Modus hat train_data gelöscht — es gibt keine Alt-DB zu prüfen.
+    check_ok "Full-Modus: keine bestehende Hydro-DB (wird im Betrieb neu angelegt)."
+elif [[ ! -x "$VENV/bin/python3" ]]; then
+    check_warn "B437: venv-Python fehlt — Hydro-DB-Integritätsprüfung übersprungen."
+elif [[ ! -f "$_HYDRO_DB" ]]; then
+    check_ok "Keine Hydro-DB vorhanden (${_HYDRO_DB##*/}) — nichts zu prüfen."
+else
+    # Integrität ohne laufende Schreiber prüfen: quick_check auf einer eigenen
+    # Read-Verbindung ist unkritisch, die Reparatur selbst braucht aber Exklusivität.
+    _INTEGRITY="$( cd "$TARGET" && "$VENV/bin/python3" - <<'PYB437' 2>/dev/null
+import json
+try:
+    import hydro_flood_ml as h
+    print(json.dumps(h.sample_db_integrity()))
+except Exception as exc:
+    print(json.dumps({"integrity_status": "check_error", "error": f"{type(exc).__name__}: {exc}"}))
+PYB437
+)"
+    _INT_STATUS="$(printf '%s' "$_INTEGRITY" | "$VENV/bin/python3" -c "import json,sys; print(json.load(sys.stdin).get('integrity_status','?'))" 2>/dev/null || echo '?')"
+    _INT_TABLES="$(printf '%s' "$_INTEGRITY" | "$VENV/bin/python3" -c "import json,sys; print(','.join(json.load(sys.stdin).get('affected_tables') or []))" 2>/dev/null || echo '')"
+
+    if [[ "$_INT_STATUS" == "ok" ]]; then
+        check_ok "Hydro-Sample-DB intakt (PRAGMA quick_check == ok)."
+    elif [[ "$_INT_STATUS" == "missing" ]]; then
+        check_ok "Hydro-Sample-DB nicht vorhanden — nichts zu prüfen."
+    elif [[ "$_INT_STATUS" == "corrupt" ]]; then
+        check_warn "Hydro-Sample-DB korrupt (betroffen: ${_INT_TABLES:-unbekannt}). Automatische Reparatur…"
+
+        # Reparatur braucht Exklusivität: Schreiber stoppen. Die Services wurden in
+        # Phase 7 gestartet und laufen jetzt — für das Wartungsfenster kurz anhalten.
+        _B437_STOPPED=()
+        for _svc in wetterprojekt-scheduler wetterprojekt-admin wetterprojekt; do
+            if systemctl is-active --quiet "$_svc" 2>/dev/null; then
+                sudo systemctl stop "$_svc" 2>/dev/null || true
+                _B437_STOPPED+=("$_svc")
+            fi
+        done
+        [[ ${#_B437_STOPPED[@]} -gt 0 ]] && log_info "Für Reparatur gestoppt: ${_B437_STOPPED[*]}"
+
+        # Forensische Sicherung vor jeder Veränderung (zusätzlich zur Quarantäne).
+        _B437_TS="$(date -u +%Y%m%dT%H%M%SZ)"
+        cp -a "$_HYDRO_DB" "$_HYDRO_DB.pre_b437.$_B437_TS" 2>/dev/null \
+            && log_info "Sicherung: ${_HYDRO_DB##*/}.pre_b437.$_B437_TS" \
+            || log_warn "Sicherung fehlgeschlagen — Reparatur bricht ab."
+
+        _REPAIR="$( cd "$TARGET" && "$VENV/bin/python3" - <<'PYB437R' 2>/dev/null
+import json
+try:
+    import hydro_flood_ml as h
+    print(json.dumps(h.repair_sample_db()))
+except BlockingIOError:
+    print(json.dumps({"repair_status": "locked"}))
+except Exception as exc:
+    print(json.dumps({"repair_status": "repair_error", "error": f"{type(exc).__name__}: {exc}"}))
+PYB437R
+)"
+        _REP_STATUS="$(printf '%s' "$_REPAIR" | "$VENV/bin/python3" -c "import json,sys; print(json.load(sys.stdin).get('repair_status','?'))" 2>/dev/null || echo '?')"
+        _REP_COPIED="$(printf '%s' "$_REPAIR" | "$VENV/bin/python3" -c "import json,sys; print(json.load(sys.stdin).get('rows_copied','?'))" 2>/dev/null || echo '?')"
+        _REP_SKIPPED="$(printf '%s' "$_REPAIR" | "$VENV/bin/python3" -c "import json,sys; print(json.load(sys.stdin).get('rows_skipped','?'))" 2>/dev/null || echo '?')"
+        _REP_QUAR="$(printf '%s' "$_REPAIR" | "$VENV/bin/python3" -c "import json,sys; print(json.load(sys.stdin).get('quarantine_path',''))" 2>/dev/null || echo '')"
+
+        if [[ "$_REP_STATUS" == "repaired" ]]; then
+            check_ok "Hydro-DB repariert: $_REP_COPIED Zeilen gerettet, $_REP_SKIPPED unlesbar übersprungen."
+            [[ -n "$_REP_QUAR" ]] && log_info "Original in Quarantäne: $_REP_QUAR"
+            if [[ "$_REP_SKIPPED" != "0" && "$_REP_SKIPPED" != "?" ]]; then
+                note_manual "B437: $_REP_SKIPPED Zeilen der q_history endgültig verloren (nur Tendenz-Historie; füllt sich im Betrieb binnen ~1h neu)."
+            fi
+        else
+            check_warn "B437: Automatische Reparatur nicht abgeschlossen (status=$_REP_STATUS)."
+            note_manual "B437: Hydro-DB manuell reparieren: cd $TARGET && sudo systemctl stop wetterprojekt-scheduler wetterprojekt-admin && $VENV/bin/python3 scripts/repair_hydro_sample_db.py --apply"
+        fi
+
+        # Services wieder starten (Reihenfolge: Kernprozess zuerst).
+        for _svc in wetterprojekt wetterprojekt-admin wetterprojekt-scheduler; do
+            for _s in "${_B437_STOPPED[@]}"; do
+                if [[ "$_s" == "$_svc" ]]; then
+                    sudo systemctl start "$_svc" 2>/dev/null || true
+                    sleep 2
+                    systemctl is-active --quiet "$_svc" \
+                        && check_ok "Service wieder aktiv: $_svc" \
+                        || check_warn "Service nach Reparatur nicht aktiv: $_svc — journalctl -u $_svc -n 20"
+                fi
+            done
+        done
+    else
+        check_warn "B437: Integritätsprüfung nicht auswertbar (status=$_INT_STATUS) — manuell prüfen."
+        note_manual "B437: cd $TARGET && $VENV/bin/python3 scripts/repair_hydro_sample_db.py"
+    fi
+fi
+
+# ==============================================================================
 # PHASE 9 — Tests (letzter Schritt, beide Modi)
 # ==============================================================================
 CURRENT_PHASE="Phase 9 — Tests"

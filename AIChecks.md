@@ -523,3 +523,23 @@ _(Format: `AC-xxx — Kurztitel · YYYY-MM-DD · Ergebnis in einem Satz.)_
 3. Häufen sich `Hydro-Startup-Recovery`-Zeilen über mehrere Exporte, deutet das auf
    wiederkehrende unclean shutdowns hin (Stromversorgung/SD-Karte des Pi) — als
    Hardware-Verdacht melden, nicht als Codebug.
+
+### AC-064 — Prüfe die Deploy-seitige Hydro-DB-Reparatur
+
+**Datenquellen:** Livezugriff auf dem Pi; `train_data/evaluation/install_pytest.log`;
+Verzeichnis `train_data/hydro/ml/` und `train_data/hydro/ml/quarantine/`.
+
+**Durchzuführen:**
+
+1. Nach einem `install.sh --mode=upgrade`-Lauf im Installer-Ausgang nach der Zeile
+   „Phase 8.95 — Hydro-Sample-DB-Integrität" suchen. Fehlt sie, ist der Installer älter
+   als B437 — melden.
+2. Steht dort „Hydro-DB repariert: N Zeilen gerettet, M unlesbar übersprungen", das
+   Wertepaar melden. `M > 0` ist endgültiger Datenverlust der Tendenz-Historie und immer
+   zu melden.
+3. Prüfen, dass nach dem Lauf `hydro_flood_ml.sample_db_integrity()` `ok` liefert und die
+   drei Services aktiv sind (`systemctl is-active`). Ein `corrupt` nach abgeschlossenem
+   Installer ist ein Befund.
+4. In `train_data/hydro/ml/` nach `*.pre_b437.*`-Sicherungen und in `quarantine/` nach
+   Originalen suchen. Häufen sich diese über mehrere Deploys, deutet das auf
+   wiederkehrende Korruption hin (Hardware/Stromversorgung) — als Verdacht melden.

@@ -7390,3 +7390,32 @@ Integrität, selbstheilender Startup, FULL-Durability). Damit sind alle Hydro-SQ
 Befunde des KI-Reports vom 2026-07-19 abgearbeitet. Offen aus dem Report: 700-hPa-
 Gewichtung (Forecast). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet
 auf ausreichende Trainingsdaten.
+
+### B437 — install.sh prüft und repariert die Hydro-Sample-DB automatisch ✅ erledigt
+
+Nach B436 heilt sich eine korrupte Hydro-Sample-DB nur beim nächsten Scheduler-Neustart
+(Startup-Recovery) oder per manuellem `scripts/repair_hydro_sample_db.py`. Ein Deploy
+über `install.sh` prüfte die Datenbank gar nicht — auf einem Pi mit bereits korrupter DB
+blieb der Defekt nach dem Upgrade bestehen, bis zufällig ein Neustart den Recovery
+auslöste.
+
+Neu: Phase 8.95 (vor Phase 9). Sie führt `hydro_flood_ml.sample_db_integrity()` aus und
+im Upgrade-Modus bei `corrupt` automatisch `repair_sample_db()`. Ablauf analog zur
+Reparaturregel aus B432: Da die drei Services in Phase 7 bereits (neu) gestartet wurden,
+werden sie für das Reparaturfenster kurz gestoppt (Scheduler/Admin/Kernprozess),
+danach in richtiger Reihenfolge wieder gestartet. Vor der Reparatur wird zusätzlich zur
+Quarantäne eine `.pre_b437.<TS>`-Sicherung angelegt. `rows_skipped > 0` (endgültiger
+Verlust von q_history-Zeilen, nur Tendenz-Historie) wird als manueller Hinweis
+ausgegeben.
+
+Im full-Modus entfällt die Reparatur: `train_data` wurde gelöscht, es gibt keine Alt-DB.
+Fehlt das venv-Python oder die DB, wird die Phase sauber übersprungen.
+
+Tests: `tests/test_b437_install_hydro_db_phase.py` (strukturelle Absicherung +
+`bash -n`-Syntaxprüfung)
+Prüfanweisung: AC-064
+
+**Phasen-Status:** Phase A — Serie B412–B436 abgeschlossen, B437 ergänzt (Deploy-seitige
+DB-Selbstheilung). Die Hydro-SQLite ist damit auf allen drei Wegen abgesichert: Deploy
+(B437), Neustart (B436), manuell (B432). Phase B (Hailo-8 U-Net) bleibt unverändert
+blockiert; sie wartet auf ausreichende Trainingsdaten.
