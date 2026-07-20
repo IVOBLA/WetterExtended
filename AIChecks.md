@@ -566,3 +566,17 @@ Verzeichnis `train_data/hydro/ml/` und `train_data/hydro/ml/quarantine/`.
 4. Nicht `quick_check` allein als Beweis für gesunde Samples werten: strukturell
    intakte B-Trees (quick_check == ok) können inhaltlich kaputte Payloads enthalten.
    Die Zählung aus Schritt 1 ist die maßgebliche Prüfung.
+
+### AC-066 — Prüfe, dass keine Entwarnung gesendet wird
+
+**Datenquellen im Export:** `api_logs/journal/*.log`; `main.py` (im Source-Export).
+
+**Durchzuführen:**
+
+1. In den Journalen nach `[EMAIL] Entwarnung gesendet` und jeder WhatsApp-Entwarnung
+   suchen. Jedes Vorkommen nach dem B440-Deploy ist ein Befund.
+2. Im Source prüfen, dass `main.py` weder `send_allclear_email` noch `send_allclear_wa`
+   aufruft. Ein Treffer ist ein Befund.
+3. Gegenprobe, dass die Warn-Sperre weiterhin zurückgenommen wird: nach einer
+   Gewitterlage muss `[WARN-RESET]` für die betroffenen Orte im Log erscheinen. Fehlt es
+   dauerhaft, würden Orte nach dem ersten Alarm nicht wieder warnen — Befund.
