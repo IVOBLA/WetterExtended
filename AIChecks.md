@@ -502,3 +502,24 @@ _(Format: `AC-xxx — Kurztitel · YYYY-MM-DD · Ergebnis in einem Satz.)_
 6. Abweichungen von `contributing_cell_count` in
    `hydro_impact/latest_hydro_flood_risk.json` mit Schnittfläche und Schwellen melden.
 7. `contributing_cell_count: null` bedeutet „nicht berechnet“ und ist nicht 0.
+
+### AC-063 — Prüfe Snapshot-Integritätsstatus und Startup-Recovery
+
+**Datenquellen im Export:**
+- `hydro_ml/hydro_ml_snapshot_status.json`
+- `hydro_ml/hydro_flood_samples_snapshot.sqlite3`
+- `api_logs/journal/wetterprojekt-scheduler.service.log`
+- `hydro_ml/hydro_sample_db_integrity.json`
+
+**Durchzuführen:**
+
+1. `hydro_ml_snapshot_status.json` lesen. Wert `corrupt` ist ein Befund:
+   `hydro_ml_snapshot_integrity` melden. Steht dort `ok`, unabhängig davon
+   `PRAGMA quick_check` auf `hydro_flood_samples_snapshot.sqlite3` ausführen; weicht das
+   Ergebnis ab, läuft die Snapshot-Prüfung nicht — Befund (Export älter als B436).
+2. Im Scheduler-Journal nach `Hydro-Startup-Recovery` suchen. Jedes Vorkommen mit
+   `status`, `repair`, `gerettet`, `verloren` melden. `verloren` > 0 bedeutet
+   endgültigen Datenverlust und ist immer zu melden.
+3. Häufen sich `Hydro-Startup-Recovery`-Zeilen über mehrere Exporte, deutet das auf
+   wiederkehrende unclean shutdowns hin (Stromversorgung/SD-Karte des Pi) — als
+   Hardware-Verdacht melden, nicht als Codebug.

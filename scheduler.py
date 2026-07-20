@@ -722,7 +722,18 @@ def create_scheduler() -> BlockingScheduler:
     # Migrationen müssen vor dem ersten Hydro-Verify-Lauf verfügbar sein.
     try:
         import hydro_flood_ml
-        hydro_flood_ml.run_hydro_startup_migrations()
+        _startup = hydro_flood_ml.run_hydro_startup_migrations()
+        # B436: Ein automatischer Recovery-Lauf nach unclean shutdown darf nicht
+        # stumm bleiben — bis 2026-07-19 wurde die Korruption erst über 43
+        # Request-Fehler sichtbar.
+        _rec = (_startup or {}).get("recovery") or {}
+        if _rec.get("integrity_status") not in (None, "ok", "skipped"):
+            debug_log(
+                f"[SCHEDULER] Hydro-Startup-Recovery: status={_rec.get('integrity_status')} "
+                f"repair={_rec.get('repair_status')} "
+                f"gerettet={_rec.get('rows_copied')} verloren={_rec.get('rows_skipped')} "
+                f"quarantäne={_rec.get('quarantine_path')}"
+            )
     except BlockingIOError:
         debug_log("[SCHEDULER] Hydro-Startup-Migration: anderer Prozess hält den Lock")
     except Exception as exc:
