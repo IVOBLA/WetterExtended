@@ -1119,9 +1119,16 @@ export default function MapView() {
           const color = hydroTrendColor(popup.trendStatus)
           const hasFloodWarning = popup.activeFloodWarning === true
           const loadCatchment = () => {
-            api.get(`/api/hydro/station/${p.station_id}/catchment`)
-              .then(d => setHydroCatchments(prev => ({ ...prev, [p.station_id]: hydroFeatureCollection(d) })))
-              .catch(() => {})
+            // B439: Nur laden, wenn für diese Station noch nicht vorhanden. Ein erneuter
+            // setHydroCatchments-Aufruf bei jedem Klick erzwingt ein Marker-Re-Render,
+            // das das gerade geöffnete Popup sofort wieder schließt.
+            setHydroCatchments(prev => {
+              if (prev[p.station_id]) return prev
+              api.get(`/api/hydro/station/${p.station_id}/catchment`)
+                .then(d => setHydroCatchments(cur => ({ ...cur, [p.station_id]: hydroFeatureCollection(d) })))
+                .catch(() => {})
+              return prev
+            })
           }
           const popupContent = (
               <Popup>
@@ -1168,7 +1175,7 @@ export default function MapView() {
               {((hydroCatchments[p.station_id]?.features) || []).map((cf, i) => {
                 const ring = cf.geometry?.coordinates?.[0]
                 if (!ring || ring.length < 3) return null
-                return <Polygon key={`hydro_catch_${p.station_id}_${i}`} positions={ring.map(c => [c[1], c[0]])} pathOptions={{ color, weight: 1, fillOpacity: 0.03 }} />
+                return <Polygon key={`hydro_catch_${p.station_id}_${i}`} positions={ring.map(c => [c[1], c[0]])} pathOptions={{ color, weight: 1, fillOpacity: 0.03, interactive: false }} />
               })}
             </React.Fragment>
           )

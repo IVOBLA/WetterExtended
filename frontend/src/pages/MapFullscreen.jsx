@@ -685,7 +685,12 @@ export default function MapFullscreen() {
           const popup = normalizeHydroFloodPopup(p, flood)
           const color = hydroTrendColor(popup.trendStatus)
           const hasFloodWarning = popup.activeFloodWarning === true
-          const loadCatchment = () => api.get(`/api/hydro/station/${p.station_id}/catchment`).then(d => setHydroCatchments(prev => ({ ...prev, [p.station_id]: hydroFeatureCollection(d) }))).catch(() => {})
+          const loadCatchment = () => setHydroCatchments(prev => {
+            // B439: siehe MapView — nicht bei jedem Klick neu laden (Popup-Re-Render).
+            if (prev[p.station_id]) return prev
+            api.get(`/api/hydro/station/${p.station_id}/catchment`).then(d => setHydroCatchments(cur => ({ ...cur, [p.station_id]: hydroFeatureCollection(d) }))).catch(() => {})
+            return prev
+          })
           const popupContent = (
               <Popup>
                   <div><strong>{p.name || p.station_id}</strong></div>
@@ -729,7 +734,7 @@ export default function MapFullscreen() {
               {((hydroCatchments[p.station_id]?.features) || []).map((cf, i) => {
                 const ring = cf.geometry?.coordinates?.[0]
                 if (!ring || ring.length < 3) return null
-                return <Polygon key={`hydro_catch_${p.station_id}_${i}`} positions={ring.map(c => [c[1], c[0]])} pathOptions={{ color, weight: 1, fillOpacity: 0.03 }} />
+                return <Polygon key={`hydro_catch_${p.station_id}_${i}`} positions={ring.map(c => [c[1], c[0]])} pathOptions={{ color, weight: 1, fillOpacity: 0.03, interactive: false }} />
               })}
             </React.Fragment>
           )

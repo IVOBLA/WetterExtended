@@ -7453,3 +7453,32 @@ Prüfanweisung: AC-065
 Sample-Materialisierung). Die Hydro-Kette ist damit gegen strukturelle (B432) und
 inhaltliche (B438) Payload-Defekte abgesichert. Phase B (Hailo-8 U-Net) bleibt
 unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B439 — Das eingeblendete Einzugsgebiet blockierte alle Stations-Popups ✅ erledigt
+
+Zwei Symptome vom 2026-07-20: sobald bei einer Station das Einzugsgebiet (EZG) angezeigt
+wurde, ging bei keiner Station mehr ein Popup auf; der Klick auf eine Station verhielt
+sich instabil.
+
+Ursache, zwei Aspekte an derselben Stelle in MapView.jsx und MapFullscreen.jsx:
+1. Das EZG-Polygon (`hydro_catch_*`) wurde ohne `interactive: false` gerendert. In
+   Leaflet sind Pfad-Overlays standardmäßig interaktiv; das große EZG-Polygon lag über
+   den Stationsmarkern und fing jeden Klick ab, hatte aber selbst kein Popup — der Klick
+   verpuffte. Andere große Overlays (Prognose-Korridor, Outlook-Grid) setzen
+   `interactive: false` bereits korrekt.
+2. `loadCatchment` rief bei jedem Klick `api.get(...)` + `setHydroCatchments` auf, auch
+   wenn das EZG längst geladen war. Der State-Update erzwang ein Marker-Re-Render, das
+   das von Leaflet im selben Klick geöffnete Popup sofort wieder schloss.
+
+Behoben:
+- EZG-Polygon rendert mit `interactive: false` — Klicks erreichen wieder die Marker.
+- `loadCatchment` lädt nur, wenn für die Station noch nicht vorhanden
+  (`if (prev[p.station_id]) return prev`) — kein Re-Render-Popup-Konflikt, keine
+  wiederholte HTTP-Anfrage.
+
+Tests: `tests/test_b439_ezg_polygon_interactive.py` + Frontend-Build.
+Prüfanweisung: keine (reines Frontend-Verhalten, nicht aus Export prüfbar).
+
+**Phasen-Status:** Phase A — Serie B412–B438 abgeschlossen, B439 ergänzt (Karten-Popup-
+Interaktion). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
+ausreichende Trainingsdaten.
