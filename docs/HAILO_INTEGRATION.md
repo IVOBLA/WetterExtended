@@ -7345,3 +7345,48 @@ Kein neuer Test: der bestehende B407-Test ist die Regression und läuft jetzt gr
 **Phasen-Status:** Phase A — Serie B412–B434 abgeschlossen, B435 ergänzt (Formkorrektur
 AIChecks). Der Gesamtlauf ist wieder grün. Phase B (Hailo-8 U-Net) bleibt unverändert
 blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B436 — Export tarnte die korrupte DB als "ok"; ein Neustart heilte sie nicht selbst ✅ erledigt
+
+Der nächtliche KI-Report vom 2026-07-19 (Stand vor B432) nannte zwei Punkte, die die
+Serie B430–B434 noch nicht abdeckte:
+
+1. **Export meldete "ok" trotz Korruption.** `_prepare_hydro_ml_snapshot` kopiert die
+   Quell-DB per `src.backup(dst)` und setzte danach `hydro_ml_snapshot_status="ok"` ohne
+   je `PRAGMA integrity_check` auf den Snapshot auszuführen. Ein per backup() kopierter
+   Snapshot einer korrupten Quelle trägt dieselbe Korruption — die exportierte
+   `hydro_ml_snapshot_status.json` meldete "ok", während `integrity_check` des Snapshots
+   "Rowid out of order" lieferte. Der Defekt war im Admin-Panel maskiert.
+2. **Kein selbstheilender Neustart.** B432 baute die Reparatur, hielt sie aber bewusst
+   aus dem Request-Pfad (die DB darf nicht unter laufenden Lesern getauscht werden) und
+   löste sie nur manuell aus. Nach einem unclean shutdown blieb die Korruption bis zum
+   Skriptlauf bestehen — im Report sichtbar über 43 Request-Fehler statt über eine
+   frühe Selbstheilung.
+
+Behoben:
+- `_prepare_hydro_ml_snapshot` führt `PRAGMA quick_check` auf den erzeugten Snapshot aus
+  und setzt bei Defekt `status="corrupt"` mit `hydro_ml_snapshot_integrity` (erste
+  Meldung) statt "ok". Der korrupte Snapshot bleibt als forensisches Beweisstück im ZIP.
+- `run_hydro_startup_migrations` prüft die Integrität und ruft bei Defekt
+  `repair_sample_db` auf — genau einmal beim Prozessstart, unter dem bereits gehaltenen
+  Trainings-Lock. Das ist der einzige Punkt ohne parallele Schreiber und der Weg, den
+  ein Neustart nach Stromausfall ohnehin durchläuft. Kein Widerspruch zu B432: die
+  Reparatur bleibt aus dem Request-Pfad heraus, wird aber nach unclean shutdown
+  automatisch. Der Scheduler loggt den Recovery-Lauf greppbar.
+- `synchronous=NORMAL` → `FULL` für den Sample-Store. Auf der SD-Karte des Pi sind
+  Stromausfälle der Normalfall; FULL erzwingt fsync auch für den WAL und schließt das
+  Korruptionsfenster zwischen WAL-Write und Checkpoint. Der Store wird nur alle ~15 min
+  beschrieben, der Durchsatzverlust ist vernachlässigbar.
+
+Nicht in B436: Report-Verbesserung 1 (700-hPa-Steuerströmung stärker gewichten bei
+schnell/geradlinig ziehenden Zellen, p90-Richtungsstreuung 122°) — das ist ein
+Forecast-Thema, kein Hydro-Thema, und bekommt bei Bedarf einen eigenen Prompt.
+
+Tests: `tests/test_b436_snapshot_and_recovery.py`
+Prüfanweisung: AC-063
+
+**Phasen-Status:** Phase A — Serie B412–B435 abgeschlossen, B436 ergänzt (Snapshot-
+Integrität, selbstheilender Startup, FULL-Durability). Damit sind alle Hydro-SQLite-
+Befunde des KI-Reports vom 2026-07-19 abgearbeitet. Offen aus dem Report: 700-hPa-
+Gewichtung (Forecast). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet
+auf ausreichende Trainingsdaten.

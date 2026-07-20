@@ -542,12 +542,27 @@ def _prepare_hydro_ml_snapshot(base_dir: Path) -> tuple[Path, list[ExportCandida
             else:
                 con = sqlite3.connect(str(snapshot))
                 try:
+                    # B436: Ein per src.backup(dst) kopierter Snapshot einer bereits
+                    # korrupten Quelle trägt dieselbe Korruption. Bis 2026-07-19 setzte
+                    # der Export danach ungeprüft status="ok" — die exportierte
+                    # hydro_ml_snapshot_status.json meldete "ok", während
+                    # PRAGMA integrity_check des Snapshots "Rowid ... out of order"
+                    # lieferte. Das maskierte den Defekt im Admin-Panel.
+                    integrity = [row[0] for row in con.execute("PRAGMA quick_check")]
                     columns = [row[1] for row in con.execute("PRAGMA table_info(schema_migrations)")]
                     rows = [dict(zip(columns, row)) for row in con.execute("SELECT * FROM schema_migrations")] if columns else []
                 finally:
                     con.close()
                 migrations.write_text(json.dumps(rows, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-                status = {"hydro_ml_snapshot_status": "ok", "hydro_ml_snapshot_size_bytes": snapshot_size}
+                if integrity == ["ok"]:
+                    status = {"hydro_ml_snapshot_status": "ok", "hydro_ml_snapshot_size_bytes": snapshot_size}
+                else:
+                    status = {
+                        "hydro_ml_snapshot_status": "corrupt",
+                        "hydro_ml_snapshot_size_bytes": snapshot_size,
+                        "hydro_ml_snapshot_integrity": integrity[0] if integrity else "unknown",
+                        "hydro_ml_snapshot_integrity_message_count": len(integrity),
+                    }
                 candidates.extend([
                     ExportCandidate(snapshot, "hydro_ml", Path("hydro_ml/hydro_flood_samples_snapshot.sqlite3"), True),
                     ExportCandidate(migrations, "hydro_ml", Path("hydro_ml/schema_migrations.json"), True),

@@ -1087,7 +1087,13 @@ def _open_sample_db () -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(db_path, timeout=30, isolation_level=None)
     con.execute("PRAGMA journal_mode=WAL")
-    con.execute("PRAGMA synchronous=NORMAL")
+    # B436: FULL statt NORMAL. Auf dem Pi sind ungeplante Stromausfälle der Normalfall
+    # (der Korruptionsfall vom 2026-07-19 fiel eine Minute nach einem Neustart auf).
+    # Unter WAL+NORMAL kann ein Stromausfall zwischen WAL-Write und Checkpoint die DB
+    # beschädigen; FULL erzwingt fsync auch für den WAL und schließt dieses Fenster.
+    # Der Sample-Store wird alle ~15 min beschrieben — der Durchsatzverlust ist
+    # gegenüber dem Korruptionsrisiko auf einer SD-Karte vernachlässigbar.
+    con.execute("PRAGMA synchronous=FULL")
     con.execute("CREATE TABLE IF NOT EXISTS pending_samples (sample_id TEXT PRIMARY KEY, station_id TEXT, sample_start_time TEXT, created_at TEXT, payload TEXT NOT NULL)")
     con.execute("CREATE TABLE IF NOT EXISTS labeled_samples (sample_id TEXT PRIMARY KEY, station_id TEXT, sample_start_time TEXT, labeled_at TEXT, payload TEXT NOT NULL, sample_kind TEXT, feature_schema_version TEXT, feature_schema_hash TEXT, feature_snapshot_complete INTEGER, target_missing INTEGER, target_q_delta_m3s REAL, event_id TEXT, cell_frame_hash TEXT, precip_event_active INTEGER)")
     con.execute("CREATE TABLE IF NOT EXISTS sample_failures (sample_id TEXT PRIMARY KEY, station_id TEXT, failed_at TEXT, reason TEXT, payload TEXT NOT NULL)")
@@ -1505,8 +1511,25 @@ def hydro_training_lock(held_handle=None):
     finally: release_training_lock(fh)
 
 def run_hydro_startup_migrations(lock_handle=None) -> dict:
-    with hydro_training_lock(lock_handle):
-        return {"pending":migrate_pending_jsonl_to_sqlite(),"q_history":migrate_q_history_to_sqlite(),"dataset":migrate_productive_dataset(),"event_ids":migrate_assign_event_ids_b421()}
+    with hydro_training_lock(lock_handle) as _held:
+        # B436: Selbstheilung nach unclean shutdown. Der Startup ist der einzige Punkt,
+        # an dem garantiert kein zweiter Prozess auf die DB schreibt (Trainings-Lock
+        # gehalten). Anders als der Request-Pfad darf hier die Datei ersetzt werden.
+        # B432 hält die Reparatur bewusst aus dem Request-Pfad heraus; dieser Aufruf
+        # ist die automatische Ergänzung dazu, kein Widerspruch.
+        recovery = {"integrity_status": "skipped"}
+        try:
+            integrity = sample_db_integrity()
+            recovery = {"integrity_status": integrity.get("integrity_status")}
+            if integrity.get("integrity_status") == "corrupt":
+                recovery = repair_sample_db(lock_handle=_held)
+                # repair_sample_db liefert den Vorher-Zustand verschachtelt. Den
+                # erkannten Status zusätzlich oben halten, damit der Scheduler den
+                # tatsächlich ausgeführten Recovery-Lauf zuverlässig protokolliert.
+                recovery.setdefault("integrity_status", "corrupt")
+        except Exception as exc:
+            recovery = {"integrity_status": "recovery_error", "error": f"{type(exc).__name__}: {exc}"}
+        return {"recovery": recovery, "pending":migrate_pending_jsonl_to_sqlite(),"q_history":migrate_q_history_to_sqlite(),"dataset":migrate_productive_dataset(),"event_ids":migrate_assign_event_ids_b421()}
 
 def record_pending_samples(rows: list[dict], live: dict | None = None, cells_meta: dict | None = None) -> dict:
     added = 0
