@@ -7254,3 +7254,46 @@ Prüfanweisung: AC-060
 **Phasen-Status:** Phase A — Serie B412–B431 abgeschlossen, B432 ergänzt (Integrität
 und Wiederaufbau der Sample-SQLite). B433 und B434 bleiben offen. Phase B (Hailo-8
 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B433 — Der Fehler der Hochwasserbewertung wurde beim nächsten Cache-Treffer gelöscht ✅ erledigt
+
+`train_data/hydro/live/hydro_status.json` meldete am 2026-07-17 um 21:48:29Z
+`{"ok": true, "from_cache": true, "station_count": 85, "error": null}` — 37 Sekunden
+nach dem letzten von 178 `DatabaseError: database disk image is malformed`.
+
+Ursache, dreistufig:
+1. `_atomic_write_json(LATEST_FILE, result)` läuft **vor** dem B271-Eval-Block. Die
+   Schlüssel `hydro_flood_eval_status` / `hydro_flood_eval_error` werden erst danach in
+   `result["status"]` gesetzt und stehen deshalb nie in `latest_hydro.json`. Belegt: die
+   Datei im Export enthält nur `{"ok": true, "from_cache": false, "station_count": 85,
+   "error": null}`.
+2. `_mark_cache` baut den Status bei jedem Cache-Treffer aus `latest_hydro.json["status"]`
+   neu auf — also ohne die Eval-Schlüssel.
+3. `_write_status` überschreibt `hydro_status.json` vollständig (kein Merge). Bei
+   `HYDRO_API_TTL_SECONDS = 600` überlebt eine Fehlermeldung damit höchstens zehn
+   Minuten.
+
+Zusätzlich war `hydro_flood_eval_status` nur im Fehlerfall gesetzt: ein fehlender
+Schlüssel bedeutete gleichzeitig "lief gut", "lief nie" und "Fehler wurde
+überschrieben".
+
+Behoben: Der Eval-Zustand steht jetzt in `train_data/hydro/live/hydro_flood_eval_status.json`
+— eine eigene Datei mit genau einem Schreiber, die kein Cache-Pfad anfasst. Erfolg
+(`ok`), Aufschub (`deferred`) und Fehler (`error`) werden alle protokolliert, inklusive
+`sample_store_status` aus B430. `/api/hydro/flood-risk/status` liefert den Zustand mit
+und unterscheidet ein fehlendes Protokoll als `never_ran`. Der Debug-Export nimmt die
+Datei immer mit — gerade wenn sie alt ist, ist sie der Beweis, dass die Bewertung steht.
+
+Kein Merge in `_mark_cache`: das hätte die Kopplung nur versteckt. Der Eval-Status
+käme dann aus `latest_hydro.json`, das ihn aus Reihenfolgegründen ebenfalls nicht hat;
+man müsste die Datei ein zweites Mal schreiben und dabei `evaluate_live_flood_risk`
+mitten im Schreibzyklus laufen lassen, das über `hydro_api.station_features()` genau
+diese Datei liest.
+
+Tests: `tests/test_b433_flood_eval_status.py`
+Prüfanweisung: AC-061
+
+**Phasen-Status:** Phase A — Serie B412–B432 abgeschlossen, B433 ergänzt
+(Fehlersichtbarkeit der Hochwasserbewertung). B434 offen: Einzugsgebietsgeometrie im
+Debug-Export. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
+ausreichende Trainingsdaten.

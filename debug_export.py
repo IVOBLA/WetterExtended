@@ -805,7 +805,9 @@ def _write_hydro_debug_structure(
         for path in sorted(live_dir.glob("*.json")):
             if path.name == "hydro_live_status.json":
                 continue
-            if _file_in_window(path, window_start, now, path.name in {"latest_hydro.json", "hydro_status.json"}):
+            # B433: hydro_flood_eval_status.json muss immer mit — gerade wenn sie alt
+            # ist, ist sie der Beweis, dass die Bewertung steht.
+            if _file_in_window(path, window_start, now, path.name in {"latest_hydro.json", "hydro_status.json", "hydro_flood_eval_status.json"}):
                 live_files.append(path)
     info["external_hydro_files"] += len(live_files)
     external_hydro_dir = base_dir / "train_data" / "external_responses" / "hydro"

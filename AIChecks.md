@@ -456,3 +456,30 @@ _(Format: `AC-xxx — Kurztitel · YYYY-MM-DD · Ergebnis in einem Satz.)_
    Vorkommen mit Zeitstempel und Tabellenliste.
 5. Melde aus Reparaturberichten `rows_copied`, `rows_skipped` und `quarantine_path`.
    `rows_skipped > 0` ist endgültiger Datenverlust und immer ein Befund.
+
+### AC-061 — Zustand der Hochwasserbewertung auswerten
+
+**Datenquellen im Export:**
+- `train_data/hydro/live/hydro_flood_eval_status.json`
+- `train_data/hydro/live/hydro_status.json`
+- `api_logs/journal/wetterprojekt-admin.service.log`
+- `manifest.json` → `created_at`
+
+**Durchzuführen:**
+
+1. `hydro_flood_eval_status.json` lesen. `hydro_flood_eval_status` mit `error` ist immer
+   ein Befund: `error` und `hydro_flood_eval_at` melden. Wert `deferred` mit
+   `deferred_reason` melden, wenn er über mehrere Exporte hinweg anhält.
+2. `hydro_flood_eval_at` gegen `manifest.json` → `created_at` prüfen. Liegt der
+   Zeitstempel mehr als 30 Minuten zurück, steht die Bewertung — Befund, unabhängig vom
+   gemeldeten Status. Der Abruf läuft alle ~15 Minuten.
+3. Fehlt die Datei ganz, ist die Bewertung seit dem letzten Deploy nie gelaufen —
+   Befund. Ein fehlender Eintrag ist seit B433 kein Indiz für Fehlerfreiheit mehr.
+4. `sample_store_status` in derselben Datei prüfen. `degraded` ist ein Befund; die
+   `sample_store_faults[].stage` benennen (siehe AC-058).
+5. `hydro_status.json` NICHT als Beleg für den Zustand der Bewertung verwenden. Die
+   Datei beschreibt ausschließlich den Abruf. Bis B433 löschte `_mark_cache` dort jeden
+   Eval-Fehler beim nächsten Cache-Treffer; die Trennung ist jetzt beabsichtigt.
+6. Widerspricht `hydro_flood_eval_status: ok` den `[API-FAIL] hydro_api`-Zeilen im
+   Journal, ist das immer ein Befund — dann scheitert der Endpunkt an einer Stelle, die
+   der Eval-Block nicht sieht.

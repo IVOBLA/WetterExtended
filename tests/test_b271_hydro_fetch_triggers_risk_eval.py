@@ -27,6 +27,7 @@ def test_successful_fetch_triggers_flood_risk_evaluation(tmp_path, monkeypatch):
     monkeypatch.setattr(hydro_fetch, "_LIVE_DIR", tmp_path)
     monkeypatch.setattr(hydro_fetch, "LATEST_FILE", tmp_path / "latest_hydro.json")
     monkeypatch.setattr(hydro_fetch, "STATUS_FILE", tmp_path / "hydro_status.json")
+    monkeypatch.setattr(hydro_fetch, "FLOOD_EVAL_STATUS_FILE", tmp_path / "hydro_flood_eval_status.json")
 
     class Response:
         status_code = 200
@@ -40,7 +41,13 @@ def test_successful_fetch_triggers_flood_risk_evaluation(tmp_path, monkeypatch):
 
     calls = []
     import hydro_flood_ml
-    monkeypatch.setattr(hydro_flood_ml, "evaluate_live_flood_risk", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(hydro_flood_ml, "load_latest_cell_frame", lambda: ([{}], {"status": "ok"}))
+
+    def _evaluate(**kwargs):
+        calls.append(kwargs)
+        return {"stations": []}
+
+    monkeypatch.setattr(hydro_flood_ml, "evaluate_live_flood_risk", _evaluate)
 
     result = hydro_fetch.fetch_hydro_live(force=True)
 
@@ -58,6 +65,7 @@ def test_flood_risk_evaluation_failure_does_not_break_fetch(tmp_path, monkeypatc
     monkeypatch.setattr(hydro_fetch, "_LIVE_DIR", tmp_path)
     monkeypatch.setattr(hydro_fetch, "LATEST_FILE", tmp_path / "latest_hydro.json")
     monkeypatch.setattr(hydro_fetch, "STATUS_FILE", tmp_path / "hydro_status.json")
+    monkeypatch.setattr(hydro_fetch, "FLOOD_EVAL_STATUS_FILE", tmp_path / "hydro_flood_eval_status.json")
 
     class Response:
         status_code = 200
@@ -70,6 +78,7 @@ def test_flood_risk_evaluation_failure_does_not_break_fetch(tmp_path, monkeypatc
     _install_fake_debug_utils(monkeypatch)
 
     import hydro_flood_ml
+    monkeypatch.setattr(hydro_flood_ml, "load_latest_cell_frame", lambda: ([{}], {"status": "ok"}))
 
     def _boom(**kwargs):
         raise RuntimeError("kaputt")
