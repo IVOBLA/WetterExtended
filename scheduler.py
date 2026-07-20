@@ -665,6 +665,13 @@ def run_hydro_ml_maintenance_job():
         maintenance = hydro_flood_ml.hydro_ml_maintenance()
         export = hydro_flood_ml.export_labeled_samples_jsonl()
         debug_log(f"[SCHEDULER] Hydro-ML Maintenance: migrations={migrations} maintenance={maintenance} export={export}")
+        if maintenance.get("integrity_status") not in (None, "ok"):
+            debug_log(
+                f"[SCHEDULER] WARNUNG Hydro-ML Sample-DB defekt: "
+                f"status={maintenance.get('integrity_status')} "
+                f"tabellen={maintenance.get('integrity_affected_tables')} — "
+                f"Reparatur mit: python3 scripts/repair_hydro_sample_db.py --apply"
+            )
     except BlockingIOError:
         debug_log("[SCHEDULER] Hydro-ML Maintenance: Training aktiv, Lauf ausgelassen")
     except Exception as exc:

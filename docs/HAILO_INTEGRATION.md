@@ -7224,3 +7224,33 @@ Prüfanweisung: AC-059
 (Verbindungs-Lebenszyklus). B432 offen: Integrität und Wiederaufbau der Sample-SQLite.
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
 Trainingsdaten.
+
+### B432 — Die Sample-Datenbank wurde nie auf Integrität geprüft und war nicht reparierbar ✅ erledigt
+
+Die Tabelle `q_history` der Hydro-ML-Datenbank war am 2026-07-17 korrupt. Im Repo gab
+es weder eine Integritätsprüfung noch einen verlustarmen Reparaturweg, obwohl intakte
+Trainingssamples in derselben SQLite-Datei lagen.
+
+Behoben:
+- `sample_db_integrity()` führt den Pi-tauglichen `PRAGMA quick_check` aus und löst
+  betroffene rootpages über `sqlite_master` in Tabellennamen auf.
+- `hydro_ml_maintenance` bricht vor Lösch-, Checkpoint- und Optimize-Operationen ab und
+  meldet `degraded_sample_db`; der Scheduler schreibt eine eigene Warnzeile.
+- `repair_sample_db()` kopiert lesbare Tabellenzeilen unter dem Trainings-Lock. Nach
+  einem Lesefehler werden rowid-Bereiche bis zur Einzelzeile geteilt. Das Original
+  wird samt Sidecars nach `train_data/hydro/ml/quarantine/` verschoben und nie gelöscht.
+- `scripts/repair_hydro_sample_db.py --apply` löst die Reparatur bewusst manuell aus.
+  Der Admin-Endpunkt `/api/admin/hydro/sample-db/integrity` bleibt rein lesend.
+- Quarantäne- und temporäre Rebuild-Dateien sind vom Debug-Export ausgeschlossen;
+  `hydro_sample_db_integrity.json` wird weiterhin exportiert.
+
+Die Ursache der Korruption wird ausdrücklich nicht behauptet. Der B431-Leak,
+SD-Karten-Fehler und Stromausfälle bleiben mögliche Kandidaten. `q_history` wird nicht
+aus alten JSONL-Archiven rekonstruiert, sondern durch den laufenden Fetch neu gefüllt.
+
+Tests: `tests/test_b432_sample_db_integrity.py`
+Prüfanweisung: AC-060
+
+**Phasen-Status:** Phase A — Serie B412–B431 abgeschlossen, B432 ergänzt (Integrität
+und Wiederaufbau der Sample-SQLite). B433 und B434 bleiben offen. Phase B (Hailo-8
+U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.

@@ -5759,6 +5759,16 @@ def api_admin_hydro_flood_risk_diagnostics():
         return hydro_flood_ml.evaluate_live_flood_risk(live=live, cells=cells or [], write=False, include_debug=True)
     return _hydro_safe(_load, "hydro_flood_risk_diagnostics_error")
 
+@app.route("/api/admin/hydro/sample-db/integrity")
+@require_role("admin")
+def api_admin_hydro_sample_db_integrity():
+    """Liefert den DB-Zustand rein lesend; Reparaturen bleiben ein Betriebsjob."""
+    return _hydro_safe(
+        lambda: __import__("hydro_flood_ml").sample_db_integrity(),
+        "hydro_sample_db_integrity_error",
+    )
+
+
 @app.route("/api/hydro/flood-risk/status")
 def api_hydro_flood_risk_status():
     return _hydro_safe(lambda: __import__("hydro_flood_ml").flood_risk_status(), "hydro_flood_risk_status_error")
