@@ -7715,3 +7715,25 @@ Prüfanweisung: keine.
 **Phasen-Status:** Phase A — Serie B412–B448 abgeschlossen, B449 ergänzt (Test-Härtung
 für B447/B442). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
 ausreichende Trainingsdaten.
+
+### B450 — B416-Test kollidierte mit dem B448-Statusfeld geometry_quality ✅ erledigt
+
+Nach dem B448-Deploy schlug `test_b416_hydro_event_payload_integration.py` fehl. Der Test
+prüfte mit `'geometry' in json.dumps(payload)`, ob schwere Geometrie-Nutzlast
+(`contour_geo`, `geometry`, `coordinates`) in die Sample-Payload gelangt. Das mit B448
+ergänzte Diagnose-Feld `geometry_quality` (Statuswert shapely/bbox_fallback/unavailable)
+enthält den Substring `geometry` und löste den groben Check fälschlich aus — obwohl es
+keine Geometrie-Nutzlast ist.
+
+Behoben: Der Test prüft jetzt die tatsächlichen Payload-Schlüssel rekursiv statt Substrings
+im serialisierten JSON. Echte Nutzlast-Schlüssel (`contour_geo`/`geometry`/`coordinates`)
+sind weiterhin verboten; das Statusfeld `geometry_quality` ist erlaubt. Der Test-Zweck
+(keine schwere Geometrie in der schlanken Payload) bleibt erhalten und wird präziser
+geprüft.
+
+Tests: `tests/test_b416_hydro_event_payload_integration.py` (Assertion präzisiert).
+Prüfanweisung: keine.
+
+**Phasen-Status:** Phase A — Serie B412–B449 abgeschlossen, B450 ergänzt (Test-Präzision
+nach B448). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
+ausreichende Trainingsdaten.
