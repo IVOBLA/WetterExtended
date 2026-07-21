@@ -7758,3 +7758,29 @@ statische Assertionen fuer beide Karten-Views).
 Pruefanweisung: keine (reiner Frontend-State, kein Export-Beleg).
 Phasen-Status: unveraendert -- reiner Frontend-UX-Bugfix. Phase A bleibt
 abgeschlossen, Phase B (Hailo-8 U-Net) bleibt blockiert (wartet auf Trainingsdaten).
+
+### B452 — slow_approach: kein erweiterter Warnradius mehr
+
+**Problem:** Der Bedrohungstyp `slow_approach` prüfte langsam ziehende Zellen
+gegen `extended_r = radius × SLOW_CELL_RADIUS_FACTOR` (Faktor 1.5). Große,
+langsame Zellen lösten dadurch Warnungen aus, obwohl der Ort außerhalb seines
+echten Radius lag (beobachtet: Krumpendorf `radius_km=2.0`, Zelle `JQQSFXE8`,
+6.8 km/h; Zellrand ≈ 2.8 km → Treffer bei `extended_r=3.0`, kein Treffer bei
+`radius=2.0`).
+
+**Fix:** `slow_approach` prüft jetzt gegen den normalen Ortsradius (identisch zu
+`forecast`). `SLOW_CELL_RADIUS_FACTOR` (config.py), der Default-Override
+(init_runtime_overrides.py), der Parameter `slow_radius_factor`
+(locations_check.py), die Variable `extended_r` sowie das Admin-Panel-Feld und
+der Popup-Text „erweiterter Warnradius aktiv" (MapView/MapFullscreen,
+Configuration) wurden vollständig entfernt. Der Bedrohungstyp bleibt bestehen.
+
+Tests: `tests/test_b452_slow_approach_no_extended_radius.py` (kein Treffer
+zwischen radius und altem extended_r; Treffer im Normalradius; Signatur ohne
+`slow_radius_factor`).
+Prüfanweisung: `AIChecks.md` → AC-072.
+
+**Phasen-Status:** Phase A — Serie B412–B451 abgeschlossen, B452 ergänzt
+(Warnlogik-Korrektur: kein erweiterter Radius für slow_approach). Phase B
+(Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
+Trainingsdaten.

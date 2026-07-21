@@ -413,12 +413,12 @@ KINEMATIC_EWMA_ALPHA: float = 0.6  # EWMA-Faktor: 0.01=gleichgewichtet · 0.99=n
 KINEMATIC_MIN_INTERVAL_DISP_PX: float = 0.0
 
 # Langsam ziehende Zellen: höheres Unwetterpotential durch längere
-# Verweilzeit → erweiterter Warnradius und eigenständiger Bedrohungstyp.
-# Meteorologische Grundlage: Zellen < 15 km/h verursachen den Großteil
-# der Überflutungs- und Hagelereignisse in Kärnten (kurze Verlagerung,
-# hohe Niederschlagssumme am Ort).
+# Verweilzeit → eigenständiger Bedrohungstyp (B452: KEIN erweiterter
+# Warnradius mehr). Meteorologische Grundlage: Zellen < 15 km/h verursachen
+# den Großteil der Überflutungs- und Hagelereignisse in Kärnten (kurze
+# Verlagerung, hohe Niederschlagssumme am Ort). Die Ortsprüfung erfolgt gegen
+# den normalen Ortsradius — identisch zu schnell ziehenden Zellen.
 SLOW_CELL_MAX_KMH: float = 15.0          # Obergrenze "langsam ziehend"
-SLOW_CELL_RADIUS_FACTOR: float = 1.5     # Ortsradius-Faktor für slow_approach
 
 # Vorwarnzeit-Schwelle für E-Mail/WhatsApp-Alarm.
 # Alarm wird nur gesendet wenn der früheste treffende Forecast-Horizont

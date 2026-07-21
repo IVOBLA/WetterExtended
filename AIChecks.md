@@ -678,3 +678,25 @@ exportierte `labeled_samples`.
    den verfügbaren Zeitraum vorkommt. Wird der Wert über 30 Tage nie erreicht, den
    bbox_fallback-Zweig als toten Code zur Entfernung in einem eigenen Prompt vormerken —
    nicht nebenbei löschen.
+
+### AC-072 — Prüfe, dass slow_approach keinen erweiterten Radius nutzt
+
+**Datenquellen im Export:** `evaluation/locations_*.json`;
+`objects/*.json` (contour_geo, forecast_lat_*/forecast_lon_*, speed_kmh);
+`config/effective_runtime_config.json` (LOCATIONS_WATCHLIST radius_km).
+
+**Durchzuführen:**
+
+1. In `evaluation/locations_*.json` alle Treffer mit `hit_type == "slow_approach"`
+   sammeln. Für jeden Treffer aus dem zugehörigen `objects/<ts>.json` die Zelle
+   (`cell_id`) laden und die minimale Distanz Ort → vorhergesagtes Polygon
+   berechnen (Kontur zum jeweiligen forecast-Zentrum verschoben).
+2. Prüfen, dass diese Distanz stets `<= radius_km` des Orts ist (aus
+   `LOCATIONS_WATCHLIST`). Liegt ein slow_approach-Treffer bei Distanz
+   `> radius_km` (und `<= 1.5 × radius_km`), ist der erweiterte Radius wieder
+   aktiv — Befund mit `code_ref` (locations_check.py slow_approach-Zweig) und
+   `beleg` (Ort, cell_id, radius_km, gemessene Distanz).
+3. `config/effective_runtime_config.json` daraufhin prüfen, dass der Schlüssel
+   `SLOW_CELL_RADIUS_FACTOR` nicht mehr auftaucht. Taucht er auf, verweist ein
+   Alt-`runtime_overrides.json` auf entfernte Konfiguration — als Aufräum-Befund
+   vormerken, nicht nebenbei löschen.

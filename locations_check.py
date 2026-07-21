@@ -369,7 +369,6 @@ def annotate_locations(
     colors: dict,
     min_speed_kmh: float = 0.0,
     slow_cell_max_kmh: float = 15.0,
-    slow_radius_factor: float = 1.5,
 ) -> List[dict]:
     """Pro Ort prüfen, ob eine Gewitterzelle ihn bedroht.
 
@@ -382,7 +381,8 @@ def annotate_locations(
     2. "slow_approach" — Langsam ziehende Zelle (min_speed_kmh ≤ speed ≤
                     slow_cell_max_kmh). Meteorologisch: höheres Unwetter-
                     potential durch Verweilzeit (Überflutung, Hagel).
-                    Prüfung gegen Radius × slow_radius_factor.
+                    Prüfung gegen den normalen Ortsradius (B452: KEIN
+                    erweiterter Radius mehr).
                     Horizon-Key: jeweiliger Forecast-Horizont.
 
     3. "forecast"  — Schnell ziehende Zelle (speed > slow_cell_max_kmh).
@@ -417,7 +417,6 @@ def annotate_locations(
             continue
 
         hits: dict = {}
-        extended_r = radius * slow_radius_factor
 
         for obj in objects:
             if obj.get("tracking_state") == "inactive_rain" or obj.get("silent_tracking") is True:
@@ -525,8 +524,8 @@ def annotate_locations(
                 continue
 
             # ── Typ 2: SLOW_APPROACH ──────────────────────────────────────
-            # Langsam ziehende Zelle: erweiterter Warnradius.
-            # P34: Zwischensegmente wie bei Typ 3.
+            # Langsam ziehende Zelle: NORMALER Ortsradius (B452 — kein
+            # erweiterter Warnradius mehr). P34: Zwischensegmente wie bei Typ 3.
             if speed_kmh <= slow_cell_max_kmh:
                 _fpts_slow: list = [(o_lat, o_lon)]
                 for _h in sorted(horizons):
@@ -547,7 +546,7 @@ def annotate_locations(
 
                     d = _point_to_segment_km(loc_lat, loc_lon,
                                              o_lat, o_lon, fy_f, fx_f)
-                    if d > extended_r and h_idx > 0:
+                    if d > radius and h_idx > 0:
                         _prev_s = _fpts_slow[h_idx] if h_idx < len(_fpts_slow) else None
                         if _prev_s is not None:
                             d_seg = _point_to_segment_km(
@@ -562,17 +561,17 @@ def annotate_locations(
                     if _fpoly_s:
                         # Polygon-basierter Check: Distanz Ort → vorhergesagtes Polygon
                         _d_poly_s = _min_dist_to_polygon_km(loc_lat, loc_lon, _fpoly_s)
-                        _hit_s = _d_poly_s <= extended_r
+                        _hit_s = _d_poly_s <= radius
                     else:
                         # Fallback: kein Polygon verfügbar
-                        _hit_s = d <= extended_r
-                    # B127: Streift der Zellrand den (erweiterten) Radius ZWISCHEN den Horizonten?
+                        _hit_s = d <= radius
+                    # B127: Streift der Zellrand den Radius ZWISCHEN den Horizonten?
                     if not _hit_s:
                         _h_prev_s = sorted(horizons)[h_idx - 1] if h_idx > 0 else 0.0
                         _prev_pt_s = _fpts_slow[h_idx] if h_idx < len(_fpts_slow) else None
                         if _prev_pt_s is not None:
                             _hit_s = _forecast_contour_grazes_segment(
-                                obj, loc_lat, loc_lon, extended_r,
+                                obj, loc_lat, loc_lon, radius,
                                 _prev_pt_s[0], _prev_pt_s[1], float(_h_prev_s),
                                 fy_f, fx_f, float(h),
                             )
