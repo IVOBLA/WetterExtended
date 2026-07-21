@@ -5773,14 +5773,20 @@ def api_admin_hydro_sample_db_integrity():
 def api_hydro_flood_risk_status():
     def _load():
         import hydro_fetch, hydro_flood_ml
-        base = hydro_flood_ml.flood_risk_status()
-        # B433: Der Eval-Zustand kommt aus seiner eigenen Datei. Bis dahin wurde er in
-        # hydro_status.json bei jedem Cache-Treffer geloescht — 178 DatabaseError am
-        # 2026-07-17 blieben so 17 Stunden unsichtbar. Fehlt die Datei, ist die
-        # Bewertung nachweislich nie gelaufen; das ist jetzt unterscheidbar.
+        # B444: Den DB-unabhängigen Eval-Status ZUERST lesen. Er stammt aus einer eigenen
+        # Datei ohne SQLite-Zugriff und muss auch dann ausgeliefert werden, wenn die
+        # Sample-DB malformed ist — genau der Störfall, den B433 sichtbar machen wollte.
         eval_doc = hydro_flood_ml._read_json(hydro_fetch.FLOOD_EVAL_STATUS_FILE, None)
         if not isinstance(eval_doc, dict):
             eval_doc = {"hydro_flood_eval_status": "never_ran"}
+        # B444: Der DB-gestützte Basis-Status darf den Eval-Status nicht verdrängen.
+        # flood_risk_status() öffnet über readiness_status() die SQLite und kann bei
+        # malformed DB werfen — dann liefern wir den Eval-Status trotzdem, mit einem
+        # Hinweis auf den degradierten Basis-Status.
+        try:
+            base = hydro_flood_ml.flood_risk_status()
+        except Exception as exc:
+            base = {"status": "degraded", "base_status_error": f"{type(exc).__name__}: {exc}"}
         return {**base, **eval_doc}
     return _hydro_safe(_load, "hydro_flood_risk_status_error")
 
