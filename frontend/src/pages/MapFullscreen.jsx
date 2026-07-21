@@ -1047,7 +1047,7 @@ export default function MapFullscreen() {
                   <div style={{ color: '#ea580c', fontWeight: 'bold', marginTop: 4 }}>
                     🌧 Langsam ziehende Zelle ({slowApproachHit.speed_kmh} km/h)
                     <div style={{ fontWeight: 'normal', fontSize: 14 }}>
-                      Erhöhtes Starkregenpotential · erweiterter Warnradius aktiv
+                      Erhöhtes Starkregenpotential durch lange Verweilzeit
                     </div>
                   </div>
                 )}

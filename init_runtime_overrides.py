@@ -86,7 +86,6 @@ DEFAULTS: dict = {
     "STATION_ENCOUNTER_MAX_KM":         10,
     "MIN_MOVEMENT_FOR_ARROW_KMH":       5,
     "SLOW_CELL_MAX_KMH":                15,
-    "SLOW_CELL_RADIUS_FACTOR":          1.5,
 
     # ── Live-Loop / Timing ──────────────────────────────────────────────────
     "LOOP_INTERVAL_CELLS_S":            120,
