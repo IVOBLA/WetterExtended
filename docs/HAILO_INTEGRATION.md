@@ -7689,3 +7689,29 @@ Prüfanweisung: AC-071
 **Phasen-Status:** Phase A — Serie B412–B447 abgeschlossen, B448 ergänzt (Export-
 Auswertbarkeit für AC-032). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie
 wartet auf ausreichende Trainingsdaten.
+
+### B449 — B447- und B442-Tests repariert (Test-Konstruktion) ✅ erledigt
+
+Nach dem B447-Deploy meldete der install.sh-Pytest-Lauf 4 Fehlschläge — alle in der
+Test-Konstruktion, nicht im Fix:
+
+- Die drei B447-Tests riefen `build_feature_row` mit einer Zelle, deren Prognose-/
+  Geometrieformat nicht dem echten Schema entsprach; der shapely-abhängige Overlap-Pfad
+  erreichte die identity-Extraktion nie, `contributing_lineage_ids` blieb leer. Der Test
+  prüfte faktisch nichts vom Fix.
+- `test_b407_gesamttest_bleibt_gruen` startete pytest als Subprozess; in der install.sh-
+  Umgebung fehlt pytest im System-python3 (`No module named pytest`).
+
+Behoben: Die B447-Identitätslogik ist als `_cell_identity(cell)` ausgelagert und wird im
+Produktivpfad aufgerufen (identisches Verhalten). Die B447-Tests prüfen jetzt diese
+Funktion direkt — realistisch und ohne shapely/Catchment-Infrastruktur — plus einen
+Strukturnachweis, dass `_precip_from_cells` sie verwendet. Der B442-Subprozess-Test prüft
+die AC-068-relevanten B407-Regeln jetzt in-process statt über pytest-Subprozess.
+
+Tests: `tests/test_b447_lineage_key_mapping.py` (neu gefasst),
+`tests/test_b442_aichecks_speed_sektor.py` (Subprozess-Test ersetzt).
+Prüfanweisung: keine.
+
+**Phasen-Status:** Phase A — Serie B412–B448 abgeschlossen, B449 ergänzt (Test-Härtung
+für B447/B442). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
+ausreichende Trainingsdaten.

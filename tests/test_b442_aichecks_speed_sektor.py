@@ -33,11 +33,22 @@ def test_ac068_dokumentiert_keine_messwerte():
     # Prüfmaßstäbe, keine Messungen — die sind erlaubt).
 
 
-def test_b407_gesamttest_bleibt_gruen():
-    """Die bestehende B407-Suite muss AC-068 akzeptieren."""
-    import subprocess
-    res = subprocess.run(
-        ["python3", "-m", "pytest", "tests/test_b407_aichecks_arbeitsanweisungen.py", "-q"],
-        capture_output=True, text=True,
-    )
-    assert res.returncode == 0, res.stdout + res.stderr
+def test_b407_regeln_fuer_ac068_erfuellt():
+    """B449: früher wurde pytest als Subprozess gestartet — das scheitert in der
+    install.sh-Umgebung, wo pytest im System-python3 fehlt (No module named pytest).
+    Stattdessen die für AC-068 relevanten B407-Regeln direkt prüfen."""
+    from pathlib import Path
+    ac = Path("AIChecks.md").read_text(encoding="utf-8")
+    block = ac.split("### AC-068", 1)
+    assert len(block) == 2, "AC-068 fehlt"
+    body = "### AC-068" + block[1].split("### AC-", 1)[0]
+    # Imperativ-Titel
+    title = body.splitlines()[0].split("—", 1)[1].strip()
+    verbs = ("Prüfe", "Kalibriere", "Messe", "Suche", "Nimm", "Zähle", "Werte",
+             "Führe", "Setze", "Vergleiche", "Bilde", "Sammle")
+    assert title.startswith(verbs), f"AC-068-Titel nicht imperativ: {title}"
+    # Datenquelle benannt
+    assert any(s in body for s in (".json", ".jsonl", "grep", "Log", "log", "Export")), \
+        "AC-068 nennt keine Datenquelle"
+    # keine Messwerte/Befunde im Anweisungstext
+    assert "**Befund:**" not in body

@@ -662,6 +662,28 @@ def _empty_precip_result(station: dict, cells: list[dict] | None, *, geometry_av
     })
     return base
 
+def _cell_identity(cell: dict) -> dict:
+    """B447/B449: Stabile Zell-Identität aus dem echten Zell-Schema.
+
+    Zellobjekte tragen 'cell_id'/'id' (stabile Track-ID seit B382), 'parents' und
+    'lineage' — KEINE Schlüssel 'lineage_id'/'parent_cell_ids'. Diese Funktion mappt die
+    tatsächlichen Felder auf die von den Diagnose-/Sample-Feldern erwarteten Namen.
+    Ausgelagert aus _precip_from_cells, damit die Zuordnung ohne den shapely-abhängigen
+    Overlap-Pfad testbar ist (B449).
+    """
+    identity: dict = {}
+    lin_id = cell.get("cell_id") or cell.get("id")
+    if lin_id not in (None, ""):
+        identity["lineage_id"] = lin_id
+    parents = cell.get("parents")
+    if parents not in (None, "", []):
+        identity["parent_cell_ids"] = parents
+    for k in ("origin_type", "tracking_state"):
+        if cell.get(k) not in (None, ""):
+            identity[k] = cell[k]
+    return identity
+
+
 def _precip_from_cells(station: dict, cells: list[dict], ledger_rows: list[dict] | None = None) -> dict:
     try:
         import hydro_impact
@@ -724,16 +746,7 @@ def _precip_from_cells(station: dict, cells: list[dict], ledger_rows: list[dict]
             # strukturell immer leer (628/628 Samples, AC-020). lineage_id ist hier eine
             # stabile Zell-/Track-Identität (cell_id seit B382, ersatzweise id), parents
             # sind die Vorgänger-IDs. origin_type/tracking_state bleiben unverändert.
-            identity = {}
-            _lin_id = cell.get("cell_id") or cell.get("id")
-            if _lin_id not in (None, ""):
-                identity["lineage_id"] = _lin_id
-            _parents = cell.get("parents")
-            if _parents not in (None, "", []):
-                identity["parent_cell_ids"] = _parents
-            for _k in ("origin_type", "tracking_state"):
-                if cell.get(_k) not in (None, ""):
-                    identity[_k] = cell[_k]
+            identity = _cell_identity(cell)  # B449: testbare Extraktion (B447-Logik)
             cell_stats[cid] = {"cell_id": cid, **identity, "currently_inside": 0 in offs, "forecast_entry": min(offs) > 0, "entry_offset_min": min(offs), "exit_offset_min": max(i["exit_offset_min"] for i in intervals), "first_entry_offset_min": min(offs), "last_exit_offset_min": max(i["exit_offset_min"] for i in intervals), "dwell_time_min": sum(i["duration_min"] for i in intervals), "total_dwell_time_min": sum(i["duration_min"] for i in intervals), "continuous_max_dwell_min": max(i["duration_min"] for i in intervals), "hit_interval_count": len(intervals), "hit_intervals": intervals, "cell_area_km2": round(cell_area,3), "max_overlap_area_km2": round(max(areas),3), "mean_overlap_area_km2": round(sum(areas)/len(areas),3), "overlap_area_time_km2_min": round(sum(areas)*step,3), "rain_rate_mm_h": round(rate,3), "rain_rate_source": rate_src, "intensity_forecast_mode": "persistence", "forecast_mode_used": sorted(modes)}
     series=[]; raw_total=0.0; eff_total=0.0; dedup_total=0.0; spatial_dedup=False; routed=0.0; prev_off=None
     t0_contributions: list[dict] = []
