@@ -7646,3 +7646,27 @@ Prüfanweisung: AC-069
 **Phasen-Status:** Phase A — Serie B412–B445 abgeschlossen, B446 ergänzt (hydro_api
 JSONL-Robustheit). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
 ausreichende Trainingsdaten.
+
+### B447 — contributing_lineage_ids war strukturell immer leer (falsche Zell-Schlüssel) ✅ erledigt
+
+KI-Report 2026-07-21 (AC-020): Der Hydro-Flood-Produktivpfad las die Zell-Identität in
+`_precip_from_cells` über die Schlüssel `lineage_id`/`parent_cell_ids`, die kein
+Zellobjekt besitzt. Die Objekte tragen `cell_id`/`id`, `parents` und `lineage`
+(object_tracking.py:2179 schreibt `lineage`/`parents`, nie `lineage_id`). Dadurch blieb
+`contributing_lineage_ids` strukturell immer leer — 628/628 Samples mit
+`contributing_cell_count>0` im 24h-Fenster hatten `contributing_lineage_ids=[]`. Der in
+B416 dokumentierte Lineage-Bezug war faktisch tot; der Schaden war begrenzt, weil die
+Event-Zuordnung per Fallback auf `contributing_cell_ids` auswich.
+
+Behoben: Die Identitätsextraktion leitet `lineage_id` aus der stabilen Track-ID
+(`cell_id`, seit B382, ersatzweise `id`) und `parent_cell_ids` aus `parents` ab;
+`origin_type`/`tracking_state` bleiben unverändert. Nachgelagert (`_event_cells`,
+`materially_changed`) wird die Liste als Zell-Identität genutzt — die Track-ID ist dafür
+die semantisch richtige Quelle. `contributing_lineage_ids` wird damit real befüllt.
+
+Tests: `tests/test_b447_lineage_key_mapping.py`
+Prüfanweisung: AC-070
+
+**Phasen-Status:** Phase A — Serie B412–B446 abgeschlossen, B447 ergänzt (Lineage-Bezug
+real hergestellt). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
+ausreichende Trainingsdaten.

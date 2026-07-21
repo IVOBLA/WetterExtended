@@ -645,3 +645,21 @@ Verzeichnis `train_data/hydro/ml/` und `train_data/hydro/ml/quarantine/`.
    `hydro_api`-Zeilen suchen. Jedes Vorkommen mit Zeitstempel melden.
 3. Nicht `_hydro_safe`/`fallback=True` als Beleg für Fehlerfreiheit werten — der Wrapper
    verdeckt den Absturz, das Widget liefert trotzdem leere Daten.
+
+### AC-070 — Prüfe, dass contributing_lineage_ids befüllt ist
+
+**Datenquellen im Export:** `hydro_ml/hydro_flood_samples_snapshot.sqlite3`;
+`objects/train_data/objects/*.json`.
+
+**Durchzuführen:**
+
+1. In der Sample-DB alle Zeilen mit `contributing_cell_count>0` zählen und davon jene mit
+   leerer `contributing_lineage_ids`-Liste. Ist der Anteil leerer Listen bei vorhandenen
+   Zellen weiterhin nahe 100 %, greift die B447-Korrektur nicht — Befund mit den beiden
+   Zahlen.
+2. Gegenprobe im Zellschema: In `objects/train_data/objects/*.json` prüfen, welche
+   Identitätsschlüssel die Zellobjekte tragen (`cell_id`/`id`/`parents`/`lineage`). Taucht
+   wieder ein Lesen von `lineage_id`/`parent_cell_ids` auf einem Zellobjekt auf, ist das
+   ein erneuter Schlüssel-Mismatch — Befund.
+3. Nicht `contributing_cell_ids` als Beleg für einen funktionierenden Lineage-Bezug
+   werten: Die Zell-Liste war schon vor B447 korrekt; maßgeblich ist die Lineage-Liste.

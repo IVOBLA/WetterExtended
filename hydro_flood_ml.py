@@ -718,7 +718,22 @@ def _precip_from_cells(station: dict, cells: list[dict], ledger_rows: list[dict]
             raw_hits.append((off, oa, ratio))
         if raw_hits:
             offs=[x[0] for x in raw_hits]; areas=[x[1] for x in raw_hits]; intervals=_hit_intervals(offs, step)
-            identity = {key: cell[key] for key in ("lineage_id", "parent_cell_ids", "origin_type", "tracking_state") if cell.get(key) not in (None, "")}
+            # B447: Die Zellobjekte tragen KEINE Schlüssel 'lineage_id'/'parent_cell_ids'
+            # (object_tracking.py schreibt 'cell_id'/'id', 'parents', 'lineage'). Die
+            # frühere Extraktion lief deshalb ins Leere → contributing_lineage_ids war
+            # strukturell immer leer (628/628 Samples, AC-020). lineage_id ist hier eine
+            # stabile Zell-/Track-Identität (cell_id seit B382, ersatzweise id), parents
+            # sind die Vorgänger-IDs. origin_type/tracking_state bleiben unverändert.
+            identity = {}
+            _lin_id = cell.get("cell_id") or cell.get("id")
+            if _lin_id not in (None, ""):
+                identity["lineage_id"] = _lin_id
+            _parents = cell.get("parents")
+            if _parents not in (None, "", []):
+                identity["parent_cell_ids"] = _parents
+            for _k in ("origin_type", "tracking_state"):
+                if cell.get(_k) not in (None, ""):
+                    identity[_k] = cell[_k]
             cell_stats[cid] = {"cell_id": cid, **identity, "currently_inside": 0 in offs, "forecast_entry": min(offs) > 0, "entry_offset_min": min(offs), "exit_offset_min": max(i["exit_offset_min"] for i in intervals), "first_entry_offset_min": min(offs), "last_exit_offset_min": max(i["exit_offset_min"] for i in intervals), "dwell_time_min": sum(i["duration_min"] for i in intervals), "total_dwell_time_min": sum(i["duration_min"] for i in intervals), "continuous_max_dwell_min": max(i["duration_min"] for i in intervals), "hit_interval_count": len(intervals), "hit_intervals": intervals, "cell_area_km2": round(cell_area,3), "max_overlap_area_km2": round(max(areas),3), "mean_overlap_area_km2": round(sum(areas)/len(areas),3), "overlap_area_time_km2_min": round(sum(areas)*step,3), "rain_rate_mm_h": round(rate,3), "rain_rate_source": rate_src, "intensity_forecast_mode": "persistence", "forecast_mode_used": sorted(modes)}
     series=[]; raw_total=0.0; eff_total=0.0; dedup_total=0.0; spatial_dedup=False; routed=0.0; prev_off=None
     t0_contributions: list[dict] = []
