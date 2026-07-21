@@ -1,4 +1,3 @@
-import json
 import hydro_flood_ml as h
 
 def test_pending_payload_comes_from_feature_row_without_geometry(monkeypatch,tmp_path):
@@ -13,4 +12,25 @@ def test_pending_payload_comes_from_feature_row_without_geometry(monkeypatch,tmp
     assert payload["contributing_cell_ids"]==["c1","c2"]
     assert payload["contributing_lineage_ids"]==["l1","l2"]
     assert payload["precip_event_active"] is True and payload["precip_event_evaluable"] is True
-    assert not any(key in json.dumps(payload) for key in ('contour_geo','geometry','coordinates'))
+    # B450: Präzise Prüfung auf Geometrie-NUTZLAST-Schlüssel statt grobem Substring.
+    # Der frühere `'geometry' in json.dumps(...)`-Check kollidierte mit dem
+    # B448-Statusfeld `geometry_quality` (Wert: shapely/bbox_fallback/unavailable),
+    # das KEINE Geometrie-Nutzlast ist. Verboten sind schwere Nutzlast-Schlüssel; das
+    # Statusfeld `geometry_quality` ist ausdrücklich erlaubt.
+    _forbidden = {"contour_geo", "geometry", "coordinates"}
+
+    def _keys_recursive(obj):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                yield k
+                yield from _keys_recursive(v)
+        elif isinstance(obj, (list, tuple)):
+            for it in obj:
+                yield from _keys_recursive(it)
+
+    _present = set(_keys_recursive(payload))
+    assert not (_forbidden & _present), (
+        f"Geometrie-Nutzlast in Payload: {_forbidden & _present}"
+    )
+    # Gegenprobe: das erlaubte Statusfeld darf vorhanden sein und ist KEINE Nutzlast.
+    assert "geometry_quality" not in _forbidden
