@@ -7670,3 +7670,22 @@ Prüfanweisung: AC-070
 **Phasen-Status:** Phase A — Serie B412–B446 abgeschlossen, B447 ergänzt (Lineage-Bezug
 real hergestellt). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
 ausreichende Trainingsdaten.
+
+### B448 — geometry_quality fehlte im Export, AC-032 war nicht prüfbar ✅ erledigt
+
+KI-Report 2026-07-21: `geometry_quality` (Werte `bbox_fallback`/`shapely`/`unavailable`,
+erzeugt in `_precip_from_cells`) wurde beim Bau der Sample-Payload nicht übernommen. In
+den exportierten `labeled_samples` war der Wert immer None (3376×); AC-032
+(bbox_fallback-Toter-Code-Prüfung) konnte über den Export nicht bewertet werden.
+
+Behoben: `geometry_quality` wird als Diagnose-Feld auf Payload-Top-Level neben
+`precip_event_evaluable` durchgereicht — außerhalb des `features`-Vektors. Da es kein
+ML-Feature ist, bleibt `FEATURE_SCHEMA_VERSION` unberührt und bestehende Samples werden
+nicht invalidiert. AC-032 ist damit über den Export wieder bewertbar.
+
+Tests: `tests/test_b448_geometry_quality_in_payload.py`
+Prüfanweisung: AC-071
+
+**Phasen-Status:** Phase A — Serie B412–B447 abgeschlossen, B448 ergänzt (Export-
+Auswertbarkeit für AC-032). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie
+wartet auf ausreichende Trainingsdaten.
