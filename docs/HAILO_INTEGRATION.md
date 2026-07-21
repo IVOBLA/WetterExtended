@@ -7556,3 +7556,26 @@ Prüfanweisung: AC-068 (dieser Eintrag selbst)
 **Phasen-Status:** Phase A — Serie B412–B441 abgeschlossen, B442 ergänzt (Speed/Sektor-
 Diagnose im Export). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet
 auf ausreichende Trainingsdaten.
+
+### B443 — Vom Cooldown unterdrückte Orte verloren ihre Warn-Berechtigung ✅ erledigt
+
+Codex-Review zu B441: Ein vom persistenten Cooldown unterdrückter Orts-Treffer wurde aus
+`_ready_to_warn` entfernt, aber weder als gewarnt markiert noch als pending gehalten. Am
+Frame-Ende landete der Ort in `_prev_location_hit_names` und galt fortan nicht mehr als
+neuer Treffer — kein Warn-Zweig baute `_ready_to_warn` für ihn neu auf. Blieb die Zelle
+über dem Ort bis zum Cooldown-Ablauf, wurde nie wieder gewarnt; erst vollständiges
+Freiwerden + Wiedereintritt löste erneut aus. Genau bei einer quasi-stationären Zelle
+über einem Ort (gefährliche Lage) verstummte die Warnung nach dem ersten Fenster.
+
+Behoben: Neues Retry-Set `_cooldown_retry`. Unterdrückte, aber weiterhin getroffene Orte
+werden vorgemerkt, zu Frame-Beginn auf noch aktive Treffer beschränkt und erneut als
+Warn-Kandidaten aufgenommen (Horizont-Schwelle vorausgesetzt). Der B441-Cooldown-Filter
+entscheidet weiterhin, ob tatsächlich gesendet wird — sobald er abgelaufen ist, geht die
+Warnung raus. Nach erfolgreichem Versand fällt der Ort aus dem Retry-Set.
+
+Tests: `tests/test_b443_cooldown_retry.py`
+Prüfanweisung: keine (Frame-Loop-Verhalten, nicht aus Export prüfbar).
+
+**Phasen-Status:** Phase A — Serie B412–B442 abgeschlossen, B443 ergänzt (Cooldown-Retry).
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
+Trainingsdaten.
