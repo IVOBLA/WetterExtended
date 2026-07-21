@@ -663,3 +663,18 @@ Verzeichnis `train_data/hydro/ml/` und `train_data/hydro/ml/quarantine/`.
    ein erneuter Schlüssel-Mismatch — Befund.
 3. Nicht `contributing_cell_ids` als Beleg für einen funktionierenden Lineage-Bezug
    werten: Die Zell-Liste war schon vor B447 korrekt; maßgeblich ist die Lineage-Liste.
+
+### AC-071 — Prüfe, dass geometry_quality im Export vorhanden ist
+
+**Datenquellen im Export:** `hydro_ml/hydro_flood_samples_snapshot.sqlite3`;
+exportierte `labeled_samples`.
+
+**Durchzuführen:**
+
+1. In den exportierten `labeled_samples` prüfen, ob `geometry_quality` gesetzt ist und
+   welche Werte vorkommen (`shapely`, `unavailable`, `bbox_fallback`). Ist der Wert über
+   alle Samples weiterhin None, greift die B448-Durchreichung nicht — Befund.
+2. Damit AC-032 fortführen: Zählen, wie oft `geometry_quality == "bbox_fallback"` über
+   den verfügbaren Zeitraum vorkommt. Wird der Wert über 30 Tage nie erreicht, den
+   bbox_fallback-Zweig als toten Code zur Entfernung in einem eigenen Prompt vormerken —
+   nicht nebenbei löschen.
