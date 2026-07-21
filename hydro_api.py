@@ -220,8 +220,15 @@ def all_impacts() -> list[dict]:
     rows = []
     for p in sorted(IMPACT_DIR.glob("hydro_impact_*.jsonl")):
         for line in p.read_text(encoding="utf-8").splitlines():
-            try: rows.append(json.loads(line))
-            except Exception: pass
+            # B446: Nur JSON-Objekte übernehmen. Eine Nicht-Objekt-Zeile (z.B. nackte
+            # Zahl) liefert einen float, der später .get() bekommt und den Endpoint in
+            # den Fallback zwingt (18× am 2026-07-20). Analog zu hydro_flood_ml.py:333-336.
+            try:
+                obj = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(obj, dict):
+                rows.append(obj)
     return rows or latest_impacts()
 
 
@@ -231,6 +238,8 @@ def _latest_status_by_event() -> dict[str, dict]:
     for line in VERIFICATIONS.read_text(encoding="utf-8").splitlines():
         try: row = json.loads(line)
         except Exception: continue
+        if not isinstance(row, dict):  # B446: Nicht-Objekt-Zeile überspringen
+            continue
         key = str(row.get("event_id") or f"{row.get('cell_id')}:{row.get('station_id')}")
         out[key] = row
     return out
@@ -249,6 +258,8 @@ def normalized_impacts(latest_only=False, include_disabled=False):
     disabled = _disabled_station_ids()
     out = []
     for e in src:
+        if not isinstance(e, dict):  # B446: robust gegen Nicht-Objekt-Einträge
+            continue
         if str(e.get("station_id")) in disabled and not include_disabled:
             continue
         key = str(e.get("event_id") or f"{e.get('cell_id')}:{e.get('station_id')}")

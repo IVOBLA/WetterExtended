@@ -7624,3 +7624,25 @@ Reparatur-Bilanz und Schadtabellen-Erkennung). Die Codex-Reviews zu PR #1079 sin
 vollständig abgearbeitet: B443 (Cooldown-Retry), B444 (eval-Status DB-unabhängig), B445
 (Reparatur-Bilanz + quick_check-Parsing). Phase B (Hailo-8 U-Net) bleibt unverändert
 blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B446 — hydro_api-JSONL-Leser stürzten bei einer Nicht-Objekt-Zeile ab ✅ erledigt
+
+KI-Report 2026-07-21: Drei JSONL-Leser in `hydro_api.py` (`all_impacts`,
+`_latest_status_by_event`, `normalized_impacts`) riefen `.get()` ungeschützt auf
+`json.loads`-Ergebnissen auf. Eine einzelne Nicht-Objekt-Zeile (nackte Zahl → float)
+warf `AttributeError: 'float' object has no attribute 'get'` — 18× am 2026-07-20
+06:37–07:07Z. `_hydro_safe` fing die Exception ab (kein Serverabsturz), aber das
+Hydro-Widget lieferte während der Störung leere/Fehler-Daten.
+
+B438 hatte denselben Defekt in `hydro_flood_ml.py` behoben; die drei hydro_api-Stellen
+blieben offen. Behoben analog zu `hydro_flood_ml.py:333-336`: `all_impacts` hängt nur
+Dicts an, `_latest_status_by_event` und `normalized_impacts` überspringen Nicht-Dicts
+per `continue`. Eine einzelne korrupte JSONL-Zeile kann den Endpoint nicht mehr in den
+Fallback zwingen.
+
+Tests: `tests/test_b446_hydro_api_jsonl_robust.py`
+Prüfanweisung: AC-069
+
+**Phasen-Status:** Phase A — Serie B412–B445 abgeschlossen, B446 ergänzt (hydro_api
+JSONL-Robustheit). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
+ausreichende Trainingsdaten.
