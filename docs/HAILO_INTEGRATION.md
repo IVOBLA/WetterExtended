@@ -7598,3 +7598,29 @@ Prüfanweisung: keine (durch AC-061/AC-063 abgedeckt).
 **Phasen-Status:** Phase A — Serie B412–B443 abgeschlossen, B444 ergänzt (eval-Status
 DB-unabhängig). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
 ausreichende Trainingsdaten.
+
+### B445 — Reparaturbericht täuschte Verlustfreiheit vor; quick_check verfehlte die Schadtabelle ✅ erledigt
+
+Zwei Codex-Reviews zu B432:
+
+R3 — `_copy_table_rows._insert` gab `len(rows)` zurück, obwohl `insert` ein
+`INSERT OR IGNORE` ist. Constraint-verletzende Zeilen (z. B. `q_history` mit NULL-Key aus
+einer lesbaren, aber korrupten Seite) wurden still verworfen, aber als kopiert gezählt;
+`rows_skipped` blieb 0. Reparaturbericht und CLI behaupteten „kein Datenverlust", obwohl
+Zeilen fehlten. Behoben: `_insert` misst echte Einfügungen über `total_changes` und
+addiert ignorierte Zeilen zu `skipped` (bulk- und partial-Pfad).
+
+R4 — `sample_db_integrity` prüfte `message.startswith("Tree ")` auf der ganzen
+quick_check-Message. Bei echtem Seitenschaden liefert SQLite mehrzeilige Messages
+(`*** in database main ***\nTree …\nTree …`); das startswith verfehlte alle Tree-Zeilen,
+`affected_tables` blieb leer trotz `integrity_status: corrupt`. Behoben: jede Message wird
+in Zeilen zerlegt und jede `Tree`-Zeile einzeln ausgewertet.
+
+Tests: `tests/test_b445_repair_accounting.py`
+Prüfanweisung: durch AC-060 abgedeckt (Integritätsauswertung).
+
+**Phasen-Status:** Phase A — Serie B412–B444 abgeschlossen, B445 ergänzt (korrekte
+Reparatur-Bilanz und Schadtabellen-Erkennung). Die Codex-Reviews zu PR #1079 sind damit
+vollständig abgearbeitet: B443 (Cooldown-Retry), B444 (eval-Status DB-unabhängig), B445
+(Reparatur-Bilanz + quick_check-Parsing). Phase B (Hailo-8 U-Net) bleibt unverändert
+blockiert; sie wartet auf ausreichende Trainingsdaten.

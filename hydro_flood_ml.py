@@ -2299,12 +2299,19 @@ def sample_db_integrity(max_messages: int = 50) -> dict:
             return {"integrity_status": "ok", "db_path": str(path), "checked_at": _now(),
                     "message_count": 0, "affected_tables": [], "messages": []}
         rootpages: set[int] = set()
+        # B445: quick_check kann pro Message mehrere Zeilen liefern, z.B.
+        # "*** in database main ***\nTree 3437 page … \nTree 4329 page …". Ein reines
+        # startswith("Tree ") auf der Gesamt-Message verfehlt dann alle Tree-Zeilen und
+        # ließe affected_tables leer, obwohl integrity_status corrupt ist. Deshalb jede
+        # Message in Zeilen zerlegen und jede Tree-Zeile einzeln auswerten.
         for message in messages:
-            if message.startswith("Tree "):
-                try:
-                    rootpages.add(int(message.split("Tree ", 1)[1].split(" ", 1)[0]))
-                except (IndexError, ValueError):
-                    continue
+            for line in str(message).splitlines():
+                line = line.strip()
+                if line.startswith("Tree "):
+                    try:
+                        rootpages.add(int(line.split("Tree ", 1)[1].split(" ", 1)[0]))
+                    except (IndexError, ValueError):
+                        continue
         affected: set[str] = set()
         for rootpage in sorted(rootpages):
             for _kind, name in con.execute(
@@ -2337,12 +2344,26 @@ def _copy_table_rows(src: sqlite3.Connection, dst: sqlite3.Connection, table: st
     insert = f'INSERT OR IGNORE INTO "{table}" ({collist}) VALUES ({placeholders})'
 
     def _insert(rows) -> int:
+        """Fügt ein und gibt die ANZAHL TATSÄCHLICH EINGEFÜGTER Zeilen zurück.
+
+        B445: insert ist INSERT OR IGNORE — Zeilen mit NOT-NULL-/PK-Verletzung (z. B.
+        q_history mit NULL-Key aus einer korrupten, aber lesbaren Seite) werden still
+        verworfen. `len(rows)` hätte diese als kopiert gezählt und Datenverlust maskiert.
+        Über die Differenz von total_changes ergibt sich die reale Einfügung; der Rest
+        gilt als übersprungen und wird vom Aufrufer zu skipped addiert.
+        """
+        before = dst.total_changes
         dst.executemany(insert, rows)
-        return len(rows)
+        inserted = dst.total_changes - before
+        _insert.ignored += len(rows) - inserted
+        return inserted
+    _insert.ignored = 0
 
     try:
         rows = src.execute(f'SELECT {collist} FROM "{table}"').fetchall()
-        return {"table": table, "status": "copied_bulk", "copied": _insert(rows), "skipped": 0}
+        copied = _insert(rows)
+        return {"table": table, "status": "copied_bulk", "copied": copied,
+                "skipped": _insert.ignored}
     except sqlite3.DatabaseError:
         pass
     try:
@@ -2374,7 +2395,10 @@ def _copy_table_rows(src: sqlite3.Connection, dst: sqlite3.Connection, table: st
 
     for start in range(lo, hi + 1, 500):
         _range(start, min(start + 499, hi))
-    return {"table": table, "status": "copied_partial", "copied": copied, "skipped": skipped}
+    # B445: skipped = defekte rowid-Bereiche (per Bisektion isoliert) PLUS Zeilen, die
+    # INSERT OR IGNORE wegen Constraint-Verletzung verworfen hat.
+    return {"table": table, "status": "copied_partial", "copied": copied,
+            "skipped": skipped + _insert.ignored}
 
 
 def repair_sample_db(dry_run: bool = False, lock_handle=None) -> dict:
