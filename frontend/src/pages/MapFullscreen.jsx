@@ -17,6 +17,7 @@ import { formatCbIrLabel, getCbThresholdState } from '../utils/cbThreshold.js'
 import { hasValidHydroImpactLine, hydroFeatureCollection, hydroFloodRows } from '../utils/hydro.js'
 import { normalizeHydroFloodPopup } from '../utils/hydroFloodPopup.js'
 import { loadRiskGridAfterHealth, nextRiskGridDelayMs } from '../utils/riskGridPolling.js'
+import { resolveFramePoll } from '../utils/framePolling.js'
 import L from 'leaflet'
 
 const HYDRO_FLOOD_ICON = L.divIcon({
@@ -289,6 +290,8 @@ export default function MapFullscreen() {
   const riskPollStateRef = useRef({ riskGridBackoffMs: 0, lastLoggedRiskGridError: null })
   const isLoadingRef   = useRef(false)
   const lastImgRef     = useRef(null)
+  const viewedTsRef     = useRef(null)   // B451: aktuell angezeigter Frame-ts
+  const lastNewestTsRef = useRef(null)   // B451: neuester ts vom letzten Poll
   const frameLoadTimer = useRef(null)
   const frameDataCache = useRef({})
   const playingRef     = useRef(false)
@@ -370,21 +373,22 @@ export default function MapFullscreen() {
         setHydroFloodRisk(Object.fromEntries(rows.map(r => [String(r.station_id), r])))
       }).catch(() => setHydroFloodRisk({}))
 
-      // Schritt 2: Frame-Timestamp bestimmen, objects/forecast synchron laden
-      let latestTs = null
+      // B451: Follow-Latest -- beim Live-Folgen den echten neuesten Frame zeigen.
+      // objects/forecast werden hier NICHT mehr geladen: alleinige Quelle ist der
+      // [currentIdx, frames]-Effekt (kein Aufblitzen der Zellen des vorletzten
+      // Frames). Zellen erscheinen, sobald objects.json des neuesten Frames da ist.
       if (framesData?.frames?.length) {
-        const latestIdx = framesData.latest_idx ?? framesData.frames.length - 1
-        latestTs = framesData.frames[latestIdx]?.ts ?? null
+        const pick = resolveFramePoll({
+          newFrames:    framesData.frames,
+          viewedTs:     viewedTsRef.current,
+          lastNewestTs: lastNewestTsRef.current,
+        })
         setFrames(framesData.frames)
-        if (!playingRef.current) setCurrentIdx(latestIdx)
-      }
-      const [objs, fc] = await Promise.all([
-        api.get(latestTs ? `/api/objects?ts=${latestTs}` : '/api/objects'),
-        api.get(latestTs ? `/api/forecast?ts=${latestTs}` : '/api/forecast'),
-      ])
-      if (!playingRef.current) {
-        setObjects(objs)
-        setForecast(fc)
+        if (!playingRef.current) {
+          setCurrentIdx(pick.targetIdx)
+          viewedTsRef.current = pick.viewedTs
+        }
+        lastNewestTsRef.current = pick.latestTs
       }
       setLastTs(new Date().toLocaleTimeString('de-AT'))
     } catch (e) {
@@ -414,6 +418,7 @@ export default function MapFullscreen() {
     if (!frames.length || currentIdx < 0) return
     const frame = frames[currentIdx]
     if (!frame?.ts) return
+    viewedTsRef.current = frame.ts   // B451: angezeigten Frame-ts festhalten
     const cached = frameDataCache.current[frame.ts]
     if (cached) {
       setObjects(cached.objects)
@@ -426,7 +431,10 @@ export default function MapFullscreen() {
         api.get(`/api/objects?ts=${frame.ts}`),
         api.get(`/api/forecast?ts=${frame.ts}`),
       ]).then(([objs, fc]) => {
-        frameDataCache.current[frame.ts] = { objects: objs, forecast: fc }
+        // B451: Nur cachen, wenn die Zellanalyse fertig ist (has_objects_file).
+        if (frame.has_objects_file) {
+          frameDataCache.current[frame.ts] = { objects: objs, forecast: fc }
+        }
         setObjects(objs)
         setForecast(fc)
       }).catch(() => {})

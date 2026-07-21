@@ -7737,3 +7737,24 @@ Prüfanweisung: keine.
 **Phasen-Status:** Phase A — Serie B412–B449 abgeschlossen, B450 ergänzt (Test-Präzision
 nach B448). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
 ausreichende Trainingsdaten.
+
+### B451 — Kartenanzeige: Follow-Latest statt Ruecksprung auf vorletztes Bild
+Ursache: MapView.jsx und MapFullscreen.jsx setzten bei jedem Poll unbedingt
+currentIdx = latest_idx. Da latest_idx bewusst den neuesten Frame OHNE fertige
+objects.json ausklammert, wurde der live zuschauende Nutzer regelmaessig auf den
+vorletzten Frame zurueckgezogen; das intelligente Poll-Timing (B90) traf dabei
+systematisch das Analyse-Zeitfenster. Zusaetzlich ueberschrieb der Poll jede
+bewusst gewaehlte aeltere Ansicht.
+Fix: Entscheidungslogik als reine Funktion resolveFramePoll nach
+frontend/src/utils/framePolling.js extrahiert. Beim Live-Folgen wird der echte
+neueste Frame angezeigt; Zellen/Vorhersage laden ueber den [currentIdx, frames]-
+Effekt nach, sobald objects.json bereit ist. Eine manuell gewaehlte Ansicht bleibt
+per Timestamp erhalten (Fallback: neuester Frame, wenn ts aus dem Fenster faellt).
+objects/forecast werden nicht mehr im Poll an latestTs gekoppelt geladen (Single
+Source of Truth = Frame-Effekt). Frame-Cache wird nur bei has_objects_file=true
+befuellt, sonst blieben leere Objekte eines noch nicht analysierten Frames haengen.
+Tests: tests/test_b451_frame_follow_latest.py (Node-Unit fuer resolveFramePoll +
+statische Assertionen fuer beide Karten-Views).
+Pruefanweisung: keine (reiner Frontend-State, kein Export-Beleg).
+Phasen-Status: unveraendert -- reiner Frontend-UX-Bugfix. Phase A bleibt
+abgeschlossen, Phase B (Hailo-8 U-Net) bleibt blockiert (wartet auf Trainingsdaten).
