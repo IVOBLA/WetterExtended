@@ -455,6 +455,11 @@ def main_loop():
     # 2-Frame-Bestätigung für unsichere Vorhersagen (kinematic forecast_mode):
     # Orte die schon 1× getroffen wurden aber noch auf Frame 2 warten.
     _location_warn_pending: dict = {}   # {loc_name: frame_count}
+    # B443: Orte, die der persistente Cooldown (B441) unterdrückt hat, die aber
+    # weiterhin getroffen werden. Sie werden zu Beginn jedes Frames erneut in
+    # _ready_to_warn aufgenommen, damit sie nach Cooldown-Ablauf tatsächlich warnen,
+    # statt dauerhaft aus dem Neu-Treffer-Pfad zu fallen.
+    _cooldown_retry: set = set()
     # Orte für die in diesem Session bereits eine Warnung gesendet wurde
     # (Entwarnung nur senden wenn vorher eine Warnung gesandt wurde).
     _location_warned: set = set()
@@ -1055,6 +1060,12 @@ def main_loop():
             _new_hit_names = _current_hit_names - _prev_location_hit_names
             _cleared       = _prev_location_hit_names - _current_hit_names
 
+            # B443: Vom Cooldown unterdrückte Orte, die weiterhin getroffen werden, gelten
+            # als erneut warn-berechtigt (nicht als „neuer" Treffer, aber prüfbar). Orte,
+            # die nicht mehr getroffen werden, fallen aus dem Retry-Set.
+            _cooldown_retry &= _current_hit_names
+            _cooldown_retry_active = set(_cooldown_retry)
+
             # ── Hilfsfunktion: Frühester Forecast-Horizont eines Orts-Treffers ──
             def _earliest_forecast_horizon(loc_hit: dict) -> int:
                 """
@@ -1151,6 +1162,15 @@ def main_loop():
                 _emails = _loc_email_map.get(_lname, "")
                 if not _emails:
                     continue
+                # B443: Ort war zuvor cooldown-unterdrückt und wird weiter getroffen →
+                # erneut als Kandidat aufnehmen, BEVOR die B98-cell_id-Prüfung ihn per
+                # continue überspringt. Die Horizont-Schwelle wird geprüft; ob wirklich
+                # gesendet wird, entscheidet danach der B441-Cooldown-Filter.
+                if _lname in _cooldown_retry_active:
+                    from config import WARN_MAX_HORIZON_MIN as _WARN_RETRY_DEF
+                    _retry_max_h = int(runtime_config.get("WARN_MAX_HORIZON_MIN", _WARN_RETRY_DEF))
+                    if _has_current_horizon(_loc_hit) or _earliest_forecast_horizon(_loc_hit) <= _retry_max_h:
+                        _ready_to_warn.add(_lname)
                 # B98: Einmal-pro-Zelle — gleiche cell_id nicht doppelt warnen.
                 _hit_cell_id = _earliest_cell_id(_loc_hit)
                 if _hit_cell_id and _hit_cell_id in _warned_cells.get(_lname, set()):
@@ -1227,6 +1247,8 @@ def main_loop():
                     _suppressed = set(_ready_to_warn) - _allowed
                     for _sname in sorted(_suppressed):
                         debug_log(f"[WARN-CD] {_sname}: Ort-Cooldown aktiv — Warnung unterdrückt.")
+                        # B443: solange der Ort getroffen bleibt, im nächsten Frame erneut prüfen.
+                        _cooldown_retry.add(_sname)
                     _ready_to_warn = _allowed
                 except Exception as _e_cd:
                     debug_log(f"[WARN-CD] Cooldown-Prüfung fehlgeschlagen (fahre ohne fort): {_e_cd}")
@@ -1258,6 +1280,7 @@ def main_loop():
                                     _wcd_mark.mark_sent(_loc_hit["name"])
                                 except Exception as _e_mark:
                                     debug_log(f"[WARN-CD] mark_sent fehlgeschlagen: {_e_mark}")
+                                _cooldown_retry.discard(_loc_hit["name"])  # B443: erfolgreich gewarnt
                                 debug_log(f"[EMAIL] Warnung gesendet: {_loc_hit['name']}")
                 except Exception as _e:
                     debug_log(f"[EMAIL] Warnung fehlgeschlagen: {_e}")
