@@ -630,3 +630,18 @@ Verzeichnis `train_data/hydro/ml/` und `train_data/hydro/ml/quarantine/`.
    `[WARN-CD]`-Suppress über Stunden ist zu prüfen, ob das Gate umgangen wird.
 4. Nicht den cell_id-basierten B98-Schutz als alleinigen Beleg werten — der ist durch
    ID-Wechsel umgehbar. Maßgeblich ist der ortsbasierte Abstand aus Schritt 1.
+
+### AC-069 — Prüfe die JSONL-Leser der Hydro-Impact-Pipeline auf Nicht-Objekt-Zeilen
+
+**Datenquellen im Export:** `train_data/hydro/impact/hydro_impact_*.jsonl`;
+`train_data/hydro/*verifications*.jsonl`; `api_logs/journal/wetterprojekt-admin.service.log`.
+
+**Durchzuführen:**
+
+1. In jeder `hydro_impact_*.jsonl` und der Verifications-JSONL prüfen, ob jede Zeile ein
+   JSON-Objekt (`{…}`) ist. Jede Zeile, deren `json.loads` kein dict ergibt (Zahl, Array,
+   String, null), ist ein Befund — Datei, Zeilennummer und Wert melden.
+2. Im Admin-Journal nach `AttributeError: 'float' object has no attribute 'get'` in
+   `hydro_api`-Zeilen suchen. Jedes Vorkommen mit Zeitstempel melden.
+3. Nicht `_hydro_safe`/`fallback=True` als Beleg für Fehlerfreiheit werten — der Wrapper
+   verdeckt den Absturz, das Widget liefert trotzdem leere Daten.
