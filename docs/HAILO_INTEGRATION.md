@@ -7579,3 +7579,22 @@ Prüfanweisung: keine (Frame-Loop-Verhalten, nicht aus Export prüfbar).
 **Phasen-Status:** Phase A — Serie B412–B442 abgeschlossen, B443 ergänzt (Cooldown-Retry).
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
 Trainingsdaten.
+
+### B444 — Eval-Status blieb bei defekter DB doch verborgen ✅ erledigt
+
+Codex-Review zu B433: `/api/hydro/flood-risk/status` las den cache-festen Eval-Status
+(`hydro_flood_eval_status.json`) erst nach `flood_risk_status()`. Diese Funktion öffnet
+über `readiness_status()` die Sample-SQLite und wirft bei malformed DB, bevor die
+eval-Datei gelesen wird. `_hydro_safe` lieferte dann `hydro_flood_risk_status_error`
+ohne den Eval-Status — genau im DB-Defekt-Szenario, das B433 sichtbar machen sollte.
+
+Behoben: Der DB-unabhängige Eval-Status wird jetzt ZUERST gelesen. `flood_risk_status()`
+ist in try/except gekapselt; wirft es, wird `status: degraded` mit `base_status_error`
+gesetzt, der Eval-Status aber trotzdem ausgeliefert.
+
+Tests: `tests/test_b444_eval_status_db_independent.py`
+Prüfanweisung: keine (durch AC-061/AC-063 abgedeckt).
+
+**Phasen-Status:** Phase A — Serie B412–B443 abgeschlossen, B444 ergänzt (eval-Status
+DB-unabhängig). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
+ausreichende Trainingsdaten.
