@@ -7957,3 +7957,23 @@ Prüfanweisung: `AIChecks.md` → AC-074 (unverändert gültig).
 **Phasen-Status:** Phase A — Serie B412–B458 abgeschlossen, B459 ergänzt
 (Codex-P2-Härtung: Dedup nur über aktive Zellen). Phase B (Hailo-8 U-Net)
 bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B460 — Vorhersagepfeile sichtbar: Casing, alle Frames, langsame Zellen transparent
+
+**Problem:** Zugbahnen wurden nur auf dem neuesten Frame gezeichnet
+(currentIdx === frames.length - 1), waren mit weight 2/2.5 auf buntem Radar
+kaum erkennbar, und langsame Zellen (has_arrow=false) wurden von
+isValidForecastFeature komplett verworfen — entgegen der Backend-Absicht
+(is_slow_arrow: sichtbar aber transparent).
+
+**Fix (MapView.jsx + MapFullscreen.jsx identisch):** (1) Zugbahn auf jedem
+angezeigten Frame; (2) weiße Casing-Polyline unter der farbigen Linie +
+kräftigere Gewichte (kinematisch weight 3, ML weight 4); (3) langsame Zellen
+werden transparent (opacity ~0.4) gezeichnet statt gefiltert
+(has_arrow-Ausschluss entfernt, forecast_rejected/Geometrie-Checks bleiben).
+
+Tests: Frontend-Build (npm run build) grün; keine Python-Testfläche berührt.
+
+**Phasen-Status:** Phase A — Serie B412–B459 abgeschlossen, B460 ergänzt
+(Karten-UX: Pfeil-Sichtbarkeit). Phase B (Hailo-8 U-Net) bleibt unverändert
+blockiert; sie wartet auf ausreichende Trainingsdaten.
