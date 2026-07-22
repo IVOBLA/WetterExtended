@@ -499,6 +499,19 @@ Admin-Panel fehlgeschlagen" im Log ist immer zu melden, auch wenn der Push gelan
    ML/Kinematik-Divergenz — dann die Gate-Entscheidungen
    (forecast_gate_reason) der betroffenen Horizonte mit auswerten.
 
+### AC-077 — Messe die Zyklusdauer des Live-Loops
+
+1. Lies `train_data/status/cycle_timing.json` aus dem Export: notiere
+   `last_duration_s`, `avg_duration_s`, `max_duration_s`, `cells_active`.
+2. Vergleiche `avg_duration_s` bei `cells_active=true` mit dem kurzen
+   Loop-Intervall (LOOP_INTERVAL_CELLS_S, i. d. R. 120 s). Erreicht oder
+   überschreitet die Zyklusdauer das Intervall, ist der Verarbeitungszyklus
+   der Engpass — Befund mit `code_ref` (main.py _record_cycle_timing) und
+   `beleg` (die drei Dauer-Werte, Intervall).
+3. Korreliere `max_duration_s` mit Gewitterlagen (viele Zellen) im
+   Log-Zeitfenster des Exports; dokumentiere, ob die Spitzen mit der vom
+   Nutzer berichteten Langsamkeit zusammenfallen.
+
 ## Erledigt
 
 _(Format: `AC-xxx — Kurztitel · YYYY-MM-DD · Ergebnis in einem Satz.)_

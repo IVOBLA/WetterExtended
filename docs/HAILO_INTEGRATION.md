@@ -7998,3 +7998,23 @@ Tests: Frontend-Build grün.
 (Karten-Fach-Feature: Horizont-Farben gemäß Zieldefinition). Phase B (Hailo-8
 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
 Trainingsdaten.
+
+### B462 — Zyklusdauer-Metrik (cycle_timing.json)
+
+**Problem:** Der Live-Loop loggte den Zyklusstart, aber es gab keine
+Dauer-Messung. Die wahrgenommene Verzögerung „Radarbild da, Zellen erscheinen
+später" ließ sich nicht dem Verarbeitungszyklus vs. dem Frontend-Poll
+zuordnen.
+
+**Fix:** perf_counter bei Zyklusstart; am Ende Dauer erfassen und atomar nach
+train_data/status/cycle_timing.json schreiben (last/avg/max über die letzten
+20 Zyklen, cells_active-Flag, Zeitstempel). Datei ist im Debug-Export
+enthalten und wird von der Nightly-Analyse geprüft.
+
+Tests: `tests/test_b462_cycle_timing.py` (Mittelwert/Max/letzte Dauer;
+History-Cap bei 20).
+Prüfanweisung: `AIChecks.md` → AC-077.
+
+**Phasen-Status:** Phase A — Serie B412–B461 abgeschlossen, B462 ergänzt
+(Betriebsmetrik Zyklusdauer). Phase B (Hailo-8 U-Net) bleibt unverändert
+blockiert; sie wartet auf ausreichende Trainingsdaten.
