@@ -59,6 +59,7 @@ from config import (
     MAX_CELL_SPEED_KMH as _STATIC_MAX_CELL_SPEED_KMH,
     MIN_MOVEMENT_FOR_ARROW_KMH as _STATIC_MIN_MOVEMENT_FOR_ARROW_KMH,
     ML_FORECAST_MAX_BEARING_DEVIATION_DEG as _STATIC_ML_FORECAST_MAX_BEARING_DEVIATION_DEG,
+    FORECAST_CROSS_HORIZON_MAX_BEARING_JUMP_DEG as _STATIC_FORECAST_CROSS_HORIZON_MAX_BEARING_JUMP_DEG,
     BBOX_KAERNTEN_EXTENDED as _STATIC_BBOX_KAERNTEN_EXTENDED,
     OF_MAX_FRAME_INTERVAL_MIN as _STATIC_OF_MAX_FM,
     STEERING_BLEND_ENABLED as _STATIC_STEERING_BLEND_ENABLED,
@@ -219,6 +220,106 @@ def _lgbm_feat_ok(model, frame) -> bool:
         return True
     except Exception:
         return True
+
+
+def _enforce_cross_horizon_consistency(obj: dict, horizons: list, forecasts: dict | None = None) -> None:
+    """B456: Cross-Horizont-Konsistenz der oeffentlichen Prognoselinie.
+
+    Re-projiziert ausschliesslich kinematische Punkte gemischter Folgen;
+    ML-Punkte und uniforme Folgen bleiben unangetastet.
+    """
+    max_jump = _runtime_float_value(
+        "FORECAST_CROSS_HORIZON_MAX_BEARING_JUMP_DEG",
+        _STATIC_FORECAST_CROSS_HORIZON_MAX_BEARING_JUMP_DEG,
+    )
+    pts = []
+    for h in horizons:
+        try:
+            x = float(obj.get(f"forecast_x_{h}")); y = float(obj.get(f"forecast_y_{h}"))
+            la = float(obj.get(f"forecast_lat_{h}")); lo = float(obj.get(f"forecast_lon_{h}"))
+        except (TypeError, ValueError):
+            return
+        if not all(isfinite(v) for v in (x, y, la, lo)):
+            return
+        pts.append({"h": h, "x": x, "y": y, "lat": la, "lon": lo,
+                    "mode": str(obj.get(f"forecast_mode_{h}") or "")})
+    if len(pts) < 3:
+        return
+    modes = {p["mode"] for p in pts}
+    if not ("ml" in modes and any(m.startswith("kinematic") for m in modes)):
+        return
+    try:
+        origin = {"h": 0.0, "x": float(obj.get("x")), "y": float(obj.get("y")),
+                  "lat": float(obj.get("lat")), "lon": float(obj.get("lon")), "mode": "origin"}
+    except (TypeError, ValueError):
+        return
+    if not all(isfinite(origin[k]) for k in ("x", "y", "lat", "lon")):
+        return
+
+    def _seg_angle(a, b):
+        dx, dy = b["x"] - a["x"], b["y"] - a["y"]
+        if abs(dx) < 1e-9 and abs(dy) < 1e-9:
+            return None
+        return (atan2(dy, dx) * 180.0 / pi) % 360.0
+
+    def _ang_diff(a, b):
+        d = abs(a - b) % 360.0
+        return d if d <= 180.0 else 360.0 - d
+
+    chain = [origin] + pts
+    adjusted_h = []
+    for _pass in range(len(pts)):
+        changed = False
+        for i in range(1, len(chain) - 1):
+            if not chain[i]["mode"].startswith("kinematic"):
+                continue
+            a1 = _seg_angle(chain[i - 1], chain[i]); a2 = _seg_angle(chain[i], chain[i + 1])
+            if a1 is None or a2 is None or _ang_diff(a1, a2) <= max_jump:
+                continue
+            t = (float(chain[i]["h"]) - float(chain[i - 1]["h"])) / max(
+                float(chain[i + 1]["h"]) - float(chain[i - 1]["h"]), 1e-9)
+            for k in ("x", "y", "lat", "lon"):
+                chain[i][k] = chain[i - 1][k] + t * (chain[i + 1][k] - chain[i - 1][k])
+            if chain[i]["h"] not in adjusted_h:
+                adjusted_h.append(chain[i]["h"])
+            changed = True
+        if len(chain) >= 3 and chain[-1]["mode"].startswith("kinematic"):
+            a1 = _seg_angle(chain[-3], chain[-2]); a2 = _seg_angle(chain[-2], chain[-1])
+            if a1 is not None and a2 is not None and _ang_diff(a1, a2) > max_jump:
+                f = (float(chain[-1]["h"]) - float(chain[-2]["h"])) / max(
+                    float(chain[-2]["h"]) - float(chain[-3]["h"]), 1e-9)
+                for k in ("x", "y", "lat", "lon"):
+                    chain[-1][k] = chain[-2][k] + f * (chain[-2][k] - chain[-3][k])
+                if chain[-1]["h"] not in adjusted_h:
+                    adjusted_h.append(chain[-1]["h"])
+                changed = True
+        if not changed:
+            break
+    if not adjusted_h:
+        return
+    by_h = {p["h"]: p for p in chain[1:]}
+    fc_by_h = {}
+    if isinstance(forecasts, dict):
+        for fh, entries in forecasts.items():
+            for e in entries or []:
+                if isinstance(e, dict) and str(e.get("id")) == str(obj.get("id")):
+                    fc_by_h[fh] = e
+    for h in adjusted_h:
+        p = by_h[h]
+        obj[f"forecast_x_{h}"] = round(p["x"], 3); obj[f"forecast_y_{h}"] = round(p["y"], 3)
+        obj[f"forecast_lat_{h}"] = round(p["lat"], 6); obj[f"forecast_lon_{h}"] = round(p["lon"], 6)
+        _disp = _haversine_km(origin["lat"], origin["lon"], p["lat"], p["lon"])
+        obj[f"forecast_displacement_km_{h}"] = round(_disp, 3)
+        obj[f"forecast_speed_kmh_{h}"] = round(_disp / max(float(h) / 60.0, 1e-9), 3)
+        obj[f"forecast_consistency_adjusted_{h}"] = True
+        e = fc_by_h.get(h)
+        if e is not None:
+            e.update({"x": obj[f"forecast_x_{h}"], "y": obj[f"forecast_y_{h}"],
+                      "lat": obj[f"forecast_lat_{h}"], "lon": obj[f"forecast_lon_{h}"],
+                      "forecast_displacement_km": obj[f"forecast_displacement_km_{h}"],
+                      "forecast_speed_kmh": obj[f"forecast_speed_kmh_{h}"],
+                      "consistency_adjusted": True})
+    obj["forecast_consistency_adjusted"] = True
 
 
 def _get_horizons() -> list:
@@ -1825,6 +1926,8 @@ def predict_positions(objects: list, timestamp: str, stations: list):
         # P-T08: obj-Level forecast_mode = "ml" sobald mindestens ein Horizont ML war;
         # die genaue ML-/Kinematik-Abdeckung steht in forecast_mode_<Horizont>.
         obj["forecast_mode"] = "ml" if _ml_horizon_count > 0 else "kinematic_fallback"
+        # B456: Kinematische Fallback-Punkte duerfen die Linie nicht umkehren.
+        _enforce_cross_horizon_consistency(obj, _get_horizons(), forecasts)
         _annotate_forecast_runtime_metadata(obj, _runtime_status)
 
     # B108: B95-Pfad-Wetter-Berechnung wurde in den Objekt-Loop VORGEZOGEN
