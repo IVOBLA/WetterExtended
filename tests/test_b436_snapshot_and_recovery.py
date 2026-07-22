@@ -18,7 +18,6 @@ def _db(tmp_path, monkeypatch):
     monkeypatch.setattr(hydro_flood_ml, "HYDRO_SAMPLE_DB_PATH", tmp_path / "hydro_flood_samples.sqlite3")
     monkeypatch.setattr(hydro_flood_ml, "HYDRO_DATASET_JSONL_PATH", tmp_path / "hydro_flood_dataset.jsonl")
     monkeypatch.setattr(hydro_flood_ml, "HYDRO_SAMPLE_DB_QUARANTINE_DIR", tmp_path / "quarantine")
-    monkeypatch.setattr(hydro_flood_ml, "HYDRO_SAMPLE_DB_INTEGRITY_PATH", tmp_path / "integrity.json")
     monkeypatch.setattr(hydro_flood_ml, "HYDRO_TRAINING_LOCK_PATH", tmp_path / "training.lock")
     return tmp_path
 

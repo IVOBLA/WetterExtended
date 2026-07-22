@@ -82,7 +82,6 @@ def test_dataset_scan_labels_future_q_without_w_features(tmp_path, monkeypatch):
     monkeypatch.setattr(hydro_flood_ml, "HYDRO_SAMPLE_DB_PATH", tmp_path / "samples.sqlite3")
     hydro_flood_ml.append_hydro_history({"fetched_at": future["fetched_at"], "stations": [future]})
     monkeypatch.setattr(hydro_flood_ml, "HYDRO_DATASET_JSONL_PATH", tmp_path / "dataset.jsonl")
-    monkeypatch.setattr(hydro_flood_ml, "HYDRO_TRAINING_META_PATH", tmp_path / "meta.json")
     monkeypatch.setattr(hydro_flood_ml.runtime_config, "get", lambda k, d=None: 10.0 if k == "HYDRO_MAP_MARK_Q_M3S" else d)
     catchment = Polygon([(0, 0), (0.1, 0), (0.1, 0.1), (0, 0.1), (0, 0)])
     monkeypatch.setattr(hydro_impact, "load_station_catchment_index", lambda force_reload=False: {"S1": {"station_id": "S1", "geometry": catchment, "feature_count": 1, "status": "ok", "area_km2": 1, "signature": "x", "properties": {}}})

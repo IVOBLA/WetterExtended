@@ -4,7 +4,7 @@ def test_readiness_regression_not_blocked_by_class_diversity(tmp_path, monkeypat
     monkeypatch.setattr(h, 'MIN_TRAINING_SAMPLES', 2)
     monkeypatch.setattr(h, 'HYDRO_DATASET_JSONL_PATH', tmp_path/'d.jsonl')
     monkeypatch.setattr(h, 'HYDRO_DATASET_PATH', tmp_path/'l.jsonl')
-    monkeypatch.setattr(h, 'HYDRO_TRAINING_META_PATH', tmp_path/'m.json')
+    monkeypatch.setattr(h, 'HYDRO_ML_DIR', tmp_path)
     monkeypatch.setattr(h.runtime_config, 'get', lambda key, default=None: 1 if key in ('HYDRO_ML_MIN_TRAIN_EVENTS','HYDRO_ML_MIN_VALIDATION_EVENTS') else default)
     rows=[]
     for i in range(2):

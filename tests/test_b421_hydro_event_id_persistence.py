@@ -13,7 +13,6 @@ def _environment(monkeypatch, tmp_path):
     monkeypatch.setattr(h, "HYDRO_SAMPLE_DB_PATH", tmp_path / "samples.sqlite3")
     monkeypatch.setattr(h, "HYDRO_DATASET_JSONL_PATH", tmp_path / "samples.jsonl")
     monkeypatch.setattr(h, "HYDRO_HISTORY_PATH", tmp_path / "history.jsonl")
-    monkeypatch.setattr(h, "HYDRO_TRAINING_META_PATH", tmp_path / "training.json")
     monkeypatch.setattr(h, "HYDRO_RISK_PATH", tmp_path / "risk.json")
     monkeypatch.setattr(h, "MIN_TRAINING_SAMPLES", 1)
     monkeypatch.setattr(h, "HYDRO_REQUIRED_FEATURES", [])

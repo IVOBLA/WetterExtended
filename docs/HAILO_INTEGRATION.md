@@ -7848,3 +7848,32 @@ Prüfanweisung: `AIChecks.md` → AC-074.
 **Phasen-Status:** Phase A — Serie B412–B453 abgeschlossen, B454 ergänzt
 (cell_id-Eindeutigkeit pro Frame). Phase B (Hailo-8 U-Net) bleibt unverändert
 blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B455 — Hydro-ML-Statuspfade zur Laufzeit aus HYDRO_ML_DIR aufgelöst
+
+**Problem:** `HYDRO_TRAINING_META_PATH`, `HYDRO_MAINTENANCE_STATUS_PATH` und
+`HYDRO_SAMPLE_DB_INTEGRITY_PATH` wurden beim Modul-Import aus `HYDRO_ML_DIR`
+abgeleitet und eingefroren. Tests, die nur `HYDRO_ML_DIR` patchten
+(test_b411), lenkten die Statusschreiber nicht um — der Pytest-Lauf beim
+install/upgrade auf dem Pi überschrieb Produktionsdateien unter
+`train_data/hydro/ml/` (Befund 2026-07-21: pytest-Tmp-Pfad in
+`hydro_sample_db_integrity.json`, 80-KB-Test-DB-Werte in
+`hydro_ml_maintenance_latest.json`; reale Sample-DB ~83 MB). Wiederkehrende
+Fehlerklasse „beim Import eingefrorene Pfadkonstanten" (B334/B338).
+
+**Fix:** Die drei Konstanten wurden entfernt; `_training_meta_path()`,
+`_maintenance_status_path()` und `_sample_db_integrity_path()` lösen die
+Zielpfade bei jedem Aufruf frisch aus dem aktuellen `HYDRO_ML_DIR` auf und
+sind die einzige Quelle der Wahrheit. Alle betroffenen Tests (b409, b410×2,
+b418, b421, b427, b432, b436, test_hydro_flood_ml) patchen nur noch den einen
+Knopf `HYDRO_ML_DIR`. Neuer Guard-Test stellt sicher, dass Maintenance- und
+Integrity-Lauf bei gepatchtem `HYDRO_ML_DIR` nichts unter dem realen
+`train_data/hydro/ml/` verändern.
+
+Tests: `tests/test_b455_hydro_status_paths_runtime.py`.
+Prüfanweisung: `AIChecks.md` → AC-075.
+
+**Phasen-Status:** Phase A — Serie B412–B454 abgeschlossen, B455 ergänzt
+(Datenintegrität auf der Zielhardware: Pytest kontaminiert keine
+Produktions-Statusdateien mehr). Phase B (Hailo-8 U-Net) bleibt unverändert
+blockiert; sie wartet auf ausreichende Trainingsdaten.

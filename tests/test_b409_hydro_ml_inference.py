@@ -14,7 +14,6 @@ def test_train_model_writes_joblib_and_predicts(monkeypatch, tmp_path):
     monkeypatch.setattr(h, "HYDRO_ML_DIR", tmp_path)
     monkeypatch.setattr(h, "HYDRO_DATASET_JSONL_PATH", tmp_path/"hydro_flood_dataset.jsonl")
     monkeypatch.setattr(h, "HYDRO_PENDING_SAMPLES_PATH", tmp_path/"hydro_flood_pending_samples.jsonl")
-    monkeypatch.setattr(h, "HYDRO_TRAINING_META_PATH", tmp_path/"hydro_flood_training_meta.json")
     monkeypatch.setattr(h, "HYDRO_MODEL_CURRENT_DIR", tmp_path/"model")
     monkeypatch.setattr(h, "HYDRO_MODEL_ROOT_DIR", tmp_path/"models")
     monkeypatch.setattr(h, "HYDRO_MODEL_CANDIDATES_DIR", tmp_path/"models"/"candidates")

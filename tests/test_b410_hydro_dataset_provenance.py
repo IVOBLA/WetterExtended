@@ -6,7 +6,6 @@ def test_legacy_q_samples_are_separated(tmp_path, monkeypatch):
     monkeypatch.setattr(h, 'HYDRO_ML_DIR', tmp_path)
     monkeypatch.setattr(h, 'HYDRO_DATASET_JSONL_PATH', tmp_path/'hydro_flood_dataset.jsonl')
     monkeypatch.setattr(h, 'HYDRO_DATASET_PATH', tmp_path/'hydro_flood_legacy_q_dataset.jsonl')
-    monkeypatch.setattr(h, 'HYDRO_TRAINING_META_PATH', tmp_path/'meta.json')
     live = {'sample_id':'l','sample_kind':h.SAMPLE_KIND_LIVE,'feature_schema_version':h.FEATURE_SCHEMA_VERSION,'feature_schema_hash':h._feature_schema_hash(),'feature_snapshot_complete':True,'target_q_delta_m3s':1,'target_missing':False,'cell_frame_hash':'x'}
     legacy = {'sample_id':'q','target_q_delta_m3s':1,'target_missing':False}
     h._write_jsonl(h.HYDRO_DATASET_JSONL_PATH, [live, legacy])
