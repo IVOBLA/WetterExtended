@@ -21,16 +21,35 @@ HYDRO_ML_DIR = Path("train_data/hydro/ml")
 HYDRO_DATASET_PATH = HYDRO_ML_DIR / "hydro_flood_legacy_q_dataset.jsonl"
 HYDRO_PENDING_SAMPLES_PATH = HYDRO_ML_DIR / "hydro_flood_pending_samples.jsonl"
 HYDRO_DATASET_JSONL_PATH = HYDRO_ML_DIR / "hydro_flood_dataset.jsonl"
-HYDRO_TRAINING_META_PATH = HYDRO_ML_DIR / "hydro_flood_training_meta.json"
 HYDRO_ACCURACY_HISTORY_PATH = HYDRO_ML_DIR / "hydro_flood_accuracy_history.jsonl"
 HYDRO_RISK_PATH = Path("train_data/hydro/impact/latest_hydro_flood_risk.json")
 HYDRO_MODEL_CURRENT_DIR = Path("train_data/models/hydro_flood/current")
 MIN_TRAINING_SAMPLES = int(os.getenv("HYDRO_FLOOD_ML_MIN_SAMPLES", "20"))
 FEATURE_SCHEMA_VERSION = "p75_antecedent_v1"
 HYDRO_SAMPLE_DB_PATH = HYDRO_ML_DIR / "hydro_flood_samples.sqlite3"
-HYDRO_MAINTENANCE_STATUS_PATH = HYDRO_ML_DIR / "hydro_ml_maintenance_latest.json"
 HYDRO_SAMPLE_DB_QUARANTINE_DIR = HYDRO_ML_DIR / "quarantine"
-HYDRO_SAMPLE_DB_INTEGRITY_PATH = HYDRO_ML_DIR / "hydro_sample_db_integrity.json"
+
+
+def _training_meta_path() -> Path:
+    """B455: Zur LAUFZEIT aus dem aktuellen HYDRO_ML_DIR aufgeloest.
+
+    Die frueheren, beim Import eingefrorenen Modulkonstanten liessen Tests,
+    die nur HYDRO_ML_DIR patchen, ins Leere laufen -- der Pytest-Lauf beim
+    install/upgrade auf dem Pi ueberschrieb dadurch Produktionsdateien unter
+    train_data/hydro/ml/ (Befund 2026-07-21: pytest-Tmp-Pfad in
+    hydro_sample_db_integrity.json). Die Helper sind jetzt die einzige
+    Quelle der Wahrheit; Tests patchen ausschliesslich HYDRO_ML_DIR.
+    """
+    return Path(HYDRO_ML_DIR) / "hydro_flood_training_meta.json"
+
+
+def _maintenance_status_path() -> Path:
+    return Path(HYDRO_ML_DIR) / "hydro_ml_maintenance_latest.json"
+
+
+def _sample_db_integrity_path() -> Path:
+    return Path(HYDRO_ML_DIR) / "hydro_sample_db_integrity.json"
+
 _DEFAULT_HYDRO_SAMPLE_DB_PATH = HYDRO_SAMPLE_DB_PATH
 _DEFAULT_HYDRO_DATASET_JSONL_PATH = HYDRO_DATASET_JSONL_PATH
 HYDRO_MODEL_ROOT_DIR = Path("train_data/models/hydro_flood")
@@ -1445,9 +1464,9 @@ def migrate_productive_dataset() -> dict:
         for r in legacy:
             existing[r.get("sample_id") or hashlib.sha256(json.dumps(r, sort_keys=True, default=str).encode()).hexdigest()] = r
         _write_jsonl(HYDRO_DATASET_PATH, list(existing.values()))
-    old=_read_json(HYDRO_TRAINING_META_PATH,{})
+    old=_read_json(_training_meta_path(),{})
     old["b410_dataset_migration"] = meta
-    _atomic_json(HYDRO_TRAINING_META_PATH, old)
+    _atomic_json(_training_meta_path(), old)
     export_labeled_samples_jsonl()
     return {**meta, "rows_schema_superseded": superseded, "rows_invalid_b416": invalid_count}
 
@@ -1690,7 +1709,7 @@ def load_trainable_labeled_samples(trainable_only: bool = False) -> list[dict]:
     return [r for r in rows if _sample_is_trainable_live(r)] if trainable_only else rows
 
 def readiness_status() -> dict:
-    meta_mtime=_path_mtime(HYDRO_TRAINING_META_PATH)
+    meta_mtime=_path_mtime(_training_meta_path())
     with _sample_db() as con:
         sig=con.execute("SELECT COUNT(*),MAX(labeled_at),COUNT(DISTINCT event_id) FROM labeled_samples").fetchone()+(
             FEATURE_SCHEMA_VERSION,con.execute("SELECT COUNT(*),MAX(applied_at) FROM schema_migrations").fetchone(),meta_mtime)
@@ -1705,7 +1724,7 @@ def readiness_status() -> dict:
     if total<MIN_TRAINING_SAMPLES: reasons.append("insufficient_regression_samples")
     if valid<MIN_TRAINING_SAMPLES: reasons.append("insufficient_valid_q_delta_targets")
     if stations<1: reasons.append("missing_station_coverage")
-    meta=_read_json(HYDRO_TRAINING_META_PATH,{})
+    meta=_read_json(_training_meta_path(),{})
     value={"enabled":True,"model_available":(HYDRO_MODEL_CURRENT_DIR/HYDRO_MODEL_FILENAME).exists(),"sample_count":total,"regression_sample_count":total,"valid_target_q_delta_count":valid,"feature_complete_count":int(complete or 0),"schema_compatible_count":int(schema or 0),"event_count":events,"time_span_days":round(span,3),"station_count":stations,"precip_source_coverage":{"active":coverage.get(1,0),"inactive":coverage.get(0,0)},"last_training_at":meta.get("last_training_at"),"last_dataset_build_at":meta.get("last_dataset_build_at"),"readiness_status":"ready" if not reasons else "fallback","rejection_reasons":reasons}
     _READINESS_CACHE.update(signature=sig,value=value); return dict(value)
 
@@ -1908,9 +1927,9 @@ def build_dataset_scan() -> dict:
     for sample in samples:
         existing[sample["sample_id"]] = sample
     _write_jsonl(HYDRO_DATASET_PATH, list(existing.values()))
-    meta=_read_json(HYDRO_TRAINING_META_PATH,{})
+    meta=_read_json(_training_meta_path(),{})
     meta.update({"last_dataset_build_at": _now(), "legacy_q_sample_count": len(existing), "productive_dataset_path": str(HYDRO_DATASET_JSONL_PATH), "legacy_dataset_path": str(HYDRO_DATASET_PATH), "note": "Legacy-Q-Scan bleibt getrennt und wird nicht in produktives Training gemergt."})
-    _atomic_json(HYDRO_TRAINING_META_PATH, meta)
+    _atomic_json(_training_meta_path(), meta)
     return readiness_status() | {"status":"dataset_scanned", "dataset_path": str(HYDRO_DATASET_JSONL_PATH), "legacy_dataset_path": str(HYDRO_DATASET_PATH)}
 
 
@@ -2026,7 +2045,7 @@ def _train_model_unlocked(lock_handle=None) -> dict:
         status.update({"event_id_migration": event_migration, "event_id_rows_synchronized": synchronized_event_rows, "event_count": analysis["event_count"]})
         run_id = "rejected_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         status.update({"run_id": run_id, "trained_at": _now(), "promoted": False})
-        _atomic_json(HYDRO_TRAINING_META_PATH, status)
+        _atomic_json(_training_meta_path(), status)
         with _sample_db() as con:
             con.execute("INSERT OR REPLACE INTO training_runs(run_id, created_at, payload) VALUES(?,?,?)", (run_id, status["trained_at"], json.dumps(status, ensure_ascii=False, default=str)))
         return status
@@ -2034,7 +2053,7 @@ def _train_model_unlocked(lock_handle=None) -> dict:
     train,val,split_meta=_split_by_events(rows)
     if split_meta.get("independent_event_status") != "ok" or not val:
         meta = {"status": "insufficient_independent_events", "promoted": False, "run_id": "rejected_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"), "trained_at": _now(), **split_meta}
-        _atomic_json(HYDRO_TRAINING_META_PATH, meta)
+        _atomic_json(_training_meta_path(), meta)
         with _sample_db() as con:
             con.execute("INSERT OR REPLACE INTO training_runs(run_id, created_at, payload) VALUES(?,?,?)", (meta["run_id"], meta["trained_at"], json.dumps(meta, ensure_ascii=False, default=str)))
         return meta
@@ -2073,7 +2092,7 @@ def _train_model_unlocked(lock_handle=None) -> dict:
     if promoted:
         _promote_candidate(cand, meta)
         meta["active_model_signature"] = model_integrity_signature(HYDRO_MODEL_CURRENT_DIR)
-    _atomic_json(HYDRO_TRAINING_META_PATH, meta)
+    _atomic_json(_training_meta_path(), meta)
     with _sample_db() as con:
         con.execute("INSERT OR REPLACE INTO training_runs(run_id, created_at, payload) VALUES(?,?,?)", (run_id, meta["trained_at"], json.dumps(meta, ensure_ascii=False, default=str)))
     return meta
@@ -2464,7 +2483,7 @@ def repair_sample_db(dry_run: bool = False, lock_handle=None) -> dict:
         except sqlite3.Error as exc:
             report.update(repair_status="rebuild_failed", error=f"{type(exc).__name__}: {exc}")
             rebuild.unlink(missing_ok=True)
-            _atomic_json(HYDRO_SAMPLE_DB_INTEGRITY_PATH, report)
+            _atomic_json(_sample_db_integrity_path(), report)
             return report
         finally:
             for con in (src, dst):
@@ -2482,7 +2501,7 @@ def repair_sample_db(dry_run: bool = False, lock_handle=None) -> dict:
         if check != ["ok"]:
             report.update(repair_status="rebuild_not_clean", rebuild_check=check[:20])
             rebuild.unlink(missing_ok=True)
-            _atomic_json(HYDRO_SAMPLE_DB_INTEGRITY_PATH, report)
+            _atomic_json(_sample_db_integrity_path(), report)
             return report
 
         HYDRO_SAMPLE_DB_QUARANTINE_DIR.mkdir(parents=True, exist_ok=True)
@@ -2500,7 +2519,7 @@ def repair_sample_db(dry_run: bool = False, lock_handle=None) -> dict:
             rows_skipped=sum(int(table.get("skipped") or 0) for table in report["tables"]),
         )
         report["integrity_after"] = sample_db_integrity()
-    _atomic_json(HYDRO_SAMPLE_DB_INTEGRITY_PATH, report)
+    _atomic_json(_sample_db_integrity_path(), report)
     return report
 
 
@@ -2513,16 +2532,16 @@ def hydro_ml_maintenance() -> dict:
     report={"deleted_failure_rows":0,"deleted_dataset_rows":0,"deleted_q_history_rows":0,"deleted_training_runs":0,"deleted_candidates":0,"deleted_history_versions":0,"db_size_before":db_size_before}
     if q_days < minimum_q_days:
         report.update(status="refused",reason="q_history_retention_below_lag_and_validation_window",minimum_q_history_retention_days=minimum_q_days)
-        _atomic_json(HYDRO_MAINTENANCE_STATUS_PATH, report)
+        _atomic_json(_maintenance_status_path(), report)
         return report
     integrity = sample_db_integrity()
-    _atomic_json(HYDRO_SAMPLE_DB_INTEGRITY_PATH, integrity)
+    _atomic_json(_sample_db_integrity_path(), integrity)
     report["integrity_status"] = integrity.get("integrity_status")
     report["integrity_affected_tables"] = integrity.get("affected_tables") or []
     if integrity.get("integrity_status") != "ok":
         report["status"] = "degraded_sample_db"
         report["db_size_after"] = db_size_before
-        _atomic_json(HYDRO_MAINTENANCE_STATUS_PATH, report)
+        _atomic_json(_maintenance_status_path(), report)
         return report
     with _sample_db() as con:
         fail_cut=(now_dt-timedelta(days=fail_days)).isoformat().replace("+00:00","Z")
@@ -2542,7 +2561,7 @@ def hydro_ml_maintenance() -> dict:
                 shutil.rmtree(victim, ignore_errors=True); report[key]+=1
     report["db_size_after"] = HYDRO_SAMPLE_DB_PATH.stat().st_size if HYDRO_SAMPLE_DB_PATH.exists() else 0
     report["status"] = "ok"
-    _atomic_json(HYDRO_MAINTENANCE_STATUS_PATH, report)
+    _atomic_json(_maintenance_status_path(), report)
     return report
 
 def flood_risk_status() -> dict:

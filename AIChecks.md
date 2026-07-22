@@ -471,6 +471,20 @@ Admin-Panel fehlgeschlagen" im Log ist immer zu melden, auch wenn der Push gelan
    object_tracking (Merge-Bildung mit weit entfernten Parents) — dann die
    Parent-Distanzen aus den Frames belegen.
 
+### AC-075 — Prüfe Hydro-ML-Statusdateien auf Pytest-Kontamination
+
+1. Prüfe im Export `train_data/hydro/ml/hydro_sample_db_integrity.json`: das
+   Feld `db_path` darf nicht mit `/tmp/pytest` beginnen und muss auf die
+   reale Sample-DB zeigen. Jeder Pytest-Pfad ist ein Befund — mit `code_ref`
+   (hydro_flood_ml.py `_sample_db_integrity_path`) und `beleg` (db_path,
+   checked_at, korrelierter Eintrag im install_pytest.log).
+2. Prüfe `hydro_ml_maintenance_latest.json` auf plausible DB-Größen
+   (`db_size_before`/`db_size_after` in der Größenordnung der realen
+   Sample-DB, nicht ~80 KB Test-DB) und plausible Löschzahlen.
+3. Vergleiche `checked_at`/Erstellzeitpunkte beider Dateien mit den
+   Pytest-Läufen im `install_pytest.log` des Exports: zeitliche Deckung mit
+   einem Testlauf UND Testwerte im Inhalt = Regression der B455-Fehlerklasse.
+
 ## Erledigt
 
 _(Format: `AC-xxx — Kurztitel · YYYY-MM-DD · Ergebnis in einem Satz.)_

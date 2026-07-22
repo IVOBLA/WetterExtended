@@ -10,7 +10,6 @@ def test_b418_migration_relabels_or_preserves_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(h, "HYDRO_SAMPLE_DB_PATH", db)
     monkeypatch.setattr(h, "HYDRO_DATASET_JSONL_PATH", tmp_path / "dataset.jsonl")
     monkeypatch.setattr(h, "HYDRO_DATASET_PATH", tmp_path / "legacy.jsonl")
-    monkeypatch.setattr(h, "HYDRO_TRAINING_META_PATH", tmp_path / "meta.json")
     start = datetime(2026, 1, 1, tzinfo=timezone.utc)
     with h._sample_db() as con:
         for sid, q in (("covered", 9.0), ("missing", 9.0)):

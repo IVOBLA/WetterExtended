@@ -10,7 +10,6 @@ def isolated_dataset(monkeypatch, tmp_path):
     monkeypatch.setattr(h, "HYDRO_SAMPLE_DB_PATH", tmp_path / "samples.sqlite3")
     monkeypatch.setattr(h, "HYDRO_DATASET_JSONL_PATH", tmp_path / "dataset.jsonl")
     monkeypatch.setattr(h, "HYDRO_DATASET_PATH", tmp_path / "legacy.jsonl")
-    monkeypatch.setattr(h, "HYDRO_TRAINING_META_PATH", tmp_path / "meta.json")
     return tmp_path
 
 
