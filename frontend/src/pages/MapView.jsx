@@ -741,13 +741,25 @@ export default function MapView() {
       }
       if (bounds?.bounds) setRadarBounds(bounds.bounds)
       if (lightningData?.strikes) setLightning(lightningData.strikes)
-      api.get('/api/hydro/stations?map=1').then(d => setHydroStations(hydroFeatureCollection(d))).catch(() => setHydroStations({ type:'FeatureCollection', features: [] }))
-      api.get('/api/hydro/flood-risk').then(d => {
-        const rows = hydroFloodRows(d)
-        setHydroFloodRisk(Object.fromEntries(rows.map(r => [String(r.station_id), r])))
-      }).catch(() => setHydroFloodRisk({}))
-      api.get('/api/hydro/impact-segments').then(d => setHydroSegments(hydroFeatureCollection(d))).catch(() => setHydroSegments({ type:'FeatureCollection', features: [] }))
-      api.get('/api/hydro/affected-places').then(d => setHydroPlaces(hydroFeatureCollection(d))).catch(() => setHydroPlaces({ type:'FeatureCollection', features: [] }))
+      // B463: Hydro-Kartendaten gebuendelt laden — die vier Layer erscheinen
+      // gemeinsam in einem Render-Durchgang statt gestaffelt aufzuploppen.
+      // Jede Teilantwort behaelt ihr eigenes catch (Fehlerisolation bleibt).
+      Promise.all([
+        api.get('/api/hydro/stations?map=1').catch(() => null),
+        api.get('/api/hydro/flood-risk').catch(() => null),
+        api.get('/api/hydro/impact-segments').catch(() => null),
+        api.get('/api/hydro/affected-places').catch(() => null),
+      ]).then(([stationsD, floodD, segmentsD, placesD]) => {
+        setHydroStations(stationsD ? hydroFeatureCollection(stationsD) : { type:'FeatureCollection', features: [] })
+        if (floodD) {
+          const rows = hydroFloodRows(floodD)
+          setHydroFloodRisk(Object.fromEntries(rows.map(r => [String(r.station_id), r])))
+        } else {
+          setHydroFloodRisk({})
+        }
+        setHydroSegments(segmentsD ? hydroFeatureCollection(segmentsD) : { type:'FeatureCollection', features: [] })
+        setHydroPlaces(placesD ? hydroFeatureCollection(placesD) : { type:'FeatureCollection', features: [] })
+      })
 
       // Schritt 2: Frame-Timestamp bestimmen, objects/forecast synchron laden.
       // Auch ohne Animation wird immer der neueste Frame-Timestamp verwendet —
