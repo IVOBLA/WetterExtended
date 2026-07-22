@@ -5,6 +5,7 @@ import os
 import cv2
 import json
 import debug_utils
+from datetime import datetime, timezone
 
 from radar_download import download_kmz
 from object_tracking import detect_and_track_objects
@@ -426,6 +427,41 @@ def _apply_hydro_productive_run(objects, timestamp):
             _obj["impact"]["hydro_status"] = "hydro_disabled"
 
 
+def _record_cycle_timing(duration_s: float, *, cells_active: bool) -> None:
+    """B462: Persistiert die Zyklusdauer (letzte + gleitender Mittelwert der
+    letzten 20 Zyklen) nach train_data/status/cycle_timing.json. Atomar via
+    Temp-Datei + os.replace, damit ein Leser nie eine halb geschriebene Datei
+    sieht. Fehler werden vom Aufrufer geloggt, nicht geworfen."""
+    status_dir = SAVE_PATHS.get("status", "train_data/status/")
+    os.makedirs(status_dir, exist_ok=True)
+    path = os.path.join(status_dir, "cycle_timing.json")
+    hist: list = []
+    try:
+        with open(path, encoding="utf-8") as f:
+            prev = json.load(f)
+            if isinstance(prev, dict) and isinstance(prev.get("recent_durations_s"), list):
+                hist = [float(x) for x in prev["recent_durations_s"] if isinstance(x, (int, float))]
+    except Exception:
+        hist = []
+    hist.append(round(float(duration_s), 2))
+    hist = hist[-20:]
+    doc = {
+        "last_duration_s": round(float(duration_s), 2),
+        "avg_duration_s": round(sum(hist) / len(hist), 2) if hist else None,
+        "max_duration_s": round(max(hist), 2) if hist else None,
+        "sample_count": len(hist),
+        "cells_active": bool(cells_active),
+        "updated_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "recent_durations_s": hist,
+    }
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(doc, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+
 def main_loop():
     image_path = "data/latest.png"
 
@@ -474,6 +510,7 @@ def main_loop():
         _bbox = runtime_config.get("BBOX_KAERNTEN_EXTENDED", BBOX_KAERNTEN_EXTENDED)
         _ROI_CACHE = get_roi_from_bbox(_bbox)
         debug_log("Neuer Zyklus gestartet...")
+        _cycle_t0 = time.perf_counter()   # B462: Zyklusdauer-Messung
         radar_ok = download_kmz()
 
         if not radar_ok:
@@ -1393,6 +1430,15 @@ def main_loop():
             debug_log(
                 f"[LOOP] Ruhe > {int(_timeout_s // 60)} min → langer Intervall ({_sleep}s)"
             )
+        # B462: Zyklusdauer erfassen (Radar-Fetch bis kurz vor Sleep) und in
+        # train_data/status/cycle_timing.json persistieren. Zeigt, ob der
+        # Verarbeitungszyklus oder der Frontend-Poll die wahrgenommene
+        # Anzeige-Verzoegerung dominiert (Nutzer-Befund: Zellen erscheinen
+        # spuerbar nach dem Radarbild).
+        try:
+            _record_cycle_timing(time.perf_counter() - _cycle_t0, cells_active=bool(_cells_now))
+        except Exception as _ct_exc:
+            debug_log(f"[B462] cycle_timing konnte nicht geschrieben werden: {_ct_exc}")
         time.sleep(_sleep)
 
 if __name__ == "__main__":

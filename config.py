@@ -1123,6 +1123,7 @@ SAVE_PATHS = {
     "ir": "train_data/cloud/",       # FIX: TIFFs landen in cloud/, nicht ir/
     "lightning": "train_data/lightning/",
     "evaluation": "train_data/evaluation/",
+    "status": "train_data/status/",
     "dem": "train_data/dem/",
     "arome": "train_data/arome/",
     "ir_cells": "train_data/ir_cells/",

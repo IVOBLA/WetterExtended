@@ -114,6 +114,7 @@ _ALWAYS_INCLUDE_NAMES = {
     # diese Dateien ist jede Merge/Split-Analyse blind.
     "cell_lineage_events.jsonl",
     "cell_lineage_state.json",
+    "cycle_timing.json",
     "cell_lineage_write_status.json",
     "config.py",
 }
