@@ -8018,3 +8018,21 @@ Prüfanweisung: `AIChecks.md` → AC-077.
 **Phasen-Status:** Phase A — Serie B412–B461 abgeschlossen, B462 ergänzt
 (Betriebsmetrik Zyklusdauer). Phase B (Hailo-8 U-Net) bleibt unverändert
 blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B463 — Hydro-Kartendaten gebündelt laden (Promise.all)
+
+**Problem:** Die Hydro-Requests (MapView: stations/flood-risk/impact-segments/
+affected-places; MapFullscreen: stations/flood-risk) wurden als unabhängige
+Fire-and-forget-Ketten abgesetzt und trudelten gestaffelt ein — Stationen und
+Flood-Risk ploppten sichtbar nach der Karte auf.
+
+**Fix:** Zusammenfassung zu einem Promise.all mit gemeinsamem State-Update;
+jede Teilantwort behält ihr eigenes catch (Fehlerisolation). Die Layer
+erscheinen gemeinsam in einem Render-Durchgang. Bewusst client-seitig statt
+neuer Bundle-Route, um die getrennte Fehlerbehandlung zu erhalten.
+
+Tests: Frontend-Build grün.
+
+**Phasen-Status:** Phase A — Serie B412–B462 abgeschlossen, B463 ergänzt
+(Karten-UX: gebündeltes Hydro-Laden). Phase B (Hailo-8 U-Net) bleibt
+unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.

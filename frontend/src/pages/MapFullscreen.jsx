@@ -370,11 +370,20 @@ export default function MapFullscreen() {
       }
       if (bounds?.bounds) setRadarBounds(bounds.bounds)
       if (lightningData?.strikes) setLightning(lightningData.strikes)
-      api.get('/api/hydro/stations?map=1').then(d => setHydroStations(hydroFeatureCollection(d))).catch(() => setHydroStations({ type:'FeatureCollection', features: [] }))
-      api.get('/api/hydro/flood-risk').then(d => {
-        const rows = hydroFloodRows(d)
-        setHydroFloodRisk(Object.fromEntries(rows.map(r => [String(r.station_id), r])))
-      }).catch(() => setHydroFloodRisk({}))
+      // B463: Hydro-Kartendaten gebuendelt laden (Stationen + Flood-Risk
+      // gemeinsam), damit sie nicht gestaffelt nach der Karte aufploppen.
+      Promise.all([
+        api.get('/api/hydro/stations?map=1').catch(() => null),
+        api.get('/api/hydro/flood-risk').catch(() => null),
+      ]).then(([stationsD, floodD]) => {
+        setHydroStations(stationsD ? hydroFeatureCollection(stationsD) : { type:'FeatureCollection', features: [] })
+        if (floodD) {
+          const rows = hydroFloodRows(floodD)
+          setHydroFloodRisk(Object.fromEntries(rows.map(r => [String(r.station_id), r])))
+        } else {
+          setHydroFloodRisk({})
+        }
+      })
 
       // B451: Follow-Latest -- beim Live-Folgen den echten neuesten Frame zeigen.
       // objects/forecast werden hier NICHT mehr geladen: alleinige Quelle ist der
