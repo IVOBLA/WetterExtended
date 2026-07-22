@@ -1582,6 +1582,19 @@ def _dedupe_frame_cell_ids(radar_objects: list[dict], state: dict, *, timestamp:
     for obj in radar_objects:
         if not isinstance(obj, dict):
             continue
+        # B459 (Codex P2): Nur AKTIVE Zellen konkurrieren um eine cell_id.
+        # Rain-supported Silent-Tracks / inactive_rain-Objekte duerfen weder
+        # als Keeper eine aktive Zelle verdraengen (aelteres first_seen wuerde
+        # den Tiebreak gewinnen) noch selbst umgeschluesselt werden -- die
+        # Invariante (AC-074) gilt fuer die publizierten aktiven Zellen pro
+        # Frame. Ein Mapping-Duplikat mit einem inaktiven Track bleibt bewusst
+        # bestehen und wird beim Reaktivieren im dann aktiven Frame aufgeloest.
+        if (
+            obj.get("is_active_cell") is False
+            or obj.get("silent_tracking") is True
+            or str(obj.get("tracking_state") or "") == "inactive_rain"
+        ):
+            continue
         cid = obj.get("cell_id")
         rid = _obj_track_id(obj)
         if cid and rid:
