@@ -12,6 +12,12 @@ import json
 import math
 import os
 import statistics
+import uuid
+
+try:
+    import fcntl  # POSIX (Raspian/Linux)
+except Exception:
+    fcntl = None
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -200,20 +206,53 @@ def load_lineage_state() -> dict:
             return _normalize_state(json.load(f))
     except Exception as exc:
         _debug(f"[CELL-LINEAGE] State konnte nicht geladen werden ({path}): {exc}; nutze leeren State")
+        # B453: Defekte Datei quarantaenieren statt sie liegen zu lassen. Ohne
+        # Quarantaene produziert ein einmal korrupter State in JEDEM Zyklus
+        # denselben Ladefehler, und der leere Ersatzstate setzt beim naechsten
+        # Save die date_counters zurueck (cell_id-Recycling, Befund 2026-07-21).
+        if isinstance(exc, (json.JSONDecodeError, ValueError)):
+            try:
+                ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+                quarantine = path.with_name(f"{path.name}.corrupt.{ts}")
+                os.replace(path, quarantine)
+                _debug(f"[CELL-LINEAGE] Defekter State quarantaeniert: {quarantine}")
+            except Exception as qexc:
+                _debug(f"[CELL-LINEAGE] Quarantaene fehlgeschlagen ({path}): {qexc}")
         return _empty_state()
 
 
 def save_lineage_state(state: dict) -> None:
+    # B453: Zwei Dienste (wetterprojekt=main.py, wetterprojekt-admin=app.py)
+    # schreiben denselben State. Der alte, prozessuebergreifend GETEILTE
+    # Temp-Name (path + ".tmp") fuehrte bei ueberlappenden Schreibern zu
+    # aneinandergehaengten JSON-Dokumenten ("Extra data"). Fix: eindeutiger
+    # Temp-Name pro Aufruf (PID + uuid4) und Serialisierung via fcntl.flock
+    # auf einer Lock-Datei -- Muster aus api_budget_guard.record_request.
     path = _state_path()
+    lock_path = path.with_name(path.name + ".lock")
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        with tmp.open("w", encoding="utf-8") as f:
-            json.dump(_normalize_state(state), f, indent=2, ensure_ascii=False)
-            f.write("\n")
-        os.replace(tmp, path)
+        with lock_path.open("a+", encoding="utf-8") as lock_fh:
+            if fcntl is not None:
+                fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
+            try:
+                with tmp.open("w", encoding="utf-8") as f:
+                    json.dump(_normalize_state(state), f, indent=2, ensure_ascii=False)
+                    f.write("\n")
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp, path)
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
     except Exception as exc:
         _debug(f"[CELL-LINEAGE] State konnte nicht gespeichert werden ({path}): {exc}")
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except Exception:
+            pass
 
 
 def _write_status_path() -> Path:
