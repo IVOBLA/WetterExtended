@@ -1635,6 +1635,33 @@ def _dedupe_frame_cell_ids(radar_objects: list[dict], state: dict, *, timestamp:
                     parent_cell = state.get("cells", {}).get(pcid)
                     if isinstance(parent_cell, dict) and parent_cell.get("merged_into_cell_id") == str(cid):
                         parent_cell["merged_into_cell_id"] = new_cid
+                # B458 (Codex P2): record_cell_merge hat merged_from/aliases und
+                # das cell_merge-Event auf den KEEPER (alte, geteilte cell_id)
+                # geschrieben. Nach der Umschluesselung gehoert diese Merge-
+                # Metadatenlage zum Survivor (new_cid); auf dem weiterhin
+                # eigenstaendigen Keeper waere sie eine falsche Historie
+                # ("Parent mergte aus sich selbst + konsumiertem Parent").
+                # Exakt die Eintraege DIESES Merges entfernen -- identifiziert
+                # ueber die Parent-Konstellation bzw. die zeitstempelfreie
+                # event_signature (B371). Aeltere, echte Merge-Historie des
+                # Keepers mit anderen Parents bleibt erhalten.
+                keeper_cell = state.get("cells", {}).get(str(cid))
+                if isinstance(keeper_cell, dict):
+                    _sig = _event_signature("cell_merge", merged_from, [str(cid)])
+                    keeper_cell["lineage_events"] = [
+                        e for e in keeper_cell.get("lineage_events") or []
+                        if not (isinstance(e, dict) and e.get("event_signature") == _sig)
+                    ]
+                    _mf_this = {str(c) for c in merged_from}
+                    keeper_cell["merged_from_cell_ids"] = [
+                        c for c in keeper_cell.get("merged_from_cell_ids") or []
+                        if str(c) not in _mf_this
+                    ]
+                    _alias_this = {str(c) for c in (obj.get("alias_cell_ids") or [])}
+                    keeper_cell["alias_cell_ids"] = [
+                        c for c in keeper_cell.get("alias_cell_ids") or []
+                        if str(c) not in _alias_this
+                    ]
             event = {
                 "event_type": "cell_id_collision_resolved",
                 "timestamp": ts,

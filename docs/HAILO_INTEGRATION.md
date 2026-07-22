@@ -7908,3 +7908,27 @@ Prüfanweisung: `AIChecks.md` → AC-073 (unverändert gültig).
 **Phasen-Status:** Phase A — Serie B412–B456 abgeschlossen, B457 ergänzt
 (Codex-P1-Härtung der B453-Quarantäne). Phase B (Hailo-8 U-Net) bleibt
 unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B458 — Frame-Dedup: Merge-Metadaten dieses Merges vom Keeper entfernt (Codex P2 zu B454)
+
+**Problem:** Im Kollisionsfall „weiterlebender Parent" hatte record_cell_merge
+merged_from_cell_ids, alias_cell_ids und das cell_merge-Event auf den KEEPER
+(alte, geteilte cell_id) geschrieben. B454 kopierte die Metadaten auf den
+umgeschlüsselten Survivor, entfernte sie aber nicht vom Keeper — der State
+behauptete danach, der weiterhin eigenständige Parent sei „aus sich selbst +
+konsumiertem Parent gemergt" (falsche Historie in Lineage/Debug-Exports).
+
+**Fix:** Nach der Umschlüsselung werden exakt die Einträge DIESES Merges vom
+Keeper entfernt (Parent-Konstellation bzw. zeitstempelfreie event_signature
+nach B371); ältere, echte Merge-Historie mit anderen Parents bleibt erhalten.
+Das Events-JSONL bleibt als Append-only-Journal unverändert — das
+cell_id_collision_resolved-Event dokumentiert die Korrektur dort.
+
+Tests: `tests/test_b458_keeper_merge_metadata_cleanup.py` (Metadaten dieses
+Merges vom Keeper entfernt; ältere echte Historie und deren Event erhalten;
+Survivor trägt die Merge-Metadaten).
+Prüfanweisung: `AIChecks.md` → AC-074 (unverändert gültig).
+
+**Phasen-Status:** Phase A — Serie B412–B457 abgeschlossen, B458 ergänzt
+(Codex-P2-Härtung der B454-Umschlüsselung). Phase B (Hailo-8 U-Net) bleibt
+unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
