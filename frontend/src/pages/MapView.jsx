@@ -206,7 +206,10 @@ function isValidForecastFeature(f) {
   const p = f?.properties || {}
   const c = f?.geometry?.coordinates
   const speed = Number(p.forecast_speed_kmh ?? p.speed_kmh ?? 0)
-  return p.has_arrow !== false && p.forecast_rejected !== true && Number.isFinite(speed) && speed <= 150 && Array.isArray(c) && c.length >= 2 && c.slice(0, 2).every(pt => Array.isArray(pt) && pt.length >= 2 && Number.isFinite(Number(pt[0])) && Number.isFinite(Number(pt[1])))
+  // B460: has_arrow=false betrifft nur langsame/stationaere Zellen (Backend
+  // setzt is_slow_arrow=true und will sie SICHTBAR aber transparent, nicht
+  // ausgeblendet). Nur forecast_rejected und ungueltige Geometrie schliessen aus.
+  return p.forecast_rejected !== true && Number.isFinite(speed) && speed <= 150 && Array.isArray(c) && c.length >= 2 && c.slice(0, 2).every(pt => Array.isArray(pt) && pt.length >= 2 && Number.isFinite(Number(pt[0])) && Number.isFinite(Number(pt[1])))
 }
 
 function forecastModeLabel(p) {
@@ -1346,7 +1349,10 @@ export default function MapView() {
         })}
 
         {/* B128: Durchgehende Zugbahn statt radialem Pfaecher */}
-        {(currentIdx === frames.length - 1 || frames.length === 0) && (() => {
+        {/* B460: Zugbahn auf JEDEM angezeigten Frame — beim Scrubbing/in der
+            Animation wird forecast fuer den gezeigten Frame bereits nachgeladen,
+            die Beschraenkung auf den neuesten Frame blendete die Linie sonst aus. */}
+        {frames.length >= 0 && (() => {
           const _groups = {}
           ;(forecast.features || [])
             .filter(isValidForecastFeature)
@@ -1365,16 +1371,22 @@ export default function MapView() {
                 ? [p.forecast_lat_q10, p.forecast_lon_q10] : null
               const q90 = (p.forecast_lat_q90 != null && p.forecast_lon_q90 != null)
                 ? [p.forecast_lat_q90, p.forecast_lon_q90] : null
-              if (Number.isFinite(h)) g.pts.push({ h, ll: [b[1], b[0]], speed: p.speed_kmh, q10, q90, modeLabel: forecastModeLabel(p), rejectReason: p.forecast_reject_reason })
+              if (Number.isFinite(h)) g.pts.push({ h, ll: [b[1], b[0]], speed: p.speed_kmh, q10, q90, modeLabel: forecastModeLabel(p), rejectReason: p.forecast_reject_reason, isSlow: p.is_slow_arrow === true })
               if (!['kinematic', 'kinematic_fallback'].includes(p.forecast_mode)) { g.isKin = false; g.color = p.color || g.color }
             })
           return Object.values(_groups).map((g, gi) => {
             const sorted = g.pts.slice().sort((x, y) => x.h - y.h)
             if (sorted.length === 0) return null
             const line = [g.origin, ...sorted.map(s => s.ll)]
+            // B460: Kraeftigere, besser erkennbare Linien. is_slow (langsame
+            // Zelle) → transparent + gepunktet statt ausgeblendet.
+            const _isSlow = g.pts.length > 0 && g.pts.every(pt => pt.isSlow === true)
             const opts = g.isKin
-              ? { color: '#888888', weight: 2, dashArray: '6,5', opacity: 0.8 }
-              : { color: g.color, weight: 2.5, opacity: 0.9 }
+              ? { color: '#666666', weight: 3, dashArray: '6,5', opacity: _isSlow ? 0.4 : 0.85 }
+              : { color: g.color, weight: 4, opacity: _isSlow ? 0.45 : 0.95 }
+            // Weisse "Casing" unter der farbigen Linie (Leaflet-Standardtechnik)
+            // hebt die Zugbahn vom bunten Radar-Overlay ab.
+            const casingOpts = { color: '#ffffff', weight: opts.weight + 3, opacity: _isSlow ? 0.35 : 0.6 }
             const last = sorted[sorted.length - 1]
             // B130: Unsicherheitskorridor (q10/q90) als EIN sich verbreiterndes Polygon.
             const _qpts = sorted.filter(s => s.q10 && s.q90)
@@ -1426,6 +1438,7 @@ export default function MapView() {
                     fillColor: opts.color, fillOpacity: 0.08, interactive: false,
                   }} />
                 )}
+                <Polyline positions={line} pathOptions={casingOpts} interactive={false} />
                 <Polyline positions={line} pathOptions={opts}>
                   <Popup>
                     <div>Zelle: <strong>{g.cell_id}</strong></div>
