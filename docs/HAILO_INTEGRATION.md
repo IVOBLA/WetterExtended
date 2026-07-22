@@ -7885,3 +7885,26 @@ blockiert; sie wartet auf ausreichende Trainingsdaten.
 **Fix:** `_enforce_cross_horizon_consistency` re-projiziert ausschließlich kinematische Punkte gemischter Folgen durch Interpolation beziehungsweise Extrapolation. ML-Punkte und uniforme Folgen bleiben unverändert; Anpassungen, Displacement/Speed und forecasts-Einträge werden synchronisiert. Die runtime-overridebare Schwelle `FORECAST_CROSS_HORIZON_MAX_BEARING_JUMP_DEG` beträgt standardmäßig 45°.
 
 Tests: `tests/test_b456_cross_horizon_consistency.py`. Prüfanweisung: `AIChecks.md` → AC-076.
+
+### B457 — Lineage-State: Quarantäne nur unter Lock und nach Re-Check (Codex P1 zu B453)
+
+**Problem:** Die B453-Quarantäne lief ohne Lock und ohne erneute Prüfung.
+Race: Prozess A scheitert am Parse des korrupten States; Prozess B repariert
+ihn währenddessen unter dem Save-Lock (atomares os.replace einer validen
+Datei auf denselben Pfadnamen); danach quarantäniert A per Pfadnamen die
+frisch geschriebene VALIDE Datei — keine State-Datei mehr, date_counters-
+Reset, cell_id-Recycling.
+
+**Fix:** Quarantäne läuft jetzt unter demselben `<state>.lock` wie
+save_lineage_state. Im Lock wird die Datei erneut gelesen: parst sie
+(repariert) → validen State zurückgeben, keine Quarantäne; verschwunden
+(bereits quarantäniert) → leerer State; nur weiterhin defekt → Quarantäne.
+
+Tests: `tests/test_b457_quarantine_under_lock.py` (Race simuliert über
+flock-Hook: reparierter State wird zurückgegeben und NICHT quarantäniert;
+weiterhin defekt → Quarantäne; Datei verschwunden → leerer State ohne Crash).
+Prüfanweisung: `AIChecks.md` → AC-073 (unverändert gültig).
+
+**Phasen-Status:** Phase A — Serie B412–B456 abgeschlossen, B457 ergänzt
+(Codex-P1-Härtung der B453-Quarantäne). Phase B (Hailo-8 U-Net) bleibt
+unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.

@@ -206,16 +206,33 @@ def load_lineage_state() -> dict:
             return _normalize_state(json.load(f))
     except Exception as exc:
         _debug(f"[CELL-LINEAGE] State konnte nicht geladen werden ({path}): {exc}; nutze leeren State")
-        # B453: Defekte Datei quarantaenieren statt sie liegen zu lassen. Ohne
-        # Quarantaene produziert ein einmal korrupter State in JEDEM Zyklus
-        # denselben Ladefehler, und der leere Ersatzstate setzt beim naechsten
-        # Save die date_counters zurueck (cell_id-Recycling, Befund 2026-07-21).
+        # B453: Defekte Datei quarantaenieren statt sie liegen zu lassen.
+        # B457 (Codex P1): Quarantaene NUR unter dem Save-Lock und NUR nach
+        # ERNEUTER Pruefung. Ohne Lock konnte das os.replace hier einen soeben
+        # von einem anderen Prozess atomar reparierten, VALIDEN State unter
+        # demselben Pfadnamen wegquarantaenieren -- danach existierte gar
+        # keine State-Datei mehr (date_counters-Reset, cell_id-Recycling).
         if isinstance(exc, (json.JSONDecodeError, ValueError)):
+            lock_path = path.with_name(path.name + ".lock")
             try:
-                ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-                quarantine = path.with_name(f"{path.name}.corrupt.{ts}")
-                os.replace(path, quarantine)
-                _debug(f"[CELL-LINEAGE] Defekter State quarantaeniert: {quarantine}")
+                with lock_path.open("a+", encoding="utf-8") as lock_fh:
+                    if fcntl is not None:
+                        fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
+                    try:
+                        try:
+                            with path.open("r", encoding="utf-8") as f2:
+                                return _normalize_state(json.load(f2))
+                        except FileNotFoundError:
+                            # Ein anderer Prozess hat bereits quarantaeniert.
+                            return _empty_state()
+                        except (json.JSONDecodeError, ValueError):
+                            ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+                            quarantine = path.with_name(f"{path.name}.corrupt.{ts}")
+                            os.replace(path, quarantine)
+                            _debug(f"[CELL-LINEAGE] Defekter State quarantaeniert: {quarantine}")
+                    finally:
+                        if fcntl is not None:
+                            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
             except Exception as qexc:
                 _debug(f"[CELL-LINEAGE] Quarantaene fehlgeschlagen ({path}): {qexc}")
         return _empty_state()
