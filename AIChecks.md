@@ -446,6 +446,18 @@ Admin-Panel fehlgeschlagen" im Log ist immer zu melden, auch wenn der Push gelan
    deuten auf ein Clamping hin, das die eigentliche Fehlskalierung nur kappt, statt sie
    zu verhindern.
 
+### AC-073 — Prüfe Lineage-State auf Korruption und Quarantäne
+
+1. Suche im Admin- und Hauptdienst-Log des Exports nach
+   `[CELL-LINEAGE] State konnte nicht geladen werden` und
+   `State konnte nicht gespeichert werden`. Jeder Treffer nach Einspielung von
+   B453 ist ein Befund — mit `code_ref` (cell_lineage.py
+   save_lineage_state/load_lineage_state) und `beleg` (Logzeile, Zeitstempel).
+2. Prüfe `train_data/cell_lineage/` im Export auf `*.corrupt.*`-Dateien: jede
+   solche Datei belegt eine quarantänierte Korruption — Zeitstempel notieren
+   und mit dem Log korrelieren (erwartete Ursache klären, nicht nur zählen).
+3. Prüfe, dass im selben Verzeichnis keine `*.tmp`-Dateien zurückbleiben.
+
 ## Erledigt
 
 _(Format: `AC-xxx — Kurztitel · YYYY-MM-DD · Ergebnis in einem Satz.)_

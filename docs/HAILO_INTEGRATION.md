@@ -7784,3 +7784,29 @@ Prüfanweisung: `AIChecks.md` → AC-072.
 (Warnlogik-Korrektur: kein erweiterter Radius für slow_approach). Phase B
 (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
 Trainingsdaten.
+
+### B453 — Lineage-State: prozesssichere Persistenz + Quarantäne
+
+**Problem:** `save_lineage_state()` nutzte einen prozessübergreifend geteilten
+Temp-Namen (`<state>.tmp`) ohne `fcntl`-Lock. `wetterprojekt` (main.py) und
+`wetterprojekt-admin` (app.py) schreiben denselben State; überlappende
+Schreiber erzeugten aneinandergehängte JSON-Dokumente (`Extra data`,
+Admin-Journal 2026-07-21 14:22–14:38 UTC). `load_lineage_state()` fiel bei
+Parse-Fehler kommentarlos auf einen leeren State zurück, ohne die defekte
+Datei zu quarantänieren — die Korruption blieb über viele Zyklen bestehen und
+setzte die `date_counters` zurück (Mitursache der cell_id-Kollision, B454).
+
+**Fix:** Eindeutiger Temp-Name pro Aufruf (`<state>.<pid>.<uuid4>.tmp`),
+Serialisierung via `fcntl.flock(LOCK_EX)` auf `<state>.lock` (Muster aus
+`api_budget_guard.record_request`), `fsync` vor `os.replace`, Cleanup des
+Temp-Files im Fehlerfall. `load_lineage_state()` quarantäniert defekte Dateien
+nach `<state>.corrupt.<utc_ts>` statt sie liegen zu lassen.
+
+Tests: `tests/test_b453_lineage_state_locking.py` (24 parallele Saves → genau
+ein gültiges JSON-Dokument, keine Temp-Reste; eindeutiger Temp-Name pro
+Aufruf; Quarantäne bei "Extra data"-Korruption mit funktionierendem Folgelauf).
+Prüfanweisung: `AIChecks.md` → AC-073.
+
+**Phasen-Status:** Phase A — Serie B412–B452 abgeschlossen, B453 ergänzt
+(Lineage-State-Persistenz prozesssicher). Phase B (Hailo-8 U-Net) bleibt
+unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
