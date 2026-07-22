@@ -7810,3 +7810,41 @@ Prüfanweisung: `AIChecks.md` → AC-073.
 **Phasen-Status:** Phase A — Serie B412–B452 abgeschlossen, B453 ergänzt
 (Lineage-State-Persistenz prozesssicher). Phase B (Hailo-8 U-Net) bleibt
 unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B454 — cell_id-Eindeutigkeit pro Frame (Radar-vs-Radar-Dedup)
+
+**Problem:** Beim Merge übernahm der Survivor die cell_id eines Parents,
+während genau dieser Parent als eigenständiges, lebendes Objekt im selben
+Frame weiterexistierte. `record_cell_merge` entfernte die radar_to_cell-
+Einträge konsumierter Parents nicht, und ein Radar-vs-Radar-Dedup pro Frame
+fehlte (`cell_lineage_dedup` deckt nur IR-vs-Radar ab). Beobachtet
+2026-07-21: zwei physisch ~20 km entfernte Zellen trugen über ~12 Frames
+(16:30–17:35) dieselbe cell_id `WX-20260721-0007`.
+
+**Fix:** (1) Nach `record_cell_merge` werden radar_to_cell-Einträge
+KONSUMIERTER Parents (nicht mehr im Frame, nicht der Survivor) entfernt;
+weiterlebende Parents behalten ihre eigene Zuordnung. (2) Neuer Frame-Dedup
+`_dedupe_frame_cell_ids` am Ende von `update_split_merge_lineage`: bei zwei
+lebenden Objekten mit identischer cell_id behält das Objekt mit der älteren
+Identität (lineage != "merged" bevorzugt, dann first_seen) die ID; jedes
+weitere wird auf eine frische `make_cell_id()` umgeschlüsselt und als Event
+`cell_id_collision_resolved` protokolliert. **Die Eltern-Verknüpfung geht bei
+der Umschlüsselung nicht verloren:** der neue Zellen-Datensatz übernimmt
+`merged_from_cell_ids`/`alias_cell_ids` vom Objekt, `merged_into_cell_id`
+konsumierter Parents wird auf die neue Survivor-ID umgehängt, und das
+Kollisionsevent trägt die Eltern-Referenz. Die vorgelagerte Merge-Bildung in
+`object_tracking` (20-km-Parent) bleibt als separater, unverifizierter
+Verdacht offen.
+
+Tests: `tests/test_b454_cell_id_frame_dedup.py` (Produktionskonstellation
+continued-Parent + created_by_merge-Survivor mit geerbter ID → genau ein
+Objekt behält die ursprüngliche cell_id, konsumierter Parent aus
+radar_to_cell entfernt, Kollisionsevent; Eltern-Verknüpfung nach
+Umschlüsselung vollständig erhalten auf Objekt-, Zellen- und Event-Ebene,
+merged_into_cell_id des konsumierten Parents zeigt auf die neue Survivor-ID;
+Negativfall ohne Kollision bleibt unangetastet).
+Prüfanweisung: `AIChecks.md` → AC-074.
+
+**Phasen-Status:** Phase A — Serie B412–B453 abgeschlossen, B454 ergänzt
+(cell_id-Eindeutigkeit pro Frame). Phase B (Hailo-8 U-Net) bleibt unverändert
+blockiert; sie wartet auf ausreichende Trainingsdaten.

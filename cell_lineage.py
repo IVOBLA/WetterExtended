@@ -1548,6 +1548,92 @@ def record_cell_split(parent_cell_id: str, child_objects: list[dict], *, timesta
     return [event]
 
 
+def _dedupe_frame_cell_ids(radar_objects: list[dict], state: dict, *, timestamp: str | None = None) -> list[dict]:
+    """B454: Erzwingt cell_id-Eindeutigkeit pro Frame (Radar-vs-Radar).
+
+    Tragen zwei lebende Radar-Objekte dieselbe cell_id (z. B. weil ein
+    Merge-Survivor die Identitaet eines WEITERLEBENDEN Parents geerbt hat;
+    beobachtet 2026-07-21: WX-20260721-0007 doppelt ueber ~12 Frames), behaelt
+    das Objekt mit der aelteren Identitaet die cell_id (lineage != "merged"
+    bevorzugt, dann fruehestes first_seen, dann Track-ID als deterministischer
+    Tiebreak). Jedes weitere Objekt erhaelt eine frische make_cell_id() und
+    ein Lineage-Event "cell_id_collision_resolved".
+    """
+    events: list[dict] = []
+    ts = _timestamp_str(timestamp)
+    groups: dict[str, list[dict]] = {}
+    for obj in radar_objects:
+        if not isinstance(obj, dict):
+            continue
+        cid = obj.get("cell_id")
+        rid = _obj_track_id(obj)
+        if cid and rid:
+            groups.setdefault(str(cid), []).append(obj)
+    for cid, objs in groups.items():
+        if len(objs) < 2:
+            continue
+
+        def _keep_rank(o: dict):
+            return (
+                1 if str(o.get("lineage") or "") == "merged" else 0,
+                str(o.get("first_seen") or "9999"),
+                str(_obj_track_id(o)),
+            )
+
+        objs_sorted = sorted(objs, key=_keep_rank)
+        keeper = objs_sorted[0]
+        for obj in objs_sorted[1:]:
+            rid = str(_obj_track_id(obj))
+            new_cid = make_cell_id(ts, state)
+            occupied_cell_ids = {
+                str(mapped_cid)
+                for mapping_name in ("radar_to_cell", "ir_to_cell")
+                for mapped_cid in state.get(mapping_name, {}).values()
+                if mapped_cid
+            } | {str(existing_cid) for existing_cid in state.get("cells", {})}
+            while new_cid in occupied_cell_ids:
+                new_cid = make_cell_id(ts, state)
+            obj["cell_id"] = new_cid
+            state.setdefault("radar_to_cell", {})[rid] = new_cid
+            cell = state.setdefault("cells", {}).setdefault(new_cid, {"cell_id": new_cid})
+            _ensure_cell_defaults(new_cid, cell)
+            cell["status"] = "radar_confirmed"
+            cell["last_seen_timestamp"] = ts
+            cell["radar_track_id"] = rid
+            # B454: Die Eltern-Verknuepfung darf bei der Umschluesselung NICHT
+            # verloren gehen. Der neue Zellen-Datensatz uebernimmt die
+            # Merge-Lineage vom Objekt (record_cell_merge hat sie an die alte,
+            # geteilte cell_id geschrieben), und merged_into_cell_id
+            # konsumierter Parents wird auf die neue cell_id umgehaengt. Der
+            # lebende Keeper-Parent traegt kein merged_into_cell_id (er war
+            # primary) und bleibt unangetastet.
+            merged_from = [str(c) for c in (obj.get("merged_from_cell_ids") or []) if c]
+            if merged_from:
+                _append_unique(cell.setdefault("merged_from_cell_ids", []), merged_from)
+                _append_unique(
+                    cell.setdefault("alias_cell_ids", []),
+                    [str(c) for c in (obj.get("alias_cell_ids") or []) if c],
+                )
+                for pcid in merged_from:
+                    parent_cell = state.get("cells", {}).get(pcid)
+                    if isinstance(parent_cell, dict) and parent_cell.get("merged_into_cell_id") == str(cid):
+                        parent_cell["merged_into_cell_id"] = new_cid
+            event = {
+                "event_type": "cell_id_collision_resolved",
+                "timestamp": ts,
+                "cell_id": new_cid,
+                "previous_cell_id": str(cid),
+                "radar_track_id": rid,
+                "kept_by_radar_track_id": _obj_track_id(keeper),
+            }
+            if merged_from:
+                event["merged_from_cell_ids"] = merged_from
+            _append_unique(cell.setdefault("lineage_events", []), [event])
+            append_lineage_event(event)
+            events.append(event)
+    return events
+
+
 def update_split_merge_lineage(radar_objects: list[dict], previous_objects: dict | list | None = None, *, timestamp: str | None = None) -> list[dict]:
     if not bool(_cfg("CELL_LINEAGE_SPLIT_MERGE_ENABLED", CELL_LINEAGE_SPLIT_MERGE_ENABLED)):
         return []
@@ -1588,6 +1674,16 @@ def update_split_merge_lineage(radar_objects: list[dict], previous_objects: dict
             if unresolved:
                 obj["unresolved_parent_ids"] = unresolved
             ev = record_cell_merge(parent_cids, obj, timestamp=timestamp, state=state) if parent_cids else None
+            # B454: radar_to_cell-Eintraege KONSUMIERTER Merge-Parents entfernen.
+            # Konsumiert = der Parent-Track existiert in diesem Frame nicht mehr
+            # als eigenes Objekt und ist nicht der Survivor. Lebt ein Parent
+            # weiter, behaelt er seine eigene Zuordnung -- eine etwaige Kollision
+            # mit dem Survivor loest der Frame-Dedup am Funktionsende auf.
+            _survivor_rid = str(_obj_track_id(obj))
+            for _pid in obj.get("parents") or []:
+                _pid_s = str(_pid)
+                if _pid_s != _survivor_rid and _pid_s not in by_id:
+                    state.get("radar_to_cell", {}).pop(_pid_s, None)
             if ev:
                 events.append(ev)
             elif unresolved:
@@ -1610,5 +1706,9 @@ def update_split_merge_lineage(radar_objects: list[dict], previous_objects: dict
             if parent_cid and len(children) > 1:
                 for ev in record_cell_split(str(parent_cid), children, timestamp=timestamp, state=state):
                     if ev not in events: events.append(ev)
+    # B454: Radar-vs-Radar-Dedup pro Frame -- eine cell_id darf im selben Frame
+    # nur von genau EINEM lebenden Radar-Objekt getragen werden.
+    for ev in _dedupe_frame_cell_ids(radar_objects or [], state, timestamp=timestamp):
+        events.append(ev)
     save_lineage_state(state)
     return events

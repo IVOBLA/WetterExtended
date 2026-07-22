@@ -458,6 +458,19 @@ Admin-Panel fehlgeschlagen" im Log ist immer zu melden, auch wenn der Push gelan
    und mit dem Log korrelieren (erwartete Ursache klären, nicht nur zählen).
 3. Prüfe, dass im selben Verzeichnis keine `*.tmp`-Dateien zurückbleiben.
 
+### AC-074 — Prüfe cell_id-Eindeutigkeit pro Frame
+
+1. Gruppiere in jedem `objects/<ts>.json` des Exports alle Objekte mit
+   `is_active_cell=true` nach `cell_id`. Jede cell_id mit mehr als einem
+   aktiven Objekt im selben Frame ist ein Befund — mit `code_ref`
+   (cell_lineage.py `_dedupe_frame_cell_ids` bzw. `update_split_merge_lineage`)
+   und `beleg` (Frame-Zeitstempel, Track-IDs, Distanz der Zellzentren).
+2. Werte `cell_id_collision_resolved`-Events in `cell_lineage_events.jsonl`
+   aus: vereinzelte Events sind der korrekte Selbstschutz; gehäufte Events
+   (>3 pro Tag) deuten auf ein vorgelagertes Tracking-Problem in
+   object_tracking (Merge-Bildung mit weit entfernten Parents) — dann die
+   Parent-Distanzen aus den Frames belegen.
+
 ## Erledigt
 
 _(Format: `AC-xxx — Kurztitel · YYYY-MM-DD · Ergebnis in einem Satz.)_
