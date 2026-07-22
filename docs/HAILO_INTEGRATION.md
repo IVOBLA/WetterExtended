@@ -7977,3 +7977,24 @@ Tests: Frontend-Build (npm run build) grün; keine Python-Testfläche berührt.
 **Phasen-Status:** Phase A — Serie B412–B459 abgeschlossen, B460 ergänzt
 (Karten-UX: Pfeil-Sichtbarkeit). Phase B (Hailo-8 U-Net) bleibt unverändert
 blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B461 — Zugbahn in Horizont-Farben (Zieldefinitions-Konformität)
+
+**Problem:** Die zieldefinition.txt fordert je Vorhersagezeitraum eine eigene
+Pfeilfarbe + passende Legende. Das Backend liefert die Horizont-Farbe pro
+Feature, aber seit B128 zeichnete das Frontend EINE durchgehende Linie, deren
+Farbe zufällig vom zuletzt iterierten Feature stammte (g.color = p.color) —
+Legende und Darstellung stimmten nicht überein.
+
+**Fix (MapView.jsx + MapFullscreen.jsx):** KI-Zugbahnen werden als Segmente
+pro Horizont in der jeweils konfigurierten Farbe gezeichnet; die durchgehende
+Linie bleibt unsichtbar als Popup-Träger, die weiße Casing (B460) als
+Untermalung. Kinematische Bahnen bleiben einheitlich grau. Benutzerhandbuch
+aktualisiert (Fach-Feature).
+
+Tests: Frontend-Build grün.
+
+**Phasen-Status:** Phase A — Serie B412–B460 abgeschlossen, B461 ergänzt
+(Karten-Fach-Feature: Horizont-Farben gemäß Zieldefinition). Phase B (Hailo-8
+U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
+Trainingsdaten.
