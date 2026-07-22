@@ -7932,3 +7932,28 @@ Prüfanweisung: `AIChecks.md` → AC-074 (unverändert gültig).
 **Phasen-Status:** Phase A — Serie B412–B457 abgeschlossen, B458 ergänzt
 (Codex-P2-Härtung der B454-Umschlüsselung). Phase B (Hailo-8 U-Net) bleibt
 unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B459 — Frame-Dedup: nur aktive Zellen konkurrieren um die cell_id (Codex P2 zu B454)
+
+**Problem:** `_dedupe_frame_cell_ids` gruppierte auch rain-supported
+Silent-Tracks bzw. inactive_rain-Objekte. Teilte ein älterer inaktiver Track
+über eine korrupte Alt-Zuordnung die cell_id mit einer aktuellen aktiven
+Zelle, gewann der inaktive Track den first_seen-Tiebreak und die AKTIVE Zelle
+wurde unnötig umgeschlüsselt — die Invariante (AC-074) prüft aber nur aktive
+Zellen pro Frame.
+
+**Fix:** Objekte mit `is_active_cell=False`, `silent_tracking=True` oder
+`tracking_state="inactive_rain"` nehmen nicht am Dedup teil (weder als
+Keeper noch als Umschlüsselungskandidat). Ein Mapping-Duplikat mit einem
+inaktiven Track bleibt bewusst bestehen und wird beim Reaktivieren im dann
+aktiven Frame regulär aufgelöst (der ältere reaktivierte Track behält per
+first_seen die Identität, konsistent mit B268).
+
+Tests: `tests/test_b459_dedup_ignores_inactive_tracks.py` (älterer inaktiver
+Track verdrängt aktive Zelle nicht, kein Event; Regressionsfall zwei aktive
+Zellen wird weiterhin dedupliziert).
+Prüfanweisung: `AIChecks.md` → AC-074 (unverändert gültig).
+
+**Phasen-Status:** Phase A — Serie B412–B458 abgeschlossen, B459 ergänzt
+(Codex-P2-Härtung: Dedup nur über aktive Zellen). Phase B (Hailo-8 U-Net)
+bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
