@@ -237,8 +237,12 @@ zusammenhaengende Linie vom aktuellen Zellort ueber die Prognosepunkte +10/+20/
 +30/+40/+60 Minuten, mit kleinen Markern an jedem Punkt (Tooltip `+H min`) und
 einem groesseren Endpunkt. Eine **graue gestrichelte** Linie kennzeichnet eine
 kinematische Schaetzung (kein ML-Modell aktiv), eine **farbige** Linie eine
-KI-Vorhersage. Diese Darstellung ersetzt die frueheren einzelnen Pfeile je
-Horizont und macht Beschleunigung und Kruemmung der Zugbahn auf einen Blick lesbar.
+KI-Vorhersage. Bei KI-Vorhersagen wird jedes Segment der Zugbahn (aktueller
+Ort→+10, +10→+20, +20→+30, +30→+40, +40→+60 Minuten) in der **im Admin-Panel
+konfigurierten Farbe seines Zielhorizonts** gezeichnet — passend zur
+Farblegende unten links. Diese Darstellung ersetzt die frueheren einzelnen
+Pfeile je Horizont und macht Beschleunigung, Kruemmung und den zeitlichen
+Verlauf der Zugbahn auf einen Blick lesbar.
 
 **Unsicherheitskorridor:** Bei KI-Vorhersagen wird um die Zugbahn ein
 halbtransparenter, sich nach vorn verbreiternder Korridor gezeichnet (gebildet aus

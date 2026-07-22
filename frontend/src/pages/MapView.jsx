@@ -1371,7 +1371,7 @@ export default function MapView() {
                 ? [p.forecast_lat_q10, p.forecast_lon_q10] : null
               const q90 = (p.forecast_lat_q90 != null && p.forecast_lon_q90 != null)
                 ? [p.forecast_lat_q90, p.forecast_lon_q90] : null
-              if (Number.isFinite(h)) g.pts.push({ h, ll: [b[1], b[0]], speed: p.speed_kmh, q10, q90, modeLabel: forecastModeLabel(p), rejectReason: p.forecast_reject_reason, isSlow: p.is_slow_arrow === true })
+              if (Number.isFinite(h)) g.pts.push({ h, ll: [b[1], b[0]], speed: p.speed_kmh, q10, q90, modeLabel: forecastModeLabel(p), rejectReason: p.forecast_reject_reason, isSlow: p.is_slow_arrow === true, hColor: p.color || null })
               if (!['kinematic', 'kinematic_fallback'].includes(p.forecast_mode)) { g.isKin = false; g.color = p.color || g.color }
             })
           return Object.values(_groups).map((g, gi) => {
@@ -1439,7 +1439,20 @@ export default function MapView() {
                   }} />
                 )}
                 <Polyline positions={line} pathOptions={casingOpts} interactive={false} />
-                <Polyline positions={line} pathOptions={opts}>
+                {/* B461: Farbige Zugbahn in den konfigurierten Horizont-Farben
+                    (Zieldefinition: je Vorhersagezeitraum eine eigene Pfeilfarbe).
+                    Jedes Segment Ursprung→+10, +10→+20, … erhaelt die Farbe seines
+                    ZIEL-Horizonts. Kinematische Bahnen bleiben einheitlich grau. */}
+                {!g.isKin && sorted.map((s, si) => {
+                  const from = si === 0 ? g.origin : sorted[si - 1].ll
+                  const segColor = s.hColor || g.color
+                  return (
+                    <Polyline key={'seg_' + gi + '_' + si} positions={[from, s.ll]}
+                      pathOptions={{ color: segColor, weight: opts.weight, opacity: opts.opacity }}
+                      interactive={false} />
+                  )
+                })}
+                <Polyline positions={line} pathOptions={g.isKin ? opts : { ...opts, opacity: 0 }}>
                   <Popup>
                     <div>Zelle: <strong>{g.cell_id}</strong></div>
                     <div>Zugbahn {g.isKin ? '(Schaetzung)' : '(KI)'} bis +{last.h} min</div>
