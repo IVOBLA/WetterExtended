@@ -485,6 +485,20 @@ Admin-Panel fehlgeschlagen" im Log ist immer zu melden, auch wenn der Push gelan
    Pytest-Läufen im `install_pytest.log` des Exports: zeitliche Deckung mit
    einem Testlauf UND Testwerte im Inhalt = Regression der B455-Fehlerklasse.
 
+### AC-076 — Zähle Bearing-Sprünge >45 Grad in der Prognoselinie
+
+1. Berechne für jedes Objekt in jedem `objects/<ts>.json` des Exports die
+   Segment-Bearings der Kette Ursprung → forecast_x/y_10 → … → forecast_x/y_60.
+   Jeder Frame mit einem Sprung >45° zwischen aufeinanderfolgenden Segmenten
+   bei GEMISCHTER ml/kinematic-Folge ist ein Befund — mit `code_ref`
+   (prediction.py `_enforce_cross_horizon_consistency`) und `beleg`
+   (cell_id, Frame, x/y-Folge, forecast_mode_<h>-Folge).
+2. Werte die Quote der `forecast_consistency_adjusted_<h>`-Flags über den
+   Export aus: vereinzelte Anpassungen sind der korrekte Selbstschutz; eine
+   dauerhaft hohe Quote (>10 % der mixed-Frames) belegt eine systematische
+   ML/Kinematik-Divergenz — dann die Gate-Entscheidungen
+   (forecast_gate_reason) der betroffenen Horizonte mit auswerten.
+
 ## Erledigt
 
 _(Format: `AC-xxx — Kurztitel · YYYY-MM-DD · Ergebnis in einem Satz.)_

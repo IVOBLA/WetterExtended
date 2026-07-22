@@ -7877,3 +7877,11 @@ Prüfanweisung: `AIChecks.md` → AC-075.
 (Datenintegrität auf der Zielhardware: Pytest kontaminiert keine
 Produktions-Statusdateien mehr). Phase B (Hailo-8 U-Net) bleibt unverändert
 blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B456 — Cross-Horizont-Konsistenz der öffentlichen Prognoselinie
+
+**Problem:** Gemischte ml/kinematic-Folgen konnten zwischen Horizonten ihre Richtung umkehren (75/674 untersuchte Frames mit Bearing-Sprung >45°).
+
+**Fix:** `_enforce_cross_horizon_consistency` re-projiziert ausschließlich kinematische Punkte gemischter Folgen durch Interpolation beziehungsweise Extrapolation. ML-Punkte und uniforme Folgen bleiben unverändert; Anpassungen, Displacement/Speed und forecasts-Einträge werden synchronisiert. Die runtime-overridebare Schwelle `FORECAST_CROSS_HORIZON_MAX_BEARING_JUMP_DEG` beträgt standardmäßig 45°.
+
+Tests: `tests/test_b456_cross_horizon_consistency.py`. Prüfanweisung: `AIChecks.md` → AC-076.

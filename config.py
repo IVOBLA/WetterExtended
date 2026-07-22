@@ -549,6 +549,13 @@ ASSOC_UNMATCHED_COST: float = 0.80
 # kinematische Forecasts sind reine Geradenextrapolation und nicht betroffen.
 ML_FORECAST_MAX_BEARING_DEVIATION_DEG: float = 90.0
 
+# B456: Maximal erlaubter Bearing-Sprung zwischen zwei aufeinanderfolgenden
+# Horizont-Segmenten der oeffentlichen Prognoselinie. Nur fuer GEMISCHTE
+# ml/kinematik-Folgen relevant; betroffene KINEMATISCHE Punkte werden auf die
+# Nachbar-Basis re-projiziert (prediction._enforce_cross_horizon_consistency).
+# ML-Punkte und uniforme Folgen bleiben unangetastet.
+FORECAST_CROSS_HORIZON_MAX_BEARING_JUMP_DEG: float = 45.0
+
 # Steuerstrom-Abgleich fuer kinematische Forecasts. Windrichtungen aus Wetterdaten
 # sind meteorologisch (FROM); prediction.py wandelt sie in Zellbewegung (TO).
 STEERING_BLEND_ENABLED: bool = True
