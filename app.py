@@ -97,6 +97,12 @@ _ADMIN_WRITE_PREFIXES = (
     "/api/hydro/stations/",
     "/api/admin/hydro/",
     "/api/admin/ml/",
+    # B464 (Codex-Review zu P80): Betriebsart und Runner-Konfiguration sind
+    # Konfiguration, keine Bedienung. Ohne diese Eintraege duerfte ein
+    # operator-Token die taegliche Analyse umstellen — _jwt_auth_check leitet
+    # Schreibrechte ausschliesslich aus dieser Liste ab.
+    "/api/analysis_mode",
+    "/api/local_analysis",
 )
 # P1-1: GET/HEAD auf diesen Präfixen erfordern mind. viewer-Level (eingeloggt).
 # Bewusst NICHT enthalten (öffentliche Karte): /api/objects, /api/forecast,

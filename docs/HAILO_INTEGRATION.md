@@ -8280,3 +8280,24 @@ vorgesehene kernel-erzwungene Sandbox begrenzt.
 
 **Phasen-Status:** Phase A — Nacharbeit B464–B467: B464 ✅, B465 ✅, B466–B467 offen.
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.
+
+### B464 — Betriebsart und Analyse-Konfiguration nur für Admins (Codex-Review zu P80)
+
+**Befund (Codex, P1):** P80 hatte `/api/analysis_mode` und `/api/local_analysis` nur
+in `_SENSITIVE_READ_PREFIXES` eingetragen. `_jwt_auth_check` leitet Schreibrechte
+jedoch ausschliesslich aus `_ADMIN_WRITE_PREFIXES` ab — ein operator-Token konnte
+damit per POST die Betriebsart der täglichen Analyse und die Runner-Konfiguration
+ändern. Das widerspricht der Rollentrennung (operator bedient, admin konfiguriert),
+der alle übrigen Konfigurationsrouten folgen.
+
+**Änderung:** Beide Präfixe zusätzlich in `_ADMIN_WRITE_PREFIXES`. GET bleibt
+unverändert bei viewer-Level, weil der Lesezweig früher greift.
+
+Tests: `tests/test_b464_analysis_admin_gate.py` — 5 Fälle, AST-basiert: beide
+Präfixe in `_ADMIN_WRITE_PREFIXES`, beide weiterhin in `_SENSITIVE_READ_PREFIXES`,
+Regression auf die einzige Ableitungsstelle der Schreibrechte, Admin-Gate der
+Job-Route.
+
+**Phasen-Status:** Phase A — Serie P76–P82 abgeschlossen, Nacharbeit B464–B467 aus
+dem Codex-Review begonnen: B464 ✅, B465–B467 offen. Phase B (Hailo-8 U-Net) bleibt
+unverändert blockiert.
