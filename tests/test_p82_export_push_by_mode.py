@@ -39,13 +39,45 @@ def test_analysis_mode_helper_exists(publisher):
     assert hasattr(publisher, "analysis_mode")
 
 
-def test_default_mode_is_repo(publisher):
+def test_config_default_is_repo():
+    """B467: Die VORGABE in config.py — nicht der effektive Wert.
+
+    Die alte Fassung pruefte analysis_mode() ohne Attrappe und schlug auf jedem
+    Geraet fehl, das in runtime_overrides.json bereits auf "local" steht. Tests
+    duerfen niemals vom Laufzeitzustand der Zielumgebung abhaengen.
+    """
+    import config
+    assert config.ANALYSIS_MODE == "repo"
+
+
+def test_runtime_override_is_respected(publisher, monkeypatch):
+    import runtime_config
+    monkeypatch.setattr(runtime_config, "reload_overrides", lambda: None)
+    monkeypatch.setattr(runtime_config, "get", lambda name, default=None: "local")
+    assert publisher.analysis_mode(REPO_ROOT) == "local"
+
+
+def test_missing_override_falls_back_to_the_config_default(publisher, monkeypatch):
+    import runtime_config
+    monkeypatch.setattr(runtime_config, "reload_overrides", lambda: None)
+    monkeypatch.setattr(runtime_config, "get", lambda name, default=None: default)
     assert publisher.analysis_mode(REPO_ROOT) == "repo"
 
 
-def test_broken_repo_dir_falls_back_to_repo(publisher, tmp_path):
-    """Ein defektes Setup darf den Export-Push nie stillschweigend abschalten."""
-    assert publisher.analysis_mode(tmp_path / "gibtsnicht") == "repo"
+def test_broken_runtime_config_falls_back_to_repo(publisher, monkeypatch):
+    """Ein defektes runtime_overrides.json darf den Push nie stillschweigend abschalten."""
+    import runtime_config
+
+    def _boom():
+        raise RuntimeError("runtime_overrides.json ist kaputt")
+
+    monkeypatch.setattr(runtime_config, "reload_overrides", _boom)
+    assert publisher.analysis_mode(REPO_ROOT) == "repo"
+
+
+def test_missing_repo_dir_never_raises(publisher, tmp_path):
+    """Auch mit unsinnigem Pfad liefert der Helper einen gueltigen Wert statt zu werfen."""
+    assert publisher.analysis_mode(tmp_path / "gibtsnicht") in ("repo", "local")
 
 
 def test_mode_is_lowercased_and_stripped(publisher, monkeypatch):

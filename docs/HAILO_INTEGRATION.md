@@ -8333,3 +8333,33 @@ zusätzlich die Begrenzung der Schreibpfade.
 
 **Phasen-Status:** Phase A — Nacharbeit B464–B467: B464 ✅, B465 ✅, B466 ✅, B467
 offen. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.
+
+### B467 — P82-Tests hingen vom Laufzeitzustand des Zielsystems ab
+
+**Befund:** `test_default_mode_is_repo` und `test_broken_repo_dir_falls_back_to_repo`
+scheiterten auf dem Pi (`assert 'local' == 'repo'`), im Repository dagegen nicht.
+Beide riefen `analysis_mode()` ohne Attrappe auf; die Funktion liest korrekt den
+effektiven Wert aus `config.py` plus `runtime_overrides.json`. Auf dem Pi stand dort
+bereits `ANALYSIS_MODE = "local"` — geprüft wurde also der Betriebszustand des
+Geräts statt das Verhalten des Codes.
+
+Der zweite Test enthielt zusätzlich eine falsche Annahme: `analysis_mode()` fällt bei
+einem nicht existierenden `repo_dir` nicht auf `"repo"` zurück, weil `config` und
+`runtime_config` zu diesem Zeitpunkt längst importiert sind — `sys.path.insert`
+ändert an geladenen Modulen nichts. Die Rückfall-Eigenschaft gilt für Ausnahmen beim
+Lesen der Overrides, nicht für Pfadfehler.
+
+**Änderung:** Kein Produktionscode. Die beiden Tests werden durch fünf ersetzt:
+Vorgabe in `config.py`, Override wird respektiert, fehlender Override fällt auf die
+Vorgabe zurück, defektes `runtime_config` (injizierte Ausnahme) fällt auf `"repo"`
+zurück, unsinniger Pfad wirft nicht.
+
+**Lehre, für künftige Tests verbindlich:** Ein Test darf nie den effektiven
+Konfigurationswert der Zielumgebung lesen. `install.sh` Phase 9 läuft im produktiven
+Verzeichnis, in dem `runtime_overrides.json` existiert. Entweder die Vorgabe aus
+`config.py` prüfen oder `runtime_config` per Attrappe kontrollieren. Die übrigen
+Tests der Serie P76–P82 wurden daraufhin geprüft; nur diese beiden waren betroffen.
+
+**Phasen-Status:** Phase A — Nacharbeit B464–B467 abgeschlossen: B464 ✅, B465 ✅,
+B466 ✅, B467 ✅. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet
+auf ausreichende Trainingsdaten.
