@@ -8301,3 +8301,35 @@ Job-Route.
 **Phasen-Status:** Phase A — Serie P76–P82 abgeschlossen, Nacharbeit B464–B467 aus
 dem Codex-Review begonnen: B464 ✅, B465–B467 offen. Phase B (Hailo-8 U-Net) bleibt
 unverändert blockiert.
+
+### B466 — Analyse-Dienst darf nur das Ergebnisverzeichnis beschreiben
+
+**Ausgangslage:** `ProtectSystem=full` schützt `/usr`, `/boot` und `/etc`, lässt aber
+`/home` schreibbar. Quellcode, Modelle und Rohdaten des Projekts waren damit für den
+Analyse-Prozess beschreibbar. B465 beseitigt die bekannte Lücke in der Allowlist;
+diese Nummer begrenzt den Schaden einer unbekannten.
+
+**Änderung:** `ProtectSystem=strict` plus vier `ReadWritePaths`:
+`<TARGET>/train_data/evaluation` (die beiden einzigen Dateien, die der Runner
+schreibt) sowie `-<HOME>/.claude`, `-<HOME>/.cache`, `-<HOME>/.config` für den
+Sitzungsstatus der CLI. Das Minus-Präfix verhindert, dass ein noch nicht angelegtes
+Verzeichnis den Start scheitern lässt. `InaccessiblePaths=-<TARGET>/.env` bleibt.
+
+**Warum strict in P78 zunächst verworfen wurde:** damals ohne explizite
+`ReadWritePaths` — die CLI hätte in `~/.claude` nicht schreiben können. Mit den vier
+Einträgen ist das gelöst.
+
+**Fehlerbild bei fehlendem Schreibpfad:** `state=failed` mit `Read-only file system`
+im `error`-Feld, sichtbar im Admin-Panel und im Journal — nicht still.
+
+`install.sh` bleibt unberührt: Phase 7h substituiert die Platzhalterpfade bereits
+global, die neuen Zeilen werden automatisch erfasst.
+
+Tests: `tests/test_b466_local_analysis_sandbox.py` — 6 Fälle: `strict` statt `full`,
+Ergebnisverzeichnis beschreibbar, Projektwurzel und `train_data` nicht beschreibbar,
+CLI-Statusverzeichnisse vorhanden, Minus-Präfix bei den optionalen Pfaden,
+`.env` weiterhin unzugänglich. Angepasst: `tests/test_p78_…` prüft nun `strict` und
+zusätzlich die Begrenzung der Schreibpfade.
+
+**Phasen-Status:** Phase A — Nacharbeit B464–B467: B464 ✅, B465 ✅, B466 ✅, B467
+offen. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.
