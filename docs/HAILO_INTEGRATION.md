@@ -8228,3 +8228,36 @@ Bugfix-Formulierungen.
 **Phasen-Status:** Phase A — Serie P76–P82: P76 ✅, P77 ✅, P78 ✅, P79 ✅, P80 ✅,
 P81 ✅, P82 offen. Nach P82 ist die Serie vollständig. Phase B (Hailo-8 U-Net) bleibt
 unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### P82 — Debug-Export wird in Betriebsart "local" nicht mehr gepusht
+
+**Befund:** In Betriebsart "local" analysiert der Pi selbst; der Branch
+debug-export-latest wird von niemandem mehr gelesen. Der nächtliche Force-Push kostet
+Bandbreite, GitHub-Schreibzugriffe und Laufzeit ohne Nutzen.
+
+**Änderung:** `tools/publish_latest_debug_export_branch.py` erhält den Helper
+`analysis_mode(repo_dir)` und steigt in `publish()` bei "local" vor dem Push aus.
+
+**Reihenfolge (bindend):** Export erzeugen → `persist_for_admin_panel()` →
+Betriebsart prüfen → ggf. Ausstieg mit Logzeile → sonst `write_branch_repo()` und
+Push. Damit bleibt B429 vollständig gültig: der Admin-Panel-Download existiert in
+beiden Betriebsarten. Der Ausstieg liegt vor `write_branch_repo()`, spart also auch
+das temporäre Branch-Repo. Das `finally` räumt die Quell-Volumes in beiden Fällen auf.
+
+**Bewusste Entscheidungen:**
+- `analysis_mode()` fängt jede Ausnahme ab und liefert dann "repo". Ein defektes
+  runtime_overrides.json darf niemals dazu führen, dass der Export stillschweigend
+  nicht mehr hochgeladen wird — im Zweifel wird gepusht.
+- Der Timer bleibt unverändert aktiv: der Export wird weiterhin jede Nacht erzeugt und
+  im Admin-Panel bereitgestellt, damit ein ZIP bei Bedarf manuell verfügbar ist.
+- Der `--dry-run`-Pfad bleibt unberührt.
+
+Tests: `tests/test_p82_export_push_by_mode.py` — 9 Fälle: Helper vorhanden, Default
+"repo", Rückfall auf "repo" bei defektem Setup, Normalisierung des Wertes,
+Persistenz vor der Modus-Prüfung, Ausstieg vor `write_branch_repo()`, aussagekräftige
+Logzeile, Push-Kommando für "repo" weiterhin vorhanden, `--dry-run` unverändert.
+
+**Phasen-Status:** Phase A — Serie P76–P82 abgeschlossen: P76 ✅, P77 ✅, P78 ✅,
+P79 ✅, P80 ✅, P81 ✅, P82 ✅. Die tägliche Analyse läuft ab jetzt genau einmal —
+entweder extern über das Repository (Default) oder am Pi. Phase B (Hailo-8 U-Net)
+bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.

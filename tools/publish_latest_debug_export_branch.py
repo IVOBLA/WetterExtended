@@ -313,6 +313,30 @@ def write_branch_repo(
     return manifest
 
 
+def analysis_mode(repo_dir: Path) -> str:
+    """Betriebsart der taeglichen Analyse: "repo" oder "local" (P82).
+
+    Wird nur gelesen. Faellt bei jedem Problem auf "repo" zurueck, damit ein
+    defektes runtime_overrides.json niemals den Export-Push verhindert.
+    """
+    try:
+        repo_dir = Path(repo_dir).resolve()
+        if str(repo_dir) not in sys.path:
+            sys.path.insert(0, str(repo_dir))
+        from config import ANALYSIS_MODE as _default
+        try:
+            import runtime_config
+
+            runtime_config.reload_overrides()
+            value = runtime_config.get("ANALYSIS_MODE", _default)
+        except Exception:
+            value = _default
+        return str(value or "repo").strip().lower()
+    except Exception as exc:
+        log(f"Betriebsart nicht ermittelbar ({exc}) — nehme 'repo' an.")
+        return "repo"
+
+
 def publish(args: argparse.Namespace) -> None:
     ensure_repo(args.repo_dir)
     if args.check_only:
@@ -337,6 +361,16 @@ def publish(args: argparse.Namespace) -> None:
                 log("Dry-run: keine Persistenz für das Admin-Panel.")
             else:
                 persist_for_admin_panel(parts, export_manifest, args.repo_dir)
+                # P82: In der Betriebsart "local" analysiert der Pi selbst. Der
+                # Branch wird dann von niemandem gelesen — der Push entfaellt.
+                # Der Admin-Panel-Download ist oben bereits abgelegt und bleibt
+                # vollstaendig erhalten. Reihenfolge ist bindend.
+                if analysis_mode(args.repo_dir) == "local":
+                    log(
+                        "Betriebsart 'local': kein Push nach GitHub "
+                        "(die Analyse laeuft am Pi). Admin-Panel-Export wurde abgelegt."
+                    )
+                    return
             max_zip_bytes = args.max_zip_mb * 1024 * 1024
             oversized = [(path, name) for path, name in parts if path.stat().st_size > max_zip_bytes]
             if oversized:
