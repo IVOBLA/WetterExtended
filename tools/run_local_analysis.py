@@ -16,17 +16,14 @@ from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Europe/Vienna")
 MAX_ATTEMPTS_PER_DAY = 3
-FORBIDDEN_TOOL_TOKENS = (
-    "write", "edit", "notebook", "git push", "git commit", "git add",
-    "git checkout", "git reset", "sudo", "rm ", "rmdir", "chmod", "chown",
-    "mv ", "mkfs", "truncate", "tee ", "pip", "npm", "apt", "curl", "wget",
-    "python", "bash(sh", "bash(bash", "bash(zsh", "systemctl restart",
-    "systemctl stop", "systemctl start",
-)
-FORBIDDEN_READ_BYPASS = (
-    "bash(cat", "bash(head", "bash(tail", "bash(less", "bash(more",
-    "bash(strings", "bash(xxd", "bash(od", "bash(grep", "bash(awk", "bash(sed",
-)
+# B465 (Codex-Review zu P77): Positivliste statt Verbots-Substrings.
+# Platzhalterregeln wie "Bash(journalctl *)" sind nicht read-only —
+# `journalctl --vacuum-size=1M` loescht Journaldateien, und die sqlite3-Shell
+# kennt Punktbefehle (.shell/.output/.import). Prefix-Matching kann das nicht
+# abfangen. Deshalb: genau EINE Bash-Regel, das validierende Abfragewerkzeug.
+ALLOWED_PLAIN_TOOLS = frozenset({"Read", "Grep", "Glob"})
+ALLOWED_BASH_RULES = frozenset({"Bash(python3 tools/ro_query.py *)"})
+
 REQUIRED_LIST_FIELDS = ("fehler", "loesungen", "verbesserungen", "prompts")
 SECRET_ENV_TOKENS = ("TOKEN", "SECRET", "PASSWORD", "PASSWD", "APIKEY", "API_KEY", "PRIVATE_KEY", "CREDENTIAL", "ANTHROPIC_API")
 ENV_PASSTHROUGH = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TZ", "TERM", "SHELL", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "DISABLE_AUTOUPDATER")
@@ -80,14 +77,46 @@ def is_due(mode, mode_changed, cfg, status, now_local, max_attempts=MAX_ATTEMPTS
     return True, "due"
 
 
+def split_allowed_tools(spec: str) -> list:
+    """Zerlegt die Allowlist an Kommas, die nicht innerhalb von Klammern stehen."""
+    out, buf, depth = [], [], 0
+    for ch in str(spec or ""):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        if ch == "," and depth == 0:
+            out.append("".join(buf).strip())
+            buf = []
+        else:
+            buf.append(ch)
+    tail = "".join(buf).strip()
+    if tail:
+        out.append(tail)
+    return [e for e in out if e]
+
+
 def validate_allowed_tools(spec: str) -> None:
-    low = str(spec or "").lower()
-    if not low.strip(): raise PreconditionError("allowed_tools ist leer")
-    for tok in FORBIDDEN_TOOL_TOKENS:
-        if tok in low: raise PreconditionError(f"allowed_tools enthält ein schreibendes Werkzeug: {tok!r}")
-    for tok in FORBIDDEN_READ_BYPASS:
-        if tok in low: raise PreconditionError(f"allowed_tools umgeht die Read-Deny-Regeln: {tok!r}")
-    if "sqlite3" in low and "sqlite3 -readonly" not in low: raise PreconditionError("sqlite3 ist nur mit -readonly zulässig")
+    """Laesst ausschliesslich Eintraege der Positivliste zu (B465).
+
+    Jeder andere Eintrag wird abgelehnt — auch scheinbar harmlose. Shell-Zugriffe
+    laufen ohne Ausnahme ueber tools/ro_query.py, das seine Parameter selbst
+    validiert und externe Programme nie ueber die Shell aufruft.
+    """
+    entries = split_allowed_tools(spec)
+    if not entries:
+        raise PreconditionError("allowed_tools ist leer")
+    erlaubt = sorted(ALLOWED_PLAIN_TOOLS | ALLOWED_BASH_RULES)
+    for entry in entries:
+        if entry in ALLOWED_PLAIN_TOOLS or entry in ALLOWED_BASH_RULES:
+            continue
+        raise PreconditionError(
+            f"Werkzeug nicht auf der Positivliste: {entry!r}. "
+            f"Erlaubt sind ausschliesslich: {', '.join(erlaubt)}. "
+            "Shell-Zugriffe laufen ueber tools/ro_query.py."
+        )
+    if "Read" not in entries:
+        raise PreconditionError("Read fehlt — die Analyse koennte keine Datei lesen")
 
 
 def build_subprocess_env(base_env=None):

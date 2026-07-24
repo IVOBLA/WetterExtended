@@ -79,21 +79,20 @@ def test_config_has_no_auth_field():
 # Werkzeug-Allowlist
 # --------------------------------------------------------------------------
 
-def test_allowed_tools_contain_no_writing_tool():
-    spec = config.LOCAL_ANALYSIS_CONFIG["allowed_tools"].lower()
-    for bad in ("write", "edit", "git push", "git commit", "sudo", "rm ",
-                "chmod", "chown", "pip", "npm", "apt", "tee", "python"):
-        assert bad not in spec, f"Schreibendes Werkzeug in der Allowlist: {bad}"
-
-
-def test_allowed_tools_read_files_only_through_read_tool():
-    spec = config.LOCAL_ANALYSIS_CONFIG["allowed_tools"].lower()
-    for bad in ("bash(cat", "bash(head", "bash(tail", "bash(less", "bash(more"):
-        assert bad not in spec, f"Datei-Lesen an Read vorbei: {bad}"
-    assert "read" in spec
-
-
-def test_sqlite_is_readonly_only():
+def test_allowed_tools_is_the_positive_list():
     spec = config.LOCAL_ANALYSIS_CONFIG["allowed_tools"]
-    if "sqlite3" in spec:
-        assert "sqlite3 -readonly" in spec
+    assert spec == "Read,Grep,Glob,Bash(python3 tools/ro_query.py *)"
+
+
+def test_allowed_tools_have_exactly_one_bash_rule():
+    spec = config.LOCAL_ANALYSIS_CONFIG["allowed_tools"]
+    assert spec.count("Bash(") == 1
+    assert "tools/ro_query.py" in spec
+
+
+def test_allowed_tools_contain_no_wildcard_shell_rule():
+    spec = config.LOCAL_ANALYSIS_CONFIG["allowed_tools"].lower()
+    for bad in ("bash(journalctl", "bash(sqlite3", "bash(systemctl", "bash(ls",
+                "bash(stat", "bash(df", "bash(free", "bash(uptime",
+                "bash(cat", "bash(head", "bash(tail", "write", "edit"):
+        assert bad not in spec, f"Platzhalter-/Schreibregel in der Allowlist: {bad}"

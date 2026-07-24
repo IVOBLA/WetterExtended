@@ -18,13 +18,41 @@ Lies `AIChecks.md`, Abschnitt `## Offen`, und arbeite jede Anweisung (`### AC-xx
 
 ## B. Feste Betriebsprüfungen
 
-1. Dienste: `systemctl is-active wetterprojekt wetterprojekt-scheduler wetterprojekt-admin`.
-2. Journal: Fehler der letzten 24 Stunden für wetterprojekt und wetterprojekt-scheduler zusammenfassen.
-3. SQLite: jede Datenbank unter `train_data/` mit `sqlite3 -readonly <datei> "PRAGMA quick_check;"` prüfen.
-4. Frische der Statusdateien unter `train_data/evaluation/` mit `stat` prüfen.
-5. `api_health.jsonl` und `api_budget.json` auswerten; Fehler und Budgetgruppen über 70 % melden.
-6. `df -h` und `free -m`; unter 15 % Platz oder dauerhaft unter 300 MB RAM ist ein Fehler.
-7. `train_data/status/cycle_timing.json` gegen die erwartete Loop-Kadenz prüfen.
+Für alle Shell-Abfragen gibt es genau ein Werkzeug: `python3 tools/ro_query.py`.
+Andere Shell-Kommandos sind gesperrt und werden abgelehnt. Das Werkzeug prüft seine
+Parameter selbst; ungültige Eingaben liefern eine Meldung mit den erlaubten Werten.
+
+```
+python3 tools/ro_query.py services
+python3 tools/ro_query.py journal <unit> [--hours N] [--priority err|warning|info]
+python3 tools/ro_query.py sqlite-check   <pfad>
+python3 tools/ro_query.py sqlite-tables  <pfad>
+python3 tools/ro_query.py sqlite-select  <pfad> "<SELECT ...>"
+python3 tools/ro_query.py files "<glob>"
+python3 tools/ro_query.py disk
+python3 tools/ro_query.py memory
+python3 tools/ro_query.py uptime
+```
+
+1. **Dienste:** `services`. Jeder nicht aktive Dienst ist ein Fehler.
+2. **Journal:** `journal wetterprojekt.service --hours 24 --priority err` und dasselbe
+   für `wetterprojekt-scheduler.service`. Fasse wiederkehrende Fehlerklassen zusammen
+   statt jede Zeile einzeln zu melden.
+3. **SQLite-Integrität:** `files "train_data/**/*.db"` und `files "train_data/**/*.sqlite"`,
+   dann für jede Datei `sqlite-check <pfad>`. Alles außer `ok` ist ein Fehler. Bei
+   Auffälligkeiten `sqlite-tables` und gezielte `sqlite-select`-Abfragen nachschieben.
+4. **Frische der Statusdateien:** `files "train_data/evaluation/*"` liefert Größe und
+   Alter. Besonders beachten: `api_health.jsonl`, `accuracy_history.jsonl`,
+   `drift_status.json`, `cycle_timing.json`, `latest_hydro_flood_risk.json`. Dateien,
+   die deutlich älter sind als ihr Erzeugungsintervall, deuten auf einen stillstehenden
+   Job hin.
+5. **Externe Schnittstellen:** Lies `train_data/evaluation/api_health.jsonl` und
+   `train_data/evaluation/api_budget.json` mit dem `Read`-Werkzeug. Melde fehlgeschlagene
+   Aufrufe mit HTTP-Status und Häufigkeit sowie Budgetgruppen über 70 % Auslastung.
+6. **Speicher und Platz:** `disk` und `memory`. Weniger als 15 % freier Platz oder
+   dauerhaft weniger als 300 MB verfügbarer Arbeitsspeicher sind ein Fehler.
+7. **Zykluszeit:** `train_data/status/cycle_timing.json` mit `Read` prüfen und gegen die
+   erwartete Loop-Kadenz halten.
 
 ## C. Für jeden gefundenen Fehler
 
