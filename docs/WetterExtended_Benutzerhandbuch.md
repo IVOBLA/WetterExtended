@@ -2942,3 +2942,48 @@ Im Popup einer Station ist erkennbar, ob eine solche Nachwirkung eingerechnet is
 Im Admin-Panel lässt sich einstellen, ob die Nachwirkung berücksichtigt wird (`HYDRO_PRECIP_LEDGER_ENABLED`) und wie lange gefallener Regen nachwirkt (`HYDRO_PRECIP_LEDGER_RETENTION_MIN`; leer bedeutet die obere Grenze des Reaktionsfensters). `HYDRO_LEDGER_MAX_GAP_MIN` begrenzt die überbrückte Lücke zwischen Radarbildern, damit ein Radarausfall nicht als Dauerregen gewertet wird.
 
 Die Hydro-Hochwasseranzeige bleibt eine lokale Orientierungshilfe und ist kein Ersatz für amtliche Hochwasserwarnungen.
+
+### Betriebsart der täglichen Analyse
+
+Die tägliche Code- und Betriebsanalyse läuft **genau einmal pro Tag** — entweder
+extern über das Repository oder direkt auf dem Raspberry Pi. Beide Wege schließen
+einander aus; ein gleichzeitiger Betrieb ist bewusst nicht einstellbar. Die Auswahl
+erfolgt im Admin-Panel unter „KI-Analyse" in der Karte „Betriebsart der täglichen
+Analyse".
+
+**Über das Repository (Voreinstellung).** Der Datenexport wird nachts hochgeladen und
+außerhalb des Geräts ausgewertet. Das Ergebnis wird von dort per E-Mail versendet.
+
+**Direkt am Pi.** Die Analyse läuft nachts auf dem Gerät selbst. Dadurch kann sie
+Dinge prüfen, die in einem hochgeladenen Datenexport gar nicht enthalten sein können:
+ob die Dienste gerade laufen, ob die Datenbanken unbeschädigt sind, wie alt die
+einzelnen Statusdateien wirklich sind und was im Systemprotokoll der letzten 24
+Stunden steht. In dieser Betriebsart wird der Datenexport nicht mehr hochgeladen; der
+Download im Admin-Panel bleibt weiterhin verfügbar.
+
+Beim Umstellen auf „Direkt am Pi" ist die externe Auswertung von Hand abzuschalten.
+Sie läuft außerhalb des Geräts und kann von der Oberfläche aus nicht gestoppt werden —
+bleibt sie aktiv, laufen zwei Auswertungen pro Tag. Die Oberfläche weist beim
+Umschalten darauf hin.
+
+Am Tag der Umstellung findet noch kein automatischer Lauf am Gerät statt, weil die
+externe Auswertung an diesem Tag bereits gelaufen sein kann. Der erste automatische
+Lauf erfolgt am Folgetag; sofort testen lässt sich jederzeit über „Jetzt ausführen".
+
+### Lokale Analyse am Gerät einstellen
+
+In der Karte „Lokale Analyse am Pi" lassen sich einstellen: ab welcher Uhrzeit der
+Lauf fällig ist, wie viele Arbeitsschritte er höchstens machen darf und nach wie
+vielen Sekunden er abgebrochen wird. Pro Tag findet höchstens ein erfolgreicher Lauf
+statt; wird ein Zeitpunkt durch einen Neustart verpasst, holt das Gerät den Lauf nach.
+
+Die Karte zeigt den letzten Lauf mit Zustand, Zeitpunkt, Dauer, Anzahl gefundener
+Fehler und dem Alter der Ergebnisdatei. Findet das System das benötigte
+Analyse-Programm nicht, erscheint oben in der Karte ein Hinweis mit dem
+Installationsbefehl.
+
+Die Analysezeit muss vor der Versandzeit des Reports liegen, sonst wird das Ergebnis
+des Vortages verschickt; die Oberfläche warnt in diesem Fall.
+
+Der Lauf am Gerät ist streng lesend: Er verändert keine Dateien, startet keine Dienste
+neu und hat keinen Zugriff auf die hinterlegten Zugangsdaten.

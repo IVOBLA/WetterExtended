@@ -64,6 +64,16 @@ export default function AiSuggestions() {
   })
   const [ccSaved, setCcSaved] = useState(false)
   const [ccMsg, setCcMsg] = useState('')
+  // --- Betriebsart + lokale Analyse am Pi (P81) ---
+  const [mode,      setMode]      = useState({ mode: 'repo', changed: '', changed_today: false })
+  const [modeMsg,   setModeMsg]   = useState('')
+  const [laCfg, setLaCfg] = useState({
+    cron_hour: 0, cron_minute: 10, max_turns: 40, timeout_s: 900, model: '',
+  })
+  const [laStatus,  setLaStatus]  = useState(null)
+  const [laSaved,   setLaSaved]   = useState(false)
+  const [laMsg,     setLaMsg]     = useState('')
+  const [laRunning, setLaRunning] = useState(false)
 
   const [testEmailStatus, setTestEmailStatus] = useState(null)  // null | 'sending' | 'ok' | 'error'
   const [testEmailMsg,    setTestEmailMsg]    = useState('')
@@ -96,7 +106,79 @@ export default function AiSuggestions() {
     api.get('/api/claude_code_report/config')
       .then(d => setCcCfg(prev => ({ ...prev, ...d })))
       .catch(() => {})
+    api.get('/api/analysis_mode').then(setMode).catch(() => {})
+    api.get('/api/local_analysis/config')
+      .then(d => setLaCfg(prev => ({ ...prev, ...d })))
+      .catch(() => {})
+    api.get('/api/local_analysis/status').then(setLaStatus).catch(() => {})
   }, [])
+
+  function refreshLaStatus() {
+    api.get('/api/local_analysis/status').then(setLaStatus).catch(() => {})
+  }
+
+  async function saveMode(next) {
+    setModeMsg('')
+    try {
+      await api.post('/api/analysis_mode', { mode: next })
+      const d = await api.get('/api/analysis_mode')
+      setMode(d)
+      setModeMsg(d.changed_today
+        ? 'Umgestellt. Der erste automatische Lauf findet morgen statt.'
+        : 'Betriebsart gespeichert.')
+      refreshLaStatus()
+    } catch (e) {
+      setModeMsg('Fehler: ' + e.message)
+    }
+  }
+
+  async function saveLaCfg() {
+    setLaMsg('')
+    try {
+      await api.post('/api/local_analysis/config', laCfg)
+      setLaSaved(true)
+      setTimeout(() => setLaSaved(false), 3000)
+      refreshLaStatus()
+    } catch (e) {
+      setLaMsg('Fehler: ' + e.message)
+    }
+  }
+
+  async function runLocalAnalysis() {
+    setLaMsg('')
+    setLaRunning(true)
+    try {
+      await api.post('/api/system/run_job/local_analysis', {})
+    } catch (e) {
+      setLaRunning(false)
+      setLaMsg('Start fehlgeschlagen: ' + e.message)
+      return
+    }
+    // Der Lauf dauert bis zu 15 Minuten — Status alle 5 s abfragen,
+    // nach 20 Minuten aufgeben, damit kein Intervall ewig weiterlaeuft.
+    let ticks = 0
+    const poll = setInterval(async () => {
+      ticks += 1
+      if (ticks > 240) {
+        clearInterval(poll)
+        setLaRunning(false)
+        setLaMsg('Zeitueberschreitung — Status manuell pruefen')
+        return
+      }
+      try {
+        const s = await api.get('/api/system/job_status')
+        const run = (s.runs || {}).local_analysis
+        if (run && run.state !== 'running') {
+          clearInterval(poll)
+          setLaRunning(false)
+          setLaMsg(run.state === 'ok'
+            ? 'Fertig: ' + (run.message || '')
+            : 'Fehlgeschlagen: ' + (run.message || ''))
+          refreshLaStatus()
+        }
+      } catch { /* naechster Versuch */ }
+    }, 5000)
+  }
 
   async function saveCfg() {
     try {
@@ -569,6 +651,78 @@ export default function AiSuggestions() {
 
 
       {/* ═══════════════════════════════════════════════════════════════════
+          Betriebsart der täglichen Analyse (P81) — genau EINE Analyse pro Tag
+          ═════════════════════════════════════════════════════════════════ */}
+      <div className="card mt-8 border-t-4 border-indigo-500">
+        <h2 className="text-lg font-semibold mb-1">
+          ⚙️ Betriebsart der täglichen Analyse
+        </h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Es läuft <strong>genau eine</strong> Analyse pro Tag. Die beiden Wege
+          schließen einander aus — ein gleichzeitiger Betrieb ist bewusst nicht
+          einstellbar.
+        </p>
+
+        <div className="space-y-3">
+          {[
+            {
+              value: 'repo',
+              titel: 'Über das Repository (extern)',
+              text: 'Der Debug-Export wird um 23:59 nach GitHub gepusht und dort von '
+                  + 'der externen Claude-Code-Routine analysiert. Die Mail liest das '
+                  + 'Ergebnis aus dem Branch.',
+            },
+            {
+              value: 'local',
+              titel: 'Direkt am Pi',
+              text: 'Die Analyse läuft nachts auf diesem Gerät und sieht dadurch auch '
+                  + 'Live-Zustände (Dienste, Datenbank-Integrität, Dateifrische). Der '
+                  + 'Debug-Export wird dann nicht mehr gepusht; der Download im '
+                  + 'Admin-Panel bleibt erhalten.',
+            },
+          ].map(opt => (
+            <label
+              key={opt.value}
+              className={`flex gap-3 items-start p-3 rounded border cursor-pointer
+                ${mode.mode === opt.value
+                  ? 'border-indigo-500 bg-indigo-50'
+                  : 'border-gray-200 hover:bg-gray-50'}`}
+            >
+              <input
+                type="radio"
+                className="mt-1"
+                name="analysis_mode"
+                checked={mode.mode === opt.value}
+                onChange={() => saveMode(opt.value)}
+              />
+              <span>
+                <span className="font-medium text-sm">{opt.titel}</span>
+                <span className="block text-xs text-gray-500 mt-0.5">{opt.text}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+
+        {mode.mode === 'local' && (
+          <div className="mt-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm">
+            <strong>Externe Routine jetzt abschalten.</strong> Sie läuft auf
+            Anthropic-Servern und kann von diesem Gerät aus nicht gestoppt werden.
+            Bleibt sie aktiv, laufen zwei Analysen pro Tag.
+          </div>
+        )}
+        {mode.changed_today && (
+          <p className="text-xs text-gray-500 mt-2">
+            Heute umgestellt ({mode.changed}) — der erste automatische Lauf findet
+            morgen statt. „Jetzt ausführen" geht sofort.
+          </p>
+        )}
+        {modeMsg && (
+          <p className="text-sm text-gray-700 mt-2">{modeMsg}</p>
+        )}
+      </div>
+
+
+      {/* ═══════════════════════════════════════════════════════════════════
           Claude-Code-Analyse-Report  –  vollständig unabhängige Konfiguration
           ═════════════════════════════════════════════════════════════════ */}
       <div className="card mt-8 border-t-4 border-purple-500">
@@ -576,14 +730,28 @@ export default function AiSuggestions() {
           📊 Code-Analyse-Report (Claude Code)
         </h2>
         <p className="text-sm text-gray-500 mb-4">
-          Versendet täglich das Ergebnis der nächtlichen Claude-Code-Routine
-          (<code className="text-xs bg-gray-100 px-1 rounded">analysis_result.json</code>,
-          Branch{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">
-            {ccCfg.branch || 'debug-export-latest'}
-          </code>)
-          per E-Mail. Unabhängig von der KI-Analyse-Pipeline.
+          Versendet täglich{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">analysis_result.json</code>{' '}
+          per E-Mail. Die Quelle ergibt sich aus der Betriebsart oben:{' '}
+          {mode.mode === 'local' ? (
+            <>lokale Datei vom Pi.</>
+          ) : (
+            <>Branch{' '}
+              <code className="text-xs bg-gray-100 px-1 rounded">
+                {ccCfg.branch || 'debug-export-latest'}
+              </code>.
+            </>
+          )}{' '}
+          Unabhängig von der KI-Analyse-Pipeline.
         </p>
+        {mode.mode === 'local' &&
+          (laCfg.cron_hour * 60 + laCfg.cron_minute) >=
+          (ccCfg.cron_hour * 60 + ccCfg.cron_minute) && (
+          <p className="text-xs text-amber-700 mb-3">
+            ⚠ Die Analyse startet nicht vor dem Versand — verschickt würde das
+            Ergebnis des Vortages. Analysezeit früher legen.
+          </p>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="md:col-span-2">
@@ -670,6 +838,132 @@ export default function AiSuggestions() {
           )}
           {ccMsg && (
             <span className="text-red-600 text-sm self-center">{ccMsg}</span>
+          )}
+        </div>
+      </div>
+
+
+      {/* ═══════════════════════════════════════════════════════════════════
+          Lokale Analyse am Pi (P81)
+          ═════════════════════════════════════════════════════════════════ */}
+      <div className="card mt-8 border-t-4 border-emerald-500">
+        <h2 className="text-lg font-semibold mb-1">
+          🧠 Lokale Analyse am Pi (Claude Code)
+        </h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Prueft: Dienste, Journal, SQLite-Integritaet, Frische der Statusdateien
+          und die Arbeitsanweisungen aus{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">AIChecks.md</code>.
+          Der Lauf ist streng lesend.{' '}
+          {mode.mode === 'local'
+            ? 'Aktiv — laeuft naechtlich.'
+            : 'Inaktiv — oben auf „Direkt am Pi" umstellen, um sie zu nutzen.'}
+        </p>
+
+        {laStatus && !laStatus.cli_available && (
+          <div className="mb-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm">
+            <strong>Claude-Code-CLI nicht gefunden.</strong> Auf dem Pi installieren:
+            <code className="block mt-1 text-xs bg-white px-2 py-1 rounded">
+              curl -fsSL https://claude.ai/install.sh | bash -s stable
+            </code>
+            Danach einmal <code className="text-xs">claude</code> interaktiv starten und
+            anmelden — ohne Anmeldung bleibt jeder Lauf erfolglos.
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="label">Faellig ab Stunde (0–23)</label>
+            <input className="input" type="number" min="0" max="23"
+              value={laCfg.cron_hour}
+              onChange={e => {
+                const v = parseInt(e.target.value, 10)
+                setLaCfg({ ...laCfg, cron_hour: Number.isNaN(v) ? 0 : v })
+              }}
+            />
+          </div>
+          <div>
+            <label className="label">Faellig ab Minute (0–59)</label>
+            <input className="input" type="number" min="0" max="59"
+              value={laCfg.cron_minute}
+              onChange={e => {
+                const v = parseInt(e.target.value, 10)
+                setLaCfg({ ...laCfg, cron_minute: Number.isNaN(v) ? 10 : v })
+              }}
+            />
+          </div>
+          <div>
+            <label className="label">Max. Arbeitsschritte (1–200)</label>
+            <input className="input" type="number" min="1" max="200"
+              value={laCfg.max_turns}
+              onChange={e => {
+                const v = parseInt(e.target.value, 10)
+                setLaCfg({ ...laCfg, max_turns: Number.isNaN(v) ? 40 : v })
+              }}
+            />
+          </div>
+          <div>
+            <label className="label">Zeitlimit in Sekunden (60–3600)</label>
+            <input className="input" type="number" min="60" max="3600"
+              value={laCfg.timeout_s}
+              onChange={e => {
+                const v = parseInt(e.target.value, 10)
+                setLaCfg({ ...laCfg, timeout_s: Number.isNaN(v) ? 900 : v })
+              }}
+            />
+          </div>
+        </div>
+
+        {laStatus && (
+          <div className="mt-4 rounded bg-gray-50 border border-gray-200 p-3 text-sm">
+            <div className="font-medium mb-1">Letzter Lauf</div>
+            {laStatus.status && laStatus.status.state ? (
+              <ul className="text-xs text-gray-600 space-y-0.5">
+                <li>
+                  Zustand:{' '}
+                  <strong className={
+                    laStatus.status.state === 'ok' ? 'text-green-700'
+                      : laStatus.status.state === 'mode_repo' ? 'text-gray-500'
+                      : 'text-red-600'}>
+                    {laStatus.status.state}
+                  </strong>
+                </li>
+                <li>Zeitpunkt: {laStatus.status.ts_local || '–'}</li>
+                <li>
+                  Dauer: {laStatus.status.duration_s != null
+                    ? laStatus.status.duration_s + ' s' : '–'}
+                  {' · '}Gefundene Fehler: {laStatus.status.num_fehler != null
+                    ? laStatus.status.num_fehler : '–'}
+                  {' · '}Versuche heute: {laStatus.status.attempts_today != null
+                    ? laStatus.status.attempts_today : '–'}
+                </li>
+                {laStatus.status.error && (
+                  <li className="text-red-600">Meldung: {laStatus.status.error}</li>
+                )}
+                <li>
+                  Ergebnisdatei: {laStatus.result_age_h != null
+                    ? laStatus.result_age_h + ' h alt' : 'nicht vorhanden'}
+                </li>
+              </ul>
+            ) : (
+              <p className="text-xs text-gray-500">Noch kein Lauf aufgezeichnet.</p>
+            )}
+          </div>
+        )}
+
+        <div className="flex gap-3 mt-4 flex-wrap">
+          <button className="btn-primary" onClick={saveLaCfg}>Speichern</button>
+          <button className="btn-secondary" disabled={laRunning} onClick={runLocalAnalysis}>
+            {laRunning ? 'Analyse laeuft …' : 'Jetzt ausfuehren'}
+          </button>
+          <button className="btn-secondary" onClick={refreshLaStatus}>
+            Status aktualisieren
+          </button>
+          {laSaved && (
+            <span className="text-green-700 text-sm self-center">✓ Gespeichert</span>
+          )}
+          {laMsg && (
+            <span className="text-sm self-center text-gray-700">{laMsg}</span>
           )}
         </div>
       </div>
