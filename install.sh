@@ -190,6 +190,7 @@ DEBUG_EXPORT_TARGET_PATH="debug_exports/wetterextended_debug_latest_last24h.zip"
 DEBUG_EXPORT_MAX_SOURCE_TOTAL_MB=512
 DEBUG_EXPORT_MAX_ZIP_MB=90
 LOCAL_TRAINING_FLAG=true          # --no-training setzt auf false (Phase B)
+ENABLE_LOCAL_ANALYSIS=true         # --no-local-analysis setzt auf false (P78)
 BRANCH="$DEFAULT_BRANCH"
 GIT_TAG="$DEFAULT_VERSION"
 REPO="$DEFAULT_REPO_URL"
@@ -239,6 +240,8 @@ Verwendung: $0 [OPTIONEN]
   --reset-ml-full       Nach Backup Modelle, Datasets und alte ML-Trainingsquellen archivieren
   --no-debug-export-git
                        Automatischen GitHub-Debug-Export im separaten Branch nicht einrichten
+  --no-local-analysis
+                       Lokale nächtliche Analyse am Pi (Claude Code) nicht einrichten
   --local               Installiert aus dem lokalen Verzeichnis (ZIP-Modus).
                         Kein git clone nötig. Dateien werden nach --target kopiert.
   --help                Diese Hilfe
@@ -284,6 +287,7 @@ while [[ $# -gt 0 ]]; do
         --reset-ml)       RESET_ML_MODE="models_only"; shift ;;
         --reset-ml-full)  RESET_ML_MODE="full_new_data_only"; shift ;;
         --no-debug-export-git) ENABLE_DEBUG_EXPORT_GIT=false; shift ;;
+        --no-local-analysis)   ENABLE_LOCAL_ANALYSIS=false; shift ;;
         --local)
             LOCAL_INSTALL=true
             LOCAL_SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -2071,6 +2075,96 @@ elif [[ "$ENABLE_DEBUG_EXPORT_GIT" == false ]]; then
     log_info "Debug-Export-Git-Timer übersprungen (--no-debug-export-git)."
 else
     log_info "Debug-Export-Git-Timer wird nur im full-Modus automatisch eingerichtet."
+fi
+
+# ==============================================================================
+# PHASE 7h — Lokale Analyse am Pi (Claude Code, headless)
+# ==============================================================================
+CURRENT_PHASE="Phase 7h — Lokale Analyse"
+log_step "Phase 7h — Lokale Analyse (Claude Code)"
+
+LOCAL_ANALYSIS_SERVICE="wetterprojekt-local-analysis.service"
+LOCAL_ANALYSIS_TIMER="wetterprojekt-local-analysis.timer"
+
+if [[ "$ENABLE_LOCAL_ANALYSIS" != true ]]; then
+    log_info "Lokale Analyse übersprungen (--no-local-analysis)."
+else
+    _LA_RUNNER="$TARGET/tools/run_local_analysis.py"
+    _LA_SVC_SRC="$TARGET/$LOCAL_ANALYSIS_SERVICE"
+    _LA_TMR_SRC="$TARGET/$LOCAL_ANALYSIS_TIMER"
+
+    if [[ ! -f "$_LA_RUNNER" ]]; then
+        check_warn "Runner fehlt: $_LA_RUNNER — Timer wird nicht eingerichtet"
+        note_manual "tools/run_local_analysis.py fehlt. Source aktualisieren: $0 --mode upgrade"
+    elif [[ ! -f "$_LA_SVC_SRC" || ! -f "$_LA_TMR_SRC" ]]; then
+        check_warn "systemd-Templates der lokalen Analyse fehlen"
+        note_manual "Templates fehlen: $_LA_SVC_SRC / $_LA_TMR_SRC — Source aktualisieren: $0 --mode upgrade"
+    else
+        # --- Betriebsart ermitteln (repo | local) --------------------------------
+        _LA_MODE="$(cd "$TARGET" && "$VENV/bin/python3" -c "
+import sys; sys.path.insert(0, '.')
+from config import ANALYSIS_MODE as m
+import runtime_config; runtime_config.reload_overrides()
+print(str(runtime_config.get('ANALYSIS_MODE', m) or 'repo').strip().lower())
+" 2>/dev/null || echo unbekannt)"
+        log_info "Betriebsart der täglichen Analyse: ${_LA_MODE:-unbekannt}"
+
+        # --- Claude-Code-CLI suchen (systemd-Units erben ~/.bashrc nicht) --------
+        _LA_HOME="$(getent passwd "$SERVICE_USER" | cut -d: -f6)"
+        [[ -z "$_LA_HOME" ]] && _LA_HOME="$HOME"
+        _LA_CLAUDE=""
+        for _c in "$_LA_HOME/.local/bin/claude" "/usr/local/bin/claude" "$(command -v claude 2>/dev/null || true)"; do
+            if [[ -n "$_c" && -x "$_c" ]]; then _LA_CLAUDE="$_c"; break; fi
+        done
+        if [[ -n "$_LA_CLAUDE" ]]; then
+            check_ok "Claude-Code-CLI: $_LA_CLAUDE ($("$_LA_CLAUDE" --version 2>/dev/null | head -1))"
+        else
+            check_warn "Claude-Code-CLI nicht gefunden — Betriebsart 'local' bleibt ohne Funktion"
+            note_manual "CLI installieren: curl -fsSL https://claude.ai/install.sh | bash -s stable"
+            note_manual "PATH ergänzen: echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc && source ~/.bashrc"
+            note_manual "EINMAL interaktiv anmelden: claude   (ohne Login bleibt jeder Lauf erfolglos)"
+        fi
+
+        # --- Units generieren (User/Pfade substituieren) -------------------------
+        _LA_SVC_GEN="$TARGET/.generated-$LOCAL_ANALYSIS_SERVICE"
+        sed -e "s|^User=.*|User=$SERVICE_USER|g" \
+            -e "s|^WorkingDirectory=.*|WorkingDirectory=$TARGET|g" \
+            -e "s|/home/ki-pi/.local/bin|$_LA_HOME/.local/bin|g" \
+            -e "s|/home/ki-pi/wetterprojekt|$TARGET|g" \
+            "$_LA_SVC_SRC" > "$_LA_SVC_GEN"
+        sudo cp "$_LA_SVC_GEN" "/etc/systemd/system/$LOCAL_ANALYSIS_SERVICE"
+        sudo cp "$_LA_TMR_SRC" "/etc/systemd/system/$LOCAL_ANALYSIS_TIMER"
+        sudo systemctl daemon-reload
+        check_ok "Lokale Analyse: Service und Timer installiert"
+
+        # --- Vorbedingungen prüfen (ruft die CLI NICHT auf) ----------------------
+        set +e
+        trap '' ERR
+        "$VENV/bin/python3" "$_LA_RUNNER" --repo-dir "$TARGET" --check-only
+        _LA_CHECK_RC=$?
+        trap on_error ERR
+        set -e
+
+        if [[ "$_LA_CHECK_RC" -eq 0 ]]; then
+            check_ok "Lokale Analyse: Vorbedingungen erfüllt"
+        else
+            check_warn "Lokale Analyse: Vorbedingungen nicht erfüllt (rc=$_LA_CHECK_RC)"
+            note_manual "Prüfen: cd $TARGET && $VENV/bin/python3 tools/run_local_analysis.py --repo-dir $TARGET --check-only"
+        fi
+
+        # --- Timer aktivieren; der Runner prüft die Betriebsart selbst -----------
+        sudo systemctl reset-failed "$LOCAL_ANALYSIS_TIMER" 2>/dev/null || true
+        if sudo systemctl enable --now "$LOCAL_ANALYSIS_TIMER" 2>/dev/null; then
+            check_ok "Lokale-Analyse-Timer aktiv (halbstündlich; Lauf nur in Betriebsart 'local')"
+        else
+            check_warn "Lokale-Analyse-Timer konnte nicht aktiviert werden"
+            note_manual "sudo systemctl enable --now $LOCAL_ANALYSIS_TIMER"
+        fi
+
+        if [[ "$_LA_MODE" == "local" ]]; then
+            note_manual "Betriebsart 'local' aktiv: die EXTERNE Claude-Code-Routine muss in der Claude-App deaktiviert sein — sonst laufen zwei Analysen pro Tag."
+        fi
+    fi
 fi
 
 # ==============================================================================

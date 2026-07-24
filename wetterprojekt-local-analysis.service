@@ -1,0 +1,26 @@
+[Unit]
+Description=WetterExtended lokale Code-/Betriebsanalyse (Claude Code, headless)
+Documentation=file:/home/ki-pi/wetterprojekt/docs/LOCAL_ANALYSIS_PROMPT.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ki-pi
+WorkingDirectory=/home/ki-pi/wetterprojekt
+Environment=PYTHONUNBUFFERED=1
+# systemd-Units erben ~/.bashrc NICHT — die Claude-Code-CLI liegt in ~/.local/bin.
+Environment=PATH=/home/ki-pi/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=DISABLE_AUTOUPDATER=1
+# Sandbox: Systempfade schreibgeschuetzt, .env fuer diesen Prozess unzugaenglich.
+# Kernel-erzwungen und damit unabhaengig von den Allow/Deny-Regeln der CLI.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+InaccessiblePaths=-/home/ki-pi/wetterprojekt/.env
+# Zeitlimit oberhalb von LOCAL_ANALYSIS_CONFIG["timeout_s"] — der Runner beendet
+# sich normalerweise selbst; das hier ist nur der Notausgang.
+TimeoutStartSec=1800
+ExecStart=/home/ki-pi/wetterprojekt/venv/bin/python3 /home/ki-pi/wetterprojekt/tools/run_local_analysis.py --repo-dir /home/ki-pi/wetterprojekt

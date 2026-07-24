@@ -1,0 +1,16 @@
+[Unit]
+Description=Weckt die lokale WetterExtended-Analyse halbstuendlich
+
+[Timer]
+# Halbstuendlich wecken. Die eigentliche Uhrzeit steht in
+# LOCAL_ANALYSIS_CONFIG["cron_hour"/"cron_minute"] und ist damit ohne sudo
+# aus dem Admin-Panel aenderbar; der Runner entscheidet selbst, ob er laeuft
+# (nur in Betriebsart "local", hoechstens ein erfolgreicher Lauf je Kalendertag).
+OnCalendar=*-*-* *:00/30:00
+AccuracySec=1min
+RandomizedDelaySec=60
+Persistent=true
+Unit=wetterprojekt-local-analysis.service
+
+[Install]
+WantedBy=timers.target
