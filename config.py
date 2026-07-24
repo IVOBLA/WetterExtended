@@ -982,6 +982,89 @@ CLAUDE_CODE_REPORT_CONFIG: dict = {
     "report_email": "bla@uniquare.com",    # Empfänger (leer = kein Versand)
 }
 
+# ---------------------------------------------------------------------------
+# P76 — Betriebsart der täglichen Analyse
+# ---------------------------------------------------------------------------
+# Es darf pro Tag GENAU EINE Analyse laufen. Die beiden Wege schließen einander
+# aus; es gibt bewusst keinen Zustand, in dem beide laufen:
+#
+#   "repo"  (Default, bisheriges Verhalten)
+#           Der Debug-Export wird um 23:59 nach GitHub gepusht, die externe
+#           Claude-Code-Routine analysiert ihn und legt analysis_result.json im
+#           Branch ab. Der Mailjob liest origin/<branch>.
+#
+#   "local" Die Analyse läuft nachts am Pi (tools/run_local_analysis.py). Der
+#           Mailjob liest die lokale Datei. Der Debug-Export wird NICHT mehr
+#           gepusht (der Branch würde von niemandem gelesen); der Download im
+#           Admin-Panel bleibt erhalten.
+#
+# WICHTIG: Die externe Routine läuft auf Anthropic-Servern und kann vom Pi nicht
+# abgeschaltet werden. Beim Umstellen auf "local" muss sie in der Claude-App von
+# Hand deaktiviert werden — sonst laufen doch zwei Analysen.
+#
+# Runtime-overridable: runtime_config.patch({"ANALYSIS_MODE": "local"})
+ANALYSIS_MODE = "repo"
+
+# Datum der letzten Umstellung (YYYY-MM-DD, Europe/Vienna). Wird von
+# POST /api/analysis_mode gesetzt. Am Umschalttag findet KEIN automatischer
+# Lokallauf statt, weil die externe Routine an diesem Tag bereits gelaufen sein
+# kann — sonst wären es zwei Analysen. Manuell auslösen bleibt möglich.
+ANALYSIS_MODE_CHANGED = ""
+
+# ---------------------------------------------------------------------------
+# P76 — Lokale nächtliche Analyse am Pi (Claude Code CLI, headless)
+# ---------------------------------------------------------------------------
+# Ausgeführt von tools/run_local_analysis.py über einen systemd-Timer. Der Timer
+# läuft nach der Installation immer; der Runner beendet sich sofort mit rc=0,
+# solange ANALYSIS_MODE nicht "local" ist. Dadurch ist die Betriebsart ohne sudo
+# aus dem Admin-Panel umschaltbar.
+#
+# Es gibt hier bewusst KEIN "enabled": ein zweiter Schalter neben ANALYSIS_MODE
+# würde den verbotenen Zustand "beide Analysen laufen" wieder darstellbar machen.
+#
+# Zeitsteuerung: Der Timer weckt den Runner halbstündlich; "cron_hour"/
+# "cron_minute" bestimmen, ab wann ein Lauf an diesem Tag fällig ist. Der Runner
+# führt pro Kalendertag höchstens einen erfolgreichen Lauf aus.
+#
+# SICHERHEITSREGEL (verbindlich): "allowed_tools" darf ausschließlich lesende
+# Werkzeuge enthalten. Schreibende Werkzeuge (Write/Edit/MultiEdit/NotebookEdit)
+# und schreibende Shell-Kommandos sind verboten; der Runner lehnt solche Einträge
+# hart ab (rc=1). Dateiinhalte werden über das Read-Werkzeug gelesen, nicht über
+# cat/head/tail — nur Read unterliegt den Deny-Pfadregeln.
+#
+# AUTHENTIFIZIERUNG: ausschließlich über die eigenen Anmeldedaten der
+# Claude-Code-CLI in ~/.claude (einmalig interaktiv anlegen). Bewusst KEIN
+# API-Key-Feld — .env wird vom Analyse-Prozess nicht gelesen (P78 macht die
+# Datei für die Unit per systemd unzugänglich).
+#
+# Runtime-overridable: runtime_config.patch({"LOCAL_ANALYSIS_CONFIG": {...}})
+LOCAL_ANALYSIS_CONFIG: dict = {
+    "cron_hour":     0,       # Fälligkeit ab (Europe/Vienna)
+    "cron_minute":   10,
+    "claude_bin":    "",      # leer = automatisch suchen (PATH, ~/.local/bin/claude)
+    "model":         "",      # leer = Vorgabe der Claude-Code-CLI
+    "max_turns":     40,      # Obergrenze Agenten-Schritte je Lauf
+    "timeout_s":     900,     # hartes Zeitlimit für den CLI-Aufruf
+    "prompt_path":   "docs/LOCAL_ANALYSIS_PROMPT.md",
+    "result_path":   "train_data/evaluation/analysis_result.json",
+    "status_path":   "train_data/evaluation/local_analysis_status.json",
+    "settings_path": "tools/local_analysis_settings.json",
+    # Nur lesende Werkzeuge. Änderungen hier werden vom Runner geprüft.
+    "allowed_tools": (
+        "Read,Grep,Glob,"
+        "Bash(journalctl *),"
+        "Bash(systemctl status *),"
+        "Bash(systemctl is-active *),"
+        "Bash(sqlite3 -readonly *),"
+        "Bash(ls *),"
+        "Bash(stat *),"
+        "Bash(wc -l *),"
+        "Bash(df -h),"
+        "Bash(free -m),"
+        "Bash(uptime)"
+    ),
+}
+
 # Trainings-Schedule (Cron-Stil). Wird vom Scheduler gelesen, kann per
 # Adminpanel über runtime_overrides.json überschrieben werden.
 TRAINING_SCHEDULE = {

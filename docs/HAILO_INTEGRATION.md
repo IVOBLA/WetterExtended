@@ -8036,3 +8036,37 @@ Tests: Frontend-Build grün.
 **Phasen-Status:** Phase A — Serie B412–B462 abgeschlossen, B463 ergänzt
 (Karten-UX: gebündeltes Hydro-Laden). Phase B (Hailo-8 U-Net) bleibt
 unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### P76 — Betriebsart der täglichen Analyse: ein Schalter statt zweier
+
+**Ausgangslage:** Die nächtliche Analyse lief ausschließlich extern über
+`debug-export-latest`. Damit sind nur die Inhalte des 24h-Export-ZIP auswertbar;
+Live-Zustände (SQLite-Integrität, Service-Status, Dateifrische) sind strukturell
+nicht erreichbar. Es gab zudem keine Stelle, die „genau eine Analyse pro Tag"
+erzwingt.
+
+**Änderung:** `config.py` erhält `ANALYSIS_MODE` (`"repo"` Default | `"local"`),
+`ANALYSIS_MODE_CHANGED` sowie `LOCAL_ANALYSIS_CONFIG` (Zeitfenster, Limits, Pfade,
+Werkzeug-Allowlist).
+
+**Bewusste Entscheidungen:**
+- **Ein einziger Schalter.** Zwei unabhängige Einstellungen liessen vier
+  Kombinationen zu, darunter „beide Analysen laufen". Mit einem Wert ist dieser
+  Zustand nicht darstellbar. `LOCAL_ANALYSIS_CONFIG` hat deshalb kein `enabled`,
+  `CLAUDE_CODE_REPORT_CONFIG` kein `source`.
+- `ANALYSIS_MODE_CHANGED` verhindert einen Doppellauf am Umstelltag: die externe
+  Routine kann an diesem Tag bereits gelaufen sein.
+- Default `"repo"` — P76 ändert das Verhalten des Systems nicht.
+- Feld `max_turns` statt `max_tokens`: `runtime_config._FORBIDDEN_KEY_SUBSTRINGS`
+  enthält `TOKEN`; nur `MAX_TOKENS` steht in der Allowlist, ein verschachteltes
+  `max_tokens` würde beim Speichern still verworfen.
+- Kein Auth-Feld: Anmeldung ausschliesslich über `~/.claude`.
+- Allowlist ohne `cat`/`head`/`tail` (nur `Read` unterliegt den Deny-Pfadregeln),
+  SQLite nur `-readonly`.
+
+Tests: `tests/test_p76_analysis_mode_config.py` — 12 Fälle, darunter die
+Kernregression „es gibt keinen zweiten Schalter".
+
+**Phasen-Status:** Phase A — Serie B412–B463 abgeschlossen. Serie P76–P82 begonnen:
+P76 ✅, P77–P82 offen. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie
+wartet auf ausreichende Trainingsdaten.
