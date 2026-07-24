@@ -8097,3 +8097,45 @@ Prüfanweisung: `AIChecks.md` → AC-078.
 **Phasen-Status:** Phase A — Serie P76–P82: P76 ✅, P77 ✅, P78–P82 offen. Ohne P78
 (Timer) und ohne Betriebsart `"local"` wird der Runner nicht ausgeführt. Phase B
 (Hailo-8 U-Net) bleibt unverändert blockiert.
+
+### P78 — Lokale Analyse: systemd-Timer und install.sh-Integration
+
+**Änderung:** Neue Units `wetterprojekt-local-analysis.service` und `.timer`, neue
+Phase 7h in `install.sh`, Flag `--no-local-analysis`.
+
+**Zeitsteuerung:** Der Timer weckt den Runner halbstündlich
+(`OnCalendar=*-*-* *:00/30:00`, `Persistent=true`, `RandomizedDelaySec=60`) und
+startet keine Analyse — das entscheidet `is_due()`. Damit sind Betriebsart und
+Uhrzeit ohne `sudo` aus dem Admin-Panel änderbar; ein durch Neustart verpasster Lauf
+wird nachgeholt. In Betriebsart `"repo"` endet der Runner in unter einer Sekunde.
+
+**Sandboxing (vierte, kernel-erzwungene Ebene zusätzlich zu P77):**
+`User=<SERVICE_USER>` (nie root), `NoNewPrivileges=yes`, `PrivateTmp=yes`,
+`ProtectSystem=full`, `ProtectKernelTunables=yes`, `ProtectControlGroups=yes`,
+`InaccessiblePaths=-/<TARGET>/.env`. Das Minus-Präfix verhindert, dass eine fehlende
+`.env` den Start scheitern lässt. `ProtectSystem=strict` wurde verworfen — die CLI
+muss in `~/.claude` schreiben.
+
+**Expliziter PATH in der Unit:** systemd liest `~/.bashrc` nie. Die CLI liegt nach der
+Standardinstallation unter `~/.local/bin/claude`; ohne `Environment=PATH=…` findet der
+Runner sie im Timer-Kontext nicht, obwohl `claude --version` in der Login-Shell
+funktioniert.
+
+**install.sh Phase 7h:** läuft in beiden Modi, ermittelt und protokolliert die
+Betriebsart, sucht die CLI in `$HOME/.local/bin`, `/usr/local/bin` und `PATH`, gibt
+deren Version aus, generiert die Units mit substituiertem
+`User`/`WorkingDirectory`/`TARGET`, prüft mit `--check-only` (nie `--force`) und
+aktiviert den Timer. In Betriebsart `"local"` weist sie zusätzlich darauf hin, die
+externe Routine in der Claude-App abzuschalten. Fehlende CLI oder fehlender Login
+brechen die Installation nicht ab, sondern erzeugen `note_manual`-Hinweise mit dem
+exakten Befehl (zieldefinition.txt Z. 44).
+
+Tests: `tests/test_p78_local_analysis_units.py` — 19 Fälle: Unit-Direktiven,
+`.env`-Sperre inkl. Minus-Präfix, kein root, PATH mit `.local/bin`, halbstündlicher
+Timer, Flag/Usage/Phase in `install.sh`, Betriebsart-Ausgabe, Warnung vor der
+Doppelanalyse, `--check-only` statt `--force`, Regression auf `--mode=full|upgrade`
+und auf „Phase 9 bricht nie ab".
+
+**Phasen-Status:** Phase A — Serie P76–P82: P76 ✅, P77 ✅, P78 ✅, P79–P82 offen.
+Der Timer läuft nach dem nächsten `install.sh`-Lauf; ausgeführt wird weiterhin nichts,
+solange `ANALYSIS_MODE` `"repo"` ist. Phase B (Hailo-8 U-Net) bleibt blockiert.
