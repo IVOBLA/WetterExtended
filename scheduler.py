@@ -423,6 +423,56 @@ def run_claude_code_report_job():
         branch = _cfg.get("branch", "debug-export-latest")
         project_dir = str(_Path(__file__).resolve().parent)
 
+        # P79: Die Betriebsart bestimmt die Quelle — ein einziger Schalter, damit
+        # der Zustand "beide Analysen laufen" nicht darstellbar ist.
+        from config import ANALYSIS_MODE as _mode_default
+        mode = str(
+            runtime_config.get("ANALYSIS_MODE", _mode_default) or "repo"
+        ).strip().lower()
+        if mode == "local":
+            from config import LOCAL_ANALYSIS_CONFIG as _la_default
+            _la = dict(_la_default)
+            _la.update(runtime_config.get("LOCAL_ANALYSIS_CONFIG", {}) or {})
+            local_path = _Path(project_dir) / str(
+                _la.get("result_path", "train_data/evaluation/analysis_result.json")
+            )
+            if not local_path.is_file():
+                debug_log(
+                    "[SCHEDULER] claude_code_report: lokale Datei fehlt "
+                    f"({local_path}) — noch kein lokaler Analyse-Lauf?"
+                )
+                return
+            age_h = (
+                _dt.now(_tz.utc).timestamp() - local_path.stat().st_mtime
+            ) / 3600
+            if age_h > 26:
+                debug_log(
+                    f"[SCHEDULER] claude_code_report: lokale Datei ist {age_h:.1f}h "
+                    "alt (>26h) — uebersprungen."
+                )
+                return
+            try:
+                result = _json.loads(local_path.read_text(encoding="utf-8"))
+            except Exception as _le:
+                debug_log(
+                    f"[SCHEDULER] claude_code_report: lokale Datei nicht lesbar: {_le}"
+                )
+                return
+            from email_notifier import send_claude_code_report_email
+            ok = send_claude_code_report_email(result, report_email)
+            debug_log(
+                "[SCHEDULER] claude_code_report: "
+                f"{'gesendet' if ok else 'FEHLER'} → {report_email} "
+                f"(Betriebsart: local, Alter: {age_h:.1f}h)"
+            )
+            return
+        if mode != "repo":
+            debug_log(
+                f"[SCHEDULER] claude_code_report: unbekannte Betriebsart '{mode}' — "
+                "erlaubt sind 'repo' und 'local'. Lauf uebersprungen."
+            )
+            return
+
         fetch = _sub.run(
             ["git", "fetch", "origin", branch],
             cwd=project_dir, capture_output=True, text=True,
@@ -774,9 +824,14 @@ def create_scheduler() -> BlockingScheduler:
         trigger=CronTrigger(hour=_cc_h, minute=_cc_m, timezone="Europe/Vienna"),
         id="claude_code_report", max_instances=1, coalesce=True,
     )
+    from config import ANALYSIS_MODE as _mode_default
+    _cc_mode = str(
+        runtime_config.get("ANALYSIS_MODE", _mode_default) or "repo"
+    ).strip().lower()
     debug_log(
         f"[SCHEDULER] Claude-Code-Report-Mail: täglich {_cc_h:02d}:{_cc_m:02d} "
-        f"Europe/Vienna (Branch: {_cc_cfg.get('branch', 'debug-export-latest')})"
+        f"Europe/Vienna (Betriebsart: {_cc_mode}, "
+        f"Branch: {_cc_cfg.get('branch', 'debug-export-latest')})"
     )
 
     # --- immer aktiv: Daten-Cleanup ---

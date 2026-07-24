@@ -8139,3 +8139,32 @@ und auf „Phase 9 bricht nie ab".
 **Phasen-Status:** Phase A — Serie P76–P82: P76 ✅, P77 ✅, P78 ✅, P79–P82 offen.
 Der Timer läuft nach dem nächsten `install.sh`-Lauf; ausgeführt wird weiterhin nichts,
 solange `ANALYSIS_MODE` `"repo"` ist. Phase B (Hailo-8 U-Net) bleibt blockiert.
+
+### P79 — Report-Mailjob wählt die Quelle nach Betriebsart
+
+**Änderung:** `run_claude_code_report_job()` verzweigt nach `ANALYSIS_MODE`. Bei
+`"local"` wird `LOCAL_ANALYSIS_CONFIG["result_path"]` direkt gelesen und die Frische
+über `mtime` geprüft; kein git-Aufruf. Bei `"repo"` (Default) bleibt der bisherige
+Pfad unverändert — der eingefügte Block endet in jedem Zweig mit `return`. Eine
+unbekannte Betriebsart verschickt nichts und wird geloggt. Die Startzeile des
+Schedulers nennt zusätzlich die aktive Betriebsart.
+
+**Bewusste Entscheidungen:**
+- Frischegrenze bleibt bei 26 h für beide Wege; nur die Messgröße unterscheidet sich
+  (Commit-Zeit vs. Dateizeit). Ein Runner-Ausfall führt so nicht dazu, dass tagelang
+  derselbe alte Report verschickt wird.
+- Unbekannte Betriebsart bricht laut ab statt still auf `"repo"` zurückzufallen — ein
+  fehlerhafter Override soll sichtbar sein.
+- Die vorgelagerten Guards (`enabled`, leere `report_email`) bleiben unberührt und
+  gewinnen weiterhin gegen jede Betriebsart.
+
+Tests: `tests/test_p79_report_source_by_mode.py` — 11 Fälle: lokaler Versand ohne
+jeden git-Aufruf, fehlende Datei, veraltete Datei (48 h), Grenzfall 25 h, defektes
+JSON, unbekannte Betriebsart, `enabled=False`, leere Empfängeradresse, Regression auf
+den git-Pfad, Default `"repo"`, Startzeile nennt die Betriebsart. Die Funktion wird
+per AST aus `scheduler.py` geladen (Muster aus `tests/test_b462_cycle_timing.py`),
+damit der Test ohne apscheduler läuft und nichts roh in `sys.modules` gesetzt wird.
+
+**Phasen-Status:** Phase A — Serie P76–P82: P76 ✅, P77 ✅, P78 ✅, P79 ✅, P80–P82
+offen. Der Versandweg ist vollständig; es fehlen Bedienoberfläche und die
+Push-Unterdrückung des Debug-Exports. Phase B (Hailo-8 U-Net) bleibt blockiert.
