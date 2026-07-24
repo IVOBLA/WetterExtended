@@ -512,6 +512,29 @@ Admin-Panel fehlgeschlagen" im Log ist immer zu melden, auch wenn der Push gelan
    Log-Zeitfenster des Exports; dokumentiere, ob die Spitzen mit der vom
    Nutzer berichteten Langsamkeit zusammenfallen.
 
+### AC-078 — Prüfe, dass genau eine Analyse pro Tag gelaufen ist
+
+1. Werte `train_data/evaluation/local_analysis_status.json` aus: `state`, `mode`,
+   `ts_local`, `duration_s`, `attempts_today`, `error`.
+2. `state=mode_repo` ist kein Fehler — die Analyse läuft dann extern über den
+   Branch. Melden ist nur nötig, wenn die Betriebsart laut Admin-Panel `local`
+   ist und der Status trotzdem `mode_repo` zeigt (dann greift der Override nicht).
+3. `state=mode_changed_today` ist erwartet am Umstelltag: der erste automatische
+   Lokallauf findet am Folgetag statt. Bleibt der Zustand über mehrere Tage
+   stehen, ist `ANALYSIS_MODE_CHANGED` nicht fortgeschrieben worden — melden.
+4. `state=precondition_failed` melden mit dem Wortlaut aus `error`; typische
+   Ursachen sind fehlende Claude-Code-CLI, fehlender Login oder eine im
+   Admin-Panel gespeicherte Allowlist mit schreibenden Werkzeugen.
+5. `state=max_attempts_reached` bedeutet drei erfolglose Versuche am selben Tag —
+   die Ursache steht im `error` des vorherigen Laufs und im Journal von
+   `wetterprojekt-local-analysis.service`.
+6. Prüfe die Doppel-Analyse: Ist `mode=local` und trägt `analysis_result.json`
+   trotzdem einen Zeitstempel, der nicht zum lokalen Lauf passt, hat zusätzlich
+   die externe Routine geschrieben. Das verletzt die Ein-Analyse-pro-Tag-Regel —
+   melden mit beiden Zeitstempeln als `beleg`.
+7. Ist `duration_s` größer als 80 % von `timeout_s`, ist der Auftrag zu
+   umfangreich für das Zeitlimit — als Verbesserung melden, nicht als Fehler.
+
 ## Erledigt
 
 _(Format: `AC-xxx — Kurztitel · YYYY-MM-DD · Ergebnis in einem Satz.)_

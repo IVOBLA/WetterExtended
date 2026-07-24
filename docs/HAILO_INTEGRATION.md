@@ -8070,3 +8070,30 @@ Kernregression „es gibt keinen zweiten Schalter".
 **Phasen-Status:** Phase A — Serie B412–B463 abgeschlossen. Serie P76–P82 begonnen:
 P76 ✅, P77–P82 offen. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie
 wartet auf ausreichende Trainingsdaten.
+
+
+### P77 — Lokale Analyse: Runner, Leitplanken und Arbeitsauftrag
+
+**Änderung:** Vier neue Dateien — `tools/run_local_analysis.py` (headless-Runner),
+`tools/local_analysis_settings.json` (laufbezogene Deny-Regeln),
+`docs/LOCAL_ANALYSIS_PROMPT.md` (Arbeitsauftrag mit Belegpflicht),
+`tests/test_p77_local_analysis_runner.py`.
+
+**Ablauf:** Betriebsart und Fälligkeit prüfen → Guards → `claude -p` mit
+`--output-format json`, `--permission-mode dontAsk`, `--allowedTools`, `--settings`,
+`--max-turns` → Antwort validieren → Ergebnis und Status atomar schreiben.
+
+**Ein-Analyse-pro-Tag:** `is_due()` unterscheidet `mode_repo`,
+`mode_changed_today`, `not_due_yet`, `already_ran_today`,
+`max_attempts_reached` und `due`; höchstens ein Erfolg und drei Versuche pro Tag.
+
+**Sicherheitsarchitektur:** Allowlist-Guard, laufbezogene Deny-Regeln und eine
+minimale, von Geheimnissen bereinigte Subprozess-Umgebung wirken unabhängig.
+`dontAsk`, `stdin=DEVNULL` und ein hartes Timeout sichern den Headless-Betrieb ab.
+Das Ergebnis wird atomar über `os.replace()` geschrieben.
+
+Prüfanweisung: `AIChecks.md` → AC-078.
+
+**Phasen-Status:** Phase A — Serie P76–P82: P76 ✅, P77 ✅, P78–P82 offen. Ohne P78
+(Timer) und ohne Betriebsart `"local"` wird der Runner nicht ausgeführt. Phase B
+(Hailo-8 U-Net) bleibt unverändert blockiert.
