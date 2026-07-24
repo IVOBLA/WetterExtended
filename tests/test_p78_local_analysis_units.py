@@ -51,8 +51,27 @@ def test_service_path_contains_local_bin():
 def test_service_is_sandboxed():
     t = _svc()
     for directive in ("NoNewPrivileges=yes", "PrivateTmp=yes",
-                      "ProtectSystem=full", "ProtectKernelTunables=yes"):
+                      "ProtectSystem=strict", "ProtectKernelTunables=yes"):
         assert directive in t, f"Sandbox-Direktive fehlt: {directive}"
+
+
+def test_service_write_access_is_limited_to_the_result_directory():
+    """B466: strict + ReadWritePaths — Quellcode und Modelle sind unbeschreibbar."""
+    t = _svc()
+    assert "ProtectSystem=full" not in t, "full laesst /home schreibbar"
+    rw = [l.split("=", 1)[1].lstrip("-")
+          for l in t.splitlines() if l.startswith("ReadWritePaths=")]
+    assert any(p.endswith("train_data/evaluation") for p in rw), \
+        "Ergebnisverzeichnis fehlt in ReadWritePaths"
+    for p in rw:
+        assert not p.rstrip("/").endswith("wetterprojekt"), \
+            "Das gesamte Projektverzeichnis darf nicht beschreibbar sein"
+
+
+def test_service_allows_the_cli_to_write_its_own_state():
+    """Ohne ~/.claude scheitert die Anmeldung der CLI im Timer-Kontext."""
+    rw = " ".join(l for l in _svc().splitlines() if l.startswith("ReadWritePaths="))
+    assert ".claude" in rw
 
 
 def test_service_makes_env_file_inaccessible():
