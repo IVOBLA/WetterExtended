@@ -1050,19 +1050,10 @@ LOCAL_ANALYSIS_CONFIG: dict = {
     "status_path":   "train_data/evaluation/local_analysis_status.json",
     "settings_path": "tools/local_analysis_settings.json",
     # Nur lesende Werkzeuge. Änderungen hier werden vom Runner geprüft.
-    "allowed_tools": (
-        "Read,Grep,Glob,"
-        "Bash(journalctl *),"
-        "Bash(systemctl status *),"
-        "Bash(systemctl is-active *),"
-        "Bash(sqlite3 -readonly *),"
-        "Bash(ls *),"
-        "Bash(stat *),"
-        "Bash(wc -l *),"
-        "Bash(df -h),"
-        "Bash(free -m),"
-        "Bash(uptime)"
-    ),
+    # B465: Positivliste. Shell-Zugriffe ausschliesslich ueber das
+    # validierende Abfragewerkzeug — Platzhalterregeln wie "Bash(journalctl *)"
+    # waeren nicht read-only (journalctl --vacuum-*, sqlite3-Punktbefehle).
+    "allowed_tools": "Read,Grep,Glob,Bash(python3 tools/ro_query.py *)",
 }
 
 # Trainings-Schedule (Cron-Stil). Wird vom Scheduler gelesen, kann per

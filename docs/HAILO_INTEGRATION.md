@@ -8261,3 +8261,22 @@ Logzeile, Push-Kommando für "repo" weiterhin vorhanden, `--dry-run` unveränder
 P79 ✅, P80 ✅, P81 ✅, P82 ✅. Die tägliche Analyse läuft ab jetzt genau einmal —
 entweder extern über das Repository (Default) oder am Pi. Phase B (Hailo-8 U-Net)
 bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B465 — Read-only-Allowlist: Positivliste statt Platzhalterregeln (Codex-Review zu P77)
+
+**Befund (Codex, P1):** Die Allowlist aus P77 war nicht read-only.
+`Bash(journalctl *)` erfasst auch `journalctl --vacuum-size=1M` (löscht
+Journaldateien); `Bash(sqlite3 -readonly *)` erlaubt weiterhin Punktbefehle wie
+`.shell`, `.output`, `.import`. Prefix-Matching kann das nicht abfangen.
+
+`validate_allowed_tools()` arbeitet nun mit einer Positivliste aus Read/Grep/Glob
+und genau einer Bash-Regel. `tools/ro_query.py` ist der einzige Shell-Zugang und
+validiert Units, Zeiträume, Prioritäten, Projektpfade sowie SELECT/WITH-SQL. Externe
+Programme laufen mit `shell=False`; SQLite wird über `mode=ro` geöffnet. Der lokale
+Analyseauftrag beschreibt alle Betriebsprüfungen über dieses Werkzeug.
+
+**Restrisiko:** Kommandoverkettung nach dem erlaubten Präfix wird durch die in B466
+vorgesehene kernel-erzwungene Sandbox begrenzt.
+
+**Phasen-Status:** Phase A — Nacharbeit B464–B467: B464 ✅, B465 ✅, B466–B467 offen.
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.

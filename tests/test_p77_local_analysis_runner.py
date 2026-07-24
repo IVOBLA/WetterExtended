@@ -32,8 +32,13 @@ def test_writes_rejected(runner,spec):
 @pytest.mark.parametrize('spec',['Read,Bash(cat *)','Read,Bash(head *)','Read,Bash(tail *)'])
 def test_bypass_rejected(runner,spec):
  with pytest.raises(runner.PreconditionError): runner.validate_allowed_tools(spec)
-def test_sqlite_rejected(runner):
- with pytest.raises(runner.PreconditionError): runner.validate_allowed_tools('Read,Bash(sqlite3 *)')
+@pytest.mark.parametrize('spec',['Read,Bash(sqlite3 *)','Read,Bash(sqlite3 -readonly *)','Read,Bash(journalctl *)','Read,Bash(systemctl status *)','Read,Bash(ls *)','Read,Bash(python3 tools/ro_query.py *),Bash(rm *)'])
+def test_wildcard_shell_rules_rejected(runner,spec):
+ with pytest.raises(runner.PreconditionError): runner.validate_allowed_tools(spec)
+def test_read_required(runner):
+ with pytest.raises(runner.PreconditionError): runner.validate_allowed_tools('Grep,Glob')
+def test_split_respects_parentheses(runner):
+ assert runner.split_allowed_tools('Read,Grep,Bash(python3 tools/ro_query.py *)')==['Read','Grep','Bash(python3 tools/ro_query.py *)']
 def test_empty_rejected(runner):
  with pytest.raises(runner.PreconditionError): runner.validate_allowed_tools(' ')
 def test_env(runner):
