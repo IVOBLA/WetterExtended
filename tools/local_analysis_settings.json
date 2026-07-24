@@ -1,13 +1,52 @@
 {
-  "_kommentar": "P77 — Leitplanken NUR fuer den naechtlichen Analyse-Lauf. Wird per --settings uebergeben und beeinflusst interaktive Claude-Code-Sessions im selben Verzeichnis NICHT. Deny gewinnt immer gegen Allow.",
-  "env": {"DISABLE_AUTOUPDATER": "1"},
-  "permissions": {"deny": [
-    "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch",
-    "Read(./.env)", "Read(./.env.*)", "Read(**/.env)", "Read(**/*.pem)", "Read(**/*.key)", "Read(**/id_rsa*)",
-    "Bash(rm *)", "Bash(rmdir *)", "Bash(mv *)", "Bash(cp *)", "Bash(tee *)", "Bash(truncate *)", "Bash(chmod *)", "Bash(chown *)",
-    "Bash(sudo *)", "Bash(su *)", "Bash(dd *)", "Bash(git push *)", "Bash(git commit *)", "Bash(git add *)", "Bash(git checkout *)",
-    "Bash(git reset *)", "Bash(git clean *)", "Bash(pip *)", "Bash(pip3 *)", "Bash(npm *)", "Bash(apt *)", "Bash(apt-get *)",
-    "Bash(systemctl start *)", "Bash(systemctl stop *)", "Bash(systemctl restart *)", "Bash(systemctl disable *)", "Bash(systemctl enable *)",
-    "Bash(python *)", "Bash(python3 *)", "Bash(sh *)", "Bash(bash *)", "Bash(curl *)", "Bash(wget *)", "Bash(nc *)", "Bash(ssh *)", "Bash(scp *)"
-  ]}
+  "_kommentar": "P77/B468 — Leitplanken NUR fuer den naechtlichen Analyse-Lauf. Wird per --settings uebergeben und beeinflusst interaktive Claude-Code-Sessions im selben Verzeichnis NICHT. AUSSCHLIESSLICH qualifizierte Regeln der Form Tool(muster): ein blosser Werkzeugname wie \"MultiEdit\" laesst die CLI mit \"matches no known tool\" abbrechen, sobald das Werkzeug in der jeweiligen Version nicht existiert. Unter --permission-mode dontAsk sind nicht vorab erlaubte Werkzeuge ohnehin gesperrt, blosse Namen waeren also nur zusaetzliche Bruchstelle ohne Schutzgewinn.",
+  "env": {
+    "DISABLE_AUTOUPDATER": "1"
+  },
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(**/.env)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Read(**/id_rsa*)",
+      "Bash(rm *)",
+      "Bash(rmdir *)",
+      "Bash(mv *)",
+      "Bash(cp *)",
+      "Bash(tee *)",
+      "Bash(truncate *)",
+      "Bash(chmod *)",
+      "Bash(chown *)",
+      "Bash(sudo *)",
+      "Bash(su *)",
+      "Bash(dd *)",
+      "Bash(git push *)",
+      "Bash(git commit *)",
+      "Bash(git add *)",
+      "Bash(git checkout *)",
+      "Bash(git reset *)",
+      "Bash(git clean *)",
+      "Bash(pip *)",
+      "Bash(pip3 *)",
+      "Bash(npm *)",
+      "Bash(apt *)",
+      "Bash(apt-get *)",
+      "Bash(systemctl start *)",
+      "Bash(systemctl stop *)",
+      "Bash(systemctl restart *)",
+      "Bash(systemctl disable *)",
+      "Bash(systemctl enable *)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(sh *)",
+      "Bash(bash *)",
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Bash(nc *)",
+      "Bash(ssh *)",
+      "Bash(scp *)"
+    ]
+  }
 }

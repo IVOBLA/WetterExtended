@@ -8363,3 +8363,37 @@ Tests der Serie P76–P82 wurden daraufhin geprüft; nur diese beiden waren betr
 **Phasen-Status:** Phase A — Nacharbeit B464–B467 abgeschlossen: B464 ✅, B465 ✅,
 B466 ✅, B467 ✅. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet
 auf ausreichende Trainingsdaten.
+
+### B468 — Deny-Regeln ohne Muster brachen den Analyse-Lauf zum Abbruch
+
+**Befund im Betrieb** (2026-07-24 11:48:35, `state=failed` nach 470,3 s, drei Versuche
+an diesem Tag): `Permission deny rule "MultiEdit" matches no known tool — check for
+typos.` Die aus P77 ausgelieferte Deny-Liste enthielt sechs blosse Werkzeugnamen;
+`MultiEdit` existiert in der installierten CLI 2.1.206 nicht mehr.
+
+**Warum blosse Namen hier nichts nützten:** Ein Name ohne Muster entfernt das Werkzeug
+vor der Auswertung aus dem Kontext — kennt die Version es nicht, ist das ein
+Konfigurationsfehler mit Abbruch. Zugleich sperrt `--permission-mode dontAsk` alles,
+was nicht ausdrücklich erlaubt ist; seit B465 besteht die Positivliste aus vier
+Einträgen. `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `WebFetch` und `WebSearch`
+standen nicht darin und waren bereits gesperrt — die sechs Regeln brachten keinen
+Schutzgewinn, nur eine Bruchstelle bei jedem CLI-Versionswechsel.
+
+**Änderung:** Die sechs Namensregeln entfallen, 42 qualifizierte Regeln bleiben.
+Wirksam sind ohnehin nur die `Read(...)`-Pfadsperren, weil `Read` breit erlaubt ist.
+Neuer Guard `validate_deny_rules()` im Runner, aufgerufen aus `check_preconditions()`:
+er lehnt Regeln ohne Muster ab sowie Regeln für Werkzeuge ausserhalb der Positivliste
+(wirkungslos). Eine fehlerhafte Deny-Liste scheitert damit vor dem CLI-Aufruf mit
+`state=precondition_failed` und Klartext statt nach 470 Sekunden.
+
+Tests: `tests/test_b468_deny_rules_scoped.py` — 18 Fälle: keine Namensregeln mehr,
+`MultiEdit` verschwunden, alle Regeln geschlossen, die tragenden `.env`-Pfadsperren und
+die Shell-Regeln überlebt, nur Werkzeuge der Positivliste werden verboten, Guard nimmt
+die ausgelieferte Datei an, lehnt alle sechs Namensregeln und `Write(./x)` ab, toleriert
+eine fehlende `deny`-Sektion, und ein Ablauftest weist nach, dass der Lauf VOR dem
+CLI-Aufruf scheitert. Angepasst: `tests/test_p77_…` prüft jetzt die qualifizierten
+Regeln und dass keine Namensregel zurückkehrt.
+
+**Phasen-Status:** Phase A — Nacharbeit B464–B468: B464 ✅, B465 ✅, B466 ✅,
+B467 offen, B468 ✅. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet
+auf ausreichende Trainingsdaten.
