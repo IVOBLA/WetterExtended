@@ -111,6 +111,8 @@ _SENSITIVE_READ_PREFIXES = (
     "/api/drift/",
     "/api/ai_analysis",
     "/api/claude_code_report",
+    "/api/local_analysis",
+    "/api/analysis_mode",
     "/api/email_config",
     "/api/sms_config",
     "/api/notification",
@@ -2857,12 +2859,29 @@ def _p47_job_map():
         r = aggregate()
         return f"{r.get('processed', 0)} neue Tracks"
 
+    def _local_analysis():
+        import subprocess as _sub
+        import sys as _sys
+        from pathlib import Path as _P
+        _base = _P(__file__).resolve().parent
+        _tool = _base / "tools" / "run_local_analysis.py"
+        if not _tool.is_file():
+            raise RuntimeError(f"Runner fehlt: {_tool}")
+        _r = _sub.run([_sys.executable, str(_tool), "--repo-dir", str(_base), "--force"],
+                      capture_output=True, text=True, timeout=1800)
+        _lines = (_r.stdout or "").strip().splitlines()
+        _tail = _lines[-1] if _lines else (_r.stderr or "").strip()[-300:]
+        if _r.returncode != 0:
+            raise RuntimeError(f"rc={_r.returncode}: {_tail}")
+        return _tail or "Lauf beendet"
+
     return {
         "atmospheric_snapshot": ("Atmosphären-Snapshot", _atmospheric),
         "outlook_series": ("Ausblick-Zeitreihe", _outlook_series),
         "outlook_compute": ("Ausblick-Raster", _outlook_compute),
         "api_health": ("Alle Dienste testen (API-Health)", _api_health),
         "stats_aggregate": ("Langzeitstatistik aggregieren", _stats),
+        "local_analysis": ("Lokale Analyse jetzt ausführen", _local_analysis),
     }
 
 
@@ -3389,6 +3408,136 @@ def api_claude_code_report_config_save():
     merged.update(data)
     runtime_config.patch({"CLAUDE_CODE_REPORT_CONFIG": merged})
     return jsonify({"ok": True})
+
+
+# ---------- Betriebsart der taeglichen Analyse (P80) ----------
+
+_ANALYSIS_MODES = ("repo", "local")
+
+
+def _analysis_mode_effective():
+    """Liefert (Betriebsart, Umstelldatum) aus Default + Runtime-Override."""
+    from config import ANALYSIS_MODE as _m
+    from config import ANALYSIS_MODE_CHANGED as _c
+    mode = str(runtime_config.get("ANALYSIS_MODE", _m) or "repo").strip().lower()
+    changed = str(runtime_config.get("ANALYSIS_MODE_CHANGED", _c) or "").strip()
+    return mode, changed
+
+
+@app.route("/api/analysis_mode")
+def api_analysis_mode_get():
+    mode, changed = _analysis_mode_effective()
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo as _Z
+    today = _dt.now(_Z("Europe/Vienna")).strftime("%Y-%m-%d")
+    return jsonify({"mode": mode, "changed": changed, "changed_today": changed == today,
+                    "modes": list(_ANALYSIS_MODES)})
+
+
+@app.route("/api/analysis_mode", methods=["POST"])
+def api_analysis_mode_save():
+    try:
+        data = request.get_json(force=True)
+        if not isinstance(data, dict):
+            raise ValueError("Payload muss JSON-Objekt sein")
+        mode = str(data.get("mode", "")).strip().lower()
+        if mode not in _ANALYSIS_MODES:
+            raise ValueError(f"mode muss einer von {', '.join(_ANALYSIS_MODES)} sein")
+    except (ValueError, TypeError) as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    current, _ = _analysis_mode_effective()
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo as _Z
+    today = _dt.now(_Z("Europe/Vienna")).strftime("%Y-%m-%d")
+    if mode == current:
+        return jsonify({"ok": True, "mode": mode, "changed": False})
+    runtime_config.patch({"ANALYSIS_MODE": mode, "ANALYSIS_MODE_CHANGED": today})
+    debug_log(f"[API] Betriebsart der Analyse umgestellt: {current} → {mode}")
+    return jsonify({"ok": True, "mode": mode, "changed": True, "changed_at": today})
+
+
+# ---------- Lokale Analyse am Pi (P80) ----------
+
+_LOCAL_ANALYSIS_MODULE = None
+
+
+def _local_analysis_module():
+    global _LOCAL_ANALYSIS_MODULE
+    if _LOCAL_ANALYSIS_MODULE is None:
+        import importlib.util as _ilu
+        from pathlib import Path as _P
+        _path = _P(__file__).resolve().parent / "tools" / "run_local_analysis.py"
+        _spec = _ilu.spec_from_file_location("wx_run_local_analysis", _path)
+        _mod = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        _LOCAL_ANALYSIS_MODULE = _mod
+    return _LOCAL_ANALYSIS_MODULE
+
+
+@app.route("/api/local_analysis/config")
+def api_local_analysis_config_get():
+    from config import LOCAL_ANALYSIS_CONFIG as _default
+    effective = dict(_default)
+    effective.update(runtime_config.get("LOCAL_ANALYSIS_CONFIG", {}) or {})
+    return jsonify(effective)
+
+
+@app.route("/api/local_analysis/config", methods=["POST"])
+def api_local_analysis_config_save():
+    try:
+        data = request.get_json(force=True)
+        if not isinstance(data, dict):
+            raise ValueError("Payload muss JSON-Objekt sein")
+        data.pop("enabled", None)
+        for key, lo, hi in (("cron_hour", 0, 23), ("cron_minute", 0, 59),
+                            ("max_turns", 1, 200), ("timeout_s", 60, 3600)):
+            if key in data:
+                v = int(data[key])
+                if not (lo <= v <= hi):
+                    raise ValueError(f"{key} muss zwischen {lo} und {hi} liegen")
+                data[key] = v
+        for key in ("claude_bin", "model", "prompt_path", "result_path",
+                    "status_path", "settings_path", "allowed_tools"):
+            if key in data:
+                data[key] = str(data[key]).strip()
+        if "allowed_tools" in data:
+            _local_analysis_module().validate_allowed_tools(data["allowed_tools"])
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    from config import LOCAL_ANALYSIS_CONFIG as _default
+    merged = dict(_default)
+    merged.update(runtime_config.get("LOCAL_ANALYSIS_CONFIG", {}) or {})
+    merged.update(data)
+    runtime_config.patch({"LOCAL_ANALYSIS_CONFIG": merged})
+    return jsonify({"ok": True})
+
+
+@app.route("/api/local_analysis/status")
+def api_local_analysis_status():
+    import json as _json
+    import time as _time
+    from pathlib import Path as _P
+    from config import LOCAL_ANALYSIS_CONFIG as _default
+    cfg = dict(_default)
+    cfg.update(runtime_config.get("LOCAL_ANALYSIS_CONFIG", {}) or {})
+    base = _P(__file__).resolve().parent
+    mode, changed = _analysis_mode_effective()
+    try:
+        status = _json.loads((base / str(cfg.get("status_path", ""))).read_text(encoding="utf-8"))
+    except Exception:
+        status = {}
+    try:
+        cli = _local_analysis_module().resolve_claude_bin(cfg)
+    except Exception:
+        cli = None
+    result_age_h = None
+    result_file = base / str(cfg.get("result_path", ""))
+    if result_file.is_file():
+        result_age_h = round((_time.time() - result_file.stat().st_mtime) / 3600, 1)
+    return jsonify({"mode": mode, "mode_changed": changed,
+                    "cron_hour": cfg.get("cron_hour"), "cron_minute": cfg.get("cron_minute"),
+                    "claude_cli": cli, "cli_available": bool(cli),
+                    "result_age_h": result_age_h, "status": status})
 
 
 @app.route("/api/ai_analysis/suggestions")
