@@ -8168,3 +8168,26 @@ damit der Test ohne apscheduler läuft und nichts roh in `sys.modules` gesetzt w
 **Phasen-Status:** Phase A — Serie P76–P82: P76 ✅, P77 ✅, P78 ✅, P79 ✅, P80–P82
 offen. Der Versandweg ist vollständig; es fehlen Bedienoberfläche und die
 Push-Unterdrückung des Debug-Exports. Phase B (Hailo-8 U-Net) bleibt blockiert.
+
+### P80 — API für Betriebsart und lokale Analyse
+
+**Änderung:** `app.py` erhält `GET/POST /api/analysis_mode`,
+`GET/POST /api/local_analysis/config` und `GET /api/local_analysis/status`; beide
+Präfixe kommen in `_SENSITIVE_READ_PREFIXES`. Der manuelle Lauf wird als
+`local_analysis` in `_p47_job_map()` registriert und läuft über die vorhandene Route
+`POST /api/system/run_job/<id>` samt Thread, 409-Sperre und `job_status`.
+
+**Bewusste Entscheidungen:**
+- Betriebsart und Umstelldatum werden in EINEM `runtime_config.patch()` geschrieben.
+- Erneutes Speichern derselben Betriebsart setzt das Umstelldatum nicht zurück.
+- Die Speicherroute verwirft ein mitgeschicktes `enabled`.
+- Kein eigener Run-Endpunkt: der P47-Mechanismus wird wiederverwendet.
+- Der Allowlist-Guard des Runners wird wiederverwendet, nicht kopiert.
+- `--force` übergeht Betriebsart und Zeitfenster, nie die Sicherheits-Guards.
+- Das Umstelldatum wird in Europe/Vienna gebildet.
+
+Tests: `tests/test_p80_local_analysis_api.py` — 18 Fälle für Routen, Validierung,
+Guard-Wiederverwendung, manuellen Lauf und Status.
+
+**Phasen-Status:** Phase A — Serie P76–P82: P76 ✅, P77 ✅, P78 ✅, P79 ✅, P80 ✅,
+P81–P82 offen. Bedienbar wird das Feature mit P81. Phase B bleibt blockiert.
