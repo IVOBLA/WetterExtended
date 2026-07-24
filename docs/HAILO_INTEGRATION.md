@@ -8191,3 +8191,40 @@ Guard-Wiederverwendung, manuellen Lauf und Status.
 
 **Phasen-Status:** Phase A — Serie P76–P82: P76 ✅, P77 ✅, P78 ✅, P79 ✅, P80 ✅,
 P81–P82 offen. Bedienbar wird das Feature mit P81. Phase B bleibt blockiert.
+
+### P81 — Admin-Karten für Betriebsart und lokale Analyse
+
+**Änderung:** Neue Karte "Betriebsart der täglichen Analyse" (Radio: extern über das
+Repository / direkt am Pi), neue Karte "Lokale Analyse am Pi" (Zeit, max_turns,
+timeout_s, Statusanzeige, Jetzt-ausführen, Status-aktualisieren), angepasste
+Beschreibung der Report-Karte. Handbuch-Kapitel ergänzt.
+
+**Bewusste Entscheidungen:**
+- Radio-Optionen statt zweier Schalter: der Zustand "beide Analysen laufen" ist nicht
+  anklickbar. Die Karte "Lokale Analyse" hat bewusst keinen eigenen Ein/Aus-Schalter.
+- Der Hinweis, die externe Routine in der Claude-App abzuschalten, erscheint
+  auffällig in Betriebsart "lokal" — der Pi kann sie nicht stoppen.
+- Der Umstelltag wird erklärt (erster automatischer Lauf morgen, manueller Lauf
+  sofort), damit das Ausbleiben eines Laufs nicht als Fehler gedeutet wird.
+- Warnung, wenn die Analysezeit nicht vor der Versandzeit liegt — sonst würde
+  stillschweigend das Ergebnis des Vortages verschickt.
+- Der manuelle Lauf nutzt POST /api/system/run_job/local_analysis und pollt
+  GET /api/system/job_status; kein eigener Endpunkt.
+- Die Statusabfrage bricht nach 240 Durchläufen (20 Minuten) ab.
+- Fehlt die CLI, zeigt die Karte den Installationsbefehl und den Hinweis auf die
+  einmalige interaktive Anmeldung — dieselbe Information wie in den
+  note_manual-Hinweisen von install.sh (zieldefinition.txt Z. 44).
+- Die Grenzwerte der Eingabefelder spiegeln exakt die Serverprüfungen aus P80.
+
+Tests: `tests/test_p81_analysis_mode_ui.py` — 23 Fälle: beide Karten, Radio statt
+Toggle, Ein-Analyse-pro-Tag-Aussage, eigener Endpunkt für die Betriebsart, Warnung vor
+der externen Routine, Erklärung des Umstelltags, kein zweiter Ein/Aus-Schalter in der
+Lokal-Karte, alle vier Felder bedienbar, Grenzwerte deckungsgleich mit der API,
+manueller Lauf über die bestehende Job-Route, Poll-Abbruch, Button gesperrt,
+CLI-Hinweis, Versandzeit-Warnung sowie das Handbuch-Kapitel inklusive Prüfung auf
+"genau einmal pro Tag", "von Hand abzuschalten", "Folgetag", "lesend" und Freiheit von
+Bugfix-Formulierungen.
+
+**Phasen-Status:** Phase A — Serie P76–P82: P76 ✅, P77 ✅, P78 ✅, P79 ✅, P80 ✅,
+P81 ✅, P82 offen. Nach P82 ist die Serie vollständig. Phase B (Hailo-8 U-Net) bleibt
+unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
