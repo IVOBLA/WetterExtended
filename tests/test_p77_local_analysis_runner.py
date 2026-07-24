@@ -20,8 +20,10 @@ def runner(monkeypatch):
 def test_companions(): assert TOOL.is_file() and SETTINGS.is_file() and PROMPT.is_file()
 def test_settings():
  deny=json.loads(SETTINGS.read_text())['permissions']['deny']; joined=' '.join(deny)
- for item in ('Write','Edit','Bash(git push *)','Bash(sudo *)','Bash(rm *)','WebFetch'): assert item in deny
+ for item in ('Bash(git push *)','Bash(sudo *)','Bash(rm *)','Read(./.env)'): assert item in deny
  assert '.env' in joined
+ # B468: blosse Werkzeugnamen brechen den Lauf ab ('matches no known tool')
+ assert all('(' in r and r.endswith(')') for r in deny), [r for r in deny if '(' not in r]
 def test_prompt():
  text=PROMPT.read_text(); assert 'code_ref=' in text and 'beleg=' in text and 'zusammenfassung' in text and 'AIChecks.md' in text
 def test_default_allowlist(runner):

@@ -134,6 +134,38 @@ def resolve_claude_bin(cfg):
     raise PreconditionError("Claude-Code-CLI nicht gefunden. Installation: curl -fsSL https://claude.ai/install.sh | bash -s stable — danach 'claude' einmal interaktiv starten und anmelden.")
 
 
+def validate_deny_rules(settings_obj, settings_path) -> None:
+    """Laesst nur qualifizierte Deny-Regeln der Form Tool(muster) zu (B468).
+
+    Ein blosser Werkzeugname bricht den gesamten Lauf ab, sobald das Werkzeug in der
+    installierten CLI-Version nicht existiert ("Permission deny rule \"MultiEdit\"
+    matches no known tool"). Unter --permission-mode dontAsk sind nicht vorab erlaubte
+    Werkzeuge ohnehin gesperrt — blosse Namen waeren also reine Bruchstelle ohne
+    Schutzgewinn. Zusaetzlich muss das Werkzeug in der Positivliste stehen: eine Regel
+    fuer ein nicht erlaubtes Werkzeug ist wirkungslos.
+    """
+    deny = ((settings_obj or {}).get("permissions") or {}).get("deny") or []
+    if not isinstance(deny, list):
+        raise PreconditionError(f"permissions.deny ist keine Liste: {settings_path}")
+    erlaubte_werkzeuge = set(ALLOWED_PLAIN_TOOLS) | {
+        r.split("(", 1)[0] for r in ALLOWED_BASH_RULES
+    }
+    for rule in deny:
+        rule = str(rule)
+        if "(" not in rule or not rule.endswith(")"):
+            raise PreconditionError(
+                f"Deny-Regel ohne Muster: {rule!r} in {settings_path}. "
+                "Blosse Werkzeugnamen brechen den Lauf ab, wenn das Werkzeug in der "
+                "CLI-Version nicht existiert. Form: Tool(muster)."
+            )
+        tool = rule.split("(", 1)[0]
+        if tool not in erlaubte_werkzeuge:
+            raise PreconditionError(
+                f"Deny-Regel fuer nicht erlaubtes Werkzeug: {rule!r}. "
+                f"Wirkungslos — erlaubt sind nur {', '.join(sorted(erlaubte_werkzeuge))}."
+            )
+
+
 def check_preconditions(cfg, repo_dir):
     validate_allowed_tools(cfg.get("allowed_tools", "")); claude_bin = resolve_claude_bin(cfg)
     prompt_file = repo_dir / str(cfg.get("prompt_path", ""))
@@ -142,8 +174,9 @@ def check_preconditions(cfg, repo_dir):
     if not prompt: raise PreconditionError(f"Prompt-Datei ist leer: {prompt_file}")
     settings = repo_dir / str(cfg.get("settings_path", ""))
     if not settings.is_file(): raise PreconditionError(f"Settings-Datei mit den Deny-Regeln fehlt: {settings}")
-    try: json.loads(settings.read_text(encoding="utf-8"))
+    try: parsed = json.loads(settings.read_text(encoding="utf-8"))
     except Exception as exc: raise PreconditionError(f"Settings-Datei ist kein gültiges JSON: {exc}") from exc
+    validate_deny_rules(parsed, settings)
     return claude_bin, prompt, settings
 
 
