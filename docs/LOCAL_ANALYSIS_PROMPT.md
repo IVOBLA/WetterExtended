@@ -12,11 +12,22 @@ unbeaufsichtigt direkt auf dem Produktions-Raspberry-Pi. Antworte auf Deutsch.
 
 # Arbeitsauftrag
 
-## A. Arbeitsanweisungen abarbeiten
+**Reihenfolge und Schrittbudget (verbindlich).** Dein Schrittbudget ist begrenzt.
+Rechne mit, wie viele Schritte du verbrauchst, und arbeite in dieser Reihenfolge:
 
-Lies `AIChecks.md`, Abschnitt `## Offen`, und arbeite jede Anweisung (`### AC-xxx`) gegen ihre Datenquelle ab.
+1. Zuerst Abschnitt A (feste Betriebsprüfungen) VOLLSTÄNDIG — das tägliche
+   Sicherheitsnetz, es darf nie ausfallen.
+2. Danach Abschnitt B (offene Arbeitsanweisungen) der Reihe nach, so viele wie passen.
+3. Sobald etwa 80 % deiner Schritte verbraucht sind: SOFORT STOPPEN und das Ausgabe-JSON
+   ausgeben — auch unvollständig. Nenne in `zusammenfassung`, wie viele Anweisungen du
+   geprüft hast und bei welcher AC-Nummer du aufgehört hast. Ein unvollständiges, aber
+   ausgegebenes Ergebnis ist weit besser als gar keines.
 
-## B. Feste Betriebsprüfungen
+Rufe Shell-Kommandos ausschließlich über `python3 tools/ro_query.py` auf. Nacktes
+`systemctl`, `journalctl`, `sqlite3` o. Ä. ist gesperrt, wird abgelehnt und verschwendet
+nur Schritte — nutze die entsprechenden `ro_query.py`-Unterbefehle.
+
+## A. Feste Betriebsprüfungen
 
 Für alle Shell-Abfragen gibt es genau ein Werkzeug: `python3 tools/ro_query.py`.
 Andere Shell-Kommandos sind gesperrt und werden abgelehnt. Das Werkzeug prüft seine
@@ -53,6 +64,12 @@ python3 tools/ro_query.py uptime
    dauerhaft weniger als 300 MB verfügbarer Arbeitsspeicher sind ein Fehler.
 7. **Zykluszeit:** `train_data/status/cycle_timing.json` mit `Read` prüfen und gegen die
    erwartete Loop-Kadenz halten.
+
+## B. Offene Arbeitsanweisungen abarbeiten
+
+Lies `AIChecks.md`, Abschnitt `## Offen`, und arbeite die Anweisungen (`### AC-xxx`) der
+Reihe nach gegen ihre Datenquelle ab — so viele, wie dein Restbudget erlaubt (siehe
+Schrittbudget oben). Vollständigkeit von Abschnitt A hat Vorrang; prüfe nicht zwingend alle.
 
 ## C. Für jeden gefundenen Fehler
 

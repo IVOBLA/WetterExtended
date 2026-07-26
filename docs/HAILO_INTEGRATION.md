@@ -8458,3 +8458,42 @@ Fehlermeldungen, Protokollinhalt und vollständigen Fehler- und Erfolgsläufen.
 **Phasen-Status:** Phase A — Nacharbeit B464–B470: B464 ✅, B465 ✅, B466 ✅,
 B467 ✅, B468 ✅, B469 offen, B470 ✅. Phase B (Hailo-8 U-Net) bleibt unverändert
 blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B471 — Nächtliche Analyse verhungert am Turn-Limit und scheitert lautlos
+
+**Symptom (2026-07-26 15:06):** `Zustand: failed`, `Dauer: 452 s`,
+`terminal_reason: max_turns`, `errors: ["Reached maximum number of turns (40)"]`,
+Ergebnisdatei nicht vorhanden. Meldung nur „Rueckgabewert 1, nur stdout: …".
+
+**Root-Cause:**
+1. Umfang gegen Budget: `docs/LOCAL_ANALYSIS_PROMPT.md` Abschnitt A ließ ALLE offenen
+   `### AC-`-Anweisungen abarbeiten — in `AIChecks.md` stehen 66. Zusammen mit den
+   sieben festen Prüfungen und der Ursachenanalyse je Fund sprengt das die 40 Turns,
+   bevor das Abschluss-JSON entsteht.
+2. Verschwendete Turns: das Modell rief `systemctl`/`journalctl` roh auf; diese sind
+   nicht in `allowed_tools` und wurden folgenlos abgelehnt.
+3. Undurchsichtiger Fehlschlag: ein `max_turns`-Ende liefert Rückgabewert 1; der Runner
+   verwarf die CLI-Ausgabe und meldete „Rueckgabewert 1, nur stdout:" ohne Ursache.
+
+**Änderung:**
+- `config.py`: `max_turns` 40→70 und `timeout_s` 900→1500 (gemeinsam, sonst kappt das
+  Timeout die zusätzlichen Turns).
+- `docs/LOCAL_ANALYSIS_PROMPT.md`: feste Betriebsprüfungen laufen jetzt zuerst
+  (Abschnitt A), die offenen ACs danach (Abschnitt B) und nur so weit das Restbudget
+  reicht. Neue verbindliche Regel „Reihenfolge und Schrittbudget": bei ~80 %
+  verbrauchten Schritten sofort das JSON ausgeben (auch unvollständig) mit Angabe, wie
+  weit geprüft wurde. Nacktes `systemctl`/`journalctl`/`sqlite3` ausdrücklich verboten.
+- `tools/run_local_analysis.py`: neue `detect_incomplete()` erkennt `max_turns` in der
+  CLI-JSON und schreibt den eigenen Status `incomplete` mit handlungsleitender Meldung
+  statt des generischen `failed`.
+
+**Kein Benutzerhandbuch-Update** (Betriebs-/Bugfix, kein Fach-Feature).
+
+**Tests:** `tests/test_b471_max_turns_and_budget.py` — `detect_incomplete` erkennt
+max_turns (per `terminal_reason` und per Fehlertext), liefert `None` bei Normalfehler
+und Müll; Budgetwerte erhöht; Prompt stellt Abschnitt A vor B und enthält Schrittbudget
+plus Shell-Verbot.
+
+**Phasen-Status:** Phase A — Nacharbeit B464–B471: B464 ✅, B465 ✅, B466 ✅, B467 ✅,
+B468 ✅, B469 ✅, B470 ✅, B471 ✅. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert;
+sie wartet auf ausreichende Trainingsdaten.
