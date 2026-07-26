@@ -117,6 +117,23 @@ export default function AiSuggestions() {
     api.get('/api/local_analysis/status').then(setLaStatus).catch(() => {})
   }
 
+  async function downloadLaResult() {
+    setLaMsg('')
+    try {
+      const { blob, filename } = await api.download('/api/local_analysis/result')
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename || 'analysis_result.json'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (e) {
+      setLaMsg('Download fehlgeschlagen: ' + (e?.message || e))
+    }
+  }
+
   async function saveMode(next) {
     setModeMsg('')
     try {
@@ -958,6 +975,11 @@ export default function AiSuggestions() {
           </button>
           <button className="btn-secondary" onClick={refreshLaStatus}>
             Status aktualisieren
+          </button>
+          <button className="btn-secondary"
+            disabled={!(laStatus && laStatus.result_age_h != null)}
+            onClick={downloadLaResult}>
+            Bericht herunterladen
           </button>
           {laSaved && (
             <span className="text-green-700 text-sm self-center">✓ Gespeichert</span>
