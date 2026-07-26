@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -214,7 +215,29 @@ def extract_payload(stdout_text):
     if not isinstance(outer, dict): raise ValueError("Unerwartete Struktur der CLI-Antwort")
     if outer.get("is_error"): raise ValueError(f"Claude-Code meldet einen Fehler: {outer.get('result')!r}")
     if "result" not in outer: raise ValueError("Feld 'result' fehlt in der CLI-Antwort")
-    return validate_payload(json.loads(strip_code_fences(outer["result"])))
+    return validate_payload(_json_from_result(outer["result"]))
+
+
+def _json_from_result(result_text):
+    """B473 — Das Modell liefert das Ergebnis-JSON gelegentlich mit erklaerendem Text
+    davor/dahinter oder in einem nicht am Zeilenanfang stehenden ```json-Block. Statt die
+    fertige Analyse zu verwerfen, holt diese Funktion das JSON-Objekt robust heraus."""
+    s = strip_code_fences(result_text)
+    try:
+        return json.loads(s)
+    except Exception:
+        pass
+    m = re.search(r"```(?:json)?\s*(\{.*\})\s*```", str(result_text), re.S)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except Exception:
+            pass
+    text = str(result_text or "")
+    i, j = text.find("{"), text.rfind("}")
+    if i != -1 and j > i:
+        return json.loads(text[i:j + 1])
+    raise ValueError("kein JSON-Objekt in der CLI-Antwort gefunden")
 
 
 def read_json_quiet(path):
