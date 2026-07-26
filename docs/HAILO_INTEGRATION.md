@@ -8397,3 +8397,28 @@ Regeln und dass keine Namensregel zurückkehrt.
 **Phasen-Status:** Phase A — Nacharbeit B464–B468: B464 ✅, B465 ✅, B466 ✅,
 B467 offen, B468 ✅. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet
 auf ausreichende Trainingsdaten.
+
+### B470 — Fehlgeschlagene Analyse-Läufe hinterlassen jetzt eine lesbare Spur
+
+**Befund im Betrieb** (2026-07-24 12:27:03): `state=failed`, `rc=2`, 398,2 s — im
+Admin-Panel stand nur „Fehlgeschlagen: rc=2:" ohne jede Angabe. `stdout` wurde bei
+Fehlern verworfen, eine leere stderr-Ausgabe erzeugte keine Meldung, und es gab kein
+Laufprotokoll.
+
+**Änderung:** `write_run_log()` schreibt bei jedem Lauf Zeitpunkt, Betriebsart,
+CLI-Pfad und -Version, Ergebnis, Dauer, das um den Auftrag gekürzte Kommando sowie
+die letzten 4000 Zeichen von stdout und stderr. `summarize_failure()` nutzt stderr,
+danach stdout und schließlich einen garantierten Rückfalltext. Negative Rückgabewerte
+werden als Signale benannt, inklusive SIGKILL-Hinweis auf möglichen Speichermangel.
+Der konfigurierbare Protokollpfad wird außerdem im Statusobjekt gespeichert und die
+Fehlerdiagnose wieder auf stderr ausgegeben.
+
+**Was diese Nummer nicht leistet:** Sie behebt den unbekannten Fehlschlag nicht,
+sondern schafft die Voraussetzung, seine Ursache beim nächsten Lauf zu erkennen.
+
+Tests: `tests/test_b470_run_diagnostics.py` — 18 Fälle zu Rückgabewerten,
+Fehlermeldungen, Protokollinhalt und vollständigen Fehler- und Erfolgsläufen.
+
+**Phasen-Status:** Phase A — Nacharbeit B464–B470: B464 ✅, B465 ✅, B466 ✅,
+B467 ✅, B468 ✅, B469 offen, B470 ✅. Phase B (Hailo-8 U-Net) bleibt unverändert
+blockiert; sie wartet auf ausreichende Trainingsdaten.
