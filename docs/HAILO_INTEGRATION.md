@@ -8527,3 +8527,28 @@ File, die 15 archivierten stehen nicht mehr in `## Offen`, aber in `## Erledigt`
 **Phasen-Status:** Phase A — Nacharbeit B464–B472: B464 ✅, B465 ✅, B466 ✅, B467 ✅,
 B468 ✅, B469 ✅, B470 ✅, B471 ✅, B472 ✅. Phase B (Hailo-8 U-Net) bleibt unverändert
 blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B473 — Fertige Analyse wurde verworfen (Ergebnis-JSON nicht extrahierbar)
+
+**Symptom (2026-07-26 16:41):** `failed`, `rc=0`, „Antwort unbrauchbar: Expecting value:
+line 1 column 1 (char 0)". Die Laufspur zeigt `terminal_reason: completed` und ein
+vollständiges Ergebnis-JSON — der Lauf war fachlich erfolgreich.
+
+**Root-Cause:** In `extract_payload()` gelingt der äußere stdout-Parse; der innere
+`json.loads(strip_code_fences(outer["result"]))` scheitert, weil `strip_code_fences`
+einen Codeblock nur bei Beginn am String-Anfang entfernt. Das Modell hatte dem JSON
+erklärenden Text bzw. einen nicht führenden ```json-Block vorangestellt, also stand das
+JSON nicht bei Zeichen 0.
+
+**Änderung:** Neue Funktion `_json_from_result()` holt das Objekt robust — direkt, sonst
+aus einem ```json-Block irgendwo im Text, sonst über erstes `{` bis letztes `}`.
+`extract_payload` nutzt sie; `validate_payload` erzwingt weiterhin die Pflichtfelder.
+`import re` ergänzt.
+
+**Tests:** `tests/test_b473_result_parser.py` — Ergebnis wird aus reinem JSON, aus
+Codefence, aus Prosa+Fence und aus Prosa+Objekt extrahiert; Prosa ohne Objekt und
+Nicht-JSON-stdout werfen sauber `ValueError`.
+
+**Phasen-Status:** Phase A — Nacharbeit B464–B473: B464 ✅, B465 ✅, B466 ✅, B467 ✅,
+B468 ✅, B469 ✅, B470 ✅, B471 ✅, B472 ✅, B473 ✅. Phase B (Hailo-8 U-Net) bleibt
+unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
