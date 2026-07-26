@@ -8417,7 +8417,12 @@ SSH-Schlüssel (`id_rsa`); beide Python-Stellen nutzen sie. `local_analysis_sett
 erhält additiv `Read(./.env*)` und `Read(**/.env*)` (bestehende B468-Regeln bleiben,
 `.env.example` wird dabei mitgesperrt — harmlos, da Platzhalter). `.gitignore` bekommt
 `.env*` plus Ausnahme `!.env.example`. Der lokale `rsync` schließt `.env*` aus und
-behält `.env.example` per vorangestelltem `--include`.
+behält `.env.example` per vorangestelltem `--include`. Da `rsync --delete`
+ausgeschlossene Dateien im Ziel vor Löschung schützt, entfernt ein nachgelagerter
+`find`-Schritt Alt-Sicherungskopien (`.env_Copy`, `.env.bak`, `.env~`) aktiv aus dem
+Zielverzeichnis; `.env` und `.env.example` bleiben erhalten. `--delete-excluded` wäre
+falsch, weil es die geschützten Benutzerdaten (`.env`, `users.db`, `train_data/`)
+mitlöschen würde.
 
 **Tests:** `tests/test_b469_secret_backups.py` — `is_secret_name()` fängt `.env_Copy`,
 `.env.bak`, `.env~`, `.pem`/`.key`, `id_rsa`; harmlose Namen bleiben frei;

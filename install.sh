@@ -509,6 +509,13 @@ if [[ "$LOCAL_INSTALL" == true ]]; then
             --exclude=/data/config/hydro_station_overrides.json \
             "$LOCAL_SOURCE/" "$TARGET/"
         log_info "Quellcode nach $TARGET kopiert (geschützte Benutzerdaten ausgeschlossen)."
+        # B469: Alt-Sicherungskopien von Zugangsdaten aus einer früheren
+        # Installation aktiv aus dem Ziel entfernen. rsync --delete schützt
+        # ausgeschlossene Dateien vor Löschung, daher würde eine bereits
+        # vorhandene .env_Copy sonst dauerhaft im Ziel verbleiben. Original
+        # .env und .env.example bleiben unangetastet.
+        find "$TARGET" -maxdepth 1 -type f -name '.env*' \
+            ! -name '.env' ! -name '.env.example' -delete 2>/dev/null || true
     else
         log_info "Bereits im Zielverzeichnis — kein Kopieren nötig."
     fi

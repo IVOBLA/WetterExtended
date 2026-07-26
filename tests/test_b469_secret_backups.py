@@ -77,3 +77,28 @@ def test_install_rsync_excludes_env_backups():
     text = INSTALL.read_text(encoding="utf-8")
     assert "--exclude=/.env* \\" in text
     assert "--include=/.env.example \\" in text
+
+
+def test_install_actively_deletes_pre_existing_backups(tmp_path):
+    """B469-Nachtrag: die im Skript hinterlegte find-Bereinigung entfernt Alt-Kopien
+    im Ziel und schont .env + .env.example. Der reale Befehl aus install.sh wird
+    extrahiert und ausgefuehrt, damit der Test nicht von der Formulierung abdriftet."""
+    import re
+    import subprocess
+
+    text = INSTALL.read_text(encoding="utf-8")
+    m = re.search(r"(find \"\$TARGET\".*?-delete 2>/dev/null \|\| true)", text, re.S)
+    assert m, "Cleanup-find nicht in install.sh gefunden"
+    cmd = m.group(1)
+
+    # Eigenes Unterverzeichnis: eine autouse-Fixture in conftest.py legt train_data/
+    # direkt in tmp_path an, deshalb NICHT auf tmp_path selbst pruefen.
+    target = tmp_path / "tgt"
+    target.mkdir()
+    for name in (".env", ".env.example", ".env_Copy", ".env.bak", ".env~", "app.py"):
+        (target / name).write_text("x")
+
+    subprocess.run(["bash", "-c", cmd], env={"TARGET": str(target), "PATH": "/usr/bin:/bin"}, check=True)
+
+    remaining = {f.name for f in target.iterdir()}
+    assert remaining == {".env", ".env.example", "app.py"}, remaining
