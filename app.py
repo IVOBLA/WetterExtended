@@ -3546,6 +3546,21 @@ def api_local_analysis_status():
                     "result_age_h": result_age_h, "status": status})
 
 
+@app.route("/api/local_analysis/result")
+def api_local_analysis_result():
+    """B475 — Ergebnis der lokalen Analyse als Download (zusaetzlich zum Mailversand)."""
+    from pathlib import Path as _P
+    from config import LOCAL_ANALYSIS_CONFIG as _default
+    cfg = dict(_default)
+    cfg.update(runtime_config.get("LOCAL_ANALYSIS_CONFIG", {}) or {})
+    base = _P(__file__).resolve().parent
+    result_file = base / str(cfg.get("result_path", "train_data/evaluation/analysis_result.json"))
+    if not result_file.is_file():
+        return jsonify({"ok": False, "error": "Noch kein Analyse-Ergebnis vorhanden"}), 404
+    return send_file(str(result_file), as_attachment=True,
+                     download_name="analysis_result.json", mimetype="application/json")
+
+
 @app.route("/api/ai_analysis/suggestions")
 def api_ai_analysis_suggestions():
     try:

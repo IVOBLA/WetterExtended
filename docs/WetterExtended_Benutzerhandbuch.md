@@ -2978,7 +2978,9 @@ vielen Sekunden er abgebrochen wird. Pro Tag findet höchstens ein erfolgreicher
 statt; wird ein Zeitpunkt durch einen Neustart verpasst, holt das Gerät den Lauf nach.
 
 Die Karte zeigt den letzten Lauf mit Zustand, Zeitpunkt, Dauer, Anzahl gefundener
-Fehler und dem Alter der Ergebnisdatei. Findet das System das benötigte
+Fehler und dem Alter der Ergebnisdatei. Mit „Bericht herunterladen" lässt sich das
+Ergebnis der letzten lokalen Analyse (`analysis_result.json`) direkt speichern —
+zusätzlich zum täglichen Versand per E-Mail. Findet das System das benötigte
 Analyse-Programm nicht, erscheint oben in der Karte ein Hinweis mit dem
 Installationsbefehl.
 

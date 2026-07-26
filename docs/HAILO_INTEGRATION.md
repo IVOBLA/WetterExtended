@@ -8575,3 +8575,27 @@ Runner akzeptiert die Settings-Datei weiterhin.
 **Phasen-Status:** Phase A — Nacharbeit B464–B474: B464 ✅, B465 ✅, B466 ✅, B467 ✅,
 B468 ✅, B469 ✅, B470 ✅, B471 ✅, B472 ✅, B473 ✅, B474 ✅. Phase B (Hailo-8 U-Net)
 bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B475 — Ergebnis der lokalen Analyse als Download
+
+**Anlass:** Das Ergebnis der lokalen Analyse (`analysis_result.json`) war bisher nur per
+täglicher E-Mail verfügbar. Es soll im Admin-Panel zusätzlich herunterladbar sein.
+
+**Änderung:**
+- `app.py`: neue lesende Route `/api/local_analysis/result`, liefert die Ergebnisdatei per
+  `send_file(as_attachment=True, download_name="analysis_result.json")`; fehlt die Datei,
+  kommt 404 mit Klartext. Auth ist über den bestehenden `/api/local_analysis`-Präfix in
+  `_SENSITIVE_READ_PREFIXES` abgedeckt (mind. Viewer-Login).
+- `frontend/src/pages/AiSuggestions.jsx`: Handler `downloadLaResult` (nutzt den
+  vorhandenen `api.download`-Helfer mit Bearer-Token) und Button „Bericht herunterladen"
+  in der Karte, aktiv nur bei vorhandener Ergebnisdatei.
+- `WetterExtended_Benutzerhandbuch.md`: Download im Abschnitt „Lokale Analyse am Gerät
+  einstellen" dokumentiert.
+
+**Tests:** `tests/test_b475_result_download.py` — Route und Handler vorhanden, 404 bei
+fehlender Datei, Auslieferung als Anhang, Route unter dem geschützten Präfix, Frontend
+nutzt Download-Helfer und Button, Handbuch dokumentiert das Feature.
+
+**Phasen-Status:** Phase A — Nacharbeit B464–B475: B464 ✅, B465 ✅, B466 ✅, B467 ✅,
+B468 ✅, B469 ✅, B470 ✅, B471 ✅, B472 ✅, B473 ✅, B474 ✅, B475 ✅. Phase B (Hailo-8
+U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
