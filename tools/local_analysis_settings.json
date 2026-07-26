@@ -40,8 +40,6 @@
       "Bash(systemctl restart *)",
       "Bash(systemctl disable *)",
       "Bash(systemctl enable *)",
-      "Bash(python *)",
-      "Bash(python3 *)",
       "Bash(sh *)",
       "Bash(bash *)",
       "Bash(curl *)",

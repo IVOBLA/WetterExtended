@@ -8552,3 +8552,26 @@ Nicht-JSON-stdout werfen sauber `ValueError`.
 **Phasen-Status:** Phase A — Nacharbeit B464–B473: B464 ✅, B465 ✅, B466 ✅, B467 ✅,
 B468 ✅, B469 ✅, B470 ✅, B471 ✅, B472 ✅, B473 ✅. Phase B (Hailo-8 U-Net) bleibt
 unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B474 — Deny-Regel blockierte den einzigen erlaubten Shell-Zugang
+
+**Symptom (2026-07-26 16:41):** Laufspur, `permission_denials`: sechs abgelehnte
+`python3 tools/ro_query.py …`-Aufrufe. Abschnitt A (Dienste, Journal, SQLite, Speicher,
+Zyklus) lief nie; der Analyst kam nur per `Read`/`Grep` an statische Dateien.
+
+**Root-Cause:** `tools/local_analysis_settings.json` enthielt in `permissions.deny` die
+Platzhalter `Bash(python *)` und `Bash(python3 *)`. Deny hat in Claude Code Vorrang vor
+Allow, daher verdeckte `Bash(python3 *)` das in `allowed_tools` sanktionierte
+`Bash(python3 tools/ro_query.py *)` vollständig.
+
+**Änderung:** Beide python-Deny-Regeln entfernt. Unter `--permission-mode dontAsk` sind
+sie redundant — es läuft ohnehin nur, was in `allowed_tools` steht — und blockierten nur
+das eine erlaubte Werkzeug. Alle übrigen Schutzregeln bleiben unverändert.
+
+**Tests:** `tests/test_b474_ro_query_allow.py` — keine `Bash(python…)`-Deny-Regel mehr,
+die tragenden Regeln (`rm`, `sudo`, `git push`, `.env`-Pfadsperre) überleben, und der
+Runner akzeptiert die Settings-Datei weiterhin.
+
+**Phasen-Status:** Phase A — Nacharbeit B464–B474: B464 ✅, B465 ✅, B466 ✅, B467 ✅,
+B468 ✅, B469 ✅, B470 ✅, B471 ✅, B472 ✅, B473 ✅, B474 ✅. Phase B (Hailo-8 U-Net)
+bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
