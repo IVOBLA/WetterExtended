@@ -8497,3 +8497,33 @@ plus Shell-Verbot.
 **Phasen-Status:** Phase A — Nacharbeit B464–B471: B464 ✅, B465 ✅, B466 ✅, B467 ✅,
 B468 ✅, B469 ✅, B470 ✅, B471 ✅. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert;
 sie wartet auf ausreichende Trainingsdaten.
+
+### B472 — AIChecks.md auf Jedes-Mal-Prüfungen reduziert
+
+**Anlass:** `AIChecks.md` darf grundsätzlich nur Prüfungen enthalten, die bei jedem
+nächtlichen Lauf ausgeführt werden müssen — vorwiegend zu Qualität und Genauigkeit.
+In `## Offen` hatten sich 66 Einträge angesammelt, darunter Einmal-Verifikationen,
+Kalibrierungen und ereignisgetriggerte Werkzeug-Disziplin ohne nächtliche Datenquelle.
+Das trieb den Umfang von Abschnitt B des nächtlichen Analyse-Prompts über das Budget
+(siehe B471).
+
+**Änderung:** Deterministische Umstrukturierung von `AIChecks.md`:
+- 15 Einmal-/Ereignis-Verifikationen nach `## Erledigt` verschoben (AC-001, AC-002,
+  AC-003, AC-005, AC-006, AC-008, AC-009, AC-015, AC-032, AC-034, AC-035, AC-051,
+  AC-054, AC-055, AC-056), je mit Datum und Vermerk „Abgeloest — keine
+  Jedes-Mal-Pruefung".
+- 9 Werkzeug-Disziplin-Einträge entfernt (AC-011, AC-012, AC-016, AC-021, AC-039,
+  AC-040, AC-041, AC-052, AC-053) — Auslöser „vor/nach jedem Prompt/Migration" ohne
+  nächtliche Datenquelle; AC-053 zusätzlich durch `test_b407` automatisiert.
+- `## Offen` enthält danach den Ausgangsbestand minus 24 wiederkehrende
+  Qualitäts-/Genauigkeitsprüfungen (im Stand nach B471, der `AC-080` ergänzt, sind das 43).
+
+**Kein Benutzerhandbuch-Update, keine neue AC** (Datenpflege).
+
+**Tests:** `tests/test_b472_aichecks_reduziert.py` — die 9 gelöschten IDs fehlen im ganzen
+File, die 15 archivierten stehen nicht mehr in `## Offen`, aber in `## Erledigt`.
+`tests/test_b407_aichecks_arbeitsanweisungen.py` bleibt grün.
+
+**Phasen-Status:** Phase A — Nacharbeit B464–B472: B464 ✅, B465 ✅, B466 ✅, B467 ✅,
+B468 ✅, B469 ✅, B470 ✅, B471 ✅, B472 ✅. Phase B (Hailo-8 U-Net) bleibt unverändert
+blockiert; sie wartet auf ausreichende Trainingsdaten.

@@ -54,28 +54,6 @@ Suche im Service-Log nach `[TRAINING] REJECTED` und vergleiche mit dem Inhalt vo
 Alarm, keine Promotion und keinen Fallback-Guard aushebeln. Häufen sich verworfene
 Verzeichnisse, ist zusätzlich die Retention zu melden.
 
-### AC-001 — Prüfe, ob die Assoziations-Diagnose geschrieben wird
-Werte `diagnostics/diagnosis_presence.json` aus dem Export aus.
-- `status="ok"` → AC-002 durchführen.
-- `status="empty"` oder `"missing"` → prüfe auf dem Pi, ob `train_data/association` existiert und
-  befüllt wird (`object_tracking.py`, `_persist_association_diagnosis`); melde das Ergebnis als
-  neuen Befund.
-
-### AC-002 — Kalibriere `ASSOC_MAX_COST`
-Sobald `diagnostics/train_data/association/*.json` im Export vorliegt:
-- Bilde die Verteilung von `cost` über alle akzeptierten Matches (Median, p75, p90, p99).
-- Zähle Ablehnungen mit `reason="cost_above_max"` und `reason="no_acceptable_track"`.
-- Setze `ASSOC_MAX_COST` so, dass p99 der korrekten Matches darunter liegt.
-- Prüfe gegen `forecast_error_details.jsonl`, ob die Ablehnungen mit höherem Prognosefehler
-  korrelieren. Wenn nein: Schwelle ist zu streng.
-
-### AC-003 — Kalibriere die Transition-Schwellen gegen den neuen Code
-Sobald `cell_lineage_events.jsonl` Einträge aus einer Konvektionslage enthält:
-- Rechne `explained_ratio` und `parent coverage` je bestätigtem Merge neu.
-- Setze `TRANSITION_MERGE_MIN_EXPLAINED` und `TRANSITION_MERGE_MIN_PARENT_COVERAGE` anhand der
-  Perzentile (p10 der echten Merges muss über der Schwelle liegen).
-- Verwende **nur** Daten ab B374 — ältere Parentmengen stammen aus dem greedy Matching.
-
 ### AC-004 — Messe die Quellen-Rangfolge über mehrere Lagen
 Werte `forecast_error_details.jsonl` je `kinematic_source` (optflow / ewma / kalman) und
 `horizon_min` (10/30/60) aus, Median in km.
@@ -83,52 +61,16 @@ Werte `forecast_error_details.jsonl` je `kinematic_source` (optflow / ewma / kal
   `of_available == 1`) geändert wird.
 - Ändere die Priorität **nicht** auf Basis einer einzelnen Lage.
 
-### AC-005 — Prüfe die Split-Menge gegen die Sattel-Schwelle
-Zähle im Service-Log `[P66] Multi-Core-Split: N Kerne -> M Sub-Zellen`.
-- Vergleiche M mit der Zahl visuell getrennter Kerne auf den Radar-Overlays.
-- Bei unplausibel vielen Sub-Zellen: erhöhe `MULTI_CORE_MIN_SADDLE_RATIO`, **nicht** den
-  Komponentengraphen aus B403 ändern.
-
-### AC-006 — Prüfe, ob Splits im Livebetrieb auftreten
-Zähle in `objects/train_data/objects/*.json` die Objekte mit `lineage="split"`.
-- Erwartung: > 0 bei Lagen, in denen die P66-Logs Sub-Zellen melden.
-- Bleibt es 0: prüfe zuerst die Segmentierung (AC-005), dann
-  `TRANSITION_SPLIT_MIN_EXPLAINED` / `TRANSITION_SPLIT_MIN_CHILD_SHARE`.
-
 ### AC-007 — Prüfe die Eindeutigkeit der Lineage-Ereignisse
 Werte `cell_lineage_events.jsonl` aus.
 - Je `event_signature` darf **genau ein** Eintrag existieren.
 - `lineage="merged"` muss überhaupt auftreten.
 - `cell_lineage_write_status.json`: `last_result` muss `"ok"` sein.
 
-### AC-008 — Suche weitere Stellen mit manueller `_UF`-Multiplikation
-Führe `grep -n "\* _UF" prediction.py` aus.
-- Jede Stelle, die eine ML-Rohausgabe verarbeitet und **nicht** über `_decode_ml_position()`
-  läuft, ignoriert `target_encoding` und ist zu melden.
-
-### AC-009 — Nimm `training_meta.json` in den Debug-Export auf
-Die Datei liegt unter `models/v_*/training_meta.json` und fehlt im Export.
-- Prüfe, ob die Feature-Liste zum Trainingszeitpunkt für Schema-Fragen benötigt wird.
-- Falls ja: als eigenen Prompt umsetzen (Exportliste in `debug_export.py`).
-
 ### AC-010 — Prüfe jeden Export auf Fremdarchive
 Führe `unzip -l <export>.zip | grep '\.zip$'` aus.
 - Treffer unter `latest_export/` → Rekursion (B406/B407 nicht wirksam), melden.
 - Treffer außerhalb → prüfen, ob es legitime Nutzdaten sind.
-
-### AC-011 — Prüfe nach jedem Prompt, ob der Changelog-Eintrag existiert
-Vor jedem Abschlussbericht ausführen:
-  grep -c "^### B" docs/HAILO_INTEGRATION.md
-Die höchste dort eingetragene B-Nummer muss der höchsten Nummer unter tests/test_b*_
-entsprechen. Weicht sie ab, ist der Bericht unvollständig — Eintrag nachziehen, bevor
-der Prompt als erledigt gilt.
-
-### AC-012 — Prüfe Tests auf stille AttributeErrors
-Nach jedem Prompt mit neuen Tests ausführen:
-  grep -rn '__import__(' tests/
-Treffer auf einem Modulobjekt (z. B. h.__import__("x")) sind immer defekt und lassen
-den Test scheitern, bevor eine Assertion läuft. Ein solcher Test belegt nichts.
-Regulär importieren und das Modul direkt patchen.
 
 ### AC-013 — Prüfe im Export, ob Warnungen ohne Zellframe entstehen
 Werte im 24h-Export je Station aus:
@@ -141,22 +83,6 @@ flood_expected=false ist ein Regressionsbefund.
 Suche im Export Zeilen mit forecast_evaluation_stale=true und flood_expected=true
 bei current_q_above_threshold=false. Erwartung: keine. Jeder Treffer ist eine
 fortgeschriebene Altwarnung.
-
-### AC-015 — Prüfe Testfixtures auf geometrische Konsistenz
-Ein Test, der load_station_catchment_index mit einem Polygon patcht und
-catchment_diagnostics mit einer davon abweichenden Fläche, erzeugt Zahlen ohne
-physikalische Bedeutung. Ausführen:
-  grep -rn "catchment_area_geometry_km2" tests/
-Vergleiche je Treffer den Wert mit der Fläche der gepatchten Geometrie. Jede Abweichung um mehr
-als Faktor 2 ist zu melden; Konstantenassertions auf abgeleitete Niederschlagswerte in
-solchen Tests prüfen nichts.
-
-### AC-016 — Prüfe Sandbox-Fehler gegen den Pi
-pytest in der Codex-Sandbox liefert andere Zahlen als der Pi, weil Abhängigkeiten und
-Python-Version abweichen. Fehlende Module erzeugen Collection-Errors, und pytest bricht
-dann die gesamte Sammlung ab — dreistellige Fehlerzahlen sind dann ein Artefakt.
-Maßgeblich ist install_pytest.log vom Pi. Sandbox-Fehler, die auf dem Pi grün sind,
-sind nicht zu reparieren.
 
 ### AC-017 — Prüfe, ob Zellen im Einzugsgebiet gezählt werden
 Werte im 24h-Export je Station input_cell_count und contributing_cell_count aus.
@@ -182,12 +108,6 @@ dass der Stat-Key instabil ist — Ursache melden, nicht den Cache vergrößern.
 Werte im 24h-Export hydro_flood_samples aus. Zähle Zeilen mit precip_event_active=true
 und leerer contributing_lineage_ids-Liste. Erwartung: null. Jeden Treffer als Verlust
 des Zellbezugs im Produktivpfad melden; die Liste nicht im Test füllen.
-
-### AC-021 — Prüfe Eventverteilung vor jedem Training
-Vor jeder ML-Reaktivierung für das Log ausführen:
-  python -c "import hydro_flood_ml as h; r=h.analyze_training_dataset(h.load_trainable_labeled_samples(False)); print(r['event_count'], r['train_time_range'], r['validation_time_range'])"
-Erwartung: event_count >= HYDRO_ML_MIN_TRAIN_EVENTS + HYDRO_ML_MIN_VALIDATION_EVENTS,
-und train_time_range endet vor validation_time_range. Überlappende Bereiche verwerfen.
 
 ### AC-022 — Prüfe Ausschlussgründe im Datensatz
 Werte im Export sample_failures nach Grund gruppiert aus. Häuft sich ein Grund über 5 % der
@@ -234,29 +154,11 @@ Erwartung: "ok". Prüfe zusätzlich, dass weder hydro_flood_samples.sqlite3 noch
 -wal/-shm-Datei im Export liegt. Ein Treffer bedeutet, dass die unkoordinierte Kopie
 zurück ist.
 
-### AC-032 — Prüfe den bbox_fallback-Zweig
-heuristic_score() testet auf geometry_quality == "bbox_fallback". Prüfe im Export,
-ob geometry_quality je einen anderen Wert annimmt. Ist der Zweig über 30 Tage nie
-erreicht worden, als toten Code zur Entfernung in einem eigenen Prompt vormerken —
-nicht nebenbei löschen.
-
 ### AC-033 — Prüfe, ob Deferred-Zustände die Erholung überleben
 Suche im 24h-Export Zeitpunkte, an denen cell_frame_status von "missing"/"stale" auf
 "ok" wechselt. Prüfe den unmittelbar folgenden hydro_flood_risk-Payload: deferred_reason
 muss verschwunden und forecast_evaluation_stale false sein. Bleibt der Deferred-Zustand
 über den Wechsel hinweg bestehen, greift die Cache-Invalidierung nicht — melden.
-
-### AC-034 — Prüfe Migrationszeitpunkt nach Upgrade
-Vergleiche im Export den Zeitstempel des Prozessstarts (systemd) mit applied_at in
-schema_migrations. Liegt applied_at systematisch bei 03:35 statt beim Start, läuft die
-Migration nur im Cronjob — melden. Zwischen Upgrade und Migration entstehen keine
-Labels.
-
-### AC-035 — Prüfe Trainingsstatus über Prozessgrenzen
-Rufe laut Pi-Log /api/admin/hydro/flood-risk/retrain/status während eines laufenden Trainings
-mehrfach ab. Zeigen manche Antworten "idle", ist der Status prozesslokal und die
-409-Zusage nicht eingehalten — melden.
-
 
 ### AC-036 — Prüfe, ob event_id im Produktivpfad gesetzt wird
 Werte im 24h-Export labeled_samples aus. Zähle Zeilen mit event_id IS NULL.
@@ -273,26 +175,6 @@ Vergleiche im Log readiness_status()["event_count"] mit
 analyze_training_dataset(load_trainable_labeled_samples(False))["event_count"].
 Weichen sie um mehr als 10 % ab, ist die Nachführung nach dem Training ausgeblieben
 oder der Readiness-Cache invalidiert nicht — melden.
-
-### AC-039 — Prüfe Bestandstests nach jeder Vertragsänderung
-Ändert ein Prompt eine Signatur, den Payload-Umfang, eine Validierungsregel oder ein
-DB-Schema, führe vor dem Abschlussbericht aus:
-  python -m pytest -q tests/test_*hydro*.py 2>&1 | tail -1
-Eine Auswahl der neu geschriebenen Tests genügt nicht — eine Vertragsänderung betrifft
-jeden Test, der den Vertrag nutzt. Neue Fehler in Altbeständen sind im Log zu melden.
-
-### AC-040 — Prüfe auf Kommentarleichen nach Migrationen
-Nach jeder Datenquellen-Migration ausführen:
-  grep -rn "Datei-Tail\|jsonl\|JSONL" hydro_flood_ml.py
-Ein Docstring oder Kommentar, der eine abgelöste Quelle beschreibt, ist gefährlicher
-als keiner — er führt die nächste Analyse in die Irre. Treffer melden.
-
-### AC-041 — Prüfe Testisolation im Gesamtlauf
-Ein Test, der isoliert grün und im Gesamtlauf rot ist, deutet auf Kontamination
-(sys.modules, eingefrorene Modulkonstanten, offene Dateihandles). Vergleiche im Log:
-  python -m pytest -q tests/test_XXX.py 2>&1 | tail -1
-  python -m pytest -q 2>&1 | grep "test_XXX"
-Bei Abweichung den Verursacher suchen und dort reparieren, nicht im Opfer.
 
 ### AC-042 — Prüfe, ob der Richtungs-Drift-Alarm auslösen kann
 Vergleiche im 24h-Export die Schlüssel in accuracy_history.jsonl
@@ -315,59 +197,6 @@ trainierbaren labeled_samples aus dem SQLite-Snapshot. Weichen sie ab, ist der E
 nicht aktuell oder wurde überschrieben. Ist die JSONL leer bei gefüllter Datenbank, hat
 ein zweiter Schreiber sie geleert — sofort melden. Datenquelle: 24h-Export mit
 hydro_flood_dataset.jsonl und SQLite-Snapshot.
-
-### AC-051 — Prüfe eingefrorene Pfad-Defaults
-Ausführen:
-  grep -nE "def .*\(.*: *Path *= *[A-Z_]+" hydro_flood_ml.py accuracy_tracker.py
-Ein Default-Argument mit einer Modulkonstante wird beim Import eingefroren und folgt
-keinem Laufzeit-Patch. Jeder Treffer ist zu melden — Tests, die den Pfad patchen,
-schreiben sonst ins echte train_data/. Datenquelle: die Funktionssignaturen im
-aktuellen Arbeitsbaum.
-
-### AC-052 — Prüfe Testartefakte im Arbeitsbaum
-Nach jedem Testlauf, der install_pytest.log erzeugt, zusätzlich ausführen:
-  git status --short
-  git status --short | grep -c "train_data/" || true
-Erscheint eine Datei unter train_data/ — etwa hydro_flood_dataset.jsonl —, hat ein Test
-an einem beim Import eingefrorenen Pfad-Default geschrieben statt in tmp_path. Melden:
-solche Tests verändern den Produktivbestand und verfälschen den nächsten Debug-Export.
-
-### AC-053 — Prüfe neue AIChecks-Blöcke gegen die B407-Regeln
-Vor dem Anhängen eines Blocks ausführen:
-  python -m pytest -q tests/test_b407_aichecks_arbeitsanweisungen.py
-Der Titel muss mit einem Verb aus der Liste in test_aichecks_entries_are_imperative
-beginnen, und der Block muss eines der Wörter .json, .jsonl, grep, Log, log, Export
-oder Pi enthalten. Die Schlüsselwortliste im Test wird nie erweitert — der Block passt
-sich an. Ein Block ohne diese Wörter hat keine überprüfbare Datenquelle.
-
-### AC-054 — Prüfe das Niederschlagsgedächtnis auf Doppelzählung und Wachstum
-Im Debug-Export auf dem Pi ausführen:
-  sqlite3 train_data/hydro/ml/hydro_flood_samples.sqlite3 "SELECT COUNT(*), COUNT(DISTINCT frame_timestamp), MIN(frame_timestamp), MAX(frame_timestamp) FROM catchment_precip_ledger;"
-  sqlite3 train_data/hydro/ml/hydro_flood_samples.sqlite3 "SELECT station_id, frame_timestamp, cell_id, COUNT(*) c FROM catchment_precip_ledger GROUP BY 1,2,3 HAVING c > 1;"
-Die zweite Abfrage muss leer bleiben — jede Zeile dort ist eine Doppelzählung und
-verfälscht den prognostizierten Abfluss nach oben. Liegt die Spanne zwischen MIN und
-MAX über HYDRO_PRECIP_LEDGER_RETENTION_MIN (Default 180 min, siehe
-runtime_overrides.json), läuft purge_precip_ledger nicht: melden, das Wachstum ist
-sonst auf dem Pi unbegrenzt.
-
-### AC-055 — Prüfe, ob das Niederschlagsgedächtnis im Forecast ankommt
-Nach einem Zelldurchzug auf dem Pi ausführen:
-  curl -s localhost/api/hydro/flood-risk | python3 -m json.tool | grep -E "antecedent_(status|last_hit_age_min|routed_delta_q_m3s)"
-  grep -c "antecedent_status" train_data/hydro/impact/latest_hydro_flood_risk.json
-Ist antecedent_status über Stunden durchgehend "no_history", obwohl der Debug-Export
-Zellen im Einzugsgebiet zeigt, schreibt P74 nicht: melden. Steht antecedent_status auf
-"ok" und antecedent_routed_delta_q_m3s bleibt dennoch exakt 0.0, während
-antecedent_runoff_volume_m3 > 0 ist, läuft die Kaskade nicht aus der Vergangenheit an —
-ebenfalls melden, der gefallene Regen bleibt dann wirkungslos.
-
-### AC-056 — Prüfe den Trainingsbestand nach dem Schemawechsel auf p75_antecedent_v1
-Im Debug-Export ausführen:
-  sqlite3 train_data/hydro/ml/hydro_flood_samples.sqlite3 "SELECT feature_schema_version, COUNT(*) FROM labeled_samples GROUP BY 1;"
-  curl -s localhost/api/hydro/flood-risk/status | python3 -m json.tool | grep -A3 readiness
-Dass Zeilen mit b418_live_catchment_v5 nicht mehr trainierbar sind, ist die dokumentierte
-Folge von P75 und kein Fehler. Wächst die Zahl der Zeilen mit p75_antecedent_v1 über
-mehrere Tage mit Zellaktivität dagegen nicht, greift die Sample-Aufzeichnung nicht:
-melden. Alte Zeilen niemals löschen — sie belegen die Historie.
 
 ### AC-057 — Prüfe, ob der nächtliche Export im Admin-Panel ankommt
 Nach einem Lauf des Timers auf dem Pi ausführen:
@@ -809,3 +638,18 @@ exportierte `labeled_samples`.
    `SLOW_CELL_RADIUS_FACTOR` nicht mehr auftaucht. Taucht er auf, verweist ein
    Alt-`runtime_overrides.json` auf entfernte Konfiguration — als Aufräum-Befund
    vormerken, nicht nebenbei löschen.
+AC-001 — Prüfe, ob die Assoziations-Diagnose geschrieben wird · 2026-07-26 · Abgeloest — keine Jedes-Mal-Pruefung, aus ## Offen entfernt.
+AC-002 — Kalibriere `ASSOC_MAX_COST` · 2026-07-26 · Abgeloest — keine Jedes-Mal-Pruefung, aus ## Offen entfernt.
+AC-003 — Kalibriere die Transition-Schwellen gegen den neuen Code · 2026-07-26 · Abgeloest — keine Jedes-Mal-Pruefung, aus ## Offen entfernt.
+AC-005 — Prüfe die Split-Menge gegen die Sattel-Schwelle · 2026-07-26 · Abgeloest — keine Jedes-Mal-Pruefung, aus ## Offen entfernt.
+AC-006 — Prüfe, ob Splits im Livebetrieb auftreten · 2026-07-26 · Abgeloest — keine Jedes-Mal-Pruefung, aus ## Offen entfernt.
+AC-008 — Suche weitere Stellen mit manueller `_UF`-Multiplikation · 2026-07-26 · Abgeloest — keine Jedes-Mal-Pruefung, aus ## Offen entfernt.
+AC-009 — Nimm `training_meta.json` in den Debug-Export auf · 2026-07-26 · Abgeloest — keine Jedes-Mal-Pruefung, aus ## Offen entfernt.
+AC-015 — Prüfe Testfixtures auf geometrische Konsistenz · 2026-07-26 · Abgeloest — keine Jedes-Mal-Pruefung, aus ## Offen entfernt.
+AC-032 — Prüfe den bbox_fallback-Zweig · 2026-07-26 · Abgeloest — keine Jedes-Mal-Pruefung, aus ## Offen entfernt.
+AC-034 — Prüfe Migrationszeitpunkt nach Upgrade · 2026-07-26 · Abgeloest — keine Jedes-Mal-Pruefung, aus ## Offen entfernt.
+AC-035 — Prüfe Trainingsstatus über Prozessgrenzen · 2026-07-26 · Abgeloest — keine Jedes-Mal-Pruefung, aus ## Offen entfernt.
+AC-051 — Prüfe eingefrorene Pfad-Defaults · 2026-07-26 · Abgeloest — keine Jedes-Mal-Pruefung, aus ## Offen entfernt.
+AC-054 — Prüfe das Niederschlagsgedächtnis auf Doppelzählung und Wachstum · 2026-07-26 · Abgeloest — keine Jedes-Mal-Pruefung, aus ## Offen entfernt.
+AC-055 — Prüfe, ob das Niederschlagsgedächtnis im Forecast ankommt · 2026-07-26 · Abgeloest — keine Jedes-Mal-Pruefung, aus ## Offen entfernt.
+AC-056 — Prüfe den Trainingsbestand nach dem Schemawechsel auf p75_antecedent_v1 · 2026-07-26 · Abgeloest — keine Jedes-Mal-Pruefung, aus ## Offen entfernt.
