@@ -1048,6 +1048,8 @@ LOCAL_ANALYSIS_CONFIG: dict = {
     "prompt_path":   "docs/LOCAL_ANALYSIS_PROMPT.md",
     "result_path":   "train_data/evaluation/analysis_result.json",
     "status_path":   "train_data/evaluation/local_analysis_status.json",
+    # B470: vollstaendige Spur des letzten Laufs (Kommando, rc, stdout, stderr).
+    "log_path":      "train_data/evaluation/local_analysis_last_run.log",
     "settings_path": "tools/local_analysis_settings.json",
     # Nur lesende Werkzeuge. Änderungen hier werden vom Runner geprüft.
     # B465: Positivliste. Shell-Zugriffe ausschliesslich ueber das

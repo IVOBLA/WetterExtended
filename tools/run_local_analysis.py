@@ -232,8 +232,89 @@ write_status = write_json_atomic
 
 def make_status(state, now_local, previous=None, mode="", **fields):
     prev = previous or {}
-    st = {"state": state, "mode": mode or prev.get("mode"), "ts_local": now_local.strftime("%Y-%m-%d %H:%M:%S"), "ts_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "last_success_date": prev.get("last_success_date"), "last_attempt_date": prev.get("last_attempt_date"), "attempts_today": int(prev.get("attempts_today", 0) or 0), "duration_s": None, "rc": None, "num_fehler": None, "error": None, "claude_bin": prev.get("claude_bin")}
+    st = {"state": state, "mode": mode or prev.get("mode"), "ts_local": now_local.strftime("%Y-%m-%d %H:%M:%S"), "ts_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "last_success_date": prev.get("last_success_date"), "last_attempt_date": prev.get("last_attempt_date"), "attempts_today": int(prev.get("attempts_today", 0) or 0), "duration_s": None, "rc": None, "num_fehler": None, "error": None, "claude_bin": prev.get("claude_bin"), "log_path": prev.get("log_path")}
     st.update(fields); return st
+
+
+# B470: Ein fehlgeschlagener Lauf hinterliess keine verwertbare Spur — stdout wurde
+# verworfen, stderr landete nur gekuerzt im Status, und war es leer, blieb das Feld
+# leer. Im Admin-Panel stand dann "Fehlgeschlagen: rc=2:" ohne jede Angabe.
+LOG_TAIL_CHARS = 4000
+STATUS_ERROR_CHARS = 500
+
+
+def describe_returncode(rc: int) -> str:
+    """Negative Rueckgabewerte sind Signale — das erklaert stille Abbrueche."""
+    if rc is None:
+        return "unbekannt"
+    if rc < 0:
+        import signal as _sig
+        try:
+            name = _sig.Signals(-rc).name
+        except (ValueError, AttributeError):
+            name = "unbekannt"
+        hinweis = " (vermutlich Speichermangel)" if -rc == 9 else ""
+        return f"durch Signal {-rc} ({name}) beendet{hinweis}"
+    return f"Rueckgabewert {rc}"
+
+
+def summarize_failure(rc: int, stdout: str, stderr: str) -> str:
+    """Liefert IMMER eine Meldung — auch wenn das Programm nichts ausgegeben hat."""
+    err = (stderr or "").strip()
+    out = (stdout or "").strip()
+    kopf = describe_returncode(rc)
+    if err:
+        return f"{kopf}: {err[-STATUS_ERROR_CHARS:]}"
+    if out:
+        return f"{kopf}, nur stdout: {out[-STATUS_ERROR_CHARS:]}"
+    return f"{kopf}, keine Ausgabe auf stdout oder stderr"
+
+
+def cli_version(claude_bin: str) -> str:
+    try:
+        proc = subprocess.run(
+            [claude_bin, "--version"], shell=False, stdin=subprocess.DEVNULL,
+            capture_output=True, text=True, timeout=30,
+        )
+        return (proc.stdout or proc.stderr or "").strip().splitlines()[0]
+    except Exception as exc:
+        return f"nicht ermittelbar ({exc})"
+
+
+def write_run_log(path, *, cmd, claude_bin, mode, rc, duration_s,
+                  stdout="", stderr="", note="") -> None:
+    """Schreibt die vollstaendige Spur eines Laufs.
+
+    Der Auftrag selbst wird ausgelassen (mehrere KB, unveraenderlich). Die Umgebung
+    des Unterprozesses ist bereits geheimnisfrei, es kann also nichts Vertrauliches
+    in dieser Datei landen.
+    """
+    gekuerzt = list(cmd or [])
+    if len(gekuerzt) > 2:
+        gekuerzt[2] = f"<Auftrag: {len(str(cmd[2]))} Zeichen>"
+    zeilen = [
+        f"Zeitpunkt   : {datetime.now(TZ).strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Betriebsart : {mode}",
+        f"CLI         : {claude_bin}",
+        f"CLI-Version : {cli_version(claude_bin) if claude_bin else '-'}",
+        f"Ergebnis    : {describe_returncode(rc)}",
+        f"Dauer       : {duration_s} s",
+        f"Kommando    : {' '.join(shlex.quote(str(c)) for c in gekuerzt)}",
+        "",
+        f"--- stdout (letzte {LOG_TAIL_CHARS} Zeichen) ---",
+        (stdout or "")[-LOG_TAIL_CHARS:] or "(leer)",
+        "",
+        f"--- stderr (letzte {LOG_TAIL_CHARS} Zeichen) ---",
+        (stderr or "")[-LOG_TAIL_CHARS:] or "(leer)",
+    ]
+    if note:
+        zeilen += ["", "--- Hinweis ---", note]
+    try:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(zeilen) + "\n", encoding="utf-8")
+    except Exception as exc:  # pragma: no cover - Logging darf nie der Grund sein
+        print(f"[LOCAL-ANALYSIS] Laufprotokoll nicht schreibbar: {exc}", file=sys.stderr)
 
 
 def parse_args(argv=None):
@@ -243,6 +324,7 @@ def parse_args(argv=None):
 def main(argv=None):
     args = parse_args(argv); repo = Path(args.repo_dir).resolve(); cfg = load_config(repo); mode, changed = load_mode(repo); now = datetime.now(TZ)
     status_path = repo / str(cfg.get("status_path", "train_data/evaluation/local_analysis_status.json")); prev = read_json_quiet(status_path)
+    log_path = repo / str(cfg.get("log_path", "train_data/evaluation/local_analysis_last_run.log"))
     if not (args.force or args.check_only or args.dry_run):
         due, reason = is_due(mode, changed, cfg, prev, now)
         if not due:
@@ -257,15 +339,34 @@ def main(argv=None):
         shown = list(cmd); shown[2] = f"<Prompt: {len(prompt)} Zeichen>"; print("[LOCAL-ANALYSIS] " + " ".join(shlex.quote(c) for c in shown)); return 0
     today = now.strftime("%Y-%m-%d"); attempts = int(prev.get("attempts_today", 0) or 0)+1 if prev.get("last_attempt_date") == today else 1; base = {"last_attempt_date": today, "attempts_today": attempts, "claude_bin": claude}; t0=time.monotonic()
     try: proc = subprocess.run(cmd, cwd=str(repo), env=build_subprocess_env(), stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=int(cfg.get("timeout_s", 900)))
-    except subprocess.TimeoutExpired:
-        write_status(status_path, make_status("failed", now, prev, mode=mode, duration_s=round(time.monotonic()-t0,1), rc=124, error=f"Zeitlimit {cfg.get('timeout_s')}s überschritten", **base)); return 2
+    except subprocess.TimeoutExpired as exc:
+        dur = round(time.monotonic()-t0, 1)
+        meldung = f"Zeitlimit {cfg.get('timeout_s')}s überschritten"
+        write_run_log(log_path, cmd=cmd, claude_bin=claude, mode=mode, rc=124,
+                      duration_s=dur, stdout=(exc.stdout or ""), stderr=(exc.stderr or ""),
+                      note=meldung)
+        write_status(status_path, make_status("failed", now, prev, mode=mode, duration_s=dur, rc=124, error=meldung, log_path=str(log_path), **base))
+        print(f"[LOCAL-ANALYSIS] {meldung}", file=sys.stderr); return 2
     dur=round(time.monotonic()-t0,1)
     if proc.returncode:
-        write_status(status_path, make_status("failed", now, prev, mode=mode, duration_s=dur, rc=proc.returncode, error=(proc.stderr or "")[-500:], **base)); return 2
+        meldung = summarize_failure(proc.returncode, proc.stdout, proc.stderr)
+        write_run_log(log_path, cmd=cmd, claude_bin=claude, mode=mode, rc=proc.returncode,
+                      duration_s=dur, stdout=proc.stdout, stderr=proc.stderr)
+        write_status(status_path, make_status("failed", now, prev, mode=mode, duration_s=dur, rc=proc.returncode, error=meldung, log_path=str(log_path), **base))
+        print(f"[LOCAL-ANALYSIS] {meldung}", file=sys.stderr)
+        print(f"[LOCAL-ANALYSIS] Vollstaendige Spur: {log_path}", file=sys.stderr); return 2
     try: payload=extract_payload(proc.stdout)
     except ValueError as exc:
-        write_status(status_path, make_status("failed", now, prev, mode=mode, duration_s=dur, rc=0, error=str(exc), **base)); return 2
+        meldung = f"Antwort unbrauchbar: {exc}"
+        write_run_log(log_path, cmd=cmd, claude_bin=claude, mode=mode, rc=0,
+                      duration_s=dur, stdout=proc.stdout, stderr=proc.stderr, note=meldung)
+        write_status(status_path, make_status("failed", now, prev, mode=mode, duration_s=dur, rc=0, error=meldung, log_path=str(log_path), **base))
+        print(f"[LOCAL-ANALYSIS] {meldung}", file=sys.stderr)
+        print(f"[LOCAL-ANALYSIS] Vollstaendige Spur: {log_path}", file=sys.stderr); return 2
     result = repo / str(cfg.get("result_path", "train_data/evaluation/analysis_result.json")); write_json_atomic(result, payload); base["last_success_date"] = today
+    write_run_log(log_path, cmd=cmd, claude_bin=claude, mode=mode, rc=0,
+                  duration_s=dur, stdout=proc.stdout, stderr=proc.stderr,
+                  note=f"{len(payload['fehler'])} Fehler gemeldet")
     write_status(status_path, make_status("ok", now, prev, mode=mode, duration_s=dur, rc=0, num_fehler=len(payload["fehler"]), **base)); print(f"[LOCAL-ANALYSIS] OK — {len(payload['fehler'])} Fehler, {dur}s → {result}"); return 0
 
 
