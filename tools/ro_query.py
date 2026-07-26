@@ -30,6 +30,22 @@ SQL_FORBIDDEN = re.compile(
 class QueryError(ValueError):
     """Ungueltige Anfrage (Exit-Code 1)."""
 
+def is_secret_name(name: str) -> bool:
+    """B469 — Erkennt Zugangsdaten inklusive Sicherungskopien.
+
+    Der bisherige Test name == ".env" or startswith(".env.") liess Kopien wie
+    .env_Copy, .env.bak oder .env~ durch. Diese eine Funktion deckt jede
+    .env-Variante ab, dazu Schluessel-/Zertifikatsdateien und SSH-Schluessel.
+    """
+    low = name.lower()
+    if low.startswith(".env"):
+        return True
+    if low.endswith((".pem", ".key")):
+        return True
+    if "id_rsa" in low:
+        return True
+    return False
+
 def check_unit(name: str) -> str:
     if name not in ALLOWED_UNITS:
         raise QueryError(f"Unit nicht erlaubt: {name!r}. Erlaubt: {', '.join(ALLOWED_UNITS)}")
@@ -58,10 +74,8 @@ def check_inside_repo(rel: str) -> Path:
         target.relative_to(REPO)
     except ValueError:
         raise QueryError(f"Pfad liegt ausserhalb des Projekts: {rel}")
-    if target.name == ".env" or target.name.startswith(".env."):
-        raise QueryError("Zugangsdaten sind gesperrt")
-    if target.suffix in (".pem", ".key"):
-        raise QueryError("Schluesseldateien sind gesperrt")
+    if is_secret_name(target.name):
+        raise QueryError(f"Datei sieht nach Zugangsdaten aus und ist gesperrt: {target.name}")
     return target
 
 def check_sql(sql: str) -> str:
@@ -140,7 +154,7 @@ def cmd_files(args) -> str:
         if not path.is_file(): continue
         try: path.relative_to(REPO)
         except ValueError: continue
-        if path.name == ".env" or path.name.startswith(".env."): continue
+        if is_secret_name(path.name): continue
         st = path.stat(); age_h = (now - st.st_mtime) / 3600
         out.append(f"{path.relative_to(REPO)}: {st.st_size} Bytes, Alter {age_h:.1f} h")
         if len(out) >= MAX_ROWS:

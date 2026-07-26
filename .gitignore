@@ -36,6 +36,9 @@ models/hailo/
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
 .env
+# B469: auch Sicherungskopien wie .env_Copy, .env.bak oder .env~ nie committen.
+.env*
+!.env.example
 train_data/runtime_overrides.json
 
 # ── Generierte Bilder / Exports ───────────────────────────────────────────────

@@ -497,7 +497,8 @@ if [[ "$LOCAL_INSTALL" == true ]]; then
     if [[ "$LOCAL_SOURCE" != "$TARGET" ]]; then
         mkdir -p "$TARGET"
         rsync -a --delete \
-            --exclude=/.env \
+            --include=/.env.example \
+            --exclude=/.env* \
             --exclude=/users.db \
             --exclude=/train_data/runtime_overrides.json \
             --exclude=/train_data/statistics/ \

@@ -535,6 +535,17 @@ Admin-Panel fehlgeschlagen" im Log ist immer zu melden, auch wenn der Push gelan
 7. Ist `duration_s` größer als 80 % von `timeout_s`, ist der Auftrag zu
    umfangreich für das Zeitlimit — als Verbesserung melden, nicht als Fehler.
 
+
+### AC-079 — Prüfe den Export und das Livesystem auf ungeschützte Zugangsdaten-Kopien
+Liste im Debug-Export oder per Livezugriff alle Dateien im Projektverzeichnis, deren
+Name mit `.env` beginnt (z. B. `.env_Copy`, `.env.bak`, `.env~`) oder auf `.pem`/`.key`
+endet. Prüfe: (1) keine dieser Dateien darf im Git-Tree erscheinen — abgleichen gegen
+`git ls-files`; taucht eine auf, ist `.gitignore` unwirksam — melden. (2) `ro_query.py files`
+mit Muster `.env*` darf keine dieser Dateien zurückgeben. (3) Im lokalen `rsync`-Ziel
+darf außer `.env` und `.env.example` keine `.env`-Variante liegen. Eine lesbare oder
+kopierte Sicherungskopie einer Zugangsdatei ist ein Leck — melden mit Dateiname und
+Fundort als `beleg`.
+
 ## Erledigt
 
 _(Format: `AC-xxx — Kurztitel · YYYY-MM-DD · Ergebnis in einem Satz.)_

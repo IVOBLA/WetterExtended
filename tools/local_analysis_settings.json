@@ -8,6 +8,8 @@
       "Read(./.env)",
       "Read(./.env.*)",
       "Read(**/.env)",
+      "Read(./.env*)",
+      "Read(**/.env*)",
       "Read(**/*.pem)",
       "Read(**/*.key)",
       "Read(**/id_rsa*)",
