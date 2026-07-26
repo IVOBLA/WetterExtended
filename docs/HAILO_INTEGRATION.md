@@ -8398,6 +8398,37 @@ Regeln und dass keine Namensregel zurückkehrt.
 B467 offen, B468 ✅. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet
 auf ausreichende Trainingsdaten.
 
+### B469 — Sicherungskopien von Zugangsdaten wurden nicht als Secret erkannt
+
+**Symptom:** Eine reale Datei `.env_Copy` (2707 Bytes) lag im Projektverzeichnis und
+war an vier Stellen ungeschützt, weil der Secret-Filter nur `.env` und `.env.`
+(mit Punkt) prüfte.
+
+**Root-Cause (vier Stellen):**
+1. `ro_query.py check_inside_repo()` — `name == ".env" or startswith(".env.")`.
+2. `ro_query.py cmd_files()` — dieselbe Prüfung; Kopie erschien in `files`.
+3. `local_analysis_settings.json` — Deny-Globs `Read(./.env)`, `Read(./.env.*)`,
+   `Read(**/.env)` matchten `.env_Copy` nicht; der Lauf durfte sie per CLI-`Read` lesen.
+4. `install.sh` lokaler `rsync` — `--exclude=/.env` kopierte `.env_Copy` ins Ziel.
+
+**Änderung:** Neue Funktion `is_secret_name()` in `ro_query.py` erkennt jede
+`.env`-Variante (Präfix `.env`), Schlüssel-/Zertifikatsdateien (`.pem`/`.key`) und
+SSH-Schlüssel (`id_rsa`); beide Python-Stellen nutzen sie. `local_analysis_settings.json`
+erhält additiv `Read(./.env*)` und `Read(**/.env*)` (bestehende B468-Regeln bleiben,
+`.env.example` wird dabei mitgesperrt — harmlos, da Platzhalter). `.gitignore` bekommt
+`.env*` plus Ausnahme `!.env.example`. Der lokale `rsync` schließt `.env*` aus und
+behält `.env.example` per vorangestelltem `--include`.
+
+**Tests:** `tests/test_b469_secret_backups.py` — `is_secret_name()` fängt `.env_Copy`,
+`.env.bak`, `.env~`, `.pem`/`.key`, `id_rsa`; harmlose Namen bleiben frei;
+`check_inside_repo` und `cmd_files` sperren `.env_Copy`; Settings-Deny enthält die
+neuen Globs bei erhaltenen B468-Regeln; `.gitignore` ignoriert Kopien, behält
+`.env.example`; `install.sh` schließt `.env*` aus und behält `.env.example`.
+
+**Phasen-Status:** Phase A — Nacharbeit B464–B469: B464 ✅, B465 ✅, B466 ✅,
+B467 offen, B468 ✅, B469 ✅. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert;
+sie wartet auf ausreichende Trainingsdaten.
+
 ### B470 — Fehlgeschlagene Analyse-Läufe hinterlassen jetzt eine lesbare Spur
 
 **Befund im Betrieb** (2026-07-24 12:27:03): `state=failed`, `rc=2`, 398,2 s — im
