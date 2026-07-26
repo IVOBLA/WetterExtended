@@ -546,6 +546,15 @@ darf außer `.env` und `.env.example` keine `.env`-Variante liegen. Eine lesbare
 kopierte Sicherungskopie einer Zugangsdatei ist ein Leck — melden mit Dateiname und
 Fundort als `beleg`.
 
+### AC-080 — Prüfe den lokalen Analyse-Lauf auf Abbruch am Schrittbudget
+Lies `train_data/evaluation/local_analysis_status.json`. Steht `state` auf `incomplete`,
+hat der Lauf das Turn-/Zeitbudget erschöpft, bevor er fertig war — Beleg ist das Feld
+`error` und die Protokolldatei `train_data/evaluation/local_analysis_last_run.log`.
+Tritt `incomplete` mehrere Tage in Folge auf, ist der Umfang von Abschnitt B (offene ACs)
+dauerhaft zu groß: als Verbesserung melden, entweder `max_turns`/`timeout_s` in
+`config.LOCAL_ANALYSIS_CONFIG` anheben oder erledigte ACs nach `## Erledigt` verschieben.
+Ein einmaliges `incomplete` ist kein Fehler, sondern der erwartete Selbstschutz.
+
 ## Erledigt
 
 _(Format: `AC-xxx — Kurztitel · YYYY-MM-DD · Ergebnis in einem Satz.)_

@@ -270,6 +270,27 @@ def summarize_failure(rc: int, stdout: str, stderr: str) -> str:
     return f"{kopf}, keine Ausgabe auf stdout oder stderr"
 
 
+def detect_incomplete(stdout: str):
+    """B471 — Ein Abbruch am Schritt-Limit ist keine Stoerung, sondern ein zu grosser
+    Auftrag. Die CLI-JSON traegt dann terminal_reason=max_turns. Solche Faelle bekommen
+    einen eigenen, handlungsleitenden Status statt der undurchsichtigen Fehlermeldung."""
+    try:
+        obj = json.loads(stdout or "")
+    except Exception:
+        return None
+    if isinstance(obj, list):
+        obj = next((x for x in reversed(obj) if isinstance(x, dict)), None)
+    if not isinstance(obj, dict):
+        return None
+    reason = str(obj.get("terminal_reason") or "")
+    errs = obj.get("errors") or []
+    text = " ".join(str(e) for e in errs) if isinstance(errs, list) else str(errs)
+    if reason == "max_turns" or "maximum number of turns" in text.lower():
+        return ("Schritt-Limit erreicht — Auftrag zu umfangreich fuer max_turns. "
+                "max_turns/timeout_s erhoehen oder Umfang von Abschnitt B (offene ACs) kuerzen.")
+    return None
+
+
 def cli_version(claude_bin: str) -> str:
     try:
         proc = subprocess.run(
@@ -349,6 +370,13 @@ def main(argv=None):
         print(f"[LOCAL-ANALYSIS] {meldung}", file=sys.stderr); return 2
     dur=round(time.monotonic()-t0,1)
     if proc.returncode:
+        unvollstaendig = detect_incomplete(proc.stdout)
+        if unvollstaendig:
+            write_run_log(log_path, cmd=cmd, claude_bin=claude, mode=mode, rc=proc.returncode,
+                          duration_s=dur, stdout=proc.stdout, stderr=proc.stderr, note=unvollstaendig)
+            write_status(status_path, make_status("incomplete", now, prev, mode=mode, duration_s=dur, rc=proc.returncode, error=unvollstaendig, log_path=str(log_path), **base))
+            print(f"[LOCAL-ANALYSIS] {unvollstaendig}", file=sys.stderr)
+            print(f"[LOCAL-ANALYSIS] Vollstaendige Spur: {log_path}", file=sys.stderr); return 2
         meldung = summarize_failure(proc.returncode, proc.stdout, proc.stderr)
         write_run_log(log_path, cmd=cmd, claude_bin=claude, mode=mode, rc=proc.returncode,
                       duration_s=dur, stdout=proc.stdout, stderr=proc.stderr)
