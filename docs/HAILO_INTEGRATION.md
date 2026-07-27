@@ -8630,3 +8630,27 @@ verifiziert: `sh -n`, `bash -n`, esbuild-JSX, pytest.
 **Phasen-Status:** Phase A — Nacharbeit B464–B476: B464 ✅, B465 ✅, B466 ✅, B467 ✅,
 B468 ✅, B469 ✅, B470 ✅, B471 ✅, B472 ✅, B473 ✅, B474 ✅, B475 ✅, B476 ✅. Phase B
 (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B477 — Merges wurden als Splits doppelt gezählt
+
+**Symptom:** „Zusammenschlüsse (Merges)" und „Aufspaltungen (Splits)" im Panel
+„Tracking-Kennzahlen" immer identisch (z. B. 128 = 128).
+
+**Root-Cause:** `stats_aggregator._accumulate_record()` zählte jede nicht-leere
+`children`-Liste als Split (`if rec.get("children")`). Der Merge-Pfad in
+`object_tracking.py` setzt auf der verschmolzenen Zelle aber `children=[obj_id]` (genau
+ein Element) zusätzlich zu `lineage_end="merged_into:…"`. Dadurch wurde jeder Merge auch
+als Split gezählt. Echte Splits entstehen nur bei `len(children) >= 2`; die übrige
+Codebasis erkennt Splits konsequent über `len(children) > 1` (`cell_lineage.py`).
+
+**Änderung:** Der Aggregator verwendet jetzt dieselbe Konvention:
+`if len(rec.get("children") or []) > 1: y["splits"] += 1`. Merges (ein Kind) zählen nicht
+mehr als Split; die Merge-Zählung bleibt unverändert.
+
+**Tests:** `tests/test_b477_merge_split_count.py` — Merge (ein Kind) zählt nur als Merge,
+Split (≥ zwei Kinder) nur als Split, gemischte Zählung unabhängig.
+
+**Phasen-Status:** Phase A — Nacharbeit B464–B477: B464 ✅, B465 ✅, B466 ✅, B467 ✅,
+B468 ✅, B469 ✅, B470 ✅, B471 ✅, B472 ✅, B473 ✅, B474 ✅, B475 ✅, B476 ✅, B477 ✅.
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
+Trainingsdaten.
