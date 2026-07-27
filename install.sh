@@ -2099,14 +2099,15 @@ if [[ "$ENABLE_LOCAL_ANALYSIS" != true ]]; then
 else
     _LA_RUNNER="$TARGET/tools/run_local_analysis.py"
     _LA_SVC_SRC="$TARGET/$LOCAL_ANALYSIS_SERVICE"
-    _LA_TMR_SRC="$TARGET/$LOCAL_ANALYSIS_TIMER"
+    _NA_SVC_SRC="$TARGET/wetterprojekt-nightly-analysis.service"
+    _NA_DISPATCH="$TARGET/tools/nightly_analysis_dispatch.sh"
 
     if [[ ! -f "$_LA_RUNNER" ]]; then
         check_warn "Runner fehlt: $_LA_RUNNER — Timer wird nicht eingerichtet"
         note_manual "tools/run_local_analysis.py fehlt. Source aktualisieren: $0 --mode upgrade"
-    elif [[ ! -f "$_LA_SVC_SRC" || ! -f "$_LA_TMR_SRC" ]]; then
+    elif [[ ! -f "$_LA_SVC_SRC" || ! -f "$_NA_SVC_SRC" || ! -f "$_NA_DISPATCH" ]]; then
         check_warn "systemd-Templates der lokalen Analyse fehlen"
-        note_manual "Templates fehlen: $_LA_SVC_SRC / $_LA_TMR_SRC — Source aktualisieren: $0 --mode upgrade"
+        note_manual "Templates fehlen: $_LA_SVC_SRC / $_NA_SVC_SRC / $_NA_DISPATCH — Source aktualisieren: $0 --mode upgrade"
     else
         # --- Betriebsart ermitteln (repo | local) --------------------------------
         _LA_MODE="$(cd "$TARGET" && "$VENV/bin/python3" -c "
@@ -2141,9 +2142,18 @@ print(str(runtime_config.get('ANALYSIS_MODE', m) or 'repo').strip().lower())
             -e "s|/home/ki-pi/wetterprojekt|$TARGET|g" \
             "$_LA_SVC_SRC" > "$_LA_SVC_GEN"
         sudo cp "$_LA_SVC_GEN" "/etc/systemd/system/$LOCAL_ANALYSIS_SERVICE"
-        sudo cp "$_LA_TMR_SRC" "/etc/systemd/system/$LOCAL_ANALYSIS_TIMER"
+        # B476: kein eigener Timer mehr — der 23:59-Dispatcher startet diesen Dienst.
+        # Alten halbstuendlichen Timer idempotent entfernen (auch bei Upgrade).
+        sudo systemctl disable --now "$LOCAL_ANALYSIS_TIMER" 2>/dev/null || true
+        sudo rm -f "/etc/systemd/system/$LOCAL_ANALYSIS_TIMER"
+        # B476: Dispatcher-Service installieren (root; startet je nach Betriebsart
+        # den Push- oder den lokalen Analyse-Dienst).
+        _NA_SVC_GEN="$TARGET/.generated-wetterprojekt-nightly-analysis.service"
+        sed -e "s|/home/ki-pi/wetterprojekt|$TARGET|g" "$_NA_SVC_SRC" > "$_NA_SVC_GEN"
+        sudo cp "$_NA_SVC_GEN" "/etc/systemd/system/wetterprojekt-nightly-analysis.service"
+        sudo chmod +x "$TARGET/tools/nightly_analysis_dispatch.sh" 2>/dev/null || true
         sudo systemctl daemon-reload
-        check_ok "Lokale Analyse: Service und Timer installiert"
+        check_ok "Lokale Analyse: Service + Dispatcher installiert; alter Timer entfernt"
 
         # --- Vorbedingungen prüfen (ruft die CLI NICHT auf) ----------------------
         set +e
@@ -2160,16 +2170,16 @@ print(str(runtime_config.get('ANALYSIS_MODE', m) or 'repo').strip().lower())
             note_manual "Prüfen: cd $TARGET && $VENV/bin/python3 tools/run_local_analysis.py --repo-dir $TARGET --check-only"
         fi
 
-        # --- Timer aktivieren; der Runner prüft die Betriebsart selbst -----------
-        sudo systemctl reset-failed "$LOCAL_ANALYSIS_TIMER" 2>/dev/null || true
-        if sudo systemctl enable --now "$LOCAL_ANALYSIS_TIMER" 2>/dev/null; then
-            check_ok "Lokale-Analyse-Timer aktiv (halbstündlich; Lauf nur in Betriebsart 'local')"
-        else
-            check_warn "Lokale-Analyse-Timer konnte nicht aktiviert werden"
-            note_manual "sudo systemctl enable --now $LOCAL_ANALYSIS_TIMER"
-        fi
-
+        # B476: Kein eigener Timer mehr — der gemeinsame 23:59-Dispatcher-Timer
+        # (wetterprojekt-debug-export-branch.timer) startet je nach Betriebsart den
+        # richtigen Dienst. In 'local' braucht er kein GitHub, daher hier unabhaengig
+        # vom GitHub-Schreibtest aktivieren.
         if [[ "$_LA_MODE" == "local" ]]; then
+            if sudo systemctl enable --now wetterprojekt-debug-export-branch.timer 2>/dev/null; then
+                check_ok "23:59-Dispatcher-Timer aktiv (Betriebsart local)"
+            else
+                note_manual "Timer aktivieren: sudo systemctl enable --now wetterprojekt-debug-export-branch.timer"
+            fi
             note_manual "Betriebsart 'local' aktiv: die EXTERNE Claude-Code-Routine muss in der Claude-App deaktiviert sein — sonst laufen zwei Analysen pro Tag."
         fi
     fi

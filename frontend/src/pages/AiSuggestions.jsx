@@ -761,15 +761,6 @@ export default function AiSuggestions() {
           )}{' '}
           Unabhängig von der KI-Analyse-Pipeline.
         </p>
-        {mode.mode === 'local' &&
-          (laCfg.cron_hour * 60 + laCfg.cron_minute) >=
-          (ccCfg.cron_hour * 60 + ccCfg.cron_minute) && (
-          <p className="text-xs text-amber-700 mb-3">
-            ⚠ Die Analyse startet nicht vor dem Versand — verschickt würde das
-            Ergebnis des Vortages. Analysezeit früher legen.
-          </p>
-        )}
-
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="md:col-span-2">
             <label className="flex items-center gap-3 cursor-pointer select-none">
@@ -889,26 +880,6 @@ export default function AiSuggestions() {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="label">Faellig ab Stunde (0–23)</label>
-            <input className="input" type="number" min="0" max="23"
-              value={laCfg.cron_hour}
-              onChange={e => {
-                const v = parseInt(e.target.value, 10)
-                setLaCfg({ ...laCfg, cron_hour: Number.isNaN(v) ? 0 : v })
-              }}
-            />
-          </div>
-          <div>
-            <label className="label">Faellig ab Minute (0–59)</label>
-            <input className="input" type="number" min="0" max="59"
-              value={laCfg.cron_minute}
-              onChange={e => {
-                const v = parseInt(e.target.value, 10)
-                setLaCfg({ ...laCfg, cron_minute: Number.isNaN(v) ? 10 : v })
-              }}
-            />
-          </div>
           <div>
             <label className="label">Max. Arbeitsschritte (1–200)</label>
             <input className="input" type="number" min="1" max="200"

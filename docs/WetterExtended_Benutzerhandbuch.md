@@ -2972,10 +2972,12 @@ Lauf erfolgt am Folgetag; sofort testen lässt sich jederzeit über „Jetzt aus
 
 ### Lokale Analyse am Gerät einstellen
 
-In der Karte „Lokale Analyse am Pi" lassen sich einstellen: ab welcher Uhrzeit der
-Lauf fällig ist, wie viele Arbeitsschritte er höchstens machen darf und nach wie
-vielen Sekunden er abgebrochen wird. Pro Tag findet höchstens ein erfolgreicher Lauf
-statt; wird ein Zeitpunkt durch einen Neustart verpasst, holt das Gerät den Lauf nach.
+In der Karte „Lokale Analyse am Pi" lassen sich einstellen, wie viele Arbeitsschritte
+der Lauf höchstens machen darf und nach wie vielen Sekunden er abgebrochen wird. Der
+Zeitpunkt ist nicht mehr getrennt einstellbar: der Lauf hängt am selben nächtlichen
+Auslöser (23:59) wie der Repository-Export und läuft in der Betriebsart „Direkt am Pi"
+anstelle des GitHub-Pushes. Pro Tag findet höchstens ein erfolgreicher Lauf statt; wird
+der Zeitpunkt durch einen Neustart verpasst, holt das Gerät den Lauf nach.
 
 Die Karte zeigt den letzten Lauf mit Zustand, Zeitpunkt, Dauer, Anzahl gefundener
 Fehler und dem Alter der Ergebnisdatei. Mit „Bericht herunterladen" lässt sich das
@@ -2984,8 +2986,8 @@ zusätzlich zum täglichen Versand per E-Mail. Findet das System das benötigte
 Analyse-Programm nicht, erscheint oben in der Karte ein Hinweis mit dem
 Installationsbefehl.
 
-Die Analysezeit muss vor der Versandzeit des Reports liegen, sonst wird das Ergebnis
-des Vortages verschickt; die Oberfläche warnt in diesem Fall.
+Der Lauf um 23:59 liegt vor der Versandzeit des Reports (Standard 04:00), sodass die
+Mail stets das Ergebnis der jüngsten Nacht enthält.
 
 Der Lauf am Gerät ist streng lesend: Er verändert keine Dateien, startet keine Dienste
 neu und hat keinen Zugriff auf die hinterlegten Zugangsdaten.

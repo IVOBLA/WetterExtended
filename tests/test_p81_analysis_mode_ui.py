@@ -23,10 +23,10 @@ def test_local_card_has_no_second_enable_toggle():
 def test_local_card_shows_whether_it_is_active(): assert "mode.mode === 'local'" in _page()
 def test_all_configurable_fields_are_editable():
  t=_page()
- for field in ("cron_hour","cron_minute","max_turns","timeout_s"): assert f"laCfg.{field}" in t
+ for field in ("max_turns","timeout_s"): assert f"laCfg.{field}" in t
 def test_numeric_inputs_have_bounds_matching_the_api():
  block=_page().split("Lokale Analyse am Pi (Claude Code)",1)[1]
- for bound in ('max="23"','max="59"','max="200"','max="3600"'): assert bound in block
+ for bound in ('max="200"','max="3600"'): assert bound in block
 def test_manual_run_uses_the_existing_job_route():
  t=_page(); assert "api.post('/api/system/run_job/local_analysis', {})" in t; assert "/api/local_analysis/run" not in t
 def test_manual_run_polls_and_gives_up_eventually():
@@ -34,8 +34,6 @@ def test_manual_run_polls_and_gives_up_eventually():
 def test_run_button_is_disabled_while_running(): assert "disabled={laRunning}" in _page()
 def test_missing_cli_is_surfaced_to_the_user():
  t=_page(); assert "cli_available" in t; assert "claude.ai/install.sh" in t
-def test_warns_when_analysis_starts_after_the_mail_is_sent():
- t=_page(); assert "laCfg.cron_hour * 60 + laCfg.cron_minute" in t; assert "ccCfg.cron_hour * 60 + ccCfg.cron_minute" in t
 def test_handbuch_documents_the_mode(): assert "Betriebsart der täglichen Analyse" in _handbuch()
 def _chapter(): return _handbuch().split("### Betriebsart der täglichen Analyse",1)[1]
 def test_handbuch_states_the_once_per_day_rule(): assert "genau einmal pro Tag" in _chapter()

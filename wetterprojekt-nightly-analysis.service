@@ -1,0 +1,10 @@
+[Unit]
+Description=WetterExtended naechtlicher Analyse-Dispatcher (Push in repo-, lokale Analyse in local-Betriebsart)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Laeuft als root, ausschliesslich um je nach Betriebsart genau einen der beiden
+# bereits gehaerteten Dienste zu starten. Fuehrt selbst keine Analyse/kein Push aus.
+ExecStart=/home/ki-pi/wetterprojekt/tools/nightly_analysis_dispatch.sh /home/ki-pi/wetterprojekt

@@ -8599,3 +8599,34 @@ nutzt Download-Helfer und Button, Handbuch dokumentiert das Feature.
 **Phasen-Status:** Phase A — Nacharbeit B464–B475: B464 ✅, B465 ✅, B466 ✅, B467 ✅,
 B468 ✅, B469 ✅, B470 ✅, B471 ✅, B472 ✅, B473 ✅, B474 ✅, B475 ✅. Phase B (Hailo-8
 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B476 — Ein gemeinsamer nächtlicher Auslöser statt zweitem Timer
+
+**Anlass:** Die lokale Analyse soll am selben 23:59-Auslöser hängen wie der
+Repository-Export (nur lokal statt Push); ein zweiter Timer war unerwünscht.
+
+**Änderung:**
+- Neuer root-Dispatcher `wetterprojekt-nightly-analysis.service` + Skript
+  `tools/nightly_analysis_dispatch.sh`: startet je nach `ANALYSIS_MODE` genau einen
+  gehärteten Dienst — „repo" den Push-Dienst, „local" den streng lesenden
+  `wetterprojekt-local-analysis.service` (B466-Sandbox unverändert).
+- `wetterprojekt-debug-export-branch.timer` (23:59) zeigt jetzt auf den Dispatcher.
+- `wetterprojekt-local-analysis.timer` (halbstündlich) gelöscht.
+- `install.sh`: installiert den Dispatcher, entfernt den alten Timer idempotent und
+  aktiviert in Betriebsart „local" den 23:59-Timer unabhängig vom GitHub-Schreibtest.
+- Admin-Panel: die Zeitplan-Felder „Fällig ab Stunde/Minute" und die daran hängende
+  Reihenfolge-Warnung entfallen; Max. Arbeitsschritte und Zeitlimit bleiben.
+
+**Benutzerhandbuch:** Abschnitt „Lokale Analyse am Gerät einstellen" aktualisiert
+(fester 23:59-Auslöser, kein getrennter Zeitplan mehr).
+
+**Tests:** `tests/test_b476_single_timer.py` (Dispatcher-Routing, Timer zeigt auf
+Dispatcher, alter Timer entfernt, install.sh ohne halbstündlichen Enable, Frontend ohne
+Zeitplan-Felder). `tests/test_p81_analysis_mode_ui.py` an die entfernten Felder angepasst.
+
+**Verifikation:** systemd-Laufzeit nur auf dem Pi per `--mode upgrade` prüfbar; hier
+verifiziert: `sh -n`, `bash -n`, esbuild-JSX, pytest.
+
+**Phasen-Status:** Phase A — Nacharbeit B464–B476: B464 ✅, B465 ✅, B466 ✅, B467 ✅,
+B468 ✅, B469 ✅, B470 ✅, B471 ✅, B472 ✅, B473 ✅, B474 ✅, B475 ✅, B476 ✅. Phase B
+(Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
