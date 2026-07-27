@@ -188,7 +188,7 @@ def _accumulate_record(rec, years, grid):
 
     if str(rec.get("end_reason", "")).startswith("merged_into"):
         y["merges"] += 1
-    if rec.get("children"):
+    if len(rec.get("children") or []) > 1:
         y["splits"] += 1
     if int(rec.get("stationary_frames") or 0) >= 3:
         y["stationary_tracks"] += 1
