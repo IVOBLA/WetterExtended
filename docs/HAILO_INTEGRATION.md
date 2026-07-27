@@ -8654,3 +8654,35 @@ Split (≥ zwei Kinder) nur als Split, gemischte Zählung unabhängig.
 B468 ✅, B469 ✅, B470 ✅, B471 ✅, B472 ✅, B473 ✅, B474 ✅, B475 ✅, B476 ✅, B477 ✅.
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
 Trainingsdaten.
+
+### B478 — Unsicherheitskorridor: Querprojektion statt Box-Diagonale
+
+**Anlass:** Der ML-Unsicherheitskorridor (B130) erschien im Kartenbild verkippt und
+umschloss die Zugbahn nicht symmetrisch. Ursache: `prediction.py` liefert `q10`/`q90`
+als unabhängige Achsen-Quantile → `(lat_q10,lon_q10)` und `(lat_q90,lon_q90)` sind die
+zwei gegenüberliegenden Ecken einer achsenparallelen Unsicherheits-Box. Das Frontend
+verband diese beiden Eckenketten direkt als linke/rechte Schiene, wodurch beide entlang
+derselben Box-Diagonale liefen (statt seitlich zur Zugbahn). Orthogonal zu B405 (dort
+nur Größenordnung, nicht Orientierung).
+
+**Änderung:**
+- `frontend/src/pages/MapView.jsx` und `frontend/src/pages/MapFullscreen.jsx`: Der
+  `corridor`-Block projiziert die Box je Horizont auf die Querrichtung (senkrecht zur
+  Achse Ursprung→letzter Stützpunkt) über die Stützfunktion des Rechtecks
+  `r = |px|·hx + |py|·hy` und versetzt den Zentralpunkt `s.ll` um ±r → echte,
+  symmetrische, überschneidungsfreie linke/rechte Kante um die tatsächliche Zugbahn.
+  Die B130-Anker (`_qpts`-Filter, `const corridor = (!g.isKin && _qpts.length >= 1)`)
+  bleiben erhalten. B176-Kegel unverändert.
+
+**Tests:** `tests/test_b478_corridor_crosstrack.py` — Querprojektion (Stützfunktion,
+Quer-Einheitsvektor) in beiden JSX vorhanden, alte Box-Diagonalkonstruktion entfernt,
+B130-Kern-Anker erhalten. `tests/test_b130_uncertainty_corridor.py` bleibt grün.
+
+**Kein** Benutzerhandbuch-Update (Bugfix, kein Fach-Feature). **Keine** AIChecks-Ergänzung
+(client-seitiges Rendering, nicht aus Debug-Export prüfbar). **Keine** Binaries.
+
+**Verifikation:** esbuild-JSX, pytest (`sh -n`/`bash -n` nicht nötig — keine Shell-Skripte
+geändert).
+
+**Phasen-Status:** Phase A — B478 ✅ (Korridor-Geometrie korrigiert). Phase B (Hailo-8
+U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.

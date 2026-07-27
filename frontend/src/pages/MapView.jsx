@@ -1401,9 +1401,39 @@ export default function MapView() {
             const casingOpts = { color: '#ffffff', weight: opts.weight + 3, opacity: _isSlow ? 0.35 : 0.6 }
             const last = sorted[sorted.length - 1]
             // B130: Unsicherheitskorridor (q10/q90) als EIN sich verbreiterndes Polygon.
+            // B478: q10/q90 sind UNABHÄNGIGE Achsen-Quantile → (lat_q10,lon_q10) und
+            // (lat_q90,lon_q90) sind die zwei GEGENÜBERLIEGENDEN Ecken einer achsen-
+            // parallelen Unsicherheits-Box, NICHT die linke/rechte Korridorkante. Direkt
+            // als zwei Schienen verbunden ergab das ein entlang der Box-Diagonale verkipptes
+            // Band, das nur bei Bewegung entlang dieser Diagonale symmetrisch um die Zugbahn
+            // lag. Korrekt: Box je Horizont auf die QUERrichtung (senkrecht zur Achse
+            // Ursprung→letzter Stützpunkt) projizieren (Stützfunktion des Rechtecks:
+            // r = |px|·hx + |py|·hy) und den Zentralpunkt um ±r seitlich versetzen.
             const _qpts = sorted.filter(s => s.q10 && s.q90)
             const corridor = (!g.isKin && _qpts.length >= 1)
-              ? [g.origin, ..._qpts.map(s => s.q10), ..._qpts.slice().reverse().map(s => s.q90)]
+              ? (() => {
+                  const KM_PER_DEG = 111.32
+                  const lat0 = g.origin[0]
+                  const cosLat = Math.max(Math.cos(lat0 * Math.PI / 180), 1e-6)
+                  const toKm = ([la, lo]) => [lo * cosLat * KM_PER_DEG, la * KM_PER_DEG]
+                  const toLL = (x, y) => [y / KM_PER_DEG, x / (cosLat * KM_PER_DEG)]
+                  const oKm = toKm(g.origin)
+                  const lastKm = toKm(_qpts[_qpts.length - 1].ll)
+                  let ax = lastKm[0] - oKm[0], ay = lastKm[1] - oKm[1]
+                  const alen = Math.hypot(ax, ay)
+                  if (alen < 1e-6) { ax = 0; ay = 1 } else { ax /= alen; ay /= alen }
+                  const px = -ay, py = ax   // Quer-Einheitsvektor (km-Frame)
+                  const left = [], right = []
+                  _qpts.forEach(s => {
+                    const ck = toKm(s.ll)
+                    const hy = Math.abs(s.q90[0] - s.q10[0]) / 2 * KM_PER_DEG
+                    const hx = Math.abs(s.q90[1] - s.q10[1]) / 2 * cosLat * KM_PER_DEG
+                    const r = Math.abs(px) * hx + Math.abs(py) * hy
+                    left.push(toLL(ck[0] + px * r, ck[1] + py * r))
+                    right.push(toLL(ck[0] - px * r, ck[1] - py * r))
+                  })
+                  return [g.origin, ...left, ...right.reverse()]
+                })()
               : null
             // B176: Horizont-wachsender Unsicherheitskegel als Fallback, wenn KEIN
             // Quantil-Korridor vorliegt (kinematische Vorhersage ODER ML ohne q10/q90).
