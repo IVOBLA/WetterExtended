@@ -8785,3 +8785,41 @@ Markdown-/Testdatei geändert (`sh -n`/`bash -n` nicht nötig).
 **Phasen-Status:** Phase A — B481 ✅ (lokale Analyse schlägt keine Zwischenlösungen
 mehr vor). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
 ausreichende Trainingsdaten.
+
+### P83 — Deterministischer AIChecks-Harness (Schritt 1/3)
+
+**Ziel (mehrstufig):** Sicherstellen, dass die lokale Analyse IMMER alle
+Aufgaben/Prüfungen abarbeitet — unabhängig vom LLM-Schrittbudget — und das
+LLM-Budget für den Primärzweck (Vorhersagequalität + fachliche/technische Fehler)
+freihält. Plan:
+- Schritt 1 (dieser Eintrag) ✅ — deterministischer Harness + Registry +
+  Vollständigkeits-Garantie-Test. Jeder offene AC erhält bei jedem Lauf ein
+  Ergebnis; nicht migrierte ACs = `not_implemented`, dafür bleibt der LLM-Fallback
+  im lokalen Analyse-Prompt aktiv. Muster-Migration: AC-080.
+- Schritt 2 ⏳ — rechenbare Teile der übrigen ACs nach `tools/ai_checks/` migrieren.
+- Schritt 3 ⏳ — lokalen Prompt umschreiben (Primärziel Vorhersagequalität, LLM
+  konsumiert `ai_checks_results.json`), Runner in den Dienst verdrahten, 80-%-Bremse
+  und „so viele wie passen" entfernen.
+
+**Änderung (nur neue Dateien, keine bestehende geändert):**
+- `tools/ai_checks/__init__.py` — Registry, AIChecks.md-Parser (`## Offen`),
+  abbruchsicherer `run_all` (kein einzelner Check-Fehler stoppt den Gesamtlauf).
+- `tools/ai_checks/checks_local.py` — erste deterministische Prüfung AC-080
+  (`state=='incomplete'` → Turn-/Zeitbudget erschöpft; Ein-/Mehrtages-Einordnung
+  bleibt dem LLM).
+- `tools/ai_checks/runner.py` — CLI, schreibt `train_data/evaluation/ai_checks_results.json`
+  atomar. Noch NICHT in den Dienst verdrahtet (Schritt 3).
+- `tests/test_p83_ai_checks_harness.py` — Vollständigkeit (jeder offene AC → Ergebnis),
+  AC-080-Verhalten, Abbruchsicherheit bei werfendem Check, Runner-Ausgabe.
+
+**Kein** Benutzerhandbuch-Update (interne Analyse-Infrastruktur, kein nutzer-sichtbares
+Fach-Feature). **Keine** AIChecks.md-Änderung (B472: keine Workflow-Disziplin/Doku in
+AIChecks; die Vollständigkeitsgarantie ist ein Test). **Keine** Binaries.
+
+**Verifikation:** `ast.parse` der drei Module + Testdatei, pytest der neuen Testdatei,
+Runner-Smoke (schreibt `ai_checks_results.json` mit einem Ergebnis je offenem AC). Keine
+Shell-Skripte geändert.
+
+**Phasen-Status:** Phase A — P83 ✅ (deterministischer AIChecks-Harness; Vollständigkeit
+strukturell garantiert, LLM-Fallback erhalten; Schritt 1/3). Phase B (Hailo-8 U-Net)
+bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
