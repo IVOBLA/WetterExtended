@@ -8720,3 +8720,34 @@ Shell-Skripte geändert (`sh -n`/`bash -n` nicht nötig).
 **Phasen-Status:** Phase A — B479 ✅ (lokaler Analyselauf startet trotz gesandboxter
 `.env`). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
 ausreichende Trainingsdaten.
+
+### B480 — Lokale Analyse: Schrittbudget angehoben
+
+**Anlass:** Der lokale Analyselauf war schritt- statt zeit-limitiert: mit
+`max_turns=70` (B471) schaffte er nur Abschnitt A + ~5 ACs (Stopp nach AC-080),
+verbrauchte aber nur ~14 % von `timeout_s=1500`. AIChecks.md hat derzeit ~40
+offene ACs; das Zeitbudget trägt rechnerisch ~500 Schritte, Engpass war allein
+`max_turns`. Der Repo-Modus (externe Routine ohne pi-seitiges Schrittlimit)
+arbeitet alle ACs ab — daher war der lokale Bericht deutlich kürzer.
+
+**Änderung:**
+- `config.py`, `LOCAL_ANALYSIS_CONFIG`: `max_turns 70 → 260`, `timeout_s 1500 → 1700`
+  (gemeinsam angehoben, nie einzeln). `timeout_s` bleibt unter der systemd-Notbremse
+  `TimeoutStartSec=1800` von `wetterprojekt-local-analysis.service`, damit der Runner
+  sich selbst beendet, bevor systemd hart abbricht. Damit deckt ein lokaler Lauf
+  Abschnitt A + alle offenen ACs ab.
+
+**Tests:** `tests/test_b480_local_analysis_budget.py` — prüft die neuen Werte sowie
+die Invariante `timeout_s < 1800` (systemd-Notbremse) und ausreichendes Schrittpolster;
+liest den committeten Default (B467).
+
+**Kein** Benutzerhandbuch-Update (Betriebsparameter, kein Fach-Feature). **Keine**
+AIChecks-Ergänzung (AC-080 prüft weiterhin den Schrittbudget-Abbruch und sollte nun
+seltener anschlagen). **Keine** Binaries.
+
+**Verifikation:** `ast.parse(config.py)`, pytest der neuen Testdatei. Keine
+Shell-Skripte geändert.
+
+**Phasen-Status:** Phase A — B480 ✅ (lokaler Bericht deckt Abschnitt A + alle offenen
+ACs ab). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
+ausreichende Trainingsdaten.

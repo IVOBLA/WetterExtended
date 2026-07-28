@@ -1043,8 +1043,8 @@ LOCAL_ANALYSIS_CONFIG: dict = {
     "cron_minute":   10,
     "claude_bin":    "",      # leer = automatisch suchen (PATH, ~/.local/bin/claude)
     "model":         "",      # leer = Vorgabe der Claude-Code-CLI
-    "max_turns":     70,      # B471: Obergrenze Agenten-Schritte je Lauf (mit timeout_s abgestimmt)
-    "timeout_s":     1500,    # B471: hartes Zeitlimit; muss zu max_turns passen
+    "max_turns":     260,     # B480: Obergrenze Agenten-Schritte je Lauf (mit timeout_s abgestimmt) — B471(70) reichte nur fuer Abschnitt A + ~5 ACs
+    "timeout_s":     1700,    # B480: hartes Zeitlimit; muss zu max_turns passen und unter systemd TimeoutStartSec=1800 bleiben
     "prompt_path":   "docs/LOCAL_ANALYSIS_PROMPT.md",
     "result_path":   "train_data/evaluation/analysis_result.json",
     "status_path":   "train_data/evaluation/local_analysis_status.json",
