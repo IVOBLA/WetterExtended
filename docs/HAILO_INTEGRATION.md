@@ -8855,3 +8855,38 @@ Keine Shell-Skripte geändert.
 weiterlaufen mit sichtbarer Warnung statt stillem Verschlucken echter Rechtefehler).
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
 Trainingsdaten.
+
+### P84 — Deterministische Drift-Checks AC-046 + AC-047 (Schritt 2/3, Batch 1)
+
+**Kontext:** Schritt 2/3 des AIChecks-Harness (P83): rechenbare ACs werden nach
+`tools/ai_checks/` migriert, damit sie budgetunabhängig bei jedem Lauf laufen und das
+LLM-Budget für den Primärzweck (Vorhersagequalität) frei bleibt. Batch 1 = die zwei
+mission-nahen Drift-ACs.
+
+**Änderung:**
+- `tools/ai_checks/checks_local.py`: zwei deterministische Prüfungen ergänzt.
+  - AC-046 (Pooling-Regressionsguard): `drift_detected=true`, aber kein Horizont
+    verschlechtert (`triggering_horizons` leer oder `max(delta_by_horizon) <= 0`) →
+    Finding „Trigger poolt über Horizonte". Beleg direkt aus `drift_status.json`
+    (`delta_by_horizon` ist laut `drift_detector.py` bereits recent−baseline je
+    Horizont) — keine Re-Ableitung aus `accuracy_history.jsonl`, um abweichende
+    Fensterlogik zu vermeiden.
+  - AC-047 (übersprungene Horizonte): `skipped_horizons_not_in_both_windows` nicht
+    leer → Finding (Momentaufnahme). Ob dauerhaft dieselben Horizonte fehlen, bleibt
+    dem LLM (Mehrtageshistorie).
+
+**Tests:** `tests/test_p84_drift_checks.py` — Positiv-/Regression-/Grenzfälle für
+AC-046 und AC-047 (synthetische `drift_status.json`) plus Harness-Regression (beide
+jetzt implementiert, Vollständigkeit über alle offenen ACs gewahrt).
+
+**Kein** Benutzerhandbuch-Update (interne Analyse-Infrastruktur). **Keine**
+AIChecks.md-Änderung (ACs wortgleich, nur Ausführung deterministisch — B472).
+**Keine** Binaries.
+
+**Verifikation:** `ast.parse(checks_local.py)`, pytest der neuen + der P83-Testdatei,
+Runner-Smoke (implementiert steigt von 1 auf 3, `not_implemented` sinkt auf 40, total
+unverändert).
+
+**Phasen-Status:** Phase A — P84 ✅ (Schritt 2/3, Batch 1: AC-046 + AC-047 deterministisch migriert;
+Harness-Vollständigkeit gewahrt). Weitere AC-Batches folgen (Schritt 2), danach Prompt-Umbau
+(Schritt 3). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.

@@ -52,3 +52,63 @@ def check_ac080_incomplete_step_budget(base) -> dict:
             },
         }
     return {"status": "ok", "beleg": f"state={state or 'unbekannt'}", "detail": {"state": state}}
+
+
+@register("AC-046")
+def check_ac046_drift_pooling(base) -> dict:
+    """AC-046 — Drift-Trigger gegen die Horizont-Deltas (Pooling-Regressionsguard).
+
+    Getreu zur AC: 'Meldet der Trigger Drift, obwohl jeder einzelne Horizont gleich
+    gut oder besser ist, poolt er ueber Horizonte.' Beleg direkt aus drift_status.json
+    (drift_detected, triggering_horizons, delta_by_horizon). Diese Felder sind laut
+    Autor drift_detector.py bereits die Recent-gegen-Baseline-Deltas je Horizont
+    (positiv = schlechter) — keine Re-Ableitung aus accuracy_history.jsonl noetig.
+    """
+    st = _read_json(Path(base) / "train_data/evaluation/drift_status.json")
+    if st is None:
+        return {"status": "ok", "beleg": "kein drift_status.json vorhanden",
+                "detail": {"drift_detected": None}}
+    if not st.get("drift_detected"):
+        return {"status": "ok", "beleg": "drift_detected=false",
+                "detail": {"drift_detected": False}}
+    deltas = st.get("delta_by_horizon") or {}
+    triggering = st.get("triggering_horizons") or []
+    worst = max(deltas.values()) if deltas else None
+    if not triggering:
+        return {"status": "finding",
+                "beleg": f"drift_detected=true, aber triggering_horizons leer; delta_by_horizon={deltas}",
+                "detail": {"drift_detected": True, "triggering_horizons": triggering,
+                           "delta_by_horizon": deltas,
+                           "hinweis": "Drift ohne ausloesenden Einzel-Horizont — Pooling-Verdacht"}}
+    if worst is not None and worst <= 0:
+        return {"status": "finding",
+                "beleg": f"drift_detected=true, aber max(delta_by_horizon)={worst}<=0 (jeder Horizont gleich/besser)",
+                "detail": {"drift_detected": True, "delta_by_horizon": deltas,
+                           "hinweis": "Trigger poolt ueber Horizonte (kein Horizont verschlechtert)"}}
+    return {"status": "ok",
+            "beleg": f"drift_detected=true, ausgeloest durch Horizonte {triggering} (delta>0)",
+            "detail": {"drift_detected": True, "triggering_horizons": triggering}}
+
+
+@register("AC-047")
+def check_ac047_skipped_horizons(base) -> dict:
+    """AC-047 — Uebersprungene Horizonte (einem Fenster fehlt Datenmaterial).
+
+    Deterministisch: liest skipped_horizons_not_in_both_windows aus drift_status.json.
+    Nicht leer -> aktuell fehlt einem Fenster ein Horizont. Ob DAUERHAFT dieselben
+    Horizonte fehlen (Fensterlaenge/Zell-Lebensdauer), braucht Mehrtageshistorie
+    und bleibt dem LLM.
+    """
+    st = _read_json(Path(base) / "train_data/evaluation/drift_status.json")
+    if st is None:
+        return {"status": "ok", "beleg": "kein drift_status.json vorhanden",
+                "detail": {"skipped": None}}
+    skipped = st.get("skipped_horizons_not_in_both_windows") or []
+    if skipped:
+        return {"status": "finding",
+                "beleg": f"skipped_horizons_not_in_both_windows={skipped}",
+                "detail": {"skipped": skipped,
+                           "hinweis": ("Momentaufnahme: einem Fenster fehlt ein Horizont. "
+                                       "DAUERHAFT dieselben Horizonte erst ueber "
+                                       "Mehrtageshistorie beurteilbar — LLM.")}}
+    return {"status": "ok", "beleg": "keine uebersprungenen Horizonte", "detail": {"skipped": []}}
