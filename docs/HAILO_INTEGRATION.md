@@ -8890,3 +8890,36 @@ unverändert).
 **Phasen-Status:** Phase A — P84 ✅ (Schritt 2/3, Batch 1: AC-046 + AC-047 deterministisch migriert;
 Harness-Vollständigkeit gewahrt). Weitere AC-Batches folgen (Schritt 2), danach Prompt-Umbau
 (Schritt 3). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### P85 — Deterministischer Check AC-014 (stale Forecasts schreiben Warnungen fort) — Schritt 2/3, Batch 2
+
+**Kontext:** Schritt 2/3 des AIChecks-Harness (P83), Batch 2. AC-014 wird nach
+`tools/ai_checks/` migriert und läuft damit budgetunabhängig bei jedem Lauf.
+
+**Änderung:**
+- `tools/ai_checks/checks_local.py`: deterministische Prüfung AC-014. Ein-Datei-Prädikat
+  über `train_data/hydro/impact/latest_hydro_flood_risk.json` (Container `stations`,
+  Autor `hydro_flood_ml.py`): Finding, sobald eine Station
+  `forecast_evaluation_stale=true` **und** `flood_expected=true` bei
+  `current_q_above_threshold=false` zeigt (fortgeschriebene Altwarnung). Keine externen
+  Konstanten, keine Re-Ableitung.
+
+**Zurückgestellt:** AC-042/AC-043 (Richtungs-Drift-Alarm) — `drift_status.json`
+persistiert die effektive `min_points`-Schwelle nicht, daher wäre der „toter Alarm"-Teil
+nur per Config-Re-Ableitung prüfbar (Divergenzrisiko = Zwischenlösung, B481). Voraussetzung
+ist ein Writer-Schritt, der `min_points` mit persistiert.
+
+**Tests:** `tests/test_p85_stale_forecast_check.py` — Finding-/Positiv-/Grenzfälle plus
+Harness-Regression (AC-014 implementiert, Vollständigkeit über alle offenen ACs gewahrt).
+
+**Kein** Benutzerhandbuch-Update (interne Analyse-Infrastruktur). **Keine**
+AIChecks.md-Änderung (AC-014 wortgleich, nur Ausführung deterministisch — B472).
+**Keine** Binaries.
+
+**Verifikation:** `ast.parse(checks_local.py)`, pytest der neuen + der P83/P84-Testdateien,
+Runner-Smoke (implementiert steigt von 3 auf 4, `not_implemented` sinkt auf 39, total
+unverändert).
+
+**Phasen-Status:** Phase A — P85 ✅ (Schritt 2/3, Batch 2: AC-014 deterministisch migriert; Harness-Vollständigkeit gewahrt).
+Weitere AC-Batches folgen (Schritt 2), danach Prompt-Umbau (Schritt 3). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert;
+sie wartet auf ausreichende Trainingsdaten.
