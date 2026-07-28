@@ -20,8 +20,8 @@ try:
         dotenv_path=_env_path,
         override=True,
     )
-except ImportError:
-    pass  # python-dotenv nicht installiert — nur os.environ gilt
+except (ImportError, OSError):
+    pass  # python-dotenv fehlt ODER .env fuer diesen (sandboxed) Prozess nicht lesbar (systemd InaccessiblePaths) — nur os.environ gilt
 
 # B322: Warnt bei doppelt definierten Schluesseln in .env. python-dotenv wertet
 # Duplikate innerhalb derselben Datei stillschweigend nach "last-wins" aus --
