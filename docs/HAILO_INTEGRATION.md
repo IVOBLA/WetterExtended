@@ -8686,3 +8686,37 @@ geändert).
 
 **Phasen-Status:** Phase A — B478 ✅ (Korridor-Geometrie korrigiert). Phase B (Hailo-8
 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B479 — Lokale Analyse: OSError beim .env-Laden abfangen
+
+**Anlass:** Der Dienst `wetterprojekt-local-analysis.service` macht `.env` per
+`InaccessiblePaths` (B466) für den Analyseprozess absichtlich unlesbar. `config.py`
+lädt `.env` beim Import über python-dotenv; `os.path.isfile()` liefert für die
+überblendete Inaccessible-Node `True`, das anschließende `open()` wirft aber
+`PermissionError` (Subklasse von `OSError`, nicht `ImportError`). Der bisherige
+`except ImportError:` fing das nicht → der komplette Import von `config.py` und
+damit jeder lokale Analyselauf brach mit Exit-Code 1 ab. `_warn_duplicate_env_keys()`
+war nie betroffen (bereits `except Exception:`).
+
+**Änderung:**
+- `config.py`: Der `except`-Block um den `_load_dotenv()`-Aufruf fängt jetzt
+  `(ImportError, OSError)` — die absichtliche Sandbox-Blockade der `.env` bricht
+  den Prozess nicht mehr ab; ohne `.env` greifen weiterhin die systemd
+  `Environment=`-Werte bzw. Defaults. Sicherheitszweck der Sandbox bleibt gewahrt.
+
+**Tests:** `tests/test_b479_config_env_permission.py` — Regression (config-Import
+überlebt `PermissionError` beim `.env`-Laden, im Subprozess mit gefälschtem
+python-dotenv) + Positivfall (funktionierendes python-dotenv). Lokal gegen die
+ungepatchte `config.py` rot, gegen die gepatchte grün verifiziert.
+
+**Kein** Benutzerhandbuch-Update (Bugfix, kein Fach-Feature). **Keine** AIChecks-Ergänzung
+(AC-078 erkennt bereits einen dauerhaft ausbleibenden erfolgreichen Lauf, AC-080 den
+Schrittbudget-Abbruch — der `.env`-Crash braucht keine eigene Jedes-Mal-Prüfung).
+**Keine** Binaries.
+
+**Verifikation:** `ast.parse(config.py)`, pytest der neuen Testdatei. Keine
+Shell-Skripte geändert (`sh -n`/`bash -n` nicht nötig).
+
+**Phasen-Status:** Phase A — B479 ✅ (lokaler Analyselauf startet trotz gesandboxter
+`.env`). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
+ausreichende Trainingsdaten.
