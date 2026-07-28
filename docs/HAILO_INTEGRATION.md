@@ -8751,3 +8751,37 @@ Shell-Skripte geändert.
 **Phasen-Status:** Phase A — B480 ✅ (lokaler Bericht deckt Abschnitt A + alle offenen
 ACs ab). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
 ausreichende Trainingsdaten.
+
+### B481 — Lokale Analyse: keine Zwischenlösungen vorschlagen
+
+**Anlass:** Der Prompt der lokalen KI-Analyse (`docs/LOCAL_ANALYSIS_PROMPT.md`)
+verpflichtete den Analysten nicht auf saubere Endlösungen. Ein Lauf schlug als Fix
+`except (ImportError, OSError): pass` vor — eine Symptomunterdrückung, die einen
+echten `.env`-Rechtefehler der Produktionsdienste (main/scheduler/admin) still
+verdecken würde. Solche Workarounds widersprechen dem Projektgrundsatz „nur saubere
+Lösungen, keine Zwischenlösungen".
+
+**Änderung:**
+- `docs/LOCAL_ANALYSIS_PROMPT.md`, Abschnitt C: neue verbindliche Regel „NUR SAUBERE
+  ENDLÖSUNG — KEINE ZWISCHENLÖSUNG". Verboten sind Workarounds/Symptomunterdrückung
+  (breites `except`, Prüfungen/Logs abschalten, Werte hart überschreiben, Dienst-
+  Neustart statt Ursachenbeseitigung); eine saubere Lösung darf keinen an anderer
+  Stelle auftretenden Fehler stumm verdecken. Ohne sicher belegbare Endlösung wird
+  der Fehler offen gemeldet (kein Workaround-Prompt), die Index-Ausrichtung
+  `loesungen[i]↔fehler[i]` bleibt erhalten.
+- `docs/LOCAL_ANALYSIS_PROMPT.md`, Ausgabeformat: `prompts`-Regel verstärkt —
+  jeder Prompt setzt eine saubere Endlösung um, nie einen Workaround.
+
+**Tests:** `tests/test_b481_local_prompt_no_workaround.py` — verankert die Disziplin
+(verbotene Anti-Muster benannt, offener-Befund-Pfad, verstärkte `prompts`-Regel).
+
+**Kein** Benutzerhandbuch-Update (kein Fach-Feature, interne Analyse-Disziplin).
+**Keine** AIChecks-Ergänzung (Workflow-Disziplin gehört laut B472 in den Prompt).
+**Keine** Binaries.
+
+**Verifikation:** `ast.parse` der neuen Testdatei, pytest der neuen Testdatei. Nur
+Markdown-/Testdatei geändert (`sh -n`/`bash -n` nicht nötig).
+
+**Phasen-Status:** Phase A — B481 ✅ (lokale Analyse schlägt keine Zwischenlösungen
+mehr vor). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
+ausreichende Trainingsdaten.

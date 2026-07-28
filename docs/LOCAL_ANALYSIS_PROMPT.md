@@ -74,7 +74,18 @@ Schrittbudget oben). Vollständigkeit von Abschnitt A hat Vorrang; prüfe nicht 
 ## C. Für jeden gefundenen Fehler
 
 - Ursache mit `Grep`/`Glob` suchen und mit `Read` belegen.
-- Ausführbaren Lösungsvorschlag formulieren.
+- NUR SAUBERE ENDLÖSUNG — KEINE ZWISCHENLÖSUNG. Behebe die belegte
+  Grundursache. Verboten sind Workarounds und Symptomunterdrückung,
+  insbesondere: Fehler breiter wegfangen (`except Exception`/
+  `except OSError: pass` o. Ä.), Prüfungen oder Logausgaben abschalten,
+  Werte hart überschreiben, ein Symptom ausblenden oder einen Dienst nur
+  neu starten, statt die Ursache zu beseitigen. Eine saubere Lösung darf
+  einen echten, an anderer Stelle auftretenden Fehler nie stumm verdecken.
+- Wenn im Restbudget keine saubere Endlösung sicher belegbar ist: den
+  zugehörigen `loesungen`-Eintrag ausdrücklich als `keine saubere
+  Endlösung im Budget belegbar — weitere Analyse nötig, kein Workaround`
+  formulieren und für diesen Fehler KEINEN `prompts`-Eintrag erzeugen. Ein
+  offener Befund ist besser als ein Workaround-Prompt.
 - Atomaren Codex-Prompt formulieren (eine Ursache, eine Datei, exakter Such-/Ersatz-String, Verifikationsbefehl).
 
 # Ausgabeformat
@@ -89,5 +100,8 @@ Gib als allerletzte Ausgabe ausschließlich ein einziges JSON-Objekt aus. Kein M
 - `fehler`: jeder String enthält zwingend `code_ref=<datei>:<zeile>` und `beleg=<wörtliches Zitat aus Log/Datei/Code>`.
 - `loesungen`: je Eintrag ein String zum selben Index in `fehler`.
 - `verbesserungen`: unbelegte Vermutungen beginnen mit `unbelegt:`.
-- `prompts`: je Eintrag ein vollständiger atomarer Codex-Prompt.
+- `prompts`: je Eintrag ein vollständiger atomarer Codex-Prompt, der eine
+  saubere Endlösung umsetzt — niemals ein Workaround bzw. eine
+  Zwischenlösung (siehe Abschnitt C). Ein Fehler ohne saubere Endlösung
+  erhält keinen `prompts`-Eintrag.
 - Alle Listen dürfen leer sein; kein Befund ist besser als ein erfundener Befund.
