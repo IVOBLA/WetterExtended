@@ -112,3 +112,37 @@ def check_ac047_skipped_horizons(base) -> dict:
                                        "DAUERHAFT dieselben Horizonte erst ueber "
                                        "Mehrtageshistorie beurteilbar — LLM.")}}
     return {"status": "ok", "beleg": "keine uebersprungenen Horizonte", "detail": {"skipped": []}}
+
+
+@register("AC-014")
+def check_ac014_stale_forecast_warnings(base) -> dict:
+    """AC-014 — Schreiben stale Forecasts weiterhin Hochwasserwarnungen fort?
+
+    Reines Ein-Datei-Praedikat ueber train_data/hydro/impact/latest_hydro_flood_risk.json
+    (Container-Key 'stations', Autor hydro_flood_ml.py). Erwartung: keine Zeile mit
+    forecast_evaluation_stale=true UND flood_expected=true bei
+    current_q_above_threshold=false. Jeder Treffer ist eine fortgeschriebene
+    Altwarnung (stale Prognose haelt eine Warnung ohne aktuelle Schwellenueberschreitung
+    am Leben). Keine externen Konstanten, keine Re-Ableitung.
+    """
+    doc = _read_json(Path(base) / "train_data/hydro/impact/latest_hydro_flood_risk.json")
+    if doc is None:
+        return {"status": "ok", "beleg": "kein latest_hydro_flood_risk.json vorhanden",
+                "detail": {"stations": None}}
+    rows = doc.get("stations") or []
+    hits = [
+        str(r.get("station_id") or "?")
+        for r in rows
+        if isinstance(r, dict)
+        and r.get("forecast_evaluation_stale") is True
+        and r.get("flood_expected") is True
+        and r.get("current_q_above_threshold") is False
+    ]
+    if hits:
+        return {"status": "finding",
+                "beleg": (f"{len(hits)} Station(en) mit stale-fortgeschriebener Warnung "
+                          f"(forecast_evaluation_stale=true, flood_expected=true, "
+                          f"current_q_above_threshold=false): {hits}"),
+                "detail": {"stations": hits}}
+    return {"status": "ok", "beleg": f"{len(rows)} Stationen geprueft, keine stale-Altwarnung",
+            "detail": {"stations": []}}
