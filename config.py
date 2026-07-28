@@ -20,8 +20,16 @@ try:
         dotenv_path=_env_path,
         override=True,
     )
-except (ImportError, OSError):
-    pass  # python-dotenv fehlt ODER .env fuer diesen (sandboxed) Prozess nicht lesbar (systemd InaccessiblePaths) — nur os.environ gilt
+except ImportError:
+    pass  # python-dotenv nicht installiert — nur os.environ gilt
+except OSError as _env_exc:
+    # .env ist vorhanden, aber fuer diesen Prozess nicht lesbar. Regulaerer Fall in der
+    # kernel-erzwungenen Analyse-Sandbox (wetterprojekt-local-analysis.service:
+    # InaccessiblePaths=-.env, B466/P78). Prozess-Umgebung (systemd Environment=) und
+    # Defaults gelten weiter. Bei den Produktionsdiensten (main/scheduler/admin) ist .env
+    # normal lesbar — erscheint diese Warnung DORT im Journal, ist es eine echte
+    # .env-Rechte-Fehlkonfiguration und kein Sandbox-Effekt (statt stillem Verschlucken).
+    print(f"[CONFIG] .env nicht lesbar ({_env_exc}); nutze Prozess-Umgebung/Defaults")
 
 # B322: Warnt bei doppelt definierten Schluesseln in .env. python-dotenv wertet
 # Duplikate innerhalb derselben Datei stillschweigend nach "last-wins" aus --

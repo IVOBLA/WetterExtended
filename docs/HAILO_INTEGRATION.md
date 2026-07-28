@@ -8823,3 +8823,35 @@ Shell-Skripte geändert.
 **Phasen-Status:** Phase A — P83 ✅ (deterministischer AIChecks-Harness; Vollständigkeit
 strukturell garantiert, LLM-Fallback erhalten; Schritt 1/3). Phase B (Hailo-8 U-Net)
 bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B482 — .env-Unlesbarkeit sauber behandeln (sichtbare Warnung statt stillem pass)
+
+**Anlass:** B479 behob den Sandbox-Crash beim `.env`-Laden mit
+`except (ImportError, OSError): pass`. Das fing aber jeden OSError still ab und
+verschluckte damit auch einen ECHTEN `.env`-Rechtefehler der Produktionsdienste
+(main/scheduler/admin), die `.env` regulär brauchen (GITHUB_TOKEN, SMTP,
+Admin-Token) → kein Push, keine Mail, Admin-Auth defekt, ohne Journal-Signal. Ein
+lauter Crash wurde gegen ein stilles Versagen getauscht (Zwischenlösung, vgl. B481).
+
+**Änderung:**
+- `config.py`: `except (ImportError, OSError): pass` in zwei Zweige getrennt.
+  `ImportError` (python-dotenv fehlt) bleibt still. `OSError` (`.env` vorhanden,
+  aber unlesbar — Sandbox InaccessiblePaths, B466/P78) läuft weiter, gibt aber
+  eine sichtbare Warnung aus (`[CONFIG] .env nicht lesbar (...)`). Sandbox-Fall:
+  Warnung erwartet/harmlos. Produktionsdienst mit echtem Rechtefehler: Warnung
+  landet im Journal → diagnostizierbar statt stumm verschluckt.
+
+**Tests:** `tests/test_b482_config_env_warning.py` — unlesbare `.env` erzeugt die
+sichtbare Warnung und der Import überlebt; funktionierendes python-dotenv erzeugt
+keine Warnung. `tests/test_b479_config_env_permission.py` bleibt grün.
+
+**Kein** Benutzerhandbuch-Update (Bugfix, kein Fach-Feature). **Keine**
+AIChecks-Ergänzung (Verhalten durch Test abgesichert). **Keine** Binaries.
+
+**Verifikation:** `ast.parse(config.py)`, pytest der neuen + der B479-Testdatei.
+Keine Shell-Skripte geändert.
+
+**Phasen-Status:** Phase A — B482 ✅ (unlesbare `.env` wird sauber behandelt:
+weiterlaufen mit sichtbarer Warnung statt stillem Verschlucken echter Rechtefehler).
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
+Trainingsdaten.
