@@ -8923,3 +8923,31 @@ unverändert).
 **Phasen-Status:** Phase A — P85 ✅ (Schritt 2/3, Batch 2: AC-014 deterministisch migriert; Harness-Vollständigkeit gewahrt).
 Weitere AC-Batches folgen (Schritt 2), danach Prompt-Umbau (Schritt 3). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert;
 sie wartet auf ausreichende Trainingsdaten.
+
+### P86 — drift_status.json persistiert min_points je Horizont (Voraussetzung für AC-042/043)
+
+**Kontext:** Voraussetzung für die saubere Migration der Richtungs-Drift-Alarm-ACs
+(AC-042/043) in Schritt 2. Der Alarm wird pro Kurzhorizont gesetzt, wenn `p90 > threshold`
+**und** `samples >= min_points`. `drift_status.json` trug bisher p90/samples/threshold je
+Horizont, aber nicht die effektive `min_points`-Schwelle — damit war der Alarm nicht
+self-contained gegenprüfbar (nur per Config-Re-Ableitung mit Divergenzrisiko).
+
+**Änderung:**
+- `drift_detector.py`: additive Ergänzung `min_points` in jeden Eintrag von
+  `direction_drift_by_horizon` und `speed_drift_by_horizon` (Wert = das bereits
+  verwendete `_min_pts`). Rein additiv, keine Semantik-/Alarmänderung. Konsumenten
+  (`/api/drift` Pass-Through, Admin-Panel) ignorieren das zusätzliche Feld.
+
+**Tests:** `tests/test_p86_drift_min_points_persisted.py` — `check_drift()` mit
+synthetischem Record (monkeypatch `_read_history`/`_EVAL_DIR`/`_STATUS_FILE`, keine
+Disk-Nebenwirkung); prüft, dass jeder Richtungs- und Geschwindigkeitseintrag
+`min_points` == effektive Schwelle trägt.
+
+**Kein** Benutzerhandbuch-Update (interne Kennzahl). **Keine** AIChecks.md-Änderung.
+**Keine** Binaries.
+
+**Verifikation:** `ast.parse(drift_detector.py)`, pytest der neuen Testdatei.
+
+**Phasen-Status:** Phase A — P86 ✅ (drift_status.json trägt min_points je Horizont;
+Voraussetzung für die self-contained Migration von AC-042/043). Nächster Schritt: AC-042/043
+deterministisch migrieren. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
