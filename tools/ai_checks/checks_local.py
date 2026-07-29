@@ -306,3 +306,61 @@ def check_ac049_provider_budget_usage(base) -> dict:
                 "detail": {"hot": hot}}
     return {"status": "ok", "beleg": "alle budgetierten Provider <= 70 % Auslastung",
             "detail": {"sums": sums}}
+
+
+def _read_jsonl_all(path):
+    try:
+        out = []
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    out.append(json.loads(line))
+                except Exception:
+                    continue
+        return out
+    except Exception:
+        return None
+
+
+@register("AC-007")
+def check_ac007_lineage_event_uniqueness(base) -> dict:
+    """AC-007 — Eindeutigkeit der Lineage-Ereignisse.
+
+    - Je event_signature genau ein Eintrag in cell_lineage_events.jsonl
+      (train_data/cell_lineage/). Events OHNE event_signature (unresolved-Varianten,
+      cell_lineage.py:1747/1756) werden uebersprungen.
+    - Ein Merge-Event (event_type == "cell_merge") muss auftreten — die Events tragen
+      event_type, kein lineage-Feld (cell_lineage.py:1497/1559). Nur gepruft, wenn die
+      Datei nicht leer ist (kein Fehlalarm auf frischer Historie).
+    - cell_lineage_write_status.json (train_data/system/): last_result != "error".
+    """
+    base = Path(base)
+    problems = []
+    st = _read_json(base / "train_data/system/cell_lineage_write_status.json")
+    if isinstance(st, dict) and str(st.get("last_result")) == "error":
+        problems.append(f"cell_lineage_write_status.last_result=error (last_error={st.get('last_error')!r})")
+    events = _read_jsonl_all(base / "train_data/cell_lineage/cell_lineage_events.jsonl")
+    if events:
+        sig_counts = {}
+        has_merge = False
+        for e in events:
+            if not isinstance(e, dict):
+                continue
+            if e.get("event_type") == "cell_merge":
+                has_merge = True
+            sig = e.get("event_signature")
+            if sig:
+                sig_counts[sig] = sig_counts.get(sig, 0) + 1
+        dups = {s: c for s, c in sig_counts.items() if c > 1}
+        if dups:
+            problems.append(f"doppelte event_signature: {dups}")
+        if not has_merge:
+            problems.append("kein cell_merge-Event vorhanden (Merge-Erkennung pruefen)")
+    if problems:
+        return {"status": "finding", "beleg": "; ".join(problems), "detail": {"probleme": problems}}
+    return {"status": "ok",
+            "beleg": f"{len(events or [])} Lineage-Events, Signaturen eindeutig, write_status ok",
+            "detail": {}}
