@@ -54,5 +54,5 @@ def test_prompt_puts_fixed_checks_first():
 def test_prompt_has_step_budget_and_shell_ban():
     text = PROMPT.read_text(encoding="utf-8")
     assert "Schrittbudget" in text
-    assert "SOFORT STOPPEN" in text
+    assert "Restbudget" in text  # P89: 80%-Zwangsbremse durch budgetbewusste Reihenfolge ersetzt
     assert "systemctl" in text and "gesperrt" in text
