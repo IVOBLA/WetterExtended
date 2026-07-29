@@ -365,6 +365,29 @@ def parse_args(argv=None):
     ap = argparse.ArgumentParser(); ap.add_argument("--repo-dir", default=str(Path(__file__).resolve().parents[1])); ap.add_argument("--force", action="store_true"); ap.add_argument("--check-only", action="store_true"); ap.add_argument("--dry-run", action="store_true"); return ap.parse_args(argv)
 
 
+def run_deterministic_ai_checks(repo: Path):
+    """Fuehrt den deterministischen AIChecks-Harness (P83+) aus und schreibt
+    train_data/evaluation/ai_checks_results.json — budgetfrei, VOR der LLM-Analyse,
+    damit der Prompt die Verdikte konsumieren kann. Ein Fehler hier darf die
+    LLM-Analyse NIE blockieren (der LLM-Fallback deckt dann alle ACs ab)."""
+    try:
+        if str(repo) not in sys.path:
+            sys.path.insert(0, str(repo))
+        from tools.ai_checks import run_all
+        summary = run_all(repo, repo / "AIChecks.md")
+        out = repo / "train_data/evaluation/ai_checks_results.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        write_json_atomic(out, summary)
+        print(f"[LOCAL-ANALYSIS] Deterministische Checks: {summary['implemented']} impl, "
+              f"{summary['not_implemented']} offen, {summary['findings']} Befunde, "
+              f"{summary['errors']} Fehler -> {out.name}")
+        return summary
+    except Exception as exc:
+        print(f"[LOCAL-ANALYSIS] Deterministische Checks uebersprungen ({exc}); "
+              f"LLM-Fallback deckt alle ACs ab", file=sys.stderr)
+        return None
+
+
 def main(argv=None):
     args = parse_args(argv); repo = Path(args.repo_dir).resolve(); cfg = load_config(repo); mode, changed = load_mode(repo); now = datetime.now(TZ)
     status_path = repo / str(cfg.get("status_path", "train_data/evaluation/local_analysis_status.json")); prev = read_json_quiet(status_path)
@@ -381,6 +404,7 @@ def main(argv=None):
     cmd = build_command(cfg, claude, prompt, settings)
     if args.dry_run:
         shown = list(cmd); shown[2] = f"<Prompt: {len(prompt)} Zeichen>"; print("[LOCAL-ANALYSIS] " + " ".join(shlex.quote(c) for c in shown)); return 0
+    run_deterministic_ai_checks(repo)
     today = now.strftime("%Y-%m-%d"); attempts = int(prev.get("attempts_today", 0) or 0)+1 if prev.get("last_attempt_date") == today else 1; base = {"last_attempt_date": today, "attempts_today": attempts, "claude_bin": claude}; t0=time.monotonic()
     try: proc = subprocess.run(cmd, cwd=str(repo), env=build_subprocess_env(), stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=int(cfg.get("timeout_s", 900)))
     except subprocess.TimeoutExpired as exc:
