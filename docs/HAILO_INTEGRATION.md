@@ -9078,3 +9078,30 @@ unverändert).
 Harness-Vollständigkeit gewahrt). Weitere optionale AC-Batches folgen datenquellenweise.
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
 Trainingsdaten.
+
+### P91 — Deterministische Budget-Checks AC-048 + AC-049 — optionaler Batch 2
+
+**Kontext:** Optionaler AC-Migrations-Batch 2, Datenquelle `api_budget.json`.
+
+**Änderung:**
+- `tools/ai_checks/checks_local.py`: zwei deterministische Prüfungen.
+  - AC-048 (Gruppen-Normalisierung): bilden mehrere `counts`-Schlüssel via `group_for()` auf
+    dieselbe Gruppe ab, greift die Normalisierung nicht → Finding. Gruppen ohne
+    `API_DAILY_BUDGET`-Eintrag sind bewusst unbegrenzt (kein Fehler).
+  - AC-049 (Provider-Auslastung): Summe je Provider (`group_for`) gegen
+    `config.API_DAILY_BUDGET`; > 70 % → Finding „Abrufkadenz prüfen, Limit nicht anheben"
+    (Projektziel: unnötige Fremdrequests vermeiden).
+  - Beide importieren das echte `group_for` (`api_budget_guard.py:57-66`) → divergenzfrei.
+
+**Tests:** `tests/test_p91_api_budget_checks.py` — Kollision/keine Kollision, > 70 %/< 70 %
+(Limit aus `config.API_DAILY_BUDGET`), fehlende Datei, Harness-Regression.
+
+**Kein** Benutzerhandbuch-Update. **Keine** AIChecks.md-Änderung. **Keine** Binaries.
+
+**Verifikation:** `ast.parse(checks_local.py)`, pytest der neuen + der P83/P90-Testdateien,
+Runner-Smoke (implementiert steigt von 6 auf 8, `not_implemented` sinkt auf 35, total
+unverändert).
+
+**Phasen-Status:** Phase A — P91 ✅ (optionaler Batch 2: AC-048 + AC-049 deterministisch
+migriert; Harness-Vollständigkeit gewahrt). Weitere optionale AC-Batches folgen datenquellenweise.
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
