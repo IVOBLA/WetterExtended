@@ -8982,3 +8982,33 @@ unverändert).
 **Phasen-Status:** Phase A — P87 ✅ (Schritt 2/3, Batch 3: AC-043 deterministisch migriert,
 self-contained dank P86; Harness-Vollständigkeit gewahrt). Offen in Schritt 2 u. a. AC-042;
 danach Prompt-Umbau (Schritt 3). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### P88 — AIChecks-Harness in die lokale Analyse verdrahtet (Schritt 3a)
+
+**Kontext:** Schritt 3 (Teil a) des AIChecks-Harness (P83). `run_local_analysis.py` führt
+den deterministischen Harness vor der LLM-Analyse aus und schreibt
+`train_data/evaluation/ai_checks_results.json`. Die budgetfreien Verdikte der migrierten ACs
+(aktuell 5) stehen damit bereit, bevor die LLM startet.
+
+**Änderung:**
+- `tools/run_local_analysis.py`: neue Funktion `run_deterministic_ai_checks(repo)` (führt
+  `tools.ai_checks.run_all` aus, schreibt `ai_checks_results.json` atomar) + ein Aufruf in
+  `main()` nach dem `--dry-run`-Gate, vor dem CLI-Start. **Ausfallsicher**: jede Ausnahme wird
+  abgefangen, die LLM-Analyse läuft weiter (LLM-Fallback deckt dann alle ACs ab). Bei
+  `--check-only`/`--dry-run` läuft der Harness nicht.
+
+**Tests:** `tests/test_p88_ai_checks_wiring.py` — schreibt Ergebnisse + deckt jeden offenen AC
+ab; belegt die Ausfallsicherheit (fehlendes AIChecks.md → None statt Absturz).
+
+**Kein** Benutzerhandbuch-Update (interne Analyse-Infrastruktur). **Keine**
+AIChecks.md-Änderung. **Keine** Binaries. Kein Eingriff in Sandbox/Units.
+
+**Verifikation:** `ast.parse(run_local_analysis.py)`, pytest der neuen Testdatei, der
+Runner-Logik (`test_p77_local_analysis_runner.py`) und der Harness-Regression
+(`test_p83_ai_checks_harness.py`).
+
+**Phasen-Status:** Phase A — P88 ✅ (Schritt 3a: Harness in die lokale Analyse verdrahtet,
+ausfallsicher). Nächster Schritt 3b: `LOCAL_ANALYSIS_PROMPT.md` auf Konsum von
+`ai_checks_results.json` umstellen (Primärziel Vorhersagequalität, 80-%-Bremse entfernen).
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
+Trainingsdaten.
