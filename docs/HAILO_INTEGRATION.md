@@ -9012,3 +9012,38 @@ ausfallsicher). Nächster Schritt 3b: `LOCAL_ANALYSIS_PROMPT.md` auf Konsum von
 `ai_checks_results.json` umstellen (Primärziel Vorhersagequalität, 80-%-Bremse entfernen).
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
 Trainingsdaten.
+
+### P89 — Lokaler Analyse-Prompt: Mission + Konsum der deterministischen Ergebnisse (Schritt 3b)
+
+**Kontext:** Abschluss von Schritt 3. Seit P88 erzeugt `run_local_analysis.py` vor der
+LLM-Analyse `ai_checks_results.json`. `LOCAL_ANALYSIS_PROMPT.md` wird nun so umgestellt, dass
+die LLM diese Verdikte konsumiert und ihr Budget auf die Vorhersagequalität richtet.
+
+**Änderung (`docs/LOCAL_ANALYSIS_PROMPT.md`, Vollersetzung):**
+- Neues **Primärziel**: Vorschläge zur Verbesserung der Vorhersagequalität und Behebung
+  fachlicher/technischer Fehler.
+- **Deterministische Vorprüfung zuerst lesen**: `ai_checks_results.json`. status `ok` → nicht
+  erneut prüfen; `finding`/`error` → als `fehler` übernehmen (mit `beleg`); `not_implemented`
+  → LLM-Fallback (Abschnitt B). Migrierte ACs sind damit immer vollständig.
+- Neuer **Abschnitt M (Primärmission)**: Auswertung von `accuracy_history.jsonl`,
+  `drift_status.json`, Fehlerdiagnose, Zelltracking → belegte Verbesserungen Richtung
+  Ziel (MAE ≤ 1 km, Drift → 0).
+- **80-%-Zwangsbremse entfernt**, ersetzt durch budgetbewusste Reihenfolge (A → M → Fallback-B).
+- B481-Disziplin (keine Zwischenlösungen) bleibt wörtlich erhalten; Ausgabeformat inkl.
+  `code_ref`/`beleg`/`zusammenfassung` bleibt.
+
+**Tests:** `tests/test_p89_prompt_mission_and_consume.py` (Primärmission, Konsum von
+`ai_checks_results.json`, Wegfall der 80-%-Bremse, B481-Disziplin, Alt-Invarianten). Der
+bestehende `tests/test_b471_max_turns_and_budget.py` wird an einer Zeile an das neue Verhalten
+angepasst (80-%-Assertion → `Restbudget`); Budget-Bewusstsein und Shell-Verbot bleiben geprüft.
+
+**Kein** Benutzerhandbuch-Update (interne Analyse-Behaviour). **Keine** AIChecks.md-Änderung.
+**Keine** Binaries.
+
+**Verifikation:** pytest der neuen + der betroffenen Prompt-Tests (b481/b471/b465/p77/p88/p83).
+
+**Phasen-Status:** Phase A — P89 ✅ (Schritt 3 abgeschlossen: Harness verdrahtet [P88] und
+Prompt konsumiert die deterministischen Ergebnisse, Primärziel Vorhersagequalität,
+Budget-Bremse ersetzt). Restliche AC-Migrationen sind optional (LLM-Fallback deckt sie;
+Vollständigkeit ist garantiert) und werden datenquellenweise in Batches nachgezogen. Phase B
+(Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
