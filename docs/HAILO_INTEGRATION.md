@@ -8951,3 +8951,34 @@ Disk-Nebenwirkung); prüft, dass jeder Richtungs- und Geschwindigkeitseintrag
 **Phasen-Status:** Phase A — P86 ✅ (drift_status.json trägt min_points je Horizont;
 Voraussetzung für die self-contained Migration von AC-042/043). Nächster Schritt: AC-042/043
 deterministisch migrieren. Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### P87 — Deterministischer Check AC-043 (Richtungs-Drift-Alarm) — Schritt 2/3, Batch 3
+
+**Kontext:** Schritt 2/3 des AIChecks-Harness (P83), Batch 3. Dank P86 (min_points je
+Horizont in `drift_status.json`) ist AC-043 self-contained und divergenzfrei prüfbar.
+
+**Änderung:**
+- `tools/ai_checks/checks_local.py`: deterministische Prüfung AC-043. Der Alarm muss genau
+  dann true sein, wenn ein Kurzhorizont `p90_deg > threshold_deg` bei `samples >= min_points`
+  zeigt (identisch zur Bedingung in `drift_detector.check_drift()`). Abweichung → Finding:
+  toter Alarm (müsste auslösen, tut es nicht) oder Phantom-Alarm (löst grundlos aus).
+  Alt-Einträge ohne `min_points` werden konservativ übersprungen (kein Fehlbefund).
+
+**Zurückgestellt:** AC-042 (Schlüssel-Kontrakt `accuracy_history.jsonl` ↔ `drift_detector.py`)
+— braucht noch Schema-Beleg der per-Record-Statistik-Schlüssel gegen `accuracy_tracker.py`;
+eigener Batch.
+
+**Tests:** `tests/test_p87_direction_drift_alarm.py` — toter/Phantom-/konsistente Fälle,
+zu wenige samples, Altdaten ohne min_points, fehlende Datei, Harness-Regression.
+
+**Kein** Benutzerhandbuch-Update (interne Analyse-Infrastruktur). **Keine**
+AIChecks.md-Änderung (AC-043 wortgleich, nur Ausführung deterministisch — B472).
+**Keine** Binaries.
+
+**Verifikation:** `ast.parse(checks_local.py)`, pytest der neuen + der P83/P84/P85-Testdateien,
+Runner-Smoke (implementiert steigt von 4 auf 5, `not_implemented` sinkt auf 38, total
+unverändert).
+
+**Phasen-Status:** Phase A — P87 ✅ (Schritt 2/3, Batch 3: AC-043 deterministisch migriert,
+self-contained dank P86; Harness-Vollständigkeit gewahrt). Offen in Schritt 2 u. a. AC-042;
+danach Prompt-Umbau (Schritt 3). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.

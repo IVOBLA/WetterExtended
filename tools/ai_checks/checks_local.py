@@ -146,3 +146,47 @@ def check_ac014_stale_forecast_warnings(base) -> dict:
                 "detail": {"stations": hits}}
     return {"status": "ok", "beleg": f"{len(rows)} Stationen geprueft, keine stale-Altwarnung",
             "detail": {"stations": []}}
+
+
+@register("AC-043")
+def check_ac043_direction_drift_alarm(base) -> dict:
+    """AC-043 — Richtungs-Drift-Alarm gegen die Rohwerte (toter/Phantom-Alarm).
+
+    Self-contained aus drift_status.json (seit P86 traegt jeder Horizont-Eintrag
+    min_points). Ein Alarm muss genau dann true sein, wenn mindestens ein
+    Kurzhorizont p90_deg > threshold_deg bei samples >= min_points zeigt — identisch
+    zur Bedingung in drift_detector.check_drift(). Weicht direction_drift_alarm davon
+    ab, ist er tot (muesste ausloesen, tut es nicht) oder Phantom. Eintraege ohne
+    min_points (Altdaten vor P86) werden konservativ uebersprungen.
+    """
+    st = _read_json(Path(base) / "train_data/evaluation/drift_status.json")
+    if st is None:
+        return {"status": "ok", "beleg": "kein drift_status.json vorhanden",
+                "detail": {"direction_drift_alarm": None}}
+    by_h = st.get("direction_drift_by_horizon") or {}
+    if not by_h:
+        return {"status": "ok", "beleg": "keine Richtungs-Horizontdaten",
+                "detail": {"direction_drift_by_horizon": {}}}
+    triggering = []
+    for hk, v in by_h.items():
+        p90 = v.get("p90_deg")
+        thr = v.get("threshold_deg")
+        n = v.get("samples", 0)
+        mp = v.get("min_points")
+        if p90 is not None and thr is not None and mp is not None and n >= mp and p90 > thr:
+            triggering.append(hk)
+    expected = bool(triggering)
+    actual = bool(st.get("direction_drift_alarm"))
+    if expected and not actual:
+        return {"status": "finding",
+                "beleg": (f"toter Alarm: Horizonte {triggering} ueberschreiten threshold_deg bei "
+                          f"samples>=min_points, aber direction_drift_alarm=false"),
+                "detail": {"triggering_horizons": triggering, "direction_drift_alarm": actual}}
+    if actual and not expected:
+        return {"status": "finding",
+                "beleg": ("Phantom-Alarm: direction_drift_alarm=true, aber kein Horizont "
+                          "ueberschreitet threshold_deg bei samples>=min_points"),
+                "detail": {"direction_drift_alarm": actual, "direction_drift_by_horizon": by_h}}
+    return {"status": "ok",
+            "beleg": f"direction_drift_alarm={actual} konsistent (triggering={triggering})",
+            "detail": {"direction_drift_alarm": actual, "triggering_horizons": triggering}}
