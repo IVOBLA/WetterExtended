@@ -9047,3 +9047,34 @@ Prompt konsumiert die deterministischen Ergebnisse, Primärziel Vorhersagequalit
 Budget-Bremse ersetzt). Restliche AC-Migrationen sind optional (LLM-Fallback deckt sie;
 Vollständigkeit ist garantiert) und werden datenquellenweise in Batches nachgezogen. Phase B
 (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### P90 — Deterministischer Check AC-042 (Stats-Schlüssel-Kontrakt) — optionaler Batch 1
+
+**Kontext:** Erster optionaler AC-Migrations-Batch nach Schritt 3. AC-042 prüft den
+Datenkontrakt zwischen `accuracy_history.jsonl` und den Lesevorgängen in `drift_detector.py`.
+
+**Änderung:**
+- `tools/ai_checks/checks_local.py`: deterministische Prüfung AC-042. Liest den letzten
+  Datensatz von `accuracy_history.jsonl`; jeder NICHT-leere Eintrag in
+  `direction_stats_by_horizon`/`speed_stats_by_horizon` muss die von `drift_detector.py`
+  gelesenen Schlüssel tragen (`p90_/median_*_error_*` + `count|samples|n`). Fehlt einer →
+  Finding (Alarm liest sonst None = per Kontrakt tot). Leere Einträge (`{}`) werden
+  übersprungen. Beleg: `drift_detector.py:317-331` (liest), `accuracy_tracker.py:625-630`
+  (schreibt atomar).
+
+**Tests:** `tests/test_p90_stats_key_contract.py` — Kontrakt erfüllt/verletzt (p90 bzw. count
+fehlt), leerer Eintrag übersprungen, fehlende Datei, Harness-Regression. Zusätzlich ein
+**Contract-Test**, der prüft, dass `drift_detector.py` die hartkodierten Schlüssel weiterhin
+liest — schlägt bei Schema-Drift im Writer/Reader an, damit der Vertrag ehrlich bleibt.
+
+**Kein** Benutzerhandbuch-Update (interne Analyse-Infrastruktur). **Keine**
+AIChecks.md-Änderung. **Keine** Binaries.
+
+**Verifikation:** `ast.parse(checks_local.py)`, pytest der neuen + der P83/P87-Testdateien,
+Runner-Smoke (implementiert steigt von 5 auf 6, `not_implemented` sinkt auf 37, total
+unverändert).
+
+**Phasen-Status:** Phase A — P90 ✅ (optionaler Batch 1: AC-042 deterministisch migriert;
+Harness-Vollständigkeit gewahrt). Weitere optionale AC-Batches folgen datenquellenweise.
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
+Trainingsdaten.
