@@ -244,3 +244,65 @@ def check_ac042_stats_key_contract(base) -> dict:
                 "beleg": "Schluessel-Kontrakt verletzt: " + "; ".join(problems),
                 "detail": {"probleme": problems}}
     return {"status": "ok", "beleg": "Stats-Schluessel-Kontrakt erfuellt", "detail": {}}
+
+
+@register("AC-048")
+def check_ac048_budget_group_normalization(base) -> dict:
+    """AC-048 — Budgetgruppen-Normalisierung. Mehrere counts-Schluessel, die via
+    group_for() auf dieselbe Gruppe abbilden, heisst die Normalisierung greift nicht.
+    Eine Gruppe OHNE API_DAILY_BUDGET-Eintrag ist bewusst unbegrenzt (kein Fehler).
+    """
+    st = _read_json(Path(base) / "train_data/evaluation/api_budget.json")
+    if st is None:
+        return {"status": "ok", "beleg": "kein api_budget.json vorhanden", "detail": {}}
+    counts = st.get("counts") or {}
+    from api_budget_guard import group_for
+    groups = {}
+    for key in counts:
+        groups.setdefault(group_for(key), []).append(key)
+    collisions = {g: ks for g, ks in groups.items() if len(ks) > 1}
+    if collisions:
+        return {"status": "finding",
+                "beleg": f"Normalisierung greift nicht — mehrere Schluessel je Gruppe: {collisions}",
+                "detail": {"collisions": collisions}}
+    return {"status": "ok", "beleg": f"{len(counts)} Gruppen, keine Normalisierungs-Kollision",
+            "detail": {}}
+
+
+@register("AC-049")
+def check_ac049_provider_budget_usage(base) -> dict:
+    """AC-049 — Provider-Summe gegen API_DAILY_BUDGET. Auslastung > 70 % -> Abrufkadenz
+    melden (Limit NICHT anheben). Projektziel: unnoetige Fremdrequests vermeiden.
+    """
+    st = _read_json(Path(base) / "train_data/evaluation/api_budget.json")
+    if st is None:
+        return {"status": "ok", "beleg": "kein api_budget.json vorhanden", "detail": {}}
+    counts = st.get("counts") or {}
+    from api_budget_guard import group_for
+    import config
+    budget = getattr(config, "API_DAILY_BUDGET", {}) or {}
+    sums = {}
+    for key, n in counts.items():
+        try:
+            g = group_for(key)
+            sums[g] = sums.get(g, 0) + int(n or 0)
+        except Exception:
+            continue
+    hot = []
+    for grp, limit in budget.items():
+        try:
+            lim = int(limit)
+        except Exception:
+            continue
+        if lim <= 0:
+            continue
+        used = int(sums.get(grp, 0))
+        pct = used / lim
+        if pct > 0.7:
+            hot.append(f"{grp}: {used}/{lim} ({pct*100:.0f}%)")
+    if hot:
+        return {"status": "finding",
+                "beleg": "Provider-Auslastung > 70 % — Abrufkadenz pruefen (Limit NICHT anheben): " + "; ".join(hot),
+                "detail": {"hot": hot}}
+    return {"status": "ok", "beleg": "alle budgetierten Provider <= 70 % Auslastung",
+            "detail": {"sums": sums}}
