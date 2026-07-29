@@ -190,3 +190,57 @@ def check_ac043_direction_drift_alarm(base) -> dict:
     return {"status": "ok",
             "beleg": f"direction_drift_alarm={actual} konsistent (triggering={triggering})",
             "detail": {"direction_drift_alarm": actual, "triggering_horizons": triggering}}
+
+
+_AC042_REQ_DIR = ("p90_direction_error_deg", "median_direction_error_deg")
+_AC042_REQ_SPD = ("p90_speed_error_kmh", "median_speed_error_kmh")
+_AC042_COUNT_KEYS = ("count", "samples", "n")
+
+
+def _read_jsonl_last(path):
+    try:
+        last = None
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    last = line
+        return json.loads(last) if last else None
+    except Exception:
+        return None
+
+
+@register("AC-042")
+def check_ac042_stats_key_contract(base) -> dict:
+    """AC-042 — Schluessel-Kontrakt accuracy_history.jsonl <-> drift_detector.py.
+
+    drift_detector liest je Stats-Eintrag p90_/median_*_error_* und count|samples|n
+    (drift_detector.py:317-331). accuracy_tracker._stat_errors schreibt genau diese
+    Schluessel atomar (accuracy_tracker.py:625-630); leere Eintraege sind {}. Fehlt in
+    einem NICHT-leeren Eintrag ein gelesener Schluessel, liest der Alarm None und ist per
+    Datenkontrakt tot. Leere Eintraege ({}) = keine Daten -> uebersprungen. Die erwarteten
+    Schluessel sind der Vertrag; ein Contract-Test haelt sie mit drift_detector.py synchron.
+    """
+    rec = _read_jsonl_last(Path(base) / "train_data/evaluation/accuracy_history.jsonl")
+    if rec is None:
+        return {"status": "ok", "beleg": "kein/leeres accuracy_history.jsonl vorhanden",
+                "detail": {}}
+    problems = []
+
+    def _check(group_name, entries, req):
+        for hk, v in (entries or {}).items():
+            if not isinstance(v, dict) or not v:
+                continue  # leerer Eintrag = keine Daten
+            missing = [k for k in req if k not in v]
+            if not any(k in v for k in _AC042_COUNT_KEYS):
+                missing.append("count|samples|n")
+            if missing:
+                problems.append(f"{group_name}[{hk}] fehlt: {missing}")
+
+    _check("direction_stats_by_horizon", rec.get("direction_stats_by_horizon"), _AC042_REQ_DIR)
+    _check("speed_stats_by_horizon", rec.get("speed_stats_by_horizon"), _AC042_REQ_SPD)
+    if problems:
+        return {"status": "finding",
+                "beleg": "Schluessel-Kontrakt verletzt: " + "; ".join(problems),
+                "detail": {"probleme": problems}}
+    return {"status": "ok", "beleg": "Stats-Schluessel-Kontrakt erfuellt", "detail": {}}
