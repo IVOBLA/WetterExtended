@@ -9105,3 +9105,32 @@ unverändert).
 **Phasen-Status:** Phase A — P91 ✅ (optionaler Batch 2: AC-048 + AC-049 deterministisch
 migriert; Harness-Vollständigkeit gewahrt). Weitere optionale AC-Batches folgen datenquellenweise.
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### P92 — Deterministischer Check AC-007 (Eindeutigkeit der Lineage-Ereignisse) — optionaler Batch 3
+
+**Kontext:** Optionaler AC-Migrations-Batch 3 (Tracking/Lineage).
+
+**Änderung:**
+- `tools/ai_checks/checks_local.py`: Helfer `_read_jsonl_all` + deterministische Prüfung
+  AC-007. Liest `cell_lineage_events.jsonl` (`train_data/cell_lineage/`): jede
+  `event_signature` genau einmal (Events ohne Signatur = unresolved-Varianten, übersprungen);
+  ein `cell_merge`-Event muss auftreten, sofern die Datei nicht leer ist (Events tragen
+  `event_type`, kein `lineage`-Feld). Zusätzlich `cell_lineage_write_status.json`
+  (`train_data/system/`): `last_result == "error"` → Finding. Konservativ: leere/fehlende
+  Dateien → ok (kein Fehlalarm auf frischer Historie).
+
+**Nicht migriert:** AC-073 (Teil 1 = Journal-Log → LLM-Fallback), AC-074 (Frame-Iteration →
+eigener Batch).
+
+**Tests:** `tests/test_p92_lineage_event_uniqueness.py` — Dublette, fehlendes Merge-Event,
+write_status=error, unresolved ohne Signatur, fehlende Dateien, Harness-Regression.
+
+**Kein** Benutzerhandbuch-Update. **Keine** AIChecks.md-Änderung. **Keine** Binaries.
+
+**Verifikation:** `ast.parse(checks_local.py)`, pytest der neuen + der P83/P91-Testdateien,
+Runner-Smoke (implementiert steigt von 8 auf 9, `not_implemented` sinkt auf 34, total
+unverändert).
+
+**Phasen-Status:** Phase A — P92 ✅ (optionaler Batch 3: AC-007 deterministisch migriert;
+Harness-Vollständigkeit gewahrt). Weitere optionale AC-Batches folgen. Phase B (Hailo-8 U-Net)
+bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
