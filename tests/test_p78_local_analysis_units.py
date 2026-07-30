@@ -2,12 +2,22 @@
 
 Geprueft wird ausschliesslich der Inhalt der ausgelieferten Dateien — es wird
 nichts installiert, aktiviert oder gestartet.
+
+B476: Der halbstuendliche Timer `wetterprojekt-local-analysis.timer` wurde
+ersatzlos entfernt; der gehaertete lokale Dienst haengt jetzt am gemeinsamen
+23:59-Dispatcher (`wetterprojekt-nightly-analysis.service`, ausgeloest vom
+`wetterprojekt-debug-export-branch.timer`). Die frueheren Timer-Pruefungen
+kontrollieren daher jetzt die Abwesenheit des alten Timers und die korrekte
+Dispatcher-Erwartung.
 """
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SERVICE = REPO_ROOT / "wetterprojekt-local-analysis.service"
-TIMER = REPO_ROOT / "wetterprojekt-local-analysis.timer"
+OLD_TIMER = REPO_ROOT / "wetterprojekt-local-analysis.timer"      # B476: entfernt
+DISPATCH_SERVICE = REPO_ROOT / "wetterprojekt-nightly-analysis.service"
+SHARED_TIMER = REPO_ROOT / "wetterprojekt-debug-export-branch.timer"
+DISPATCH_SCRIPT = REPO_ROOT / "tools/nightly_analysis_dispatch.sh"
 INSTALL = REPO_ROOT / "install.sh"
 
 
@@ -15,8 +25,12 @@ def _svc():
     return SERVICE.read_text(encoding="utf-8")
 
 
-def _tmr():
-    return TIMER.read_text(encoding="utf-8")
+def _shared_timer():
+    return SHARED_TIMER.read_text(encoding="utf-8")
+
+
+def _dispatch():
+    return DISPATCH_SCRIPT.read_text(encoding="utf-8")
 
 
 def _inst():
@@ -32,7 +46,12 @@ def _phase():
 # --------------------------------------------------------------------------
 
 def test_units_exist():
-    assert SERVICE.is_file() and TIMER.is_file()
+    """B476: Der lokale Dienst bleibt, sein eigener Timer ist weg; stattdessen
+    liefern wir den Dispatcher-Dienst und den gemeinsamen 23:59-Timer aus."""
+    assert SERVICE.is_file(), "Der gehaertete lokale Analyse-Dienst wird weiter gebraucht"
+    assert DISPATCH_SERVICE.is_file(), "Dispatcher-Dienst fehlt"
+    assert SHARED_TIMER.is_file(), "Gemeinsamer 23:59-Timer fehlt"
+    assert not OLD_TIMER.exists(), "Der eigene halbstuendliche Timer muss entfernt sein"
 
 
 def test_service_is_oneshot_and_calls_the_runner():
@@ -93,17 +112,32 @@ def test_service_has_hard_timeout():
     assert "TimeoutStartSec=" in _svc()
 
 
-def test_timer_wakes_twice_per_hour():
-    """Die Uhrzeit steht in der Konfiguration, nicht in der Unit."""
-    t = _tmr()
-    assert "OnCalendar=*-*-* *:00/30:00" in t
+def test_local_analysis_hangs_on_the_shared_2359_dispatcher():
+    """B476: Kein eigener halbstuendlicher Timer mehr. Der gemeinsame 23:59-Timer
+    startet den Dispatcher-Dienst, der in Betriebsart 'local' den lokalen Dienst
+    weckt. Absicht des frueheren test_timer_wakes_twice_per_hour erhalten:
+    OnCalendar/Persistent/Unit/WantedBy werden weiter geprueft — jetzt am
+    korrekten (gemeinsamen) Timer."""
+    t = _shared_timer()
+    assert "OnCalendar=*-*-* 23:59:00" in t
     assert "Persistent=true" in t
-    assert "Unit=wetterprojekt-local-analysis.service" in t
+    assert "Unit=wetterprojekt-nightly-analysis.service" in t
     assert "WantedBy=timers.target" in t
+    d = _dispatch()
+    assert "wetterprojekt-local-analysis.service" in d, \
+        "Der Dispatcher muss in Betriebsart 'local' den lokalen Dienst starten"
 
 
-def test_timer_has_randomized_delay():
-    assert "RandomizedDelaySec=" in _tmr()
+def test_own_half_hourly_timer_is_gone():
+    """B476: Der fruehere Timer wurde ersatzlos entfernt. Er darf im Repo nicht
+    mehr auftauchen (sonst liefe der alte halbstuendliche Zeitplan wieder mit),
+    und install.sh muss ihn idempotent entfernen statt ihn zu aktivieren.
+    Absicht des frueheren test_timer_has_randomized_delay erhalten: der Timer mit
+    RandomizedDelaySec existiert nicht mehr und wird aktiv abgeraeumt."""
+    assert not OLD_TIMER.exists()
+    t = _inst()
+    assert 'rm -f "/etc/systemd/system/$LOCAL_ANALYSIS_TIMER"' in t
+    assert 'enable --now "$LOCAL_ANALYSIS_TIMER"' not in t
 
 
 # --------------------------------------------------------------------------

@@ -9134,3 +9134,40 @@ unverändert).
 **Phasen-Status:** Phase A — P92 ✅ (optionaler Batch 3: AC-007 deterministisch migriert;
 Harness-Vollständigkeit gewahrt). Weitere optionale AC-Batches folgen. Phase B (Hailo-8 U-Net)
 bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B483 — P78-Test an B476 angepasst (Timer-Abwesenheit statt gelöschtem Timer)
+
+**Symptom:** `tests/test_p78_local_analysis_units.py` scheiterte auf jedem frischen Clone in drei
+Tests: `test_units_exist` (AssertionError — Service da, Timer weg), `test_timer_wakes_twice_per_hour`
+und `test_timer_has_randomized_delay` (beide `FileNotFoundError`, weil `_tmr()` die durch B476
+gelöschte Timer-Datei liest). Dadurch lief die `install.sh`-pytest-Phase rot.
+
+**Root-Cause:** B476 hat `wetterprojekt-local-analysis.timer` ersatzlos entfernt; der lokale Dienst
+hängt seitdem am gemeinsamen 23:59-Dispatcher (`wetterprojekt-nightly-analysis.service`, ausgelöst vom
+`wetterprojekt-debug-export-branch.timer`). Der P78-Test kannte diese Umstellung noch nicht und
+verlangte weiter den alten Timer (`TIMER.is_file()`, `OnCalendar=*-*-* *:00/30:00`, `RandomizedDelaySec=`).
+
+**Änderung:** `tests/test_p78_local_analysis_units.py` vollständig an B476 angepasst — die drei
+Timer-Prüfungen wurden **umgewidmet, nicht abgeschwächt**:
+- `test_units_exist` prüft jetzt: lokaler Dienst + Dispatcher-Dienst + gemeinsamer 23:59-Timer
+  vorhanden, **alter Timer abwesend**.
+- neu `test_local_analysis_hangs_on_the_shared_2359_dispatcher` (ersetzt `test_timer_wakes_twice_per_hour`):
+  prüft `OnCalendar=*-*-* 23:59:00` / `Persistent=true` / `Unit=wetterprojekt-nightly-analysis.service` /
+  `WantedBy=timers.target` am gemeinsamen Timer + Routing des Dispatch-Skripts in den lokalen Dienst.
+- neu `test_own_half_hourly_timer_is_gone` (ersetzt `test_timer_has_randomized_delay`): alter Timer
+  existiert nicht mehr, install.sh entfernt ihn idempotent (`rm -f …$LOCAL_ANALYSIS_TIMER`) und
+  aktiviert ihn nicht mehr (`enable --now "$LOCAL_ANALYSIS_TIMER"` fehlt).
+Die 18 Service-/install.sh-Prüfungen bleiben inhaltlich unverändert.
+
+**Tests:** `tests/test_p78_local_analysis_units.py` — 21 Tests, alle grün. `tests/test_b476_single_timer.py`
+bleibt grün (Dispatcher-Verdrahtung dort weiter primär abgedeckt).
+
+**Kein** Benutzerhandbuch-Update (reine Testanpassung, kein Fach-Feature). **Keine** AIChecks-Ergänzung
+(kein Jedes-Mal-Check aus dem Debug-Export). **Keine** Binaries. Keine Produktivdatei geändert.
+
+**Verifikation:** `ast.parse` der Testdatei, pytest der geänderten + der B476-Testdatei.
+Keine Shell-/Produktivskripte geändert (`sh -n`/`bash -n` nicht nötig).
+
+**Phasen-Status:** Phase A — B483 ✅ (P78-Test an B476 angepasst: Timer-Abwesenheit +
+Dispatcher-Erwartung geprüft; install.sh-pytest-Phase auf frischem Clone wieder grün).
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
