@@ -2992,6 +2992,20 @@ Mail stets das Ergebnis der jüngsten Nacht enthält.
 Der Lauf am Gerät ist streng lesend: Er verändert keine Dateien, startet keine Dienste
 neu und hat keinen Zugriff auf die hinterlegten Zugangsdaten.
 
+#### Autonomes Parameter-Tuning (P96–P99)
+
+Ab P96 kann die nächtliche Analyse bestimmte Vorhersageparameter eigenständig anpassen,
+um den MAE/Drift zu senken — ohne menschliches Zutun. Das Feature ist standardmäßig
+**abgeschaltet** (Kill-Switch `AUTONOMOUS_TUNING_ENABLED = False` in den Runtime-Overrides
+oder im Admin-Panel).
+
+Erlaubt sind **ausschließlich 12 numerische Stellschrauben** der Vorhersage-Pipeline
+(EWMA-Glättung, ML-Gate-Margin, Wind-Blending, Optical-Flow-Schwelle, Bearing-Limits,
+Verifikations-Matching) innerhalb harter Bounds. Warnschwellen, Benachrichtigungen,
+Erkennungsschwellwerte und Dienst-Konfiguration sind explizit ausgeschlossen.
+Jede Änderung wird in `tuning_history.jsonl` protokolliert und automatisch
+zurückgenommen, wenn die Vorhersagequalität sich verschlechtert.
+
 #### Modell und Ausführzeit konfigurieren
 
 Ab P95 lassen sich in der Karte „Lokale Analyse am Pi" zwei weitere Einstellungen
