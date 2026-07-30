@@ -1066,6 +1066,61 @@ LOCAL_ANALYSIS_CONFIG: dict = {
     "allowed_tools": "Read,Grep,Glob,Bash(python3 tools/ro_query.py *)",
 }
 
+# ─────────────────────────────────────────────────────────────────────────
+# P96: Autonomes Tuning durch die naechtliche lokale KI-Analyse.
+#
+# Die KI darf NUR die hier aufgefuehrten Parameter aendern, und nur
+# innerhalb der angegebenen Bounds. Alles ausserhalb dieser Whitelist
+# bleibt gesperrt — egal was der Analyse-Prompt oder die KI vorschlaegt.
+#
+# Ablauf (P97-P99):
+#   Nacht 1: KI analysiert Leistungsdaten → schlaegt neuen Wert vor
+#            → schreibt in tuning_proposals.json + runtime_overrides.json
+#   Nacht 2: KI prueft: MAE besser? → behaelt. MAE schlechter? → Rollback.
+#
+# Kill-Switch: AUTONOMOUS_TUNING_ENABLED = False schaltet alles ab.
+# Die KI darf KEINE Warnschwellen, Benachrichtigungen, Dienst-Config,
+# Erkennungsschwellwerte oder .env-Werte aendern — nur Vorhersage-Tuning.
+# ─────────────────────────────────────────────────────────────────────────
+
+# Runtime-overridable: runtime_config.patch({"AUTONOMOUS_TUNING_ENABLED": True})
+AUTONOMOUS_TUNING_ENABLED: bool = False  # Default AUS — erst nach Validierung einschalten
+
+# Jeder Eintrag: Key = Name in runtime_overrides.json (wie prediction.py ihn liest)
+#                min/max = harte, nie ueberschreitbare Bounds
+#                step    = kleinstes erlaubtes Inkrement (schuetzt vor Spruengen)
+#                unit    = Beschreibung fuer Audit-Log
+AUTONOMOUS_TUNING_PARAMS: dict = {
+    # --- Kinematischer Fallback (prediction.py:_append_kinematic) ---
+    "KINEMATIC_EWMA_ALPHA": {
+        "min": 0.3, "max": 0.9, "step": 0.05,
+        "unit": "EWMA-Glaettungsfaktor",
+        "effect": "Niedrig = gleichmaessiger, hoch = reaktiver auf neuestem Frame",
+    },
+    "KINEMATIC_ACCEL_MAX_FRACTION": {
+        "min": 0.05, "max": 0.5, "step": 0.05,
+        "unit": "Anteil der linearen Verschiebung",
+        "effect": "Begrenzt den Beschleunigungsterm; zu hoch = Overshoot",
+    },
+    # --- ML-Gate (prediction.py:_ml_runtime_gate_by_horizon) ---
+    "ML_RUNTIME_GATING_MARGIN": {
+        "min": 0.0, "max": 0.3, "step": 0.02,
+        "unit": "Margin-Faktor",
+        "effect": "0 = ML muss exakt besser sein, 0.3 = ML bekommt 30% Vorsprung",
+    },
+    # --- Steering Blend (prediction.py:_steering_blend_overlay) ---
+    "STEERING_BLEND_WEIGHT": {
+        "min": 0.1, "max": 0.6, "step": 0.05,
+        "unit": "Gewichtung Wind-Korrektur",
+        "effect": "Hoeher = staerkerer Windeinfluss auf den Forecast-Vektor",
+    },
+    "STEERING_BLEND_MIN_WIND_KMH": {
+        "min": 5.0, "max": 25.0, "step": 2.5,
+        "unit": "km/h",
+        "effect": "Unter diesem Schwellenwert wird kein Wind-Blending angewandt",
+    },
+}
+
 # Trainings-Schedule (Cron-Stil). Wird vom Scheduler gelesen, kann per
 # Adminpanel über runtime_overrides.json überschrieben werden.
 TRAINING_SCHEDULE = {
