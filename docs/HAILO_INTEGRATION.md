@@ -9171,3 +9171,41 @@ Keine Shell-/Produktivskripte geändert (`sh -n`/`bash -n` nicht nötig).
 **Phasen-Status:** Phase A — B483 ✅ (P78-Test an B476 angepasst: Timer-Abwesenheit +
 Dispatcher-Erwartung geprüft; install.sh-pytest-Phase auf frischem Clone wieder grün).
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### P93 — AC-080 korrigiert: alle Nicht-ok-Zustände melden (deterministischer Check lieferte falsche Unbedenklichkeitsbescheinigung)
+
+**Anlass:** `check_ac080_incomplete_step_budget` prüfte nur `state == "incomplete"`.
+Die Zustände `failed`, `precondition_failed` und jeder unbekannte Zustand fielen auf
+das finale `return {"status": "ok", …}` durch. Im nächtlichen Analyse-Report meldete
+AC-080 deshalb `ok`, obwohl der Dienst tatsächlich `failed` war — das LLM übernahm
+diese falsche Unbedenklichkeitsbescheinigung und erklärte den echten Fehler weg.
+
+**Root-Cause:** Zu enger deterministischer Check: nur ein Zustand als Fehler erkannt,
+alle anderen pauschal als ok durchgelassen. `run_local_analysis.py` schreibt aber sieben
+verschiedene `state`-Werte: `ok`, `mode_repo`, `mode_changed_today`, `max_attempts_reached`
+(alle korrekt ok), `incomplete` (Budget-Abbruch), `failed` (echter Fehler),
+`precondition_failed` (Vorbedingung fehlt).
+
+**Änderung:**
+- `tools/ai_checks/checks_local.py`: AC-080-Funktion invertiert — explizite Positivliste
+  (`_AC080_OK_STATES = {"ok", "mode_repo", "mode_changed_today", "max_attempts_reached"}`),
+  alles andere ist ein Finding mit Unterscheidung `incomplete` / `failed` / `precondition_failed`
+  / unbekannt. Funktionsname `check_ac080_incomplete_step_budget` bleibt stabil (P83-Test
+  importiert ihn namentlich).
+- `AIChecks.md`: AC-080-Eintrag aktualisiert (alle Zustandsklassen dokumentiert).
+
+**Tests:** `tests/test_p93_ac080_all_states.py` — 13 Tests: alle sieben `state`-Werte +
+kein Statusfile + leerer state + unbekannter state + P83-Import-Regression + Registry-Check.
+`tests/test_p83_ai_checks_harness.py` bleibt grün (7 passed).
+
+**Runner-Smoke:** 9 implementiert, 34 not_implemented — identisch zum Vor-P93-Zustand.
+
+**Kein** Benutzerhandbuch-Update (interne Analyse-Infrastruktur, kein Fach-Feature).
+**Keine** Binaries.
+
+**Verifikation:** `ast.parse(checks_local.py)`, pytest P93 (13 passed) + P83-Regression
+(7 passed), Runner-Smoke (Zählung unverändert).
+
+**Phasen-Status:** Phase A — P93 ✅ (AC-080 korrigiert: alle Nicht-ok-Zustände melden;
+falsche Unbedenklichkeitsbescheinigung behoben). Phase B (Hailo-8 U-Net) bleibt
+unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.

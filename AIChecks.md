@@ -375,14 +375,18 @@ darf außer `.env` und `.env.example` keine `.env`-Variante liegen. Eine lesbare
 kopierte Sicherungskopie einer Zugangsdatei ist ein Leck — melden mit Dateiname und
 Fundort als `beleg`.
 
-### AC-080 — Prüfe den lokalen Analyse-Lauf auf Abbruch am Schrittbudget
-Lies `train_data/evaluation/local_analysis_status.json`. Steht `state` auf `incomplete`,
-hat der Lauf das Turn-/Zeitbudget erschöpft, bevor er fertig war — Beleg ist das Feld
-`error` und die Protokolldatei `train_data/evaluation/local_analysis_last_run.log`.
-Tritt `incomplete` mehrere Tage in Folge auf, ist der Umfang von Abschnitt B (offene ACs)
-dauerhaft zu groß: als Verbesserung melden, entweder `max_turns`/`timeout_s` in
-`config.LOCAL_ANALYSIS_CONFIG` anheben oder erledigte ACs nach `## Erledigt` verschieben.
-Ein einmaliges `incomplete` ist kein Fehler, sondern der erwartete Selbstschutz.
+### AC-080 — Prüfe den lokalen Analyse-Lauf auf Nicht-ok-Zustand
+Lies `train_data/evaluation/local_analysis_status.json`. Nur die Zustände `ok`,
+`mode_repo`, `mode_changed_today` und `max_attempts_reached` sind ok (bewusster Skip
+bzw. Erfolg). Jeder andere Zustand ist ein Finding — mit Unterscheidung:
+- `incomplete` — Turn-/Zeitbudget erschöpft. Beleg: `error` + Protokolldatei. Einmaliges
+  `incomplete` ist der erwartete Selbstschutz; mehrere Tage in Folge = Verbesserung
+  melden (`max_turns`/`timeout_s` anheben oder erledigte ACs nach `## Erledigt` verschieben).
+- `failed` — Timeout, Prozessabbruch (rc≠0) oder unbrauchbare Antwort. Beleg: `error`,
+  `rc`, Protokolldatei. Echter Fehler — Log-Datei enthält die vollständige Spur.
+- `precondition_failed` — Vorbedingung fehlt (CLI, Prompt-Datei, …). Beleg: `error`.
+  install.sh erneut ausführen und Vorbedingungen prüfen.
+- Jeder andere (unbekannte) Zustand wird ebenfalls als Finding gemeldet.
 
 ## Erledigt
 
