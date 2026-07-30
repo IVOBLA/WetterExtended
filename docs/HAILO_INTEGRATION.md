@@ -9240,3 +9240,21 @@ Ausgabeformat aktualisiert + alter Text ersetzt.
 **Phasen-Status:** Phase A — P94 ✅ (Analyse-Prompt verlangt jetzt Code-Verifikation für
 jeden Verbesserungsvorschlag; reine Datensymptom-Beschreibungen ohne `code_ref` sind nur
 noch als `unbelegt:` zulässig). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B484 — P76-Test an B480 angepasst (max_turns-Obergrenze + B480-Invariante)
+
+**Symptom:** `test_schedule_and_limits_are_plausible` scheiterte mit `assert 260 <= 200`,
+weil B480 `max_turns` von 70 auf 260 angehoben hat, der P76-Test aber noch die alte
+Obergrenze 200 hatte.
+
+**Änderung:** `tests/test_p76_analysis_mode_config.py`: Obergrenze `max_turns` von 200 auf
+500 angehoben und B480-Invariante als explizite Assertion ergänzt: `timeout_s < 1800`
+(TimeoutStartSec der systemd-Unit). Damit bricht der Test nur bei echter Invarianten-
+Verletzung, nicht bei jeder moderaten max_turns-Erhöhung.
+
+**Tests:** `tests/test_p76_analysis_mode_config.py` — 12 Tests, alle grün.
+
+**Kein** Benutzerhandbuch-Update (reine Testanpassung). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B484 ✅ (P76-Test an B480 angepasst). Phase B (Hailo-8 U-Net)
+bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.

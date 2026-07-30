@@ -50,8 +50,11 @@ def test_schedule_and_limits_are_plausible():
     cfg = config.LOCAL_ANALYSIS_CONFIG
     assert 0 <= cfg["cron_hour"] <= 23
     assert 0 <= cfg["cron_minute"] <= 59
-    assert 1 <= cfg["max_turns"] <= 200
+    assert 1 <= cfg["max_turns"] <= 500
     assert 60 <= cfg["timeout_s"] <= 3600
+    # B480-Invariante: timeout_s muss unter TimeoutStartSec=1800 der systemd-Unit
+    # bleiben, damit der Runner sich selbst beendet bevor systemd hart abbricht.
+    assert cfg["timeout_s"] < 1800, "timeout_s muss < TimeoutStartSec=1800 sein"
 
 
 def test_no_key_is_silently_stripped_by_runtime_config():
