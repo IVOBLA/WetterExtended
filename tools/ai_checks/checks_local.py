@@ -22,14 +22,20 @@ def _read_json(path: Path):
         return None
 
 
+# P93: Bekannte Zustaende, die keinen Fehler darstellen (run_local_analysis.py).
+_AC080_OK_STATES = frozenset({"ok", "mode_repo", "mode_changed_today", "max_attempts_reached"})
+
+
 @register("AC-080")
 def check_ac080_incomplete_step_budget(base) -> dict:
-    """AC-080 — Lokaler Analyse-Lauf am Schrittbudget abgebrochen?
+    """AC-080 — Lokaler Analyse-Lauf: letzter Zustand nicht ok?
 
-    Deterministisch: liest local_analysis_status.json; state=='incomplete' →
-    Turn-/Zeitbudget erschoepft. Die Ein-/Mehrtagesabgrenzung (erwarteter
-    Selbstschutz vs. dauerhafter Umfang) bleibt dem LLM ueberlassen — der
-    Statusfile traegt nur den letzten Lauf.
+    Deterministisch: liest local_analysis_status.json. Jeder Zustand ausser den
+    bekannten ok-Zustaenden (ok, mode_repo, mode_changed_today, max_attempts_reached)
+    ist ein Finding — mit Unterscheidung Budget-Abbruch (incomplete) vs. echter
+    Fehler (failed, precondition_failed) vs. unbekannter Zustand. Die Ein-/
+    Mehrtagesabgrenzung bleibt dem LLM ueberlassen — der Statusfile traegt nur den
+    letzten Lauf.
     """
     st = _read_json(Path(base) / _STATUS_REL)
     if st is None:
@@ -37,21 +43,59 @@ def check_ac080_incomplete_step_budget(base) -> dict:
                 "beleg": f"kein {_STATUS_REL} vorhanden (lokale Analyse ggf. nie gelaufen)",
                 "detail": {"state": None}}
     state = str(st.get("state", ""))
+    if state in _AC080_OK_STATES:
+        return {"status": "ok", "beleg": f"state={state}", "detail": {"state": state}}
+    error = st.get("error")
+    log = st.get("log_path", _LOG_REL)
     if state == "incomplete":
         return {
             "status": "finding",
-            "beleg": f"state=incomplete; error={st.get('error')!r}; log={_LOG_REL}",
+            "beleg": f"state=incomplete; error={error!r}; log={log}",
             "detail": {
                 "state": state,
-                "error": st.get("error"),
-                "log_path": _LOG_REL,
+                "error": error,
+                "log_path": log,
                 "hinweis": ("einmaliges incomplete = erwarteter Selbstschutz (kein Fehler); "
                             "mehrere Tage in Folge = Verbesserung: max_turns/timeout_s in "
                             "config.LOCAL_ANALYSIS_CONFIG anheben oder erledigte ACs nach "
                             "'## Erledigt' verschieben"),
             },
         }
-    return {"status": "ok", "beleg": f"state={state or 'unbekannt'}", "detail": {"state": state}}
+    if state == "failed":
+        return {
+            "status": "finding",
+            "beleg": f"state=failed; error={error!r}; rc={st.get('rc')}; log={log}",
+            "detail": {
+                "state": state,
+                "error": error,
+                "rc": st.get("rc"),
+                "log_path": log,
+                "hinweis": ("Echter Fehler — Timeout, Prozessabbruch oder unbrauchbare "
+                            "Antwort. Log-Datei enthaelt die vollstaendige Spur."),
+            },
+        }
+    if state == "precondition_failed":
+        return {
+            "status": "finding",
+            "beleg": f"state=precondition_failed; error={error!r}",
+            "detail": {
+                "state": state,
+                "error": error,
+                "hinweis": ("Vorbedingung fehlt — CLI nicht gefunden, Prompt-Datei fehlt "
+                            "oder anderer Start-Blocker. install.sh erneut ausfuehren und "
+                            "Vorbedingungen pruefen."),
+            },
+        }
+    # Unbekannter Zustand — sicherheitshalber melden statt verschlucken.
+    return {
+        "status": "finding",
+        "beleg": f"state={state!r} (unbekannt); error={error!r}",
+        "detail": {
+            "state": state,
+            "error": error,
+            "hinweis": "Unbekannter Zustand — neue Version von run_local_analysis.py?",
+        },
+    }
 
 
 @register("AC-046")
