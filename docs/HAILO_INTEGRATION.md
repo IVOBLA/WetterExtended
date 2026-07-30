@@ -9209,3 +9209,34 @@ kein Statusfile + leerer state + unbekannter state + P83-Import-Regression + Reg
 **Phasen-Status:** Phase A — P93 ✅ (AC-080 korrigiert: alle Nicht-ok-Zustände melden;
 falsche Unbedenklichkeitsbescheinigung behoben). Phase B (Hailo-8 U-Net) bleibt
 unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### P94 — Lokaler Analyse-Prompt: Code-Verifikationspflicht für Verbesserungsvorschläge
+
+**Anlass:** Die nächtliche Analyse beschrieb bislang nur Datensymptome (z. B. „hoher
+Richtungs-Drift, p90 bei 140°") ohne den zugehörigen Code zu prüfen. Der Nutzer wusste,
+WAS schlecht ist, aber nicht WO im Code das Problem entsteht und WIE er es beheben könnte.
+
+**Änderung:**
+- `docs/LOCAL_ANALYSIS_PROMPT.md`: Abschnitt M um den Block „Code-Verifikation
+  (verpflichtend)" erweitert. Dreischritt: (1) Ursache im Code lokalisieren mit
+  `Grep`/`Read`, (2) `code_ref` + konkrete Änderungsempfehlung formulieren,
+  (3) falls Budget nicht reicht: `unbelegt:`-Prefix. Schlüsseldateien
+  (prediction.py, object_tracking.py, cell_lineage.py, accuracy_tracker.py,
+  drift_detector.py, dataset_builder.py) mit den wichtigsten Funktionsnamen aufgelistet.
+  `verbesserungen`-Ausgabeformat: `code_ref` und Änderungsempfehlung jetzt Pflicht.
+
+**Benutzerhandbuch:** Abschnitt „Lokale Analyse am Gerät einstellen" um
+„Code-Verifikation bei Verbesserungsvorschlägen" ergänzt.
+
+**Tests:** `tests/test_p94_prompt_code_verification.py` — 8 Tests: Prompt vorhanden,
+Verifikationsblock + Dreischritt + code_ref-Pflicht + Schlüsseldateien/-funktionen +
+Ausgabeformat aktualisiert + alter Text ersetzt.
+
+**Kein** AIChecks.md-Update (prompt-seitiges Feature, kein Jedes-Mal-Check).
+**Keine** Binaries.
+
+**Verifikation:** `ast.parse` der Testdatei, pytest (8 passed).
+
+**Phasen-Status:** Phase A — P94 ✅ (Analyse-Prompt verlangt jetzt Code-Verifikation für
+jeden Verbesserungsvorschlag; reine Datensymptom-Beschreibungen ohne `code_ref` sind nur
+noch als `unbelegt:` zulässig). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
