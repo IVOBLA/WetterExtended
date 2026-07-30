@@ -2991,3 +2991,11 @@ Mail stets das Ergebnis der jüngsten Nacht enthält.
 
 Der Lauf am Gerät ist streng lesend: Er verändert keine Dateien, startet keine Dienste
 neu und hat keinen Zugriff auf die hinterlegten Zugangsdaten.
+
+#### Code-Verifikation bei Verbesserungsvorschlägen
+
+Ab P94 verifiziert die nächtliche Analyse jeden Verbesserungsvorschlag zur Vorhersagequalität
+gegen den zugehörigen Quellcode, bevor er in den Bericht aufgenommen wird. Jeder Vorschlag
+enthält eine Referenz auf die untersuchte Codestelle (`code_ref`) und eine konkrete Empfehlung,
+was dort geändert werden müsste. Vorschläge, deren Ursache im verfügbaren Schrittbudget nicht
+im Code lokalisiert werden konnte, sind im Bericht als „unbelegt" gekennzeichnet.

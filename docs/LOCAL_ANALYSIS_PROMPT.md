@@ -100,9 +100,39 @@ ab. Ziel laut `zieldefinition.txt`: Zellpositions-MAE ≤ 1 km, Drift → 0. Dat
 - `train_data/evaluation/forecast_error_details.jsonl` und die Fehlerdiagnose, falls vorhanden.
 - Auffälligkeiten bei Zelltracking, Merge/Split, Bewegungsprognose oder LSTM-Fallback.
 
+**Code-Verifikation (verpflichtend für jeden Verbesserungsvorschlag).** Jeder
+Verbesserungsvorschlag, der sich auf Vorhersagequalität, Tracking oder Drift bezieht,
+muss gegen den zugehörigen Code verifiziert werden, BEVOR er in `verbesserungen` landet.
+Die reine Beschreibung eines Datensymptoms ohne Codeanalyse reicht nicht. Konkret:
+
+1. **Ursache lokalisieren.** Nutze `Grep`/`Read`, um die Codestelle zu finden, die das
+   gemessene Symptom erzeugt. Beispiele: hoher Richtungsfehler → wie berechnet
+   `prediction.py` den Bewegungsvektor? Lineare Extrapolation? ML-Gate aktiv oder auf
+   Fallback? Outlier-Bias → welcher `forecast_mode` war aktiv (Feld `forecast_mode_{h}` im
+   Export)? Missing target frames → wie wählt die Verifikation ihre Zielframes?
+2. **Konkrete Empfehlung formulieren.** Jeder `verbesserungen`-Eintrag enthält zwingend
+   `code_ref=<datei>:<zeile/funktion>` mit der untersuchten Codestelle und endet mit einer
+   konkreten Empfehlung, was dort geändert werden müsste (z. B. „prediction.py:_append_kinematic
+   nutzt lineares EWMA ohne Richtungsänderung — Empfehlung: Beschleunigungsterm für Richtung
+   ergänzen" oder „Verifikation in accuracy_tracker.py:_match_target verwendet nearest-Fallback
+   ohne Lineage-Check — Empfehlung: Lineage-Kontinuität als primäres Matching-Kriterium").
+3. **Kein Code gefunden = „unbelegt".** Lässt sich die Ursache im Budget nicht im Code
+   lokalisieren, beginnt der Eintrag mit `unbelegt:` — das ist akzeptabel, aber das Ziel
+   ist, so viele Vorschläge wie möglich code-belegt zu liefern.
+
+Schlüsseldateien für die Code-Verifikation:
+- `prediction.py` — ML-Gate (`_ml_runtime_gate_by_horizon`), LightGBM-Forecast
+  (`_predict_lgbm_vector`), kinematischer Fallback (`_append_kinematic`), Unsicherheitsquantile.
+- `object_tracking.py` — Zellzuordnung, Merge/Split, Bewegungshistorie.
+- `cell_lineage.py` — Lineage-Fortführung, ID-Matching.
+- `accuracy_tracker.py` — Verifikation, MAE-Berechnung, Champion/Challenger, Target-Matching.
+- `drift_detector.py` — Drift-Berechnung, Horizontvergleich.
+- `dataset_builder.py` — Feature-Erzeugung für ML-Training, Samples.
+
 Leite daraus ab:
-- `verbesserungen`: belegte Vorschläge, wie MAE/Drift Richtung Ziel gesenkt werden (reine
-  Vermutungen mit `unbelegt:` kennzeichnen).
+- `verbesserungen`: code-belegte Vorschläge mit `code_ref` und konkreter Änderungsempfehlung,
+  wie MAE/Drift Richtung Ziel gesenkt werden. Reine Vermutungen ohne Code-Beleg beginnen
+  mit `unbelegt:`.
 - `fehler` + `loesungen` + `prompts`: nur bei echten, code-belegten Fehlern nach Abschnitt C.
 
 ## B. Offene Arbeitsanweisungen (Fallback für `not_implemented`)
