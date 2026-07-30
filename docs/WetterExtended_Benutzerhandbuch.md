@@ -2992,6 +2992,20 @@ Mail stets das Ergebnis der jüngsten Nacht enthält.
 Der Lauf am Gerät ist streng lesend: Er verändert keine Dateien, startet keine Dienste
 neu und hat keinen Zugriff auf die hinterlegten Zugangsdaten.
 
+#### Modell und Ausführzeit konfigurieren
+
+Ab P95 lassen sich in der Karte „Lokale Analyse am Pi" zwei weitere Einstellungen
+vornehmen:
+
+- **Modell:** Wählt das Claude-Modell für den nächtlichen Analyse-Lauf. Die Option
+  „CLI-Vorgabe (Standard)" belässt die Wahl beim Default der Claude-Code-CLI (aktuell
+  Claude Sonnet 5). Alternativ stehen Haiku 4.5 (schnell, günstig), Sonnet 4.6 und
+  Opus 4.6 (leistungsstark) zur Auswahl.
+- **Früheste Ausführzeit (Stunde:Minute):** Der nächtliche Auslöser (23:59 systemd-Timer)
+  startet den Dispatcher, aber der lokale Analyse-Lauf wird erst ausgeführt, wenn die
+  konfigurierte Uhrzeit erreicht ist. Standard: 00:10. Damit lässt sich der Lauf z. B.
+  auf die Nachtstunden nach Mitternacht verschieben, wenn das Gerät tagsüber ausgelastet ist.
+
 #### Code-Verifikation bei Verbesserungsvorschlägen
 
 Ab P94 verifiziert die nächtliche Analyse jeden Verbesserungsvorschlag zur Vorhersagequalität
