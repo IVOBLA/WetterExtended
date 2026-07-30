@@ -9312,3 +9312,13 @@ Parameter + Kill-Switch runtime-overridable + alle 12 namentlich vorhanden.
 
 **Phasen-Status:** Phase A — P96 ✅ (12-Parameter-Whitelist und Kill-Switch).
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.
+### P97 — Autonomes Tuning: Apply/Verify/Rollback-Modul (Prompt 2/4)
+
+**Änderung:** `tools/tuning_apply.py`: `--apply` liest tuning_proposals, validiert gegen
+P96-Whitelist, wendet per runtime_config.patch an, protokolliert in tuning_history.jsonl.
+`--verify` vergleicht MAE vor/nach; besser → akzeptiert, schlechter → Rollback.
+
+**Tests:** `tests/test_p97_tuning_apply.py` — 8 Tests.
+
+**Phasen-Status:** Phase A — P97 ✅ (Tuning-Kernlogik).
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.
