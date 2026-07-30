@@ -9322,3 +9322,15 @@ P96-Whitelist, wendet per runtime_config.patch an, protokolliert in tuning_histo
 
 **Phasen-Status:** Phase A — P97 ✅ (Tuning-Kernlogik).
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.
+
+### P98 — Autonomes Tuning: Sandbox + Scheduler-Integration (Prompt 3/4)
+
+**Änderung:**
+- Service: ReadWritePaths `train_data/evaluation` → `train_data` (runtime_overrides.json
+  + tuning_state.json schreibbar). InaccessiblePaths=-.env bleibt.
+- Dispatcher: --verify vor, --apply nach dem Analyse-Lauf (beide non-fatal).
+
+**Tests:** `tests/test_p98_tuning_integration.py` — 5 Tests.
+
+**Phasen-Status:** Phase A — P98 ✅ (Tuning-Verdrahtung).
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.
