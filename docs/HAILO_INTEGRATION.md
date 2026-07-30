@@ -9287,3 +9287,28 @@ model-Akzeptanz + cron-Akzeptanz.
 **Phasen-Status:** Phase A — P95 ✅ (Modell-Dropdown + Ausführzeit-Konfiguration im Panel).
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
 Trainingsdaten.
+
+### P96 — Autonomes Tuning: 12-Parameter-Whitelist + Kill-Switch (Prompt 1/4)
+
+**Anlass:** Der Feedback-Loop zwischen KI-Analyse-Erkenntnis und Parameteränderung dauert
+24–48h. 12 numerische Stellschrauben der Vorhersage-Pipeline werden von prediction.py und
+accuracy_tracker.py schon heute per runtime_config gelesen. Das Feature erlaubt der KI,
+diese innerhalb harter Bounds selbständig zu drehen.
+
+**Änderung:** `config.py`: neues Dict `AUTONOMOUS_TUNING_PARAMS` mit 12 Parametern in 5
+Gruppen (Kinematischer Fallback: EWMA_ALPHA, ACCEL_MAX_FRACTION, MIN_INTERVAL_DISP_PX;
+ML-Gate: GATING_MARGIN, MAX_BEARING_DEVIATION, CROSS_HORIZON_BEARING_JUMP; Wind-Steering:
+BLEND_WEIGHT, MIN_WIND_KMH, MIN_ANGLE_DEG, NEW_CELL_SPEED_FRAC; Optical Flow:
+OF_MAX_FRAME_INTERVAL_MIN; Verifikation: NN_MAX_MATCH_KM) und Kill-Switch
+`AUTONOMOUS_TUNING_ENABLED = False` (default AUS).
+
+**Benutzerhandbuch:** Abschnitt „Autonomes Parameter-Tuning (P96–P99)" ergänzt.
+
+**Tests:** `tests/test_p96_autonomous_tuning_config.py` — 8 Tests: Kill-Switch default AUS +
+12 Parameter + Pflichtfelder + Bounds sauber + runtime-lesbar + keine sicherheitskritischen
+Parameter + Kill-Switch runtime-overridable + alle 12 namentlich vorhanden.
+
+**Folgeprompts:** P97 (Apply/Verify/Rollback), P98 (Sandbox), P99 (Analyse-Prompt).
+
+**Phasen-Status:** Phase A — P96 ✅ (12-Parameter-Whitelist und Kill-Switch).
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.

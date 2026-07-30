@@ -1066,6 +1066,101 @@ LOCAL_ANALYSIS_CONFIG: dict = {
     "allowed_tools": "Read,Grep,Glob,Bash(python3 tools/ro_query.py *)",
 }
 
+
+# ─────────────────────────────────────────────────────────────────────────
+# P96: Autonomes Tuning durch die naechtliche lokale KI-Analyse.
+#
+# Die KI darf NUR die hier aufgefuehrten Parameter aendern, und nur
+# innerhalb der angegebenen Bounds. Alles ausserhalb dieser Whitelist
+# bleibt gesperrt — egal was der Analyse-Prompt oder die KI vorschlaegt.
+#
+# Ablauf (P97-P99):
+#   Nacht 1: KI analysiert Leistungsdaten → schlaegt neuen Wert vor
+#            → schreibt in tuning_proposals.json + runtime_overrides.json
+#   Nacht 2: KI prueft: MAE besser? → behaelt. MAE schlechter? → Rollback.
+#
+# Kill-Switch: AUTONOMOUS_TUNING_ENABLED = False schaltet alles ab.
+# Die KI darf KEINE Warnschwellen, Benachrichtigungen, Dienst-Config,
+# Erkennungsschwellwerte oder .env-Werte aendern — nur Vorhersage-Tuning.
+# ─────────────────────────────────────────────────────────────────────────
+
+# Runtime-overridable: runtime_config.patch({"AUTONOMOUS_TUNING_ENABLED": True})
+AUTONOMOUS_TUNING_ENABLED: bool = False  # Default AUS — erst nach Validierung einschalten
+
+# Jeder Eintrag: Key = Name in runtime_overrides.json (wie prediction.py ihn liest)
+#                min/max = harte, nie ueberschreitbare Bounds
+#                step    = kleinstes erlaubtes Inkrement (schuetzt vor Spruengen)
+#                unit    = Beschreibung fuer Audit-Log
+#                effect  = Wirkungsbeschreibung fuer die KI
+AUTONOMOUS_TUNING_PARAMS: dict = {
+    # --- Kinematischer Fallback (prediction.py:_append_kinematic) ---
+    "KINEMATIC_EWMA_ALPHA": {
+        "min": 0.3, "max": 0.9, "step": 0.05,
+        "unit": "EWMA-Glaettungsfaktor",
+        "effect": "Niedrig = gleichmaessiger, hoch = reaktiver auf neuestem Frame",
+    },
+    "KINEMATIC_ACCEL_MAX_FRACTION": {
+        "min": 0.05, "max": 0.5, "step": 0.05,
+        "unit": "Anteil der linearen Verschiebung",
+        "effect": "Begrenzt den Beschleunigungsterm; zu hoch = Overshoot",
+    },
+    "KINEMATIC_MIN_INTERVAL_DISP_PX": {
+        "min": 0.0, "max": 3.0, "step": 0.5,
+        "unit": "Pixel (skaliert)",
+        "effect": "Mindest-Displacement pro Intervall; filtert verrauschte Richtung bei quasi-stationaeren Zellen",
+    },
+    # --- ML-Gate (prediction.py:_ml_runtime_gate_by_horizon) ---
+    "ML_RUNTIME_GATING_MARGIN": {
+        "min": 0.0, "max": 0.3, "step": 0.02,
+        "unit": "Margin-Faktor",
+        "effect": "0 = ML muss exakt besser sein, 0.3 = ML bekommt 30% Vorsprung",
+    },
+    # --- ML-Plausibilitaet (prediction.py:validate_forecast_point) ---
+    "ML_FORECAST_MAX_BEARING_DEVIATION_DEG": {
+        "min": 45.0, "max": 120.0, "step": 5.0,
+        "unit": "Grad",
+        "effect": "Max. Abweichung ML-Punkt vs. beobachtete Zugrichtung; zu eng = ML-Punkte unnoetig verworfen",
+    },
+    "FORECAST_CROSS_HORIZON_MAX_BEARING_JUMP_DEG": {
+        "min": 20.0, "max": 75.0, "step": 5.0,
+        "unit": "Grad",
+        "effect": "Max. Richtungssprung zwischen aufeinanderfolgenden Horizonten; prueft ML-Ketten-Konsistenz",
+    },
+    # --- Wind-Steering (prediction.py:_steering_blend_overlay) ---
+    "STEERING_BLEND_WEIGHT": {
+        "min": 0.1, "max": 0.6, "step": 0.05,
+        "unit": "Gewichtung",
+        "effect": "Hoeher = staerkerer Windeinfluss auf den Forecast-Vektor",
+    },
+    "STEERING_BLEND_MIN_WIND_KMH": {
+        "min": 5.0, "max": 25.0, "step": 2.5,
+        "unit": "km/h",
+        "effect": "Unter diesem Schwellenwert wird kein Wind-Blending angewandt",
+    },
+    "STEERING_BLEND_MIN_ANGLE_DEG": {
+        "min": 30.0, "max": 90.0, "step": 5.0,
+        "unit": "Grad",
+        "effect": "Ab welcher Abweichung Zellbewegung/Wind das Blending greift; direkt relevant fuer Richtungs-Drift",
+    },
+    "STEERING_NEW_CELL_SPEED_FRAC": {
+        "min": 0.3, "max": 0.9, "step": 0.1,
+        "unit": "Anteil",
+        "effect": "Wie stark neue Zellen den Wind-Vektor als Anfangsgeschwindigkeit nutzen",
+    },
+    # --- Optical Flow (prediction.py:_append_kinematic) ---
+    "OF_MAX_FRAME_INTERVAL_MIN": {
+        "min": 5.0, "max": 15.0, "step": 1.0,
+        "unit": "Minuten",
+        "effect": "Max. Zeitluecke fuer gueltigen OF-Vektor; darueber Fallback auf EWMA",
+    },
+    # --- Verifikation (accuracy_tracker.py:_match_threshold_km) ---
+    "VERIFICATION_NN_MAX_MATCH_KM": {
+        "min": 5.0, "max": 20.0, "step": 1.0,
+        "unit": "km",
+        "effect": "Max. Zuordnungsabstand Forecast→Actual; beeinflusst Messqualitaet (missing targets)",
+    },
+}
+
 # Trainings-Schedule (Cron-Stil). Wird vom Scheduler gelesen, kann per
 # Adminpanel über runtime_overrides.json überschrieben werden.
 TRAINING_SCHEDULE = {
