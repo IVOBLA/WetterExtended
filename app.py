@@ -3496,7 +3496,7 @@ def api_local_analysis_config_save():
             raise ValueError("Payload muss JSON-Objekt sein")
         data.pop("enabled", None)
         for key, lo, hi in (("cron_hour", 0, 23), ("cron_minute", 0, 59),
-                            ("max_turns", 1, 200), ("timeout_s", 60, 3600)):
+                            ("max_turns", 1, 500), ("timeout_s", 60, 3600)):
             if key in data:
                 v = int(data[key])
                 if not (lo <= v <= hi):

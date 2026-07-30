@@ -881,8 +881,40 @@ export default function AiSuggestions() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="label">Max. Arbeitsschritte (1–200)</label>
-            <input className="input" type="number" min="1" max="200"
+            <label className="label">Modell</label>
+            <select className="input"
+              value={laCfg.model || ''}
+              onChange={e => setLaCfg({ ...laCfg, model: e.target.value })}
+            >
+              <option value="">CLI-Vorgabe (Standard)</option>
+              {models.map(m => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Frueheste Ausfuehrzeit (Stunde:Minute)</label>
+            <div className="flex gap-2">
+              <input className="input w-20" type="number" min="0" max="23"
+                value={laCfg.cron_hour ?? 0}
+                onChange={e => {
+                  const v = parseInt(e.target.value, 10)
+                  setLaCfg({ ...laCfg, cron_hour: Number.isNaN(v) ? 0 : v })
+                }}
+              />
+              <span className="self-center">:</span>
+              <input className="input w-20" type="number" min="0" max="59"
+                value={laCfg.cron_minute ?? 10}
+                onChange={e => {
+                  const v = parseInt(e.target.value, 10)
+                  setLaCfg({ ...laCfg, cron_minute: Number.isNaN(v) ? 10 : v })
+                }}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="label">Max. Arbeitsschritte (1–500)</label>
+            <input className="input" type="number" min="1" max="500"
               value={laCfg.max_turns}
               onChange={e => {
                 const v = parseInt(e.target.value, 10)

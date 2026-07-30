@@ -9258,3 +9258,32 @@ Verletzung, nicht bei jeder moderaten max_turns-Erhöhung.
 
 **Phasen-Status:** Phase A — B484 ✅ (P76-Test an B480 angepasst). Phase B (Hailo-8 U-Net)
 bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### P95 — Modell-Dropdown + Ausführzeit-Konfiguration in der Lokale-Analyse-Karte
+
+**Anlass:** Die Admin-Panel-Karte „Lokale Analyse am Pi" zeigte nur `max_turns` und
+`timeout_s`. Das Modell war nur per `runtime_overrides.json` wählbar, die früheste
+Ausführzeit (`cron_hour`/`cron_minute`) gar nicht im Panel sichtbar.
+
+**Änderung:**
+- `frontend/src/pages/AiSuggestions.jsx`: Grid-Block der Lokale-Analyse-Karte erweitert um
+  (1) Modell-Dropdown (wiederverwendet die bestehende `models`-State-Variable; Default-Option
+  „CLI-Vorgabe" = leerer String) und (2) Ausführzeit-Felder (Stunde + Minute).
+  `max_turns`-Label von „1–200" auf „1–500" aktualisiert (B480).
+- `app.py`: `max_turns`-Validierung im `/api/local_analysis/config` POST-Endpunkt von
+  `("max_turns", 1, 200)` auf `("max_turns", 1, 500)` angehoben.
+
+**Benutzerhandbuch:** Abschnitt „Lokale Analyse am Gerät einstellen" um „Modell und
+Ausführzeit konfigurieren" ergänzt.
+
+**Tests:** `tests/test_p95_model_dropdown_cron_fields.py` — 7 Tests: Modell-Dropdown vorhanden
++ shared-models-Wiederverwendung + Cron-Felder + max_turns-Label + Backend-Validierung +
+model-Akzeptanz + cron-Akzeptanz.
+
+**Keine** AIChecks-Ergänzung. **Keine** Binaries.
+
+**Verifikation:** `ast.parse(app.py)`, esbuild JSX-Syntax, pytest 7 passed.
+
+**Phasen-Status:** Phase A — P95 ✅ (Modell-Dropdown + Ausführzeit-Konfiguration im Panel).
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
+Trainingsdaten.
