@@ -74,6 +74,8 @@ export default function AiSuggestions() {
   const [laSaved,   setLaSaved]   = useState(false)
   const [laMsg,     setLaMsg]     = useState('')
   const [laRunning, setLaRunning] = useState(false)
+  const [tuning,    setTuning]    = useState(null)
+  const [tuningMsg, setTuningMsg] = useState('')
 
   const [testEmailStatus, setTestEmailStatus] = useState(null)  // null | 'sending' | 'ok' | 'error'
   const [testEmailMsg,    setTestEmailMsg]    = useState('')
@@ -111,10 +113,23 @@ export default function AiSuggestions() {
       .then(d => setLaCfg(prev => ({ ...prev, ...d })))
       .catch(() => {})
     api.get('/api/local_analysis/status').then(setLaStatus).catch(() => {})
+    api.get('/api/local_analysis/tuning').then(setTuning).catch(() => {})
   }, [])
 
   function refreshLaStatus() {
     api.get('/api/local_analysis/status').then(setLaStatus).catch(() => {})
+    api.get('/api/local_analysis/tuning').then(setTuning).catch(() => {})
+  }
+
+  async function toggleTuning() {
+    setTuningMsg('')
+    try {
+      const next = !(tuning && tuning.enabled)
+      await api.post('/api/local_analysis/tuning', { enabled: next })
+      setTuning(prev => ({ ...(prev || {}), enabled: next }))
+    } catch (e) {
+      setTuningMsg('Fehler: ' + (e?.message || e))
+    }
   }
 
   async function downloadLaResult() {
@@ -970,6 +985,56 @@ export default function AiSuggestions() {
             )}
           </div>
         )}
+
+        {/* P100: Autonomes Parameter-Tuning (P96-P99) */}
+        <div className="mt-4 rounded border border-gray-200 p-3">
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <div
+              onClick={toggleTuning}
+              className={`w-11 h-6 rounded-full transition-colors flex items-center px-0.5
+                ${tuning && tuning.enabled ? 'bg-emerald-600' : 'bg-gray-300'}`}
+            >
+              <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform
+                ${tuning && tuning.enabled ? 'translate-x-5' : 'translate-x-0'}`} />
+            </div>
+            <div>
+              <span className="font-medium text-sm">
+                Autonomes Parameter-Tuning aktiviert
+              </span>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Die naechtliche Analyse darf {tuning ? Object.keys(tuning.params || {}).length : 12}{' '}
+                Vorhersageparameter innerhalb fester Grenzen selbst anpassen; Rueckgaengig
+                bei Verschlechterung. Default: aus.
+              </p>
+            </div>
+          </label>
+          {tuningMsg && (
+            <p className="text-xs text-red-600 mt-2">{tuningMsg}</p>
+          )}
+          {tuning && tuning.recent_history && tuning.recent_history.length > 0 && (
+            <div className="mt-3 text-xs text-gray-600">
+              <div className="font-medium mb-1">Letzte Tuning-Aktionen</div>
+              <ul className="space-y-0.5">
+                {tuning.recent_history.slice(-5).reverse().map((h, i) => (
+                  <li key={i}>
+                    {h.ts}{' — '}
+                    <strong className={
+                      h.action === 'accepted' ? 'text-green-700'
+                        : h.action === 'rollback' ? 'text-amber-700'
+                        : h.action === 'rejected' ? 'text-red-600'
+                        : 'text-gray-700'}>
+                      {h.action}
+                    </strong>
+                    {' '}{h.param}
+                    {h.old !== undefined && h.new !== undefined && (
+                      <> ({h.old} → {h.new})</>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
 
         <div className="flex gap-3 mt-4 flex-wrap">
           <button className="btn-primary" onClick={saveLaCfg}>Speichern</button>
