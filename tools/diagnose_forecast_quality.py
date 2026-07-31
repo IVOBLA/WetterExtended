@@ -298,7 +298,7 @@ def build_diagnosis(base_dir: Path, hours: int, evaluation_dir: Path | None = No
         "checked_at_utc": utc_now_z(),
         "hours": hours,
         "sample_counts": {"forecast_error_details": len(details), "verified_forecasts": len(verified), "ir_lead_time_labels": len(label_rows)},
-        "forecast_outliers": [{"cell_id": r.get("cell_id") or r.get("object_id"), "error_km": _f(r.get("forecast_error_km")), "forecast_position": {"lat": _f(r.get("forecast_lat")), "lon": _f(r.get("forecast_lon"))}, "actual_position": {"lat": _f(r.get("actual_lat")), "lon": _f(r.get("actual_lon"))}, "horizon_min": _f(r.get("horizon_min")), "forecast_created_at_utc": r.get("forecast_created_at_utc")} for r in outliers],
+        "forecast_outliers": [{"cell_id": r.get("cell_id") or r.get("object_id"), "error_km": _f(r.get("forecast_error_km")), "forecast_position": {"lat": _f(r.get("forecast_lat")), "lon": _f(r.get("forecast_lon"))}, "actual_position": {"lat": _f(r.get("actual_lat")), "lon": _f(r.get("actual_lon"))}, "horizon_min": _f(r.get("horizon_min")), "forecast_created_at_utc": r.get("forecast_created_at_utc"), "forecast_mode": r.get("forecast_mode"), "match_type": r.get("match_type"), "lineage_status": r.get("lineage_status")} for r in outliers],
         "pixel_geo_consistency": {"suspect_count": len(px_geo), "examples": px_geo[:10]},
         "id_matching": _id_matching(details, outliers),
         "missing_target_frames": {"count": missing_target, "ratio": round(missing_target / len(details), 4) if details else None},
