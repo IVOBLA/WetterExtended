@@ -30,6 +30,7 @@ STATE_FILE = EVAL_DIR / "tuning_state.json"
 HISTORY_FILE = EVAL_DIR / "tuning_history.jsonl"
 RESULT_FILE = EVAL_DIR / "analysis_result.json"
 DRIFT_FILE = EVAL_DIR / "drift_status.json"
+STATUS_FILE = EVAL_DIR / "local_analysis_status.json"  # B488: Freshness-Pruefung
 
 
 def _now_iso() -> str:
@@ -94,6 +95,19 @@ def cmd_apply() -> int:
     if not _enabled():
         _log("AUTONOMOUS_TUNING_ENABLED=False — uebersprungen.")
         return 0
+    status = _read_json(STATUS_FILE)
+    if not status or status.get("state") != "ok":
+        _log(f"Kein erfolgreicher lokaler Analyse-Lauf (state={status.get('state') if status else None}) — kein Apply.")
+        return 0
+    last_success_date = status.get("last_success_date")
+    if not last_success_date:
+        _log("Kein last_success_date im Status — kein Apply.")
+        return 0
+    prior_state = _read_json(STATE_FILE) or {}
+    if prior_state.get("last_applied_success_date") == last_success_date:
+        _log(f"Ergebnis vom {last_success_date} bereits angewandt — kein erneutes Apply.")
+        return 0
+
     result = _read_json(RESULT_FILE)
     if not result:
         _log("Keine analysis_result.json vorhanden.")
@@ -134,6 +148,7 @@ def cmd_apply() -> int:
 
     state["mae_before"] = mae_before
     state["applied_at"] = _now_iso()
+    state["last_applied_success_date"] = last_success_date
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 

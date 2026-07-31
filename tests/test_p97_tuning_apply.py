@@ -32,6 +32,9 @@ def test_apply_applies_valid_proposal(tmp_path, monkeypatch):
     (eval_dir / "analysis_result.json").write_text(json.dumps({
         "tuning_proposals": {"KINEMATIC_EWMA_ALPHA": {"value": 0.5, "reason": "test"}}
     }))
+    (eval_dir / "local_analysis_status.json").write_text(json.dumps({
+        "state": "ok", "last_success_date": "2026-07-31"
+    }))
     (eval_dir / "drift_status.json").write_text(json.dumps({
         "quality_target_by_horizon": {"10": {"actual_mae_km": 3.0}}
     }))
@@ -41,6 +44,7 @@ def test_apply_applies_valid_proposal(tmp_path, monkeypatch):
     monkeypatch.setattr(ta, "HISTORY_FILE", eval_dir / "tuning_history.jsonl")
     monkeypatch.setattr(ta, "RESULT_FILE", eval_dir / "analysis_result.json")
     monkeypatch.setattr(ta, "DRIFT_FILE", eval_dir / "drift_status.json")
+    monkeypatch.setattr(ta, "STATUS_FILE", eval_dir / "local_analysis_status.json")
     patched = {}
     monkeypatch.setattr(ta.runtime_config, "patch", lambda d: patched.update(d) or d)
     monkeypatch.setattr(ta.runtime_config, "get", lambda k, d=None: d)
