@@ -164,6 +164,12 @@ def evaluate_paired_cases(cases: list[dict], minimum_samples: dict[str, int],
     if missing or rejected_count or len(cases) < eligible:
         return {"state": "rejected", "reason": "candidate_coverage_regression",
                 "paired_samples": len(cases), "eligible_incumbent_cases": eligible}
+    guard_failures = []
+    for name in ("direction", "speed", "hit_rate"):
+        if any(bool(c.get(f"{name}_regression")) for c in cases): guard_failures.append(name)
+    if guard_failures:
+        return {"state": "rejected", "reason": "hard_guard_regression", "hard_guard_failures": guard_failures,
+                "paired_samples": len(cases), "unique_cells": unique_cells, "unique_events": unique_events}
     deltas = [c["candidate_error_km"] - c["incumbent_error_km"] for c in cases]
     blocks = {}
     for c, delta in zip(cases, deltas):

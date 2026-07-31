@@ -29,6 +29,8 @@ ALLOWED_BASH_RULES = frozenset({"Bash(python3 tools/ro_query.py *)"})
 
 REQUIRED_LIST_FIELDS = ("fehler", "loesungen", "verbesserungen", "prompts")
 OPTIONAL_LIST_FIELDS = ("tuning_proposals",)
+FINDING_FIELDS = ("verification_findings", "tracking_lineage_findings", "kinematic_findings", "ml_model_findings", "routing_findings")
+FINDING_CONTRACT = ("current_quality", "distance_to_target", "dominant_error_class", "evidence", "last_attempted_improvement", "result", "next_falsifiable_action", "eligible_for_autonomous_experiment")
 SECRET_ENV_TOKENS = ("TOKEN", "SECRET", "PASSWORD", "PASSWD", "APIKEY", "API_KEY", "PRIVATE_KEY", "CREDENTIAL", "ANTHROPIC_API")
 ENV_PASSTHROUGH = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TZ", "TERM", "SHELL", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "DISABLE_AUTOUPDATER")
 
@@ -214,6 +216,25 @@ def validate_payload(obj):
     if not isinstance(proposals, list):
         raise ValueError("Feld 'tuning_proposals' muss eine Liste sein")
     clean["tuning_proposals"] = proposals
+    for field in FINDING_FIELDS:
+        finding = obj.get(field) or {
+            "current_quality": "not_reported", "distance_to_target": None,
+            "dominant_error_class": "unknown", "evidence": [],
+            "last_attempted_improvement": None, "result": "unknown",
+            "next_falsifiable_action": "Datenlage mit einem gebundenen Gold-Snapshot messen",
+            "eligible_for_autonomous_experiment": False,
+        }
+        if not isinstance(finding, dict): raise ValueError(f"Feld {field!r} ist kein Objekt")
+        missing = [name for name in FINDING_CONTRACT if name not in finding]
+        if missing:
+            raise ValueError(f"Feld {field!r} ist unvollständig: {missing}")
+        clean[field] = finding
+    clean["quality_state"] = "plateau" if obj.get("quality_state") in (None, "stable", "unchanged", "plateau") else obj.get("quality_state")
+    clean["previous_experiment_id"] = obj.get("previous_experiment_id")
+    clean["previous_cause_class"] = obj.get("previous_cause_class")
+    clean["next_cause_class"] = obj.get("next_cause_class")
+    if clean["quality_state"] == "plateau" and clean["previous_cause_class"] and clean["previous_cause_class"] == clean["next_cause_class"]:
+        raise ValueError("Plateau erfordert eine fachlich andere nächste Ursachenklasse")
     if proposals:
         # Die fachliche Parameter-/Runtime-Prüfung erfolgt nochmals unmittelbar
         # vor dem Controller. Hier wird verhindert, dass Laufbindung verloren geht.

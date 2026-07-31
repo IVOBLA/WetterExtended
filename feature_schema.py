@@ -132,6 +132,25 @@ def compare_sample_schema(sample_schema: dict, current_schema: dict | None = Non
     return False, "feature_schema_mismatch"
 
 
+def structured_schema_mismatch(expected: dict, actual: dict, *, legacy_samples=0,
+                               schema_mismatch_samples=0, affected_model_versions=None,
+                               affected_horizons=None, runtime_fallback_reason=None) -> dict:
+    """Maschinenlesbare Aufschluesselung statt pauschalem names-mismatch."""
+    exp_names, act_names = list(expected.get("feature_names") or []), list(actual.get("feature_names") or [])
+    exp_types, act_types = expected.get("feature_dtypes") or {}, actual.get("feature_dtypes") or {}
+    return {
+        "expected_feature_schema_hash": expected.get("feature_schema_hash"),
+        "actual_feature_schema_hash": actual.get("feature_schema_hash"),
+        "missing_features": [n for n in exp_names if n not in act_names],
+        "additional_features": [n for n in act_names if n not in exp_names],
+        "order_mismatch": exp_names != act_names and set(exp_names) == set(act_names),
+        "dtype_mismatch": {n: {"expected": exp_types.get(n), "actual": act_types.get(n)} for n in set(exp_types) & set(act_types) if exp_types[n] != act_types[n]},
+        "legacy_samples": int(legacy_samples), "schema_mismatch_samples": int(schema_mismatch_samples),
+        "affected_model_versions": list(affected_model_versions or []), "affected_horizons": list(affected_horizons or []),
+        "runtime_fallback_reason": runtime_fallback_reason,
+    }
+
+
 def scan_training_sources(save_paths: dict | None = None, allow_legacy: bool | None = None) -> dict:
     import config
     paths = save_paths or config.SAVE_PATHS

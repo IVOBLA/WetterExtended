@@ -65,6 +65,7 @@ else:
     Sequential = load_model = Input = LSTM = Dense = Dropout = EarlyStopping = ModelCheckpoint = Adam = None
 
 from feature_schema import get_current_feature_schema
+from ml_promotion import evaluate_ml_candidate, write_active_manifest
 
 from config import (
     DATA_RETENTION_DAYS, MIN_SEQUENCES_LSTM,
@@ -715,7 +716,7 @@ def _is_valid_current_model(model_dir: str | None = None) -> bool:
 def _status_reason(status: str, promotion_samples: int) -> str:
     missing = max(0, MIN_SAMPLES_FOR_PROMOTION - int(promotion_samples or 0))
     mapping = {
-        "cold_start_promoted_low_confidence": f"Erstes ML-Modell wurde aktiviert, obwohl erst {promotion_samples} von {MIN_SAMPLES_FOR_PROMOTION} aktuellen Promotion-/Validierungs-Samples vorhanden sind. Das Modell ist nutzbar, aber mit niedriger Vertrauensstufe markiert.",
+        "cold_start_shadow": "Erstes ML-Modell bleibt Shadow, bis es die produktive Kinematik auf identischen finalen Gold-Fällen mit Mindestmarge und Konfidenz schlägt.",
         "cold_start_insufficient_samples": "Erstaktivierung blockiert: kein brauchbarer Modellkandidat vorhanden oder Training nicht erfolgreich abgeschlossen.",
         "cold_start_rejected_invalid_model": "Erstes Modell wurde nicht aktiviert, weil Modellartefakte fehlen, inkompatibel sind oder das Training ungültig war.",
         "rejected_low_samples": f"Neuer Trainingslauf wurde nicht promoted: nur {promotion_samples} von {MIN_SAMPLES_FOR_PROMOTION} aktuellen Promotion-/Validierungs-Samples vorhanden. Das aktive Modell bleibt unverändert.",
@@ -1056,9 +1057,8 @@ def retrain_all():
         holdout_ok = holdout.get("samples", 0) > 0 and isinstance(holdout_mae, (int, float)) and math.isfinite(holdout_mae)
         artifacts_ok = _has_required_model_artifacts(version_dir)
         if trained_ok and dataset_ok and artifacts_ok and holdout_ok:
-            status = "cold_start_promoted_low_confidence" if promotion_samples < MIN_SAMPLES_FOR_PROMOTION else "promoted"
-            _atomic_switch_current(timestamp)
-            debug_log(f"[TRAINING] Cold-Start aktiviert {timestamp} (promotion_samples={promotion_samples}, low_confidence={promotion_samples < MIN_SAMPLES_FOR_PROMOTION})")
+            status = "cold_start_shadow"
+            debug_log(f"[TRAINING] Cold-Start bleibt Shadow {timestamp}: keine Produktion ohne belastbaren Gold-Fall-Vorteil gegen Kinematik")
         else:
             status = "cold_start_rejected_invalid_model" if trained_ok else "cold_start_insufficient_samples"
             debug_log(f"[TRAINING] Cold-Start ABGELEHNT: trained={trained_ok}, dataset_ok={dataset_ok}, artifacts={artifacts_ok}, holdout_ok={holdout_ok}")
@@ -1100,7 +1100,7 @@ def retrain_all():
     elif (
         isinstance(_kin_baseline_mae, (int, float))
         and _kin_baseline_mae < float("inf")
-        and _mae_new > _kin_baseline_mae
+        and _mae_new >= _kin_baseline_mae
     ):
         # B243: ML schlägt den kinematischen Fallback nicht -> keine Promotion.
         status = "rejected_below_kinematic_baseline"

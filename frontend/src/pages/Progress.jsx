@@ -41,7 +41,7 @@ export default function Progress() {
     setLoaded(false)
     api.get('/api/forecast_stats?hours=24').then(s => setFcStats(s)).catch(() => setFcStats(null))
     api.get('/api/progress')
-      .then(d => { setProgress({ versions: d.versions || [], active_version: d.active_version || null, active_meta: d.active_meta || null }); setLoaded(true) })
+      .then(d => { setProgress(d); setLoaded(true) })
       .catch(err => { setLoadError(err?.message || 'Laden fehlgeschlagen'); setLoaded(true) })
   }
 
@@ -94,6 +94,12 @@ export default function Progress() {
   return (
     <div>
       <h1 className="text-2xl font-bold mb-4">Lernfortschritt</h1>
+
+      <section className="card mb-4"><h2 className="text-lg font-semibold">A. Offline-Training</h2><p>Modellversion, Train-/Validation-/Holdout-Samples, Feature-Schema, km-Metriken, Status und Ablehnungsgrund.</p></section>
+      <section className="card mb-4"><h2 className="text-lg font-semibold">B. Runtime-Champion je Horizont</h2>{Object.entries(progress.runtime_champion_by_horizon || {}).map(([h, c]) => <div key={h}>+{h} min: <b>{c.mode}</b> · {c.model_version || c.reason || '—'}</div>)}</section>
+      <section className="card mb-4"><h2 className="text-lg font-semibold">C. Aktives Shadow-Experiment</h2><pre className="text-xs whitespace-pre-wrap">{progress.active_shadow_experiment ? JSON.stringify(progress.active_shadow_experiment, null, 2) : 'Kein aktives Shadow-Experiment'}</pre></section>
+      <section className="card mb-4"><h2 className="text-lg font-semibold">D. Experimentergebnis</h2><p>Incumbent vs Candidate · Delta · CI · Richtungs-/Speed-Fehler · Hit-Rate · Coverage · Promotion/Plateau/Rejected/Invalid</p></section>
+      <section className="card mb-4"><h2 className="text-lg font-semibold">E. Verbesserungsverlauf</h2><p>7 Tage · 30 Tage · 90 Tage · Abstand zum Qualitätsziel · letzte echte Verbesserung · Plateau-/Stallstatus</p></section>
 
       <div className="card mb-4 bg-blue-50 border-blue-200 text-sm text-blue-900">
         <p className="font-semibold mb-1">📊 Diese Seite zeigt Trainingsqualität, aktive Version und Vergleich zur kinematischen Baseline — alle Fehlerwerte in km (Haversine-Distanz, seit B492/B493).</p>

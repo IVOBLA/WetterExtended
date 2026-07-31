@@ -135,7 +135,12 @@ export default function AiSuggestions() {
   async function clearTuningEscalation() {
     setTuningMsg('')
     try {
-      await api.post('/api/local_analysis/tuning/clear_escalation', {})
+      const reason = window.prompt('Begründung (mindestens 20 Zeichen)')
+      if (!reason || reason.trim().length < 20) throw new Error('Begründung muss mindestens 20 Zeichen enthalten')
+      const newCause = window.prompt('Neue Ursachenklasse')
+      const reference = window.prompt('Referenz (Issue/Prompt/Experiment)')
+      if (!newCause || !reference) throw new Error('Ursachenklasse und Referenz sind Pflicht')
+      await api.post('/api/local_analysis/tuning/clear_escalation', { reason: reason.trim(), new_cause_class: newCause.trim(), reference: reference.trim() })
       const updated = await api.get('/api/local_analysis/tuning')
       setTuning(updated)
     } catch (e) {
