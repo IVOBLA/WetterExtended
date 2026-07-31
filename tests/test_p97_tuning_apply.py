@@ -33,7 +33,7 @@ def test_apply_applies_valid_proposal(tmp_path, monkeypatch):
         "tuning_proposals": {"KINEMATIC_EWMA_ALPHA": {"value": 0.5, "reason": "test"}}
     }))
     (eval_dir / "drift_status.json").write_text(json.dumps({
-        "quality_target_by_horizon": {"10": {"actual_km": 3.0}}
+        "quality_target_by_horizon": {"10": {"actual_mae_km": 3.0}}
     }))
     monkeypatch.setattr(ta, "_enabled", lambda: True)
     monkeypatch.setattr(ta, "EVAL_DIR", eval_dir)
@@ -56,7 +56,7 @@ def test_verify_accepts_on_improvement(tmp_path, monkeypatch):
         "mae_before": {"10": 3.0},
     }))
     (eval_dir / "drift_status.json").write_text(json.dumps({
-        "quality_target_by_horizon": {"10": {"actual_km": 2.5}}
+        "quality_target_by_horizon": {"10": {"actual_mae_km": 2.5}}
     }))
     monkeypatch.setattr(ta, "_enabled", lambda: True)
     monkeypatch.setattr(ta, "STATE_FILE", eval_dir / "tuning_state.json")
@@ -77,7 +77,7 @@ def test_verify_rollbacks_on_degradation(tmp_path, monkeypatch):
         "mae_before": {"10": 3.0},
     }))
     (eval_dir / "drift_status.json").write_text(json.dumps({
-        "quality_target_by_horizon": {"10": {"actual_km": 4.0}}
+        "quality_target_by_horizon": {"10": {"actual_mae_km": 4.0}}
     }))
     rolled = {}
     monkeypatch.setattr(ta, "_enabled", lambda: True)
