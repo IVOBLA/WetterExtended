@@ -9642,3 +9642,35 @@ ließ aber das separat persistierte `meta["validation"]`-Dict (Quelle für
 **Phasen-Status:** Phase A — B493 ✅ (Promotion-Metadaten um km-Felder ergänzt,
 Grundlage für die km-basierte Lernfortschrittsseite). Phase B (Hailo-8 U-Net) bleibt
 unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### P101 — Horizontspezifische Mindest-Samples-Prüfung vor Promotion
+
+**Anlass (ChatGPT-Findings-Report 2026-07-30, P1):** Promotion prüfte nur eine
+GESAMT-Sample-Anzahl (`MIN_SAMPLES_FOR_PROMOTION=50`, gemittelt über alle Horizonte).
+Bei stark fallender Verifikationsabdeckung zu langen Horizonten (~86 % bei +10 min,
+~44 % bei +60 min) konnte ein Kandidat die Gesamtschwelle erreichen, obwohl ein
+einzelner Horizont (typischerweise +60 min) nur wenige, statistisch nicht belastbare
+Samples hatte.
+
+**Änderung:**
+- `model_training.py`: neue Konstante `MIN_SAMPLES_PER_HORIZON_FOR_PROMOTION=10`.
+  Neue Prüfung in der Promotion-Kette (nach `rejected_low_samples`, vor
+  `rejected_below_kinematic_baseline`): jeder Horizont, der in
+  `mae_km_by_horizon` einfließt, muss laut `paired_samples_by_horizon`
+  (B492) mindestens diese Anzahl gepaarter km-Samples haben — sonst
+  `rejected_low_samples_per_horizon`.
+- Statustexte in `model_training.py` und `frontend/src/pages/Progress.jsx`
+  (`STATUS_TEXT`) um den neuen Ablehnungsgrund ergänzt.
+
+**Bewusst nicht Teil dieses Prompts:** horizontspezifisches Promotion/Routing
+(getrennte aktive Modelle je Horizont) — das ist eine eigene Architekturfrage.
+
+**Tests:** Neu `tests/test_p101_min_samples_per_horizon.py` — 4 Tests.
+
+**Benutzerhandbuch:** Abschnitt „Horizontspezifische Mindest-Samples (P101)“ ergänzt.
+
+**Keine** Binaries.
+
+**Phasen-Status:** Phase A — P101 ✅ (horizontspezifische Mindest-Samples-Prüfung vor
+Promotion). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
+ausreichende Trainingsdaten.

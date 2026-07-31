@@ -3006,6 +3006,10 @@ Erkennungsschwellwerte und Dienst-Konfiguration sind explizit ausgeschlossen.
 Jede Änderung wird in `tuning_history.jsonl` protokolliert und automatisch
 zurückgenommen, wenn die Vorhersagequalität sich verschlechtert.
 
+#### Horizontspezifische Mindest-Samples (P101)
+
+Der Ablehnungsgrund `rejected_low_samples_per_horizon` bedeutet, dass mindestens ein in die Bewertung einfließender Vorhersagehorizont weniger als zehn gepaarte km-Vergleichssamples aufweist. Ein Modell kann deshalb trotz ausreichender Gesamtsumme abgelehnt werden, weil jeder bewertete Horizont für eine statistisch belastbare Promotion genügend eigene Samples benötigt.
+
 #### Modell und Ausführzeit konfigurieren
 
 Ab P95 lassen sich in der Karte „Lokale Analyse am Pi" zwei weitere Einstellungen

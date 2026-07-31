@@ -73,6 +73,7 @@ from config import (
 )
 
 MIN_SAMPLES_FOR_PROMOTION = 50
+MIN_SAMPLES_PER_HORIZON_FOR_PROMOTION = 10  # P101: Konfidenz je Horizont, nicht nur im Mittel
 LARGE_SAMPLE_THRESHOLD = 500
 TOLERANCE_LARGE = 1.02
 # B308: Bei zu wenigen verifizierten Samples im Standard-Evaluationsfenster (z. B.
@@ -718,6 +719,7 @@ def _status_reason(status: str, promotion_samples: int) -> str:
         "cold_start_insufficient_samples": "Erstaktivierung blockiert: kein brauchbarer Modellkandidat vorhanden oder Training nicht erfolgreich abgeschlossen.",
         "cold_start_rejected_invalid_model": "Erstes Modell wurde nicht aktiviert, weil Modellartefakte fehlen, inkompatibel sind oder das Training ungültig war.",
         "rejected_low_samples": f"Neuer Trainingslauf wurde nicht promoted: nur {promotion_samples} von {MIN_SAMPLES_FOR_PROMOTION} aktuellen Promotion-/Validierungs-Samples vorhanden. Das aktive Modell bleibt unverändert.",
+        "rejected_low_samples_per_horizon": f"Neuer Trainingslauf wurde nicht promoted: mindestens ein Horizont hat weniger als {MIN_SAMPLES_PER_HORIZON_FOR_PROMOTION} gepaarte km-Vergleichssamples und ist damit statistisch nicht belastbar, obwohl die Gesamtsumme ausreicht. Das aktive Modell bleibt unverändert.",
         "promoted": "Modell wurde aktiviert.",
         "rejected": "Neues Modell war nicht besser als das aktive Modell.",
         "rejected_incompatible": "Modell ist inkompatibel zu aktuellen Horizonten oder Features.",
@@ -1073,6 +1075,24 @@ def retrain_all():
             f"(samples={promotion_samples} < {MIN_SAMPLES_FOR_PROMOTION} nach Fenster-Erweiterung auf "
             f"{new_eval.get('eval_window_hours', 24)}h von max. {MODEL_PROMOTION_EVAL_MAX_HOURS}h — "
             f"keine Promotion ohne ausreichende Validierung)"
+        )
+    elif (
+        lambda _paired={
+            h: n for h, n in new_eval.get("paired_samples_by_horizon", {}).items()
+            if h in new_eval.get("mae_km_by_horizon", {})
+        }: any(n < MIN_SAMPLES_PER_HORIZON_FOR_PROMOTION for n in _paired.values())
+    )():
+        # P101: mind. ein Horizont, der in den km-Durchschnitt eingeht, hat zu wenige
+        # gepaarte Samples — Promotion auf Basis eines statistisch nicht belastbaren
+        # Horizonts vermeiden, auch wenn die Gesamtsumme ausreicht.
+        _thin = {
+            h: n for h, n in new_eval.get("paired_samples_by_horizon", {}).items()
+            if h in new_eval.get("mae_km_by_horizon", {}) and n < MIN_SAMPLES_PER_HORIZON_FOR_PROMOTION
+        }
+        status = "rejected_low_samples_per_horizon"
+        debug_log(
+            f"[TRAINING] REJECTED {timestamp}: Horizont(e) mit zu wenigen gepaarten "
+            f"km-Samples fuer eine belastbare Promotion (< {MIN_SAMPLES_PER_HORIZON_FOR_PROMOTION}): {_thin}"
         )
     elif (
         isinstance(_kin_baseline_mae, (int, float))
