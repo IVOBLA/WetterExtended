@@ -33,7 +33,7 @@ def test_get_tuning_status_returns_defaults(monkeypatch):
         resp = app_module.api_local_analysis_tuning_get()
     data = resp.get_json() if hasattr(resp, "get_json") else json.loads(resp.data)
     assert data["enabled"] is False
-    assert len(data["params"]) == 12
+    assert len(data["params"]) == 11
 
 
 def test_get_tuning_status_reflects_runtime_override(monkeypatch):
