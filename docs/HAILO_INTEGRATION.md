@@ -9476,3 +9476,31 @@ alle grün.
 behoben; AUTONOMOUS_TUNING_ENABLED bleibt bis zur vollständigen Aufarbeitung der
 ChatGPT-Findings vom 2026-07-30 auf False). Phase B (Hailo-8 U-Net) bleibt unverändert
 blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B488 — Stale-Result-Schutz in tuning_apply.py (Freshness + Idempotenz)
+
+**Symptom (aus externer Code-Analyse, nicht aus Testlauf):** `cmd_apply()` wandte
+`tuning_proposals` aus `analysis_result.json` unabhängig davon an, ob der zugrunde
+liegende lokale KI-Lauf der aktuellen Nacht überhaupt erfolgreich war. Da
+`nightly_analysis_dispatch.sh` `tuning_apply.py --apply` unbedingt (`|| true`) nach dem
+Analyse-Dienst aufruft und `run_local_analysis.py` bei jedem Fehlerpfad die alte
+`analysis_result.json` unverändert lässt, hätte ein fehlgeschlagener oder unvollständiger
+Lauf Parameteränderungen aus einem veralteten, unter Umständen tagealten Ergebnis
+ausgelöst. Zusätzlich fehlte ein Schutz gegen doppeltes Anwenden desselben Ergebnisses.
+
+**Änderung:** `tools/tuning_apply.py`: neue Konstante `STATUS_FILE`
+(`train_data/evaluation/local_analysis_status.json`). `cmd_apply()` prüft vor jedem
+Apply `status.state == "ok"` und ein vorhandenes `last_success_date`; bricht sonst ohne
+Wirkung ab. Nach erfolgreichem Apply wird `last_applied_success_date` in
+`tuning_state.json` vermerkt; ein erneuter Aufruf mit demselben Datum wird übersprungen.
+
+**Tests:** `tests/test_b488_tuning_stale_result_guard.py` — 3 neue Tests (Skip bei
+fehlgeschlagenem Lauf, Apply bei frischem Erfolg, Skip bei bereits konsumiertem
+Ergebnis). `tests/test_p97_tuning_apply.py` weiterhin grün (Fixture um passenden
+Status ergänzt).
+
+**Kein** Benutzerhandbuch-Update (Bugfix an deaktivierter interner Logik). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B488 ✅ (Stale-Result-Schutz im autonomen Tuning).
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
+Trainingsdaten.
