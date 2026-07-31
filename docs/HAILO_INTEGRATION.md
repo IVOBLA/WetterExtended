@@ -9385,3 +9385,34 @@ nur die Bedienoberfläche nach). **Keine** Binaries.
 
 **Phasen-Status:** Phase A — P100 ✅ (Autonomes Tuning jetzt vollständig bedienbar:
 P96–P100). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.
+
+### B485 — Sandbox-Regression aus P98 zurückgesetzt (ReadWritePaths wieder auf train_data/evaluation)
+
+**Symptom:** `test_b466_local_analysis_sandbox.py::test_result_directory_is_writable` und
+`::test_project_root_is_not_writable` sowie `test_p78_local_analysis_units.py::test_service_write_access_is_limited_to_the_result_directory`
+schlugen fehl, weil `wetterprojekt-local-analysis.service` seit P98 das komplette
+`train_data`-Verzeichnis statt nur `train_data/evaluation` beschreibbar machte.
+
+**Root Cause:** P98 nahm an, `tools/tuning_apply.py` liefe innerhalb des gehärteten
+Dienstes und bräuchte deshalb Schreibzugriff auf `train_data/runtime_overrides.json` und
+`train_data/tuning_state.json`. Tatsächlich ruft `tools/nightly_analysis_dispatch.sh`
+`tuning_apply.py --verify`/`--apply` als eigenständigen, ungesandboxten Prozess VOR bzw.
+NACH `systemctl start wetterprojekt-local-analysis.service` auf — nie innerhalb dessen
+Sandbox. `tuning_apply.py` schreibt zudem ausschließlich unter `train_data/evaluation/`
+(`STATE_FILE`, `HISTORY_FILE`). Die Erweiterung war unnötig und verletzte das B466-Ziel.
+
+**Änderung:**
+- `wetterprojekt-local-analysis.service`: `ReadWritePaths` zurück auf
+  `/home/ki-pi/wetterprojekt/train_data/evaluation`.
+- `tests/test_p98_tuning_integration.py`: `test_service_has_train_data_write_access` ersetzt
+  durch `test_service_scopes_write_access_to_the_result_directory`, die die enge B466-Grenze
+  einfordert statt sie zu widerlegen.
+
+**Tests:** `tests/test_b466_local_analysis_sandbox.py`, `tests/test_p78_local_analysis_units.py`,
+`tests/test_p98_tuning_integration.py` — alle grün.
+
+**Kein** Benutzerhandbuch-Update (reiner Sicherheits-Bugfix). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B485 ✅ (Sandbox-Regression aus P98 zurückgesetzt).
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
+Trainingsdaten.
