@@ -19,7 +19,25 @@ def _make_scaler_dir(n=60, F=119):
     return d, sc.transform(raw), raw
 
 
-def test_kinematic_baseline_low_for_consistent_motion():
+def _fake_target_to_latlon(origin_x, origin_y, dx, dy, target_encoding):
+    """B492: deterministischer Ersatz fuer die echte KML-Bounds-Transformation
+    (in der Testumgebung nicht verfuegbar). Flache, aber feste Naeherung: 1
+    Original-px-Einheit ~ 0.01 km, linear und monoton -> Fehlerrangfolge bleibt
+    erhalten, ohne von echten Bounds-Dateien abzuhaengen."""
+    import math
+    if target_encoding == "delta":
+        bx, by = origin_x + dx, origin_y + dy
+    else:
+        bx, by = dx, dy
+    base_lat = 46.6
+    km_per_unit = 0.01
+    lat = base_lat + (by * km_per_unit) / 111.0
+    lon = 14.0 + (bx * km_per_unit) / (111.0 * math.cos(math.radians(base_lat)))
+    return lat, lon
+
+
+def test_kinematic_baseline_low_for_consistent_motion(monkeypatch):
+    monkeypatch.setattr(mt, "_target_to_latlon", _fake_target_to_latlon)
     d, X_recent, raw = _make_scaler_dir()
     horizons = list(mt.ML_FORECAST_HORIZONS_MIN)
     # y_recent passend zum Encoding der laufenden Config bauen
@@ -33,7 +51,9 @@ def test_kinematic_baseline_low_for_consistent_motion():
             y[:, 2 * i] = raw[:, 0] + dx; y[:, 2 * i + 1] = raw[:, 1] + dy
     avail = set(range(len(horizons) * 2))
     by_h, total = mt._kinematic_baseline_mae(X_recent, y, d, horizons, avail)
-    assert total < 5.0  # nahezu perfekte Kinematik -> kleiner Baseline-MAE
+    # B492: total jetzt in km (vorher Rohpixel) -> kleinerer, aber weiterhin klar
+    # von "inf"/Ausreissern unterscheidbarer Schwellwert bei nahezu perfekter Kinematik.
+    assert total < 1.0
     assert len(by_h) == len(horizons)
 
 

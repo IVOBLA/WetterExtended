@@ -9574,3 +9574,51 @@ bereits vorhandenen Quelldaten, keine neue Berechnung.
 **Phasen-Status:** Phase A — B491 ✅ (Diagnosefelder im Outlier-Export ergänzt;
 Grundlage für künftige Root-Cause-Analyse des Richtungs-/Positions-Bias).
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B492 — F-ML-001: Modell-Promotion vergleicht km statt Radar-Pixel-Raum
+
+**Anlass (ChatGPT-Findings-Report 2026-07-30, F-ML-001, kritisch):** `model_training.py::evaluate_on_recent()`
+berechnete die ML-MAE eines Kandidatenmodells als rohe Pixel-/Zielraum-Differenz und
+verglich sie direkt mit der kinematischen Betriebs-Baseline in echten Kilometern
+(`accuracy_tracker.get_runtime_kinematic_mae_by_horizon()`, Feld `mae_km`). Promotion-
+und Ablehnungsentscheidungen konnten dadurch auf einem numerischen Zufall der Einheiten
+beruhen statt auf echtem Qualitätsvergleich.
+
+**Analyse:** Der Laufzeit-Inferenzpfad (`prediction.py`) löst diese Umrechnung bereits
+konsistent für jeden ausgelieferten Forecast: `_decode_ml_position()` (P58, Rohausgabe
+→ upscaled px) → `geo_utils.pixel_to_geo()` (px → lat/lon, echte KML-Bounds) →
+`accuracy_tracker._haversine_km()` (dieselbe Funktion, die auch die reale Betriebs-
+`mae_km` erzeugt). Zusätzlich wurde festgestellt, dass auch die B243-Fallback-Baseline
+`_kinematic_baseline_mae()` (Cold-Start, ohne Betriebshistorie) bisher rohe
+Pixel-Differenzen lieferte — ohne Korrektur hätte der reine ML-Fix eine neue
+Inkonsistenz zwischen Fallback- und Betriebs-Baseline erzeugt.
+
+**Änderung:**
+- `model_training.py`: neuer Helfer `_target_to_latlon()` kapselt
+  `prediction._decode_ml_position` + `geo_utils.pixel_to_geo` — ein einziger,
+  überall gleicher Transform-Pfad.
+- `_kinematic_baseline_mae()` (B243) liefert jetzt Haversine-km statt Rohpixel-Differenz.
+- `evaluate_on_recent()`: neue Felder `mae_km_total`/`mae_km_by_horizon`
+  (Haversine-km über `_target_to_latlon`) und `paired_samples_by_horizon`. Die
+  bisherige Pixel-/Zielraum-Metrik bleibt als Diagnosefeld `mae_px_total`/
+  `mae_px_by_horizon` erhalten (`mae_total`/`mae_by_horizon` bleiben als Alias
+  bestehen, um keine anderen Konsumenten zu brechen).
+- Promotion-Vergleich (`_mae_new`/`_mae_old`) nutzt jetzt `mae_km_total` statt
+  `mae_total` — Kandidat, aktives Modell und kinematische Baseline werden erstmals
+  alle in derselben Einheit (km) verglichen.
+
+**Nicht Teil dieses Fixes (bewusst zurückgestellt, P1/P2 im Findings-Report):**
+horizontspezifische Mindest-Samples/Konfidenzprüfung vor Promotion,
+Kinematik-Incumbent/Candidate-Shadow, `sample_set_id`/`verification_config_hash`/
+`forecast_variant_id`, Ein-Parameter-pro-Experiment-Zwang, Plateau-Eskalationslogik,
+Lernfortschrittsseite auf km-basierte gepaarte Metriken umstellen.
+
+**Tests:** `tests/test_b243_baseline_gate.py` (Schwellwert an km-Einheit angepasst),
+neu `tests/test_b492_promotion_km_units.py` — 3 Tests (Promotion liest mae_km_total,
+gemeinsamer Transform-Pfad nachgewiesen, Pixel-/km-Fehler können divergieren).
+
+**Kein** Benutzerhandbuch-Update (interne Trainings-Pipeline-Korrektur). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B492 ✅ (F-ML-001: Modell-Promotion vergleicht jetzt
+konsistent km statt Radar-Pixel-Raum). Phase B (Hailo-8 U-Net) bleibt unverändert
+blockiert; sie wartet auf ausreichende Trainingsdaten.

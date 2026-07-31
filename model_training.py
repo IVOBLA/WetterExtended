@@ -199,10 +199,28 @@ def _atomic_switch_current(version_id):
     os.replace(tmp_link, current_link)
 
 
+def _target_to_latlon(origin_x, origin_y, dx, dy, target_encoding):
+    """B492/F-ML-001: Wandelt eine Ziel-/Vorhersageverschiebung (Original-px,
+    encoding-abhaengig: delta|absolute) ueber DENSELBEN Pfad wie die Laufzeit-Inferenz
+    in lat/lon um. Wiederverwendet prediction._decode_ml_position (P58) und
+    geo_utils.pixel_to_geo — keine zweite, abweichende Implementierung. Damit sind
+    Promotion-Metriken (Training) und ausgelieferte Forecasts (Laufzeit) IMMER
+    identisch transformiert."""
+    from prediction import _decode_ml_position
+    from geo_utils import pixel_to_geo
+    obj = {"x": float(origin_x), "y": float(origin_y)}
+    px, py = _decode_ml_position(obj, float(dx), float(dy), target_encoding)
+    return pixel_to_geo(px, py)
+
+
 def _kinematic_baseline_mae(X_recent, y_recent, model_dir, eval_horizons, avail_cols):
-    """B243: MAE der rein kinematischen Vorhersage (Position + v*Horizont) auf denselben
-    Samples wie evaluate_on_recent. Encoding-robust (delta|absolute). Feature-Indizes
-    x,y,vx,vy = 0,1,2,3 (ML_CELL_FEATURES). Liefert (mae_by_horizon, mae_total)."""
+    """B243/B492: Haversine-km-MAE der rein kinematischen Vorhersage (Position +
+    v*Horizont) auf denselben Samples wie evaluate_on_recent. Encoding-robust
+    (delta|absolute). Feature-Indizes x,y,vx,vy = 0,1,2,3 (ML_CELL_FEATURES).
+    B492/F-ML-001: liefert jetzt echte km-Fehler ueber _target_to_latlon + Haversine
+    statt Rohpixel-Differenz — sonst waere diese Fallback-Baseline inkonsistent mit
+    der ebenfalls km-basierten evaluate_on_recent()-ML-MAE."""
+    from accuracy_tracker import _haversine_km as _hav_km
     result_by_h, valid = {}, []
     if np is None or joblib is None:
         return result_by_h, float("inf")
@@ -221,15 +239,22 @@ def _kinematic_baseline_mae(X_recent, y_recent, model_dir, eval_horizons, avail_
         if c0 not in avail_cols or c1 not in avail_cols:
             continue
         if _enc == "delta":
-            pred_x = vx * float(horizon)
-            pred_y = vy * float(horizon)
+            pred_dx = vx * float(horizon)
+            pred_dy = vy * float(horizon)
         else:
-            pred_x = x0 + vx * float(horizon)
-            pred_y = y0 + vy * float(horizon)
-        diff = np.abs(np.stack([pred_x, pred_y], axis=1) - y_recent[:, c0:c1 + 1])
-        if np.all(np.isnan(diff)):
+            pred_dx = x0 + vx * float(horizon)
+            pred_dy = y0 + vy * float(horizon)
+        errs_km = []
+        for i in range(raw.shape[0]):
+            true_dx, true_dy = y_recent[i, c0], y_recent[i, c1]
+            if any(v != v for v in (pred_dx[i], pred_dy[i], true_dx, true_dy)):
+                continue
+            lat_p, lon_p = _target_to_latlon(x0[i], y0[i], pred_dx[i], pred_dy[i], _enc)
+            lat_t, lon_t = _target_to_latlon(x0[i], y0[i], true_dx, true_dy, _enc)
+            errs_km.append(_hav_km(lat_p, lon_p, lat_t, lon_t))
+        if not errs_km:
             continue
-        h_mae = float(np.nanmean(diff))
+        h_mae = float(np.mean(errs_km))
         result_by_h[str(horizon)] = h_mae
         valid.append(h_mae)
     return result_by_h, (float(np.mean(valid)) if valid else float("inf"))
@@ -284,20 +309,53 @@ def evaluate_on_recent(model_dir, hours=24):
         return {"mae_total": float("inf"), "mae_by_horizon": {}, "samples": len(idx)}
 
     y_pred = scaler_y.inverse_transform(y_pred_scaled)
-    mae_by_horizon = {}
+    mae_px_by_horizon = {}
+    mae_km_by_horizon = {}
+    paired_samples_by_horizon = {}
     _eval_horizons = _get_training_horizons()  # P29: runtime-fähig
-    _valid_h_maes = []
+    _valid_h_maes_px = []
+    _valid_h_maes_km = []
+    _origin_ok = False
+    _scaler_x_path = os.path.join(model_dir, "scaler_X.joblib")
+    if os.path.exists(_scaler_x_path):
+        try:
+            _scaler_X = joblib.load(_scaler_x_path)
+            _raw_X = _scaler_X.inverse_transform(X_recent)
+            _origin_x, _origin_y = _raw_X[:, 0], _raw_X[:, 1]
+            _origin_ok = True
+        except Exception:
+            _origin_ok = False
+    if _origin_ok:
+        from accuracy_tracker import _haversine_km as _hav_km_ml
     for h_idx, horizon in enumerate(_eval_horizons):
         c0, c1 = h_idx * 2, h_idx * 2 + 1
         if c0 not in _avail_cols or c1 not in _avail_cols:
             continue
         _diff = np.abs(y_pred[:, c0:c1 + 1] - y_recent[:, c0:c1 + 1])
-        if np.all(np.isnan(_diff)):
-            continue
-        _h_mae = float(np.nanmean(_diff))
-        mae_by_horizon[str(horizon)] = _h_mae
-        _valid_h_maes.append(_h_mae)
-    mae_total = float(np.mean(_valid_h_maes)) if _valid_h_maes else float("inf")
+        if not np.all(np.isnan(_diff)):
+            _h_mae_px = float(np.nanmean(_diff))
+            mae_px_by_horizon[str(horizon)] = _h_mae_px
+            _valid_h_maes_px.append(_h_mae_px)
+        # B492/F-ML-001: dieselbe Stichprobe zusaetzlich in echten km bewertet (ueber
+        # denselben Transform-Pfad wie die Laufzeit-Inferenz), damit die Promotion
+        # nicht Pixel- gegen Kilometer-Fehler vergleicht.
+        if _origin_ok:
+            _errs_km = []
+            for i in range(y_pred.shape[0]):
+                _pdx, _pdy = y_pred[i, c0], y_pred[i, c1]
+                _tdx, _tdy = y_recent[i, c0], y_recent[i, c1]
+                if any(v != v for v in (_pdx, _pdy, _tdx, _tdy)):
+                    continue
+                _lat_p, _lon_p = _target_to_latlon(_origin_x[i], _origin_y[i], _pdx, _pdy, ML_TARGET_ENCODING)
+                _lat_t, _lon_t = _target_to_latlon(_origin_x[i], _origin_y[i], _tdx, _tdy, ML_TARGET_ENCODING)
+                _errs_km.append(_hav_km_ml(_lat_p, _lon_p, _lat_t, _lon_t))
+            if _errs_km:
+                mae_km_by_horizon[str(horizon)] = float(np.mean(_errs_km))
+                paired_samples_by_horizon[str(horizon)] = len(_errs_km)
+                _valid_h_maes_km.append(mae_km_by_horizon[str(horizon)])
+    mae_total = float(np.mean(_valid_h_maes_px)) if _valid_h_maes_px else float("inf")  # B492: Diagnosefeld, Pixel-/Zielraum
+    mae_by_horizon = mae_px_by_horizon  # B492: Alias, identisch zu mae_px_by_horizon (Rueckwaertskompatibilitaet)
+    mae_km_total = float(np.mean(_valid_h_maes_km)) if _valid_h_maes_km else float("inf")
 
     # B277: Promotion nutzt dieselbe reale Betriebskinematik wie das Runtime-Gate
     # (accuracy_history.jsonl). B243-Fallback (Position + v*Horizont) nur wenn für
@@ -320,6 +378,9 @@ def evaluate_on_recent(model_dir, hours=24):
     kin_mae_total = float(np.mean(list(kin_mae_by_horizon.values()))) if kin_mae_by_horizon else float("inf")
     return {
         "mae_total": mae_total, "mae_by_horizon": mae_by_horizon,
+        "mae_px_total": mae_total, "mae_px_by_horizon": mae_px_by_horizon,
+        "mae_km_total": mae_km_total, "mae_km_by_horizon": mae_km_by_horizon,
+        "paired_samples_by_horizon": paired_samples_by_horizon,
         "kin_mae_total": kin_mae_total, "kin_mae_by_horizon": kin_mae_by_horizon,
         "promotion_baseline_source": promotion_baseline_source,
         "samples": len(idx),
@@ -970,8 +1031,8 @@ def retrain_all():
     #   - Eine Verbesserungstoleranz von 2 % wird nur akzeptiert, wenn
     #     mindestens 500 Samples vorliegen — ansonsten muss new < old strikt sein.
     promotion_samples = int(new_eval.get("samples", 0) or 0)
-    _mae_new     = float(new_eval.get("mae_total", float("inf")))
-    _mae_old     = float(old_eval.get("mae_total", float("inf")))
+    _mae_new     = float(new_eval.get("mae_km_total", float("inf")))  # B492/F-ML-001: km statt Pixel-/Zielraum
+    _mae_old     = float(old_eval.get("mae_km_total", float("inf")))  # B492/F-ML-001: km statt Pixel-/Zielraum
     _kin_baseline_mae = float(new_eval.get("kin_mae_total", float("inf")))  # B243/B277
     _promotion_decision = "promoted" if _kin_baseline_mae > 0 and new_eval.get("mae_total", float("inf")) < _kin_baseline_mae else "rejected"
     _promotion_reject_reason = None if _promotion_decision == "promoted" else "ml_mae_worse_than_runtime_kinematic_baseline"
