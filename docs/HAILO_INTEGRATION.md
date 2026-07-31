@@ -9439,3 +9439,40 @@ korrigiert.
 **Phasen-Status:** Phase A — B486 ✅ (P81-UI-Test an B484-Obergrenze angepasst).
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
 Trainingsdaten.
+
+### B487 — Kritischer Feldnamen-Fehler in tuning_apply.py behoben (actual_km → actual_mae_km)
+
+**Symptom (aus externer Code-Analyse, nicht aus Testlauf):** `tools/tuning_apply.py::_current_mae_by_horizon()`
+las `v.get("actual_km", 999)` aus `quality_target_by_horizon` in `drift_status.json`.
+`drift_detector.py` schreibt dort aber ausschließlich das Feld `actual_mae_km`. Jeder
+Aufruf lieferte dadurch für jeden Horizont den Sentinel-Default `999.0`.
+
+**Auswirkung:** In `cmd_verify()` waren `mae_before` und `mae_after` wegen dieses Bugs
+für jede Parameteränderung identisch (`999.0`), wodurch `delta_km` immer `0.0` und jede
+Tuning-Änderung fälschlich als „AKZEPTIERT“ gewertet wurde — der Rollback-Schutz war
+vollständig wirkungslos. Betroffen nur bei aktivem `AUTONOMOUS_TUNING_ENABLED` (aktuell
+Default `False`, noch kein produktiver Schaden).
+
+**Root Cause:** `tests/test_p97_tuning_apply.py` verwendete in seinen Fixtures denselben
+falschen Feldnamen (`actual_km`) und deckte den Bug deshalb nie auf.
+
+**Änderung:**
+- `tools/tuning_apply.py`: `_current_mae_by_horizon()` liest jetzt `actual_mae_km`
+  (Erzeuger-Feld aus `drift_detector.py`) statt `actual_km`.
+- `tests/test_p97_tuning_apply.py`: drei Fixtures (`test_apply_applies_valid_proposal`,
+  `test_verify_accepts_on_improvement`, `test_verify_rollbacks_on_degradation`) auf
+  `actual_mae_km` korrigiert.
+- Neu: `tests/test_b487_tuning_field_name.py` — 3 Tests: korrektes Feld wird gelesen,
+  das alte falsche Feld führt NICHT mehr zum echten Wert (Sentinel-Fallback), und ein
+  Kontrolltest sichert die Namensgleichheit zwischen Erzeuger (`drift_detector.py`) und
+  Verbraucher (`tuning_apply.py`) ab, um erneutes Auseinanderlaufen zu verhindern.
+
+**Tests:** `tests/test_p97_tuning_apply.py`, `tests/test_b487_tuning_field_name.py` —
+alle grün.
+
+**Kein** Benutzerhandbuch-Update (Bugfix an deaktivierter interner Logik). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B487 ✅ (kritischer Feldnamen-Fehler im autonomen Tuning
+behoben; AUTONOMOUS_TUNING_ENABLED bleibt bis zur vollständigen Aufarbeitung der
+ChatGPT-Findings vom 2026-07-30 auf False). Phase B (Hailo-8 U-Net) bleibt unverändert
+blockiert; sie wartet auf ausreichende Trainingsdaten.

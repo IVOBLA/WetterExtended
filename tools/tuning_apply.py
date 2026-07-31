@@ -58,7 +58,7 @@ def _current_mae_by_horizon() -> dict:
     if not ds:
         return {}
     qt = ds.get("quality_target_by_horizon", {})
-    return {str(h): float(v.get("actual_km", 999))
+    return {str(h): float(v.get("actual_mae_km", 999))
             for h, v in qt.items() if isinstance(v, dict)}
 
 
