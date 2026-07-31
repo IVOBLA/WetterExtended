@@ -1093,6 +1093,23 @@ FORECAST_MIN_ABSOLUTE_IMPROVEMENT_KM: float = 0.05
 FORECAST_MIN_RELATIVE_IMPROVEMENT: float = 0.02
 FORECAST_MAX_ABSOLUTE_HORIZON_REGRESSION_KM: float = 0.03
 FORECAST_MAX_RELATIVE_HORIZON_REGRESSION: float = 0.01
+FORECAST_EXPERIMENT_MIN_PAIRED_SAMPLES_PER_HORIZON: int = 30
+FORECAST_EXPERIMENT_MIN_UNIQUE_CELLS: int = 10
+FORECAST_EXPERIMENT_MIN_UNIQUE_EVENTS: int = 5
+FORECAST_EXPERIMENT_MIN_RUNTIME_HOURS: int = 24
+FORECAST_EXPERIMENT_MAX_RUNTIME_HOURS: int = 168
+FORECAST_EXPERIMENT_RETENTION_DAYS: int = 14
+FORECAST_EXPERIMENT_POLICY: dict = {
+    "min_absolute_improvement_km": FORECAST_MIN_ABSOLUTE_IMPROVEMENT_KM,
+    "min_relative_improvement": FORECAST_MIN_RELATIVE_IMPROVEMENT,
+    "max_absolute_horizon_regression_km": FORECAST_MAX_ABSOLUTE_HORIZON_REGRESSION_KM,
+    "max_relative_horizon_regression": FORECAST_MAX_RELATIVE_HORIZON_REGRESSION,
+    "bootstrap_iterations": 2000,
+    "confidence_level": 0.95,
+    "min_unique_cells": FORECAST_EXPERIMENT_MIN_UNIQUE_CELLS,
+    "min_unique_events": FORECAST_EXPERIMENT_MIN_UNIQUE_EVENTS,
+    "hard_guards": ["coverage", "hit_rate", "direction_error", "speed_error"],
+}
 
 # Jeder Eintrag: Key = Name in runtime_overrides.json (wie prediction.py ihn liest)
 #                min/max = harte, nie ueberschreitbare Bounds
@@ -1161,6 +1178,32 @@ AUTONOMOUS_TUNING_PARAMS: dict = {
         "effect": "Max. Zeitluecke fuer gueltigen OF-Vektor; darueber Fallback auf EWMA",
     },
 }
+
+# Die Zuordnung ist absichtlich explizit (keine Namensheuristik). Matcher-,
+# Erkennungs- und Warnschwellen kommen in dieser Liste nicht vor.
+_TUNING_ACTUATOR_TARGETS = {
+    "KINEMATIC_EWMA_ALPHA": "kinematic",
+    "KINEMATIC_ACCEL_MAX_FRACTION": "kinematic",
+    "KINEMATIC_MIN_INTERVAL_DISP_PX": "kinematic",
+    "STEERING_BLEND_WEIGHT": "kinematic",
+    "STEERING_BLEND_MIN_WIND_KMH": "kinematic",
+    "STEERING_BLEND_MIN_ANGLE_DEG": "kinematic",
+    "STEERING_NEW_CELL_SPEED_FRAC": "kinematic",
+    "OF_MAX_FRAME_INTERVAL_MIN": "kinematic",
+    "ML_RUNTIME_GATING_MARGIN": "routing_gate",
+    "ML_FORECAST_MAX_BEARING_DEVIATION_DEG": "ml",
+    "FORECAST_CROSS_HORIZON_MAX_BEARING_JUMP_DEG": "ml",
+}
+for _parameter_name, _parameter_spec in AUTONOMOUS_TUNING_PARAMS.items():
+    _parameter_spec.update({
+        "target_system": _TUNING_ACTUATOR_TARGETS[_parameter_name],
+        "affected_modes": [_TUNING_ACTUATOR_TARGETS[_parameter_name]],
+        "affected_horizons": "all",
+        "requires": ({"KINEMATIC_ACCELERATION_ENABLED": True}
+                     if _parameter_name == "KINEMATIC_ACCEL_MAX_FRACTION" else {}),
+        "max_change_per_experiment": _parameter_spec["step"],
+        "metric_contract": "forecast_position_v2",
+    })
 
 # Trainings-Schedule (Cron-Stil). Wird vom Scheduler gelesen, kann per
 # Adminpanel über runtime_overrides.json überschrieben werden.

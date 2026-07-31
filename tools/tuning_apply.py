@@ -15,7 +15,10 @@ import argparse
 import json
 import math
 import sys
-from datetime import datetime, timezone
+import os
+import tempfile
+import fcntl
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # ─── Projektverzeichnis ──────────────────────────────────────────────
@@ -34,6 +37,9 @@ HISTORY_FILE = EVAL_DIR / "tuning_history.jsonl"
 RESULT_FILE = EVAL_DIR / "analysis_result.json"
 DRIFT_FILE = EVAL_DIR / "drift_status.json"
 STATUS_FILE = EVAL_DIR / "local_analysis_status.json"  # B488: Freshness-Pruefung
+EXPERIMENTS_DIR = EVAL_DIR / "experiments"
+LOCK_FILE = EVAL_DIR / ".tuning.lock"
+# Nur Kompatibilitätsname für externe Diagnosewerkzeuge; Verify konsumiert ihn nie.
 EXPERIMENT_RESULT_FILE = EVAL_DIR / "paired_experiment_result.json"
 
 
@@ -115,6 +121,18 @@ def _append_history(entry: dict) -> None:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
+def _atomic_json(path: Path, value: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(value, stream, ensure_ascii=False, sort_keys=True, indent=2)
+            stream.flush(); os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary): os.unlink(temporary)
+
+
 def _read_json(path: Path) -> dict | None:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -156,9 +174,11 @@ def _experiments_enabled() -> bool:
 
 
 def _verification_config_hash() -> str:
-    names = ("VERIFICATION_NN_MAX_MATCH_KM", "VERIFICATION_TIME_TOLERANCE_S",
-             "VERIFICATION_MAX_SEARCH_RADIUS_KM", "VERIFICATION_INTERPOLATION_MAX_GAP_S")
-    return stable_hash({name: runtime_config.get(name, getattr(config, name, None)) for name in names})
+    names = sorted(name for name in dir(config) if name.startswith(("VERIFICATION_", "LINEAGE_")))
+    contract = {name: runtime_config.get(name, getattr(config, name, None)) for name in names}
+    contract["matcher_code_hash"] = stable_hash((REPO_DIR / "accuracy_tracker.py").read_text(encoding="utf-8"))
+    contract["schema"] = "verification-contract.v2"
+    return stable_hash(contract)
 
 
 def validate_proposal(name: str, value: float) -> str | None:
@@ -179,17 +199,19 @@ def validate_proposal(name: str, value: float) -> str | None:
 
 def _actuator_error(proposal: dict) -> str | None:
     name = proposal["parameter"]
-    if proposal["target_system"] == "kinematic" and not name.startswith("KINEMATIC_"):
+    spec = _whitelist().get(name, {})
+    if spec.get("target_system") != proposal["target_system"]:
         return "parameter_does_not_affect_target_system"
-    if proposal["target_system"] == "ml" and not (name.startswith("ML_") or name.startswith("FORECAST_")):
-        return "parameter_does_not_affect_target_system"
-    if name == "KINEMATIC_ACCEL_MAX_FRACTION" and not bool(runtime_config.get(
-            "KINEMATIC_ACCELERATION_ENABLED", getattr(config, "KINEMATIC_ACCELERATION_ENABLED", False))):
-        return "actuator_not_effective"
+    if abs(float(proposal["new_value"]) - float(proposal["old_value"])) > float(
+            spec.get("max_change_per_experiment", spec["step"])) + 1e-12:
+        return "candidate_change_exceeds_maximum_step"
+    for requirement, expected in spec.get("requires", {}).items():
+        if runtime_config.get(requirement, getattr(config, requirement, None)) != expected:
+            return "actuator_not_effective"
     return None
 
 
-def cmd_apply() -> int:
+def _cmd_apply_unlocked() -> int:
     """Erzeugt ausschliesslich eine Shadow-Candidate-Konfiguration."""
     if not _enabled() or not _experiments_enabled():
         _log("Autonomes Tuning oder Forecast-Experimente sind deaktiviert.")
@@ -237,7 +259,39 @@ def cmd_apply() -> int:
                          "experiment_id": proposal["experiment_id"]})
         return 0
     name = proposal["parameter"]
-    candidate = {name: proposal["new_value"]}
+    incumbent = {key: runtime_config.get(key, getattr(config, key)) for key in _whitelist()}
+    candidate = dict(incumbent); candidate[name] = proposal["new_value"]
+    policy = dict(config.FORECAST_EXPERIMENT_POLICY)
+    policy_hash = stable_hash(policy)
+    now = datetime.now(timezone.utc)
+    minimum_hours = max(int(config.FORECAST_EXPERIMENT_MIN_RUNTIME_HOURS), 0)
+    maximum_hours = min(int(proposal["maximum_runtime_hours"]),
+                        int(config.FORECAST_EXPERIMENT_MAX_RUNTIME_HOURS))
+    effective_samples = {str(h): max(int(proposal["minimum_paired_samples"][str(h)]),
+                                     int(config.FORECAST_EXPERIMENT_MIN_PAIRED_SAMPLES_PER_HORIZON))
+                         for h in proposal["target_horizons"]}
+    experiment_dir = EXPERIMENTS_DIR / proposal["experiment_id"]
+    incumbent_variant = f"{proposal['target_system']}_incumbent:{proposal['experiment_id']}"
+    candidate_variant = f"{proposal['target_system']}_candidate:{proposal['experiment_id']}"
+    manifest = {
+        "schema": EXPERIMENT_SCHEMA, "experiment_id": proposal["experiment_id"],
+        "analysis_run_id": result["analysis_run_id"], "result_id": result["result_id"],
+        "source_snapshot_id": result["source_snapshot_id"], "git_commit": result["git_commit"],
+        "target_system": proposal["target_system"], "target_horizons": proposal["target_horizons"],
+        "parameter": name, "incumbent_value": proposal["old_value"], "candidate_value": proposal["new_value"],
+        "incumbent_parameter_set": incumbent, "candidate_parameter_set": candidate,
+        "incumbent_parameter_set_hash": stable_hash(incumbent), "candidate_parameter_set_hash": stable_hash(candidate),
+        "forecast_variant_id_incumbent": incumbent_variant, "forecast_variant_id_candidate": candidate_variant,
+        "policy": policy, "policy_hash": policy_hash, "verification_config_hash": _verification_config_hash(),
+        "matcher_contract_hash": _verification_config_hash(),
+        "forecast_code_hash": stable_hash((REPO_DIR / "prediction.py").read_text(encoding="utf-8")),
+        "minimum_runtime_hours": minimum_hours, "maximum_runtime_hours": maximum_hours,
+        "not_before_utc": (now + timedelta(hours=minimum_hours)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "expires_at_utc": (now + timedelta(hours=maximum_hours)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "created_at_utc": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    _atomic_json(experiment_dir / "manifest.json", manifest)
+    _atomic_json(experiment_dir / "status.json", {"experiment_id": proposal["experiment_id"], "state": "collecting"})
     state.update({
         "schema": "wetterextended.tuning-state.v2",
         "analysis_run_id": result["analysis_run_id"], "source_snapshot_id": result["source_snapshot_id"],
@@ -247,14 +301,15 @@ def cmd_apply() -> int:
                     "target_system": proposal["target_system"], "target_horizons": proposal["target_horizons"],
                     "parameter": name, "incumbent_value": proposal["old_value"],
                     "candidate_value": proposal["new_value"], "candidate_parameter_set": candidate,
-                    "parameter_set_hash": stable_hash(candidate),
-                    "verification_config_hash": _verification_config_hash(),
-                    "forecast_variant_id": f"{proposal['target_system']}_candidate:{proposal['experiment_id']}",
-                    "minimum_paired_samples": proposal["minimum_paired_samples"],
-                    "started_at_utc": _now_iso()},
+                    "parameter_set_hash": stable_hash(candidate), "policy_hash": policy_hash,
+                    "verification_config_hash": manifest["verification_config_hash"],
+                    "forecast_variant_id": candidate_variant,
+                    "minimum_paired_samples": effective_samples,
+                    "minimum_runtime_hours": minimum_hours, "maximum_runtime_hours": maximum_hours,
+                    "started_at_utc": manifest["created_at_utc"], "not_before_utc": manifest["not_before_utc"],
+                    "expires_at_utc": manifest["expires_at_utc"]},
     })
-    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_json(STATE_FILE, state)
     _append_history({"ts": _now_iso(), "action": "shadow_candidate_created",
                      "experiment_id": proposal["experiment_id"], "param": name,
                      "old": proposal["old_value"], "new": proposal["new_value"],
@@ -262,7 +317,7 @@ def cmd_apply() -> int:
     _log("Shadow-Candidate erzeugt; produktive Runtime-Konfiguration unverändert.")
     return 0
 
-def cmd_verify() -> int:
+def _cmd_verify_unlocked() -> int:
     """Entscheidet ausschliesslich anhand gepaarter finaler Shadow-Fälle."""
     if not _enabled() or not _experiments_enabled():
         _log("Autonomes Tuning oder Forecast-Experimente sind deaktiviert.")
@@ -272,29 +327,70 @@ def cmd_verify() -> int:
     if not isinstance(pending, dict) or not pending.get("experiment_id"):
         _log("Kein pending Shadow-Experiment.")
         return 0
-    result = _read_json(EXPERIMENT_RESULT_FILE)
+    manifest = _read_json(EXPERIMENTS_DIR / pending["experiment_id"] / "manifest.json")
+    result = _read_json(EXPERIMENTS_DIR / pending["experiment_id"] / "result.json")
     if not result or result.get("schema") != EXPERIMENT_SCHEMA:
         _log("Kein gepaartes Experimentergebnis; Candidate bleibt im Shadow.")
         return 0
     if result.get("experiment_id") != pending["experiment_id"]:
         _log("Experiment-ID des Ergebnisses stimmt nicht.")
         return 0
+    if not manifest or any(result.get(field) != manifest.get(field) for field in (
+            "experiment_id", "analysis_run_id", "source_snapshot_id", "git_commit", "policy_hash",
+            "verification_config_hash", "matcher_contract_hash", "forecast_code_hash")):
+        return _finish_experiment(state, "invalid_experiment", result, "manifest_binding_changed")
+    now = datetime.now(timezone.utc)
+    expires = datetime.fromisoformat(manifest["expires_at_utc"].replace("Z", "+00:00"))
+    not_before = datetime.fromisoformat(manifest["not_before_utc"].replace("Z", "+00:00"))
+    if now >= expires:
+        return _finish_experiment(state, "insufficient_samples_expired", result, "experiment_expired")
+    if now < not_before:
+        pending["state"] = "collecting"
+        _atomic_json(STATE_FILE, state)
+        return 0
     if result.get("verification_config_hash") != pending.get("verification_config_hash"):
         return _finish_experiment(state, "invalid_experiment", result, "verification_config_changed")
     cases = result.get("paired_cases")
     if not isinstance(cases, list):
         return _finish_experiment(state, "invalid_measurement", result, "paired_cases_missing")
-    decision = evaluate_paired_cases(cases, pending["minimum_paired_samples"])
+    coverage = {key: result.get(key, 0) for key in ("eligible_case_count", "candidate_missing_count",
+                                                     "candidate_rejected_count", "candidate_fallback_count")}
+    decision = evaluate_paired_cases(cases, pending["minimum_paired_samples"], policy=manifest["policy"],
+                                     target_horizons=manifest["target_horizons"],
+                                     manifest={**manifest, **coverage})
     outcome = decision["state"]
     if outcome != "improved":
         return _finish_experiment(state, outcome, decision, "acceptance_criteria_not_met")
     # Erst jetzt atomare Promotion des genau einen Parameters.
-    runtime_config.patch({pending["parameter"]: pending["candidate_value"]})
-    state.setdefault("baselines", {})[pending["parameter"]] = pending["candidate_value"]
-    state["last_improvement_at_utc"] = _now_iso()
-    state["plateau_streak"] = 0
-    state.pop("escalation_needed", None)
-    return _finish_experiment(state, "improved", decision, "statistically_significant_improvement")
+    before = runtime_config.get(pending["parameter"], getattr(config, pending["parameter"]))
+    intent = EXPERIMENTS_DIR / pending["experiment_id"] / "promotion_intent.json"
+    _atomic_json(intent, {"state": "intent", "parameter": pending["parameter"], "before": before,
+                          "candidate": pending["candidate_value"], "created_at_utc": _now_iso()})
+    patched = False
+    try:
+        runtime_config.patch({pending["parameter"]: pending["candidate_value"]}); patched = True
+        effective = runtime_config.get(pending["parameter"], getattr(config, pending["parameter"]))
+        if not math.isclose(float(effective), float(pending["candidate_value"]), abs_tol=1e-12):
+            raise RuntimeError("runtime_value_verification_failed")
+        state.setdefault("baselines", {})[pending["parameter"]] = pending["candidate_value"]
+        state["last_improvement_at_utc"] = _now_iso(); state["plateau_streak"] = 0
+        state.pop("escalation_needed", None)
+        rc = _finish_experiment(state, "improved", decision, "statistically_significant_improvement")
+        _atomic_json(intent, {"state": "committed", "before": before, "effective": effective})
+        return rc
+    except Exception as exc:
+        rollback_ok = False
+        if patched:
+            try:
+                runtime_config.patch({pending["parameter"]: before})
+                rollback_ok = math.isclose(float(runtime_config.get(pending["parameter"], before)), float(before), abs_tol=1e-12)
+            except Exception:
+                rollback_ok = False
+        _atomic_json(intent, {"state": "rolled_back" if rollback_ok else "rollback_failed",
+                              "before": before, "error": str(exc)})
+        _append_history({"ts": _now_iso(), "action": "promotion_failed", "error": str(exc),
+                         "rollback_ok": rollback_ok, "experiment_id": pending["experiment_id"]})
+        return 1
 
 
 def _finish_experiment(state: dict, outcome: str, result: dict, reason: str) -> int:
@@ -303,16 +399,31 @@ def _finish_experiment(state: dict, outcome: str, result: dict, reason: str) -> 
         state["plateau_streak"] = int(state.get("plateau_streak", 0)) + 1
         if state["plateau_streak"] >= PLATEAU_ESCALATION_THRESHOLD:
             state["escalation_needed"] = True
-    elif outcome != "insufficient_samples":
+    elif outcome not in ("insufficient_samples", "insufficient_samples_collecting"):
         state["plateau_streak"] = 0
-    if outcome != "insufficient_samples":
+    if outcome not in ("insufficient_samples", "insufficient_samples_collecting"):
         state["pending"] = {}
     state["last_experiment_result"] = {"experiment_id": pending.get("experiment_id"),
                                        "state": outcome, "reason": reason, **result}
-    STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_json(STATE_FILE, state)
     _append_history({"ts": _now_iso(), "action": outcome, "reason": reason,
                      "experiment_id": pending.get("experiment_id"), "metrics": result})
     return 0
+
+
+def _run_locked(callback) -> int:
+    LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(LOCK_FILE, "a+", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return callback()
+
+
+def cmd_apply() -> int:
+    return _run_locked(_cmd_apply_unlocked)
+
+
+def cmd_verify() -> int:
+    return _run_locked(_cmd_verify_unlocked)
 
 def main(argv: list | None = None) -> int:
     parser = argparse.ArgumentParser(description="P97 — Autonomes Tuning Apply/Verify")

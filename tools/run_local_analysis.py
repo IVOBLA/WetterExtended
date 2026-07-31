@@ -234,15 +234,28 @@ def _git_commit(repo: Path) -> str:
 
 
 def _source_snapshot_id(repo: Path) -> str:
-    """Bindet den Lauf an Commit und relevante Diagnoseeingaben."""
-    digest = hashlib.sha256(_git_commit(repo).encode())
+    """Schreibt ein kanonisches Inventar aller tatsächlichen Analyseinputs."""
     evaluation = repo / "train_data" / "evaluation"
-    for path in sorted(evaluation.glob("*.json")):
+    files = []
+    candidates = list(evaluation.glob("*.json")) + list(evaluation.glob("*.jsonl"))
+    for path in sorted(set(candidates)):
         if path.name in {"analysis_result.json", "local_analysis_status.json", "tuning_state.json"}:
             continue
-        digest.update(path.name.encode())
-        digest.update(path.read_bytes())
-    return "sha256:" + digest.hexdigest()
+        raw = path.read_bytes(); stat = path.stat()
+        files.append({"path": str(path.relative_to(repo)), "sha256": hashlib.sha256(raw).hexdigest(),
+                      "size": len(raw), "mtime_utc": datetime.fromtimestamp(stat.st_mtime, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
+    runtime_path = repo / "runtime_overrides.json"
+    runtime_values = (read_json_quiet(runtime_path) if runtime_path.exists() else {}) or {}
+    safe_runtime = {k: v for k, v in runtime_values.items() if not any(x in k.upper() for x in ("SECRET", "TOKEN", "PASSWORD", "KEY"))}
+    manifest = {"schema": "wetterextended.analysis-snapshot.v1", "git_commit": _git_commit(repo),
+                "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=repo, text=True).strip()),
+                "runtime_config_hash": "sha256:" + hashlib.sha256(json.dumps(safe_runtime, sort_keys=True).encode()).hexdigest(),
+                "files": files, "generated_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    snapshot_id = "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
+    manifest["source_snapshot_id"] = snapshot_id
+    write_status(evaluation / "analysis_snapshot_manifest.json", manifest)
+    return snapshot_id
 
 
 def extract_payload(stdout_text):
@@ -428,6 +441,7 @@ def run_deterministic_ai_checks(repo: Path):
 def main(argv=None):
     args = parse_args(argv); repo = Path(args.repo_dir).resolve(); cfg = load_config(repo); mode, changed = load_mode(repo); now = datetime.now(TZ)
     analysis_run_id = str(uuid.uuid4())
+    run_deterministic_ai_checks(repo)
     source_snapshot_id = _source_snapshot_id(repo)
     git_commit = _git_commit(repo)
     run_started_at_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -448,7 +462,6 @@ def main(argv=None):
     cmd = build_command(cfg, claude, prompt, settings)
     if args.dry_run:
         shown = list(cmd); shown[2] = f"<Prompt: {len(prompt)} Zeichen>"; print("[LOCAL-ANALYSIS] " + " ".join(shlex.quote(c) for c in shown)); return 0
-    run_deterministic_ai_checks(repo)
     today = now.strftime("%Y-%m-%d"); attempts = int(prev.get("attempts_today", 0) or 0)+1 if prev.get("last_attempt_date") == today else 1; base = {"last_attempt_date": today, "attempts_today": attempts, "claude_bin": claude, "analysis_run_id": analysis_run_id, "source_snapshot_id": source_snapshot_id, "git_commit": git_commit, "run_started_at_utc": run_started_at_utc}; t0=time.monotonic()
     write_status(status_path, make_status("running", now, prev, mode=mode, **base))
     try: proc = subprocess.run(cmd, cwd=str(repo), env=build_subprocess_env(), stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=int(cfg.get("timeout_s", 900)))
