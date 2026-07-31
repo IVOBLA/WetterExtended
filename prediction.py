@@ -7,6 +7,9 @@ from math import asin, atan2, cos, isfinite, pi, radians, sin, sqrt
 import importlib
 import importlib.util
 import sys
+from copy import deepcopy
+from types import MappingProxyType
+from typing import Any, Mapping
 
 
 def _optional_import(name):
@@ -584,7 +587,8 @@ def _recent_speed_delta_kmh(history: list) -> float | None:
         return None
 
 
-def _bounded_acceleration_displacement(vx: float, vy: float, accel, horizon_min: float) -> tuple[float, float]:
+def _bounded_acceleration_displacement(vx: float, vy: float, accel, horizon_min: float,
+                                       max_fraction: float | None = None) -> tuple[float, float]:
     """B307: 2nd-Order-Verschiebungsanteil (0.5*a*t^2) aus der Beschleunigung,
     hart begrenzt auf einen konfigurierbaren Anteil der linearen (1st-Order)
     Verschiebung. Verhindert, dass verrauschte Beschleunigungsschaetzungen bei
@@ -596,7 +600,8 @@ def _bounded_acceleration_displacement(vx: float, vy: float, accel, horizon_min:
     dy = 0.5 * ay * horizon_min * horizon_min
     lin_disp = sqrt((vx * horizon_min) ** 2 + (vy * horizon_min) ** 2)
     accel_disp = sqrt(dx * dx + dy * dy)
-    max_frac = _runtime_float_value("KINEMATIC_ACCEL_MAX_FRACTION", _STATIC_ACCEL_MAX_FRACTION)
+    max_frac = (_runtime_float_value("KINEMATIC_ACCEL_MAX_FRACTION", _STATIC_ACCEL_MAX_FRACTION)
+                if max_fraction is None else float(max_fraction))
     if accel_disp > 0.0 and lin_disp > 0.0 and accel_disp > lin_disp * max_frac:
         scale = (lin_disp * max_frac) / accel_disp
         dx *= scale
@@ -604,7 +609,7 @@ def _bounded_acceleration_displacement(vx: float, vy: float, accel, horizon_min:
     return dx, dy
 
 
-def _append_kinematic(obj: dict, forecasts: dict) -> None:
+def _append_kinematic(obj: dict, forecasts: dict, params: Mapping[str, Any] | None = None) -> None:
     """
     Kinematischer Fallback wenn kein ML-Modell verfügbar oder Sequenz zu kurz.
 
@@ -626,6 +631,10 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
       TRACK_HISTORY_LEN    — History-Buffer-Größe (default 6)
       KINEMATIC_EWMA_ALPHA — Glättungsfaktor     (default 0.6)
     """
+    params = MappingProxyType(dict(params or {}))
+    def _value(name, default):
+        return params[name] if name in params else (_runtime_cfg.get(name, default) if _runtime_cfg else default)
+
     history = obj.get("history") or []
     n = len(history)
 
@@ -653,8 +662,7 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
 
     # EWMA-Alpha aus runtime_config lesen (P27)
     _ewma_alpha = float(
-        _runtime_cfg.get("KINEMATIC_EWMA_ALPHA", _STATIC_EWMA_ALPHA)
-        if _runtime_cfg else _STATIC_EWMA_ALPHA
+        _value("KINEMATIC_EWMA_ALPHA", _STATIC_EWMA_ALPHA)
     )
     _ewma_alpha = max(0.01, min(0.99, _ewma_alpha))   # Bereich [0.01, 0.99] erzwingen
 
@@ -676,7 +684,7 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
                 _fm_recon = _actual_frame_min(history, float(_FRAME_MIN) if _FRAME_MIN else 5.0)
                 # B231: Mindest-Displacement-Schwelle (skalierte px) gegen verrauschte
                 # Richtung quasi-stationaerer Zellen. min_disp=0 -> Filter aus.
-                _min_disp = _runtime_float_value("KINEMATIC_MIN_INTERVAL_DISP_PX", _STATIC_MIN_INTERVAL_DISP_PX)
+                _min_disp = float(_value("KINEMATIC_MIN_INTERVAL_DISP_PX", _STATIC_MIN_INTERVAL_DISP_PX))
                 _vx_list, _vy_list = [], []
                 _vx_all, _vy_all = [], []
                 for _i in range(1, n):
@@ -751,8 +759,7 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
             _fm_of = 5.0
         # P59: Lucas-Kanade versagt bei großen Pixelverschiebungen (lange Frame-Lücken).
         # Bei _fm_of > OF_MAX_FRAME_INTERVAL_MIN wird OF verworfen → EWMA-Fallback.
-        _of_max = float(_runtime_cfg.get("OF_MAX_FRAME_INTERVAL_MIN", _STATIC_OF_MAX_FM)
-                        if _runtime_cfg else _STATIC_OF_MAX_FM)
+        _of_max = float(_value("OF_MAX_FRAME_INTERVAL_MIN", _STATIC_OF_MAX_FM))
         if _fm_of <= _of_max:
             avg_vx = _safe_float(obj.get("of_vx", 0.0)) / _fm_of
             avg_vy = _safe_float(obj.get("of_vy", 0.0)) / _fm_of
@@ -781,20 +788,16 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
             _angle_diff = _angle_diff_deg(_cell_dir, _steering["direction_to_deg"])
             obj["steering_angle_diff_deg"] = round(float(_angle_diff), 3)
             _blend_enabled = bool(
-                _runtime_cfg.get("STEERING_BLEND_ENABLED", _STATIC_STEERING_BLEND_ENABLED)
-                if _runtime_cfg else _STATIC_STEERING_BLEND_ENABLED
+                _value("STEERING_BLEND_ENABLED", _STATIC_STEERING_BLEND_ENABLED)
             )
             _max_active = int(
-                _runtime_cfg.get("STEERING_BLEND_MAX_ACTIVE_FRAMES", _STATIC_STEERING_BLEND_MAX_ACTIVE_FRAMES)
-                if _runtime_cfg else _STATIC_STEERING_BLEND_MAX_ACTIVE_FRAMES
+                _value("STEERING_BLEND_MAX_ACTIVE_FRAMES", _STATIC_STEERING_BLEND_MAX_ACTIVE_FRAMES)
             )
             _min_angle = float(
-                _runtime_cfg.get("STEERING_BLEND_MIN_ANGLE_DEG", _STATIC_STEERING_BLEND_MIN_ANGLE_DEG)
-                if _runtime_cfg else _STATIC_STEERING_BLEND_MIN_ANGLE_DEG
+                _value("STEERING_BLEND_MIN_ANGLE_DEG", _STATIC_STEERING_BLEND_MIN_ANGLE_DEG)
             )
             _weight = float(
-                _runtime_cfg.get("STEERING_BLEND_WEIGHT", _STATIC_STEERING_BLEND_WEIGHT)
-                if _runtime_cfg else _STATIC_STEERING_BLEND_WEIGHT
+                _value("STEERING_BLEND_WEIGHT", _STATIC_STEERING_BLEND_WEIGHT)
             )
             _weight = max(0.0, min(1.0, _weight))
             _active_frames = int(float(obj.get("active_frames", obj.get("total_active_frames", 9999)) or 0))
@@ -815,8 +818,7 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
                 # km/h SELBST in px/min um (UF/60) — KEINE zweite Umrechnung!
                 if _orig_speed <= 0.0 and src == "kalman_only" and _steering.get("speed_kmh"):
                     _new_cell_frac = float(
-                        _runtime_cfg.get("STEERING_NEW_CELL_SPEED_FRAC", _STATIC_STEERING_NEW_CELL_SPEED_FRAC)
-                        if _runtime_cfg else _STATIC_STEERING_NEW_CELL_SPEED_FRAC
+                        _value("STEERING_NEW_CELL_SPEED_FRAC", _STATIC_STEERING_NEW_CELL_SPEED_FRAC)
                     )
                     _new_cell_frac = max(0.0, min(1.0, _new_cell_frac))
                     _seed_speed_kmh = float(_steering["speed_kmh"]) * _new_cell_frac
@@ -905,7 +907,9 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
         # pixel_to_geo() erwartet SKALIERTE Koordinaten (teilt intern durch _UF).
         _x0 = _safe_float(obj.get("x", 0.0))
         _y0 = _safe_float(obj.get("y", 0.0))
-        _accel_dx, _accel_dy = _bounded_acceleration_displacement(avg_vx, avg_vy, _accel, float(horizon))
+        _accel_dx, _accel_dy = _bounded_acceleration_displacement(
+            avg_vx, avg_vy, _accel, float(horizon),
+            float(_value("KINEMATIC_ACCEL_MAX_FRACTION", _STATIC_ACCEL_MAX_FRACTION)))
         x_pred   = (_x0 + avg_vx * float(horizon) + _accel_dx) * _UF
         y_pred   = (_y0 + avg_vy * float(horizon) + _accel_dy) * _UF
         origin_x = _x0 * _UF
@@ -972,6 +976,59 @@ def _append_kinematic(obj: dict, forecasts: dict) -> None:
             "forecast_speed_kmh": obj.get(f"forecast_speed_kmh_{horizon}"),
             **_staleness,
         })
+
+
+def compute_kinematic_forecast(obj: dict, horizon_min: int, context: Mapping[str, Any] | None,
+                               params: Mapping[str, Any]) -> dict:
+    """Deterministische Einpunkt-Berechnung aus einer unveränderlichen Parametersicht."""
+    candidate = deepcopy(obj)
+    forecasts = {h: [] for h in _get_horizons()}
+    _append_kinematic(candidate, forecasts, MappingProxyType(dict(params)))
+    if int(horizon_min) not in forecasts or not forecasts[int(horizon_min)]:
+        raise ValueError("horizon_min ist nicht konfiguriert")
+    return dict(forecasts[int(horizon_min)][-1])
+
+
+def _record_forecast_experiment(objects: list, timestamp: str) -> None:
+    """Berechnet nur den betroffenen Candidate; produktive Objektfelder bleiben unangetastet."""
+    try:
+        import config as _config
+        from forecast_experiment_collector import EXPERIMENTS_DIR, append_variant
+        from forecast_verification import build_case_key
+        if not bool(_runtime_cfg.get("FORECAST_EXPERIMENTS_ENABLED", _config.FORECAST_EXPERIMENTS_ENABLED)):
+            return
+        state_path = SAVE_PATHS.get("evaluation", "train_data/evaluation")
+        state_path = os.path.join(state_path, "tuning_state.json") if os.path.isdir(state_path) else "train_data/evaluation/tuning_state.json"
+        state = json.loads(open(state_path, encoding="utf-8").read())
+        pending = state.get("pending") or {}
+        experiment_id = pending.get("experiment_id")
+        if not experiment_id: return
+        manifest = json.loads((EXPERIMENTS_DIR / experiment_id / "manifest.json").read_text(encoding="utf-8"))
+        created = datetime.strptime(timestamp, "%Y-%m-%d_%H-%M-%S")
+        created_iso = created.strftime("%Y-%m-%dT%H:%M:%SZ")
+        for obj in objects:
+            for horizon in manifest["target_horizons"]:
+                target_iso = datetime.fromtimestamp(created.timestamp() + int(horizon) * 60).strftime("%Y-%m-%dT%H:%M:%SZ")
+                identity = {"forecast_created_at_utc": created_iso, "target_timestamp_utc": target_iso,
+                            "horizon_min": int(horizon), "origin_object_id": obj.get("id"),
+                            "origin_cell_id": obj.get("cell_id"), "origin_radar_track_id": obj.get("radar_track_id"),
+                            "forecast_source_frame_id": timestamp}
+                case_key = build_case_key(identity)
+                common = {**identity, "case_key": case_key, "experiment_id": experiment_id,
+                          "target_system": manifest["target_system"]}
+                incumbent = {**common, "variant_role": "incumbent",
+                             "forecast_variant_id": manifest["forecast_variant_id_incumbent"],
+                             "parameter_set_hash": manifest["incumbent_parameter_set_hash"],
+                             "lat": obj.get(f"forecast_lat_{horizon}"), "lon": obj.get(f"forecast_lon_{horizon}"),
+                             "mode": obj.get(f"forecast_mode_{horizon}")}
+                append_variant(experiment_id, incumbent)
+                point = compute_kinematic_forecast(obj, int(horizon), {}, manifest["candidate_parameter_set"])
+                append_variant(experiment_id, {**common, "variant_role": "candidate",
+                    "forecast_variant_id": manifest["forecast_variant_id_candidate"],
+                    "parameter_set_hash": manifest["candidate_parameter_set_hash"],
+                    "lat": point["lat"], "lon": point["lon"], "mode": point["forecast_mode"]})
+    except Exception as exc:
+        _prediction_debug_log(f"[FORECAST-EXPERIMENT] Shadow-Aufzeichnung fehlgeschlagen: {exc}")
 
 
 
@@ -1264,7 +1321,7 @@ def _annotate_forecast_runtime_metadata(obj: dict, runtime_status: dict) -> None
     obj["ml_model_version"] = runtime_status.get("ml_model_version") if obj.get("forecast_mode") in ("ml", "mixed") else None
     obj["ml_low_confidence"] = bool(runtime_status.get("low_confidence", False))
 
-def _kinematic_fallback(objects: list) -> tuple:
+def _kinematic_fallback(objects: list, timestamp: str | None = None) -> tuple:
     """Kinematischer Fallback für alle Objekte (keine Modelle geladen)."""
     _horizons = _get_horizons()
     forecasts = {h: [] for h in _horizons}
@@ -1293,6 +1350,8 @@ def _kinematic_fallback(objects: list) -> tuple:
     except Exception as _e_b95:
         debug_log(f"[B95] Pfad-Wetter übersprungen: {_e_b95}")
 
+    if timestamp:
+        _record_forecast_experiment(objects, timestamp)
     return tuple(forecasts[h] for h in _horizons)
 
 
@@ -1483,7 +1542,7 @@ def _build_sequence(obj_id, current_obj, stations, ts_dt):
 def predict_positions(objects: list, timestamp: str, stations: list):
     if np is None:
         debug_log("[PREDICT] numpy fehlt, nutze linearen Fallback.")
-        return _kinematic_fallback(objects)
+        return _kinematic_fallback(objects, timestamp)
 
     scaler_X, scaler_y = load_scalers()
     lgbm_models = load_lgbm_models()
@@ -1526,7 +1585,7 @@ def predict_positions(objects: list, timestamp: str, stations: list):
                 f"Modell kann keine korrekte Vorhersage liefern — FORCE KINEMATIK für alle Objekte dieses Laufs."
             )
             # Alle Objekte dieses Laufs kinematisch behandeln
-            return _kinematic_fallback(objects)
+            return _kinematic_fallback(objects, timestamp)
         else:
             debug_log(
                 f"[B250] Feature-Konsistenz OK: {len(_expected_features)} Features in identischer Reihenfolge."
@@ -1557,7 +1616,7 @@ def predict_positions(objects: list, timestamp: str, stations: list):
             _obj["forecast_mode"] = "kinematic_fallback"
             _obj["fallback_reason"] = reason
             _obj["forecast_fallback_reason"] = reason
-        return _kinematic_fallback(objects)
+        return _kinematic_fallback(objects, timestamp)
 
     if scaler_X is None or scaler_y is None or (not has_lgbm and not has_lstm):
         reason = "missing_ml_artifacts"
@@ -1577,7 +1636,7 @@ def predict_positions(objects: list, timestamp: str, stations: list):
         for _obj in objects:
             _obj["forecast_mode"] = "kinematic_fallback"
             _obj["fallback_reason"] = reason
-        return _kinematic_fallback(objects)
+        return _kinematic_fallback(objects, timestamp)
 
     _runtime_ml_gate = _ml_runtime_gate_by_horizon(_horizons, _runtime_status)
 
@@ -1934,4 +1993,5 @@ def predict_positions(objects: list, timestamp: str, stations: list):
     # (Kinematic-First vor _build_sequence). Hier kein zweiter Durchlauf nötig.
     # path_*-Werte sind bereits deterministisch (kinematisch) auf allen Objekten.
 
+    _record_forecast_experiment(objects, timestamp)
     return tuple(forecasts[h] for h in _horizons)
