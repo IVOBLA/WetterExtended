@@ -26,6 +26,7 @@ ALLOWED_PLAIN_TOOLS = frozenset({"Read", "Grep", "Glob"})
 ALLOWED_BASH_RULES = frozenset({"Bash(python3 tools/ro_query.py *)"})
 
 REQUIRED_LIST_FIELDS = ("fehler", "loesungen", "verbesserungen", "prompts")
+OPTIONAL_DICT_FIELDS = ("tuning_proposals",)  # P99: von tuning_apply.py verarbeitet
 SECRET_ENV_TOKENS = ("TOKEN", "SECRET", "PASSWORD", "PASSWD", "APIKEY", "API_KEY", "PRIVATE_KEY", "CREDENTIAL", "ANTHROPIC_API")
 ENV_PASSTHROUGH = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TZ", "TERM", "SHELL", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "DISABLE_AUTOUPDATER")
 

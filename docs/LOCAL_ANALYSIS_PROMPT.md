@@ -135,6 +135,32 @@ Leite daraus ab:
   mit `unbelegt:`.
 - `fehler` + `loesungen` + `prompts`: nur bei echten, code-belegten Fehlern nach Abschnitt C.
 
+## T. Autonomes Parameter-Tuning (optional, nur wenn AUTONOMOUS_TUNING_ENABLED)
+
+Wenn `config.AUTONOMOUS_TUNING_ENABLED` aktiv ist (pruefe mit `Read config.py` oder
+`Grep "AUTONOMOUS_TUNING_ENABLED" config.py`), darfst du in deiner Ausgabe-JSON ein
+zusaetzliches Feld `tuning_proposals` schreiben. Die Ausfuehrung uebernimmt ein
+separates Modul (`tuning_apply.py`) — du schreibst NUR den Vorschlag.
+
+**Ablauf:**
+1. Lies `config.AUTONOMOUS_TUNING_PARAMS` (Whitelist mit Bounds und Step).
+2. Pruefe, ob deine Verbesserungsvorschlaege (Abschnitt M) einen oder mehrere
+   dieser Parameter betreffen.
+3. Wenn ja: formuliere einen konkreten Zahlenwert innerhalb der Bounds, der auf
+   Basis deiner code-verifizierten Analyse (P94) die Vorhersage verbessern sollte.
+4. Schreibe das Ergebnis in `tuning_proposals` (siehe Ausgabeformat unten).
+
+**Regeln:**
+- NUR Parameter aus `AUTONOMOUS_TUNING_PARAMS` vorschlagen — alles andere wird
+  von `tuning_apply.py` abgelehnt.
+- Nur EIN Aenderungsvorschlag pro Parameter pro Lauf (kein Stueck-fuer-Stueck).
+- Maximal 2 Parameter gleichzeitig aendern (isolierte Aenderungen sind besser
+  messbar als viele gleichzeitige).
+- Der `reason`-String muss den `code_ref` aus dem zugehoerigen Verbesserungsvorschlag
+  enthalten — kein Tuning ohne code-belegte Begruendung.
+- Wenn `AUTONOMOUS_TUNING_ENABLED` nicht aktiv ist: kein `tuning_proposals`-Feld
+  in die Ausgabe schreiben.
+
 ## B. Offene Arbeitsanweisungen (Fallback für `not_implemented`)
 
 Nimm ausschließlich die ACs, die in `ai_checks_results.json` den status `not_implemented`
@@ -164,7 +190,7 @@ Datenquelle ab — so viele, wie das Restbudget nach der Mission erlaubt. ACs mi
 Gib als allerletzte Ausgabe ausschließlich ein einziges JSON-Objekt aus. Kein Markdown.
 
 ```
-{"zusammenfassung":"Ein bis fünf Sätze Gesamtlage.","fehler":[],"loesungen":[],"verbesserungen":[],"prompts":[]}
+{"zusammenfassung":"Ein bis fünf Sätze Gesamtlage.","fehler":[],"loesungen":[],"verbesserungen":[],"prompts":[],"tuning_proposals":{}}
 ```
 
 - `zusammenfassung`: Pflichtfeld, nicht leer; nennt Anzahl geprüfter Anweisungen, Fehlerzahl und Gesamtlage.
@@ -176,3 +202,6 @@ Gib als allerletzte Ausgabe ausschließlich ein einziges JSON-Objekt aus. Kein M
   Zwischenlösung (siehe Abschnitt C). Ein Fehler ohne saubere Endlösung
   erhält keinen `prompts`-Eintrag.
 - Alle Listen dürfen leer sein; kein Befund ist besser als ein erfundener Befund.
+- `tuning_proposals`: optionales Dict (nur wenn `AUTONOMOUS_TUNING_ENABLED`).
+  Key = Parametername aus `AUTONOMOUS_TUNING_PARAMS`, Value = `{"value": <float>, "reason": "<code_ref + Begruendung>"}`.
+  Maximal 2 Eintraege. Leeres Dict `{}` wenn kein Tuning vorgeschlagen wird.

@@ -9334,3 +9334,27 @@ Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.
 
 **Phasen-Status:** Phase A — P98 ✅ (Tuning-Verdrahtung).
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.
+
+### P99 — Autonomes Tuning: Analyse-Prompt erweitert (tuning_proposals, Prompt 4/4)
+
+**Änderung:**
+- `docs/LOCAL_ANALYSIS_PROMPT.md`: Neuer Abschnitt T (zwischen M und B) mit
+  Tuning-Instruktion: Whitelist lesen, code-belegten Vorschlag formulieren, max. 2
+  Parameter gleichzeitig, `tuning_proposals`-Feld in Ausgabe-JSON. Ausgabeformat
+  um `tuning_proposals: {}` erweitert + Feld-Dokumentation.
+- `tools/run_local_analysis.py`: `tuning_proposals` als optionales Dict-Feld akzeptiert
+  (`OPTIONAL_DICT_FIELDS`).
+
+**Tests:** `tests/test_p99_tuning_prompt.py` — 6 Tests.
+
+**Gesamtübersicht Autonomes Tuning (P96–P99):**
+- P96: 12-Parameter-Whitelist + Kill-Switch ✅
+- P97: Apply/Verify/Rollback-Modul ✅
+- P98: Sandbox-Erweiterung + Scheduler-Integration ✅
+- P99: Analyse-Prompt-Erweiterung ✅
+
+**Aktivierung:** `runtime_config.patch({"AUTONOMOUS_TUNING_ENABLED": True})` oder im
+Admin-Panel. Default bleibt AUS.
+
+**Phasen-Status:** Phase A — P99 ✅ (Autonomes Tuning komplett: P96–P99, 12 Parameter).
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.
