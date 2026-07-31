@@ -12,6 +12,7 @@ const STATUS_TEXT = {
   insufficient_samples: 'Zu wenige Samples für eine belastbare Aktivierung oder Bewertung.',
   cold_start_insufficient_samples: 'Zu wenige Samples für die Erstaktivierung eines ML-Modells.',
   rejected_low_samples: 'Nicht aktiviert: zu wenige aktuelle Vergleichssamples.',
+  rejected_low_samples_per_horizon: 'Nicht aktiviert: mindestens ein Horizont hat zu wenige gepaarte Vergleichssamples für eine belastbare Bewertung, auch wenn die Gesamtsumme ausreicht.',
   rejected_incompatible: 'Nicht aktiviert: Modell passt nicht zur aktuellen Horizonte-/Feature-Konfiguration.',
   cold_start_rejected_invalid_model: 'Nicht aktiviert: Modellartefakte fehlen, sind inkompatibel oder ungültig.',
   no_data: 'Kein nutzbarer Datensatz für diesen Trainingslauf vorhanden.',
