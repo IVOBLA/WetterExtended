@@ -9740,7 +9740,7 @@ Plateau-Eskalation ergänzt.
 14-Tage-Stall-Alarm). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie
 wartet auf ausreichende Trainingsdaten.
 
-## P104: sicherer Forecast-Experimentbetrieb
+### P104 — Sicherer Forecast-Experimentbetrieb
 
 Forecast-Experimente sind unabhängig vom Hailo-Pfad und doppelt Default-Off geschützt
 (`AUTONOMOUS_TUNING_ENABLED=False`, `FORECAST_EXPERIMENTS_ENABLED=False`). Ein Proposal
@@ -9750,7 +9750,7 @@ Samples, eine Mindestverbesserung von `max(0,05 km, 2 %)` und ein einseitiges
 95-%-Block-Bootstrap-Konfidenzintervall unter null voraus. Plateau und Regression werden
 nie aktiviert. Rollback bedeutet das Verwerfen des Candidates; erst eine erfolgreiche
 Entscheidung ändert die Runtime-Konfiguration atomar.
-## P105 – gepaarte ML-Promotion und Ressourcenvertrag
+### P105 — Gepaarte ML-Promotion und Ressourcenvertrag
 
 Die Zellbewegungs-ML wird nicht aufgrund ungepaarter Historienmittel aktiviert.
 Candidate, aktives ML und produktive Kinematik werden je Horizont auf identischen,
@@ -9767,3 +9767,45 @@ Qualitätsartefakte tragen den gemeinsamen Herkunftsvertrag
 `wetterextended.quality-provenance.v1`. Altdateien ohne Pflichtfelder sind
 `legacy_incomparable` und werden nicht still in neue Zeitreihen eingerechnet. Beide
 Schutzschalter bleiben standardmäßig aus.
+
+### B494 — Stall-Alarm-Wiring repariert, 11 stale Tuning-Tests auf Experiment-Schnittstelle umgeschrieben
+
+**Anlass (Audit vom 31.07.2026 gegen den PR-#1166-Umbau):** Der Umbau von
+`tools/tuning_apply.py` auf same-day gepaarte Shadow-Experimente (siehe P104/P105)
+hat zwei Dinge liegen gelassen: (1) `_check_stall()` (P103) wurde nirgends mehr
+aufgerufen und suchte zudem nach der alten Aktion `"accepted"` statt der neuen
+`"improved"` — der 14-Tage-Stall-Alarm war faktisch tot. (2) 11 Tests
+(`test_p97_tuning_apply.py` x3, `test_p98_tuning_integration.py` x1,
+`test_p99_tuning_prompt.py` x1, `test_b487_tuning_field_name.py` x3,
+`test_b488_tuning_stale_result_guard.py` x1, `test_b490_tuning_tie_not_accepted.py`
+x3, `test_p103_plateau_escalation.py` x2) testeten die alte, durch den Umbau
+ersetzte Schnittstelle (direktes `runtime_config.patch()` bei Apply,
+`drift_status.json`-basierter `delta_km`-Vergleich bei Verify).
+
+**Änderung:**
+- `tools/tuning_apply.py`: `_last_accepted_ts()` sucht jetzt `action == "improved"`.
+  `_check_stall(state)` wird jetzt bei jedem `--verify`-Aufruf ausgeführt,
+  unabhängig davon, ob gerade ein Experiment läuft. Totcode
+  `_current_mae_by_horizon()`/`DRIFT_FILE` entfernt (kein Aufrufer mehr seit dem
+  Experiment-Umbau).
+- 6 Testdateien auf die neue Experiment-Schnittstelle umgeschrieben (Apply erzeugt
+  nur einen Shadow-Candidate über ein vollständiges Analyse-Lauf-Manifest; Verify
+  liest ein gepaartes `result.json` und entscheidet über `evaluate_paired_cases()`).
+  `test_b487_tuning_field_name.py` gelöscht (testete reinen Totcode).
+- `docs/HAILO_INTEGRATION.md`: Heading-Format von P104/P105 auf
+  `### PNNN — Titel` korrigiert (Konsistenz mit der grep-basierten
+  Nummernprüfung).
+
+**Noch offen (nicht Teil dieses Prompts):** `docs/LOCAL_ANALYSIS_PROMPT.md`
+Abschnitt T kennt das neue Proposal-Schema (`experiment_contract.PROPOSAL_FIELDS`)
+noch nicht — die nächtliche KI würde aktuell keine gültigen Vorschläge erzeugen
+können. Erfordert eine eigene Prompt-Text-Überarbeitung.
+
+**Tests:** 6 Dateien umgeschrieben, 1 Datei gelöscht — siehe oben. Keine Testabdeckung
+verloren, jede alte Prüfung hat eine inhaltlich gleichwertige neue Entsprechung.
+
+**Kein** Benutzerhandbuch-Update (Bugfix + Testschulden). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B494 ✅ (Stall-Alarm repariert, Tuning-Testsuite an
+die P104/P105-Experiment-Architektur angepasst). Phase B (Hailo-8 U-Net) bleibt
+unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.

@@ -1,9 +1,9 @@
-"""P97 — Autonomes Tuning: Apply/Verify/Rollback-Modul."""
+"""P97/B494 — Autonomes Tuning: Whitelist-Validierung + Shadow-Apply/Verify."""
 import json
 import sys
+import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.tuning_apply import validate_proposal, cmd_apply, cmd_verify  # noqa: E402
@@ -13,81 +13,122 @@ import tools.tuning_apply as ta  # noqa: E402
 def test_valid_proposal():
     assert validate_proposal("KINEMATIC_EWMA_ALPHA", 0.5) is None
 
+
 def test_reject_unknown_param():
     assert validate_proposal("BOGUS_PARAM", 1.0) is not None
+
 
 def test_reject_out_of_bounds():
     assert validate_proposal("KINEMATIC_EWMA_ALPHA", 0.1) is not None
 
+
 def test_reject_wrong_step():
     assert validate_proposal("KINEMATIC_EWMA_ALPHA", 0.37) is not None
+
 
 def test_apply_skips_when_disabled(tmp_path, monkeypatch):
     monkeypatch.setattr(ta, "_enabled", lambda: False)
     assert cmd_apply() == 0
 
-def test_apply_applies_valid_proposal(tmp_path, monkeypatch):
+
+def _apply_experiment(tmp_path, monkeypatch, old=0.6, new=0.55):
+    """B494: baut ueber den echten _cmd_apply_unlocked()-Pfad ein gueltiges
+    Shadow-Experiment auf. Gibt (eval_dir, experiment_id, manifest, patched,
+    runtime_state) zurueck; runtime_state/patched sind gemeinsam gemockt, sodass
+    ein spaeterer Verify-Aufruf im selben Test die tatsaechlich "gepatchten"
+    Werte ueber runtime_config.get() wiedersieht."""
+    experiment_id = str(uuid.uuid4())
+    payload = {
+        "schema": "wetterextended.local-analysis.v2", "analysis_run_id": str(uuid.uuid4()),
+        "source_snapshot_id": "sha256:a", "git_commit": "abc", "result_id": str(uuid.uuid4()),
+        "generated_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "tuning_proposals": [{
+            "experiment_id": experiment_id, "target_system": "kinematic",
+            "target_horizons": [10], "parameter": "KINEMATIC_EWMA_ALPHA",
+            "old_value": old, "new_value": new, "code_ref": "prediction.py:_append_kinematic",
+            "evidence_refs": ["case:1"], "expected_effect": "MAE sinkt",
+            "minimum_paired_samples": {"10": 4}, "maximum_runtime_hours": 48,
+        }],
+    }
+    started = datetime.now(timezone.utc) - timedelta(minutes=1)
+    status = {k: payload[k] for k in ("analysis_run_id", "source_snapshot_id", "git_commit", "result_id")}
+    status.update({"state": "ok", "run_started_at_utc": started.strftime("%Y-%m-%dT%H:%M:%SZ")})
     eval_dir = tmp_path / "train_data" / "evaluation"
     eval_dir.mkdir(parents=True)
-    (eval_dir / "analysis_result.json").write_text(json.dumps({
-        "tuning_proposals": {"KINEMATIC_EWMA_ALPHA": {"value": 0.5, "reason": "test"}}
-    }))
-    (eval_dir / "local_analysis_status.json").write_text(json.dumps({
-        "state": "ok", "last_success_date": "2026-07-31"
-    }))
-    (eval_dir / "drift_status.json").write_text(json.dumps({
-        "quality_target_by_horizon": {"10": {"actual_mae_km": 3.0}}
-    }))
-    monkeypatch.setattr(ta, "_enabled", lambda: True)
-    monkeypatch.setattr(ta, "EVAL_DIR", eval_dir)
-    monkeypatch.setattr(ta, "STATE_FILE", eval_dir / "tuning_state.json")
-    monkeypatch.setattr(ta, "HISTORY_FILE", eval_dir / "tuning_history.jsonl")
+    (eval_dir / "analysis_result.json").write_text(json.dumps(payload))
+    (eval_dir / "local_analysis_status.json").write_text(json.dumps(status))
     monkeypatch.setattr(ta, "RESULT_FILE", eval_dir / "analysis_result.json")
-    monkeypatch.setattr(ta, "DRIFT_FILE", eval_dir / "drift_status.json")
     monkeypatch.setattr(ta, "STATUS_FILE", eval_dir / "local_analysis_status.json")
+    monkeypatch.setattr(ta, "STATE_FILE", eval_dir / "tuning_state.json")
+    monkeypatch.setattr(ta, "HISTORY_FILE", eval_dir / "tuning_history.jsonl")
+    monkeypatch.setattr(ta, "EXPERIMENTS_DIR", eval_dir / "experiments")
+    monkeypatch.setattr(ta, "_enabled", lambda: True)
+    monkeypatch.setattr(ta, "_experiments_enabled", lambda: True)
+    monkeypatch.setattr(ta.config, "FORECAST_EXPERIMENT_MIN_RUNTIME_HOURS", 0)
+    monkeypatch.setattr(ta.config, "FORECAST_EXPERIMENT_MIN_PAIRED_SAMPLES_PER_HORIZON", 4)
+    runtime_state = {"KINEMATIC_EWMA_ALPHA": old}
     patched = {}
-    monkeypatch.setattr(ta.runtime_config, "patch", lambda d: patched.update(d) or d)
-    monkeypatch.setattr(ta.runtime_config, "get", lambda k, d=None: d)
-    assert cmd_apply() == 0
-    assert patched.get("KINEMATIC_EWMA_ALPHA") == 0.5
+    monkeypatch.setattr(ta.runtime_config, "get", lambda name, default=None: runtime_state.get(name, default))
 
-def test_verify_accepts_on_improvement(tmp_path, monkeypatch):
-    eval_dir = tmp_path / "train_data" / "evaluation"
-    eval_dir.mkdir(parents=True)
-    (eval_dir / "tuning_state.json").write_text(json.dumps({
-        "baselines": {"KINEMATIC_EWMA_ALPHA": 0.6},
-        "pending": {"KINEMATIC_EWMA_ALPHA": {"new": 0.5, "old": 0.6, "reason": "test"}},
-        "mae_before": {"10": 3.0},
-    }))
-    (eval_dir / "drift_status.json").write_text(json.dumps({
-        "quality_target_by_horizon": {"10": {"actual_mae_km": 2.5}}
-    }))
-    monkeypatch.setattr(ta, "_enabled", lambda: True)
-    monkeypatch.setattr(ta, "STATE_FILE", eval_dir / "tuning_state.json")
-    monkeypatch.setattr(ta, "HISTORY_FILE", eval_dir / "tuning_history.jsonl")
-    monkeypatch.setattr(ta, "DRIFT_FILE", eval_dir / "drift_status.json")
-    monkeypatch.setattr(ta.runtime_config, "patch", lambda d: d)
-    assert cmd_verify() == 0
-    st = json.loads((eval_dir / "tuning_state.json").read_text())
-    assert st["pending"] == {}
-    assert st["baselines"]["KINEMATIC_EWMA_ALPHA"] == 0.5
+    def _patch(values):
+        patched.update(values)
+        runtime_state.update(values)
+        return values
+    monkeypatch.setattr(ta.runtime_config, "patch", _patch)
+    assert ta.cmd_apply() == 0
+    assert patched == {}
+    manifest = json.loads((eval_dir / "experiments" / experiment_id / "manifest.json").read_text())
+    return eval_dir, experiment_id, manifest, patched, runtime_state
 
-def test_verify_rollbacks_on_degradation(tmp_path, monkeypatch):
-    eval_dir = tmp_path / "train_data" / "evaluation"
-    eval_dir.mkdir(parents=True)
-    (eval_dir / "tuning_state.json").write_text(json.dumps({
-        "baselines": {"KINEMATIC_EWMA_ALPHA": 0.6},
-        "pending": {"KINEMATIC_EWMA_ALPHA": {"new": 0.5, "old": 0.6, "reason": "test"}},
-        "mae_before": {"10": 3.0},
-    }))
-    (eval_dir / "drift_status.json").write_text(json.dumps({
-        "quality_target_by_horizon": {"10": {"actual_mae_km": 4.0}}
-    }))
-    rolled = {}
-    monkeypatch.setattr(ta, "_enabled", lambda: True)
-    monkeypatch.setattr(ta, "STATE_FILE", eval_dir / "tuning_state.json")
-    monkeypatch.setattr(ta, "HISTORY_FILE", eval_dir / "tuning_history.jsonl")
-    monkeypatch.setattr(ta, "DRIFT_FILE", eval_dir / "drift_status.json")
-    monkeypatch.setattr(ta.runtime_config, "patch", lambda d: rolled.update(d) or d)
-    assert cmd_verify() == 0
-    assert rolled.get("KINEMATIC_EWMA_ALPHA") == 0.6
+
+def _write_result(eval_dir, experiment_id, manifest, *, candidate_delta, count=40):
+    cases = []
+    for i in range(count):
+        cases.append({
+            "case_key": f"k{i}", "horizon_min": 10, "event_id": f"e{i // 2}", "cell_id": f"c{i // 2}",
+            "incumbent_error_km": 2.0, "candidate_error_km": 2.0 + candidate_delta,
+            "state": "final", "eligible_for_model_tuning": True, "match_type": "exact_id",
+            "experiment_id": experiment_id,
+            "policy_hash": manifest["policy_hash"], "verification_config_hash": manifest["verification_config_hash"],
+            "matcher_contract_hash": manifest["matcher_contract_hash"],
+            "forecast_variant_id_incumbent": manifest["forecast_variant_id_incumbent"],
+            "forecast_variant_id_candidate": manifest["forecast_variant_id_candidate"],
+            "incumbent_actual_id": "obj1", "candidate_actual_id": "obj1",
+            "incumbent_actual_lat": 46.0, "candidate_actual_lat": 46.0,
+            "incumbent_actual_lon": 14.0, "candidate_actual_lon": 14.0,
+        })
+    result = {key: manifest[key] for key in ("experiment_id", "analysis_run_id", "source_snapshot_id",
+              "git_commit", "policy_hash", "verification_config_hash", "matcher_contract_hash", "forecast_code_hash")}
+    result.update({"schema": ta.EXPERIMENT_SCHEMA, "paired_cases": cases,
+                   "eligible_case_count": count, "candidate_missing_count": 0,
+                   "candidate_rejected_count": 0, "candidate_fallback_count": 0})
+    (eval_dir / "experiments" / experiment_id).mkdir(parents=True, exist_ok=True)
+    (eval_dir / "experiments" / experiment_id / "result.json").write_text(json.dumps(result))
+
+
+def test_apply_creates_shadow_candidate_without_patching_runtime(tmp_path, monkeypatch):
+    eval_dir, experiment_id, manifest, patched, _ = _apply_experiment(tmp_path, monkeypatch)
+    assert patched == {}
+    state = json.loads((eval_dir / "tuning_state.json").read_text())
+    assert state["pending"]["state"] == "shadow_collecting"
+    assert state["pending"]["experiment_id"] == experiment_id
+
+
+def test_verify_promotes_only_on_statistically_significant_improvement(tmp_path, monkeypatch):
+    eval_dir, experiment_id, manifest, patched, _ = _apply_experiment(tmp_path, monkeypatch)
+    _write_result(eval_dir, experiment_id, manifest, candidate_delta=-1.0)
+    assert ta.cmd_verify() == 0
+    assert patched.get("KINEMATIC_EWMA_ALPHA") == 0.55
+    state = json.loads((eval_dir / "tuning_state.json").read_text())
+    assert state["pending"] == {}
+    assert state["baselines"]["KINEMATIC_EWMA_ALPHA"] == 0.55
+
+
+def test_verify_rejects_on_degradation_without_touching_runtime(tmp_path, monkeypatch):
+    eval_dir, experiment_id, manifest, patched, _ = _apply_experiment(tmp_path, monkeypatch)
+    _write_result(eval_dir, experiment_id, manifest, candidate_delta=+1.0)
+    assert ta.cmd_verify() == 0
+    assert patched == {}
+    state = json.loads((eval_dir / "tuning_state.json").read_text())
+    assert state["pending"] == {}
+    assert state["baselines"].get("KINEMATIC_EWMA_ALPHA") is None
