@@ -42,6 +42,7 @@ from config import (
     FRAME_INTERVAL_MIN,
 )
 from debug_utils import debug_log
+from forecast_verification import VerificationStore
 
 _VIENNA_TZ = ZoneInfo("Europe/Vienna")
 
@@ -216,13 +217,13 @@ def _jsonl_append(path: str, rec: dict) -> None:
 def _detail_key(rec: dict) -> tuple:
     return (
         rec.get("forecast_created_at_utc"), rec.get("target_timestamp_utc"), rec.get("horizon_min"),
-        rec.get("object_id") or rec.get("cell_id"), rec.get("cell_id"),
-        rec.get("forecast_lat"), rec.get("forecast_lon"), rec.get("actual_lat"), rec.get("actual_lon"),
-        rec.get("match_type"),
+        rec.get("object_id") or rec.get("cell_id"), rec.get("cell_id"), rec.get("track_id"),
+        rec.get("forecast_source_frame_id"), rec.get("forecast_variant_id", "champion"),
     )
 
 
 def _append_detail_once(path: str, rec: dict, seen: Set[tuple]) -> bool:
+    _persist_verification(rec)
     key = _detail_key(rec)
     if key in seen:
         return False
@@ -265,6 +266,47 @@ def _match_type(raw: str) -> str:
     if raw in ("lineage_parent", "lineage_merged_from", "lineage_split_child"):
         return raw
     return {"nn": "nearest", "miss": "none"}.get(raw, raw or "none")
+
+
+def _verification_contract(rec: dict, state: Optional[str] = None) -> dict:
+    raw = str(rec.get("match_type") or "none")
+    lineage = raw.startswith("lineage_")
+    match_class = {
+        "id": "exact_id", "cell_id": "exact_cell_id", "nearest": "ambiguous_nearest",
+        "nn": "ambiguous_nearest", "none": "no_match", "frame_empty": "target_frame_empty",
+        "nn_rejected": "match_rejected_speed",
+    }.get(raw, "lineage_confirmed" if lineage else "no_match")
+    target_delta = rec.get("target_frame_delta_min")
+    if rec.get("no_target_frame"):
+        match_class = "target_frame_missing"
+    verification_state = state or ("provisional" if target_delta not in (None, 0, 0.0) else "final")
+    if match_class not in ("exact_id", "exact_cell_id", "lineage_confirmed"):
+        verification_state = "invalid" if verification_state != "pending" else "pending"
+    evidence_ids = [x for x in (rec.get("cell_id"), rec.get("matched_cell_id")) if x]
+    return {
+        **rec,
+        "origin_object_id": rec.get("object_id"), "origin_cell_id": rec.get("cell_id"),
+        "origin_radar_track_id": rec.get("track_id") or None,
+        "forecast_source_frame_id": rec.get("forecast_source_frame_id") or rec.get("forecast_created_at_utc"),
+        "forecast_variant_id": rec.get("forecast_variant_id") or "champion",
+        "verification_state": verification_state, "match_class": match_class,
+        "target_frame_id": rec.get("target_frame_id"),
+        "target_frame_timestamp": rec.get("target_frame_timestamp"),
+        "lineage_evidence_type": raw if lineage else None,
+        "lineage_evidence_source": "target_object_metadata" if lineage else None,
+        "lineage_evidence_timestamp": rec.get("target_timestamp_utc") if lineage else None,
+        "lineage_evidence_ids": evidence_ids if lineage else None,
+    }
+
+
+def _persist_verification(rec: dict, state: Optional[str] = None) -> None:
+    try:
+        db = os.path.join(os.path.dirname(DETAILS_FILE), "forecast_verification.sqlite")
+        store = VerificationStore(db)
+        store.record(_verification_contract(rec, state))
+        store.export_json_views()
+    except Exception as exc:
+        debug_log(f"[ACCURACY][P105] Verifikationspersistenz fehlgeschlagen: {exc}")
 
 
 def _forecast_meta(obj: dict, horizon_min: int, key: str, default=None):
@@ -311,6 +353,7 @@ def _detail_record(obj: dict, ts: datetime, target_ts: datetime, horizon_min: in
         "radar_age_min": _safe_float(obj.get("radar_age_min"), 0.0), "no_target_frame": bool(no_target_frame),
         "frame_empty": bool(frame_empty),
         "target_frame_delta_min": target_frame_delta_min,
+        "forecast_source_frame_id": obj.get("forecast_source_frame_id") or _local_naive_to_utc_iso_z(ts),
         "missing_target_frame_reason": missing_target_frame_reason,
         "id_lost": bool((not no_target_frame) and (not frame_empty) and matched is not None and str(matched.get("id")) != str(obj.get("id"))),
         "missed": bool((not no_target_frame) and (not frame_empty) and matched is None),
@@ -775,6 +818,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
 
     n_total = hits = verified = missed = no_target_frame = frame_empty = id_lost = nn_rejected = 0
     pending_target_not_due = 0
+    ambiguous_nearest = 0
     missing_reasons = {"missing_due_to_ingest_gap": 0, "missing_due_to_tolerance": 0}
     _nn_threshold = _nn_max_match_km(horizon_min)
     sum_km = sum_km2 = sum_abs_px = sum_sx2 = sum_sy2 = 0.0
@@ -791,12 +835,10 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         maturity_grace = timedelta(seconds=max(0, VERIFICATION_TIME_TOLERANCE_S))
         now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
         if target_ts > now_utc - maturity_grace:
-            pending_target_not_due += sum(
-                1 for o in objs
-                if o.get(f"forecast_lat_{horizon_min}") is not None
-                and o.get(f"forecast_lon_{horizon_min}") is not None
-                and _is_real_forecast_object(o, horizon_min)
-            )
+            for o in objs:
+                if o.get(f"forecast_lat_{horizon_min}") is not None and o.get(f"forecast_lon_{horizon_min}") is not None and _is_real_forecast_object(o, horizon_min):
+                    pending_target_not_due += 1
+                    _persist_verification(_detail_record(o, ts, target_ts, horizon_min, None, None, "miss", False, False, horizon_min), "pending")
             continue
         target_path, target_frame_delta_min, missing_target_frame_reason = _find_target_frame(by_ts, target_ts, VERIFICATION_TIME_TOLERANCE_S)
 
@@ -890,6 +932,15 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
                 details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
                 continue
 
+            # P105: a merely geometric neighbour is useful trace evidence, not an
+            # Actual.  Persist it as ambiguous but never feed quality/ML metrics.
+            if _match_src == "nn":
+                ambiguous_nearest += 1
+                _bm["missed"] += 1; _bs["missed"] += 1; _bt["missed"] += 1
+                rec = _detail_record(obj, ts, target_ts, horizon_min, matched, dist_km, _match_src, False, False, horizon_min, target_frame_delta_min=target_frame_delta_min)
+                details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
+                continue
+
             if matched is None:
                 missed += 1
                 _bm["missed"] += 1; _bs["missed"] += 1; _bt["missed"] += 1
@@ -968,7 +1019,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         "target_frame_empty": frame_empty,
         "target_object_missing": missed,
         "target_match_rejected": nn_rejected,
-        "ambiguous_nearest": 0,
+        "ambiguous_nearest": ambiguous_nearest,
         "hit_rate": round(hits / verified, 4) if verified else None,
         "coverage_rate": _coverage,          # verified / n_total
         "mae_km": round(sum_km / verified, 3) if verified else None,
