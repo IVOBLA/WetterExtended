@@ -9416,3 +9416,26 @@ Sandbox. `tuning_apply.py` schreibt zudem ausschließlich unter `train_data/eval
 **Phasen-Status:** Phase A — B485 ✅ (Sandbox-Regression aus P98 zurückgesetzt).
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
 Trainingsdaten.
+
+### B486 — P81-UI-Test an B484-Obergrenze angepasst (max_turns 200 → 500)
+
+**Symptom:** `test_p81_analysis_mode_ui.py::test_numeric_inputs_have_bounds_matching_the_api`
+scheiterte, weil er `max="200"` im UI-Block erwartete, obwohl B484 die Obergrenze in
+`app.py` (`("max_turns", 1, 500)`) und im UI (`AiSuggestions.jsx`, `max="500"`) bereits
+konsistent auf 500 angehoben hatte.
+
+**Root Cause:** B484 hat beim Anheben der `max_turns`-Obergrenze `tests/test_p76_analysis_mode_config.py`
+angepasst, aber `tests/test_p81_analysis_mode_ui.py` dabei übersehen. UI und Backend-API
+waren bereits korrekt und konsistent — ausschließlich der Test war veraltet.
+
+**Änderung:** `tests/test_p81_analysis_mode_ui.py`: erwartete Grenze in
+`test_numeric_inputs_have_bounds_matching_the_api` von `max="200"` auf `max="500"`
+korrigiert.
+
+**Tests:** `tests/test_p81_analysis_mode_ui.py` — alle grün.
+
+**Kein** Benutzerhandbuch-Update (reine Testkorrektur). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B486 ✅ (P81-UI-Test an B484-Obergrenze angepasst).
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
+Trainingsdaten.

@@ -26,7 +26,7 @@ def test_all_configurable_fields_are_editable():
  for field in ("max_turns","timeout_s"): assert f"laCfg.{field}" in t
 def test_numeric_inputs_have_bounds_matching_the_api():
  block=_page().split("Lokale Analyse am Pi (Claude Code)",1)[1]
- for bound in ('max="200"','max="3600"'): assert bound in block
+ for bound in ('max="500"','max="3600"'): assert bound in block
 def test_manual_run_uses_the_existing_job_route():
  t=_page(); assert "api.post('/api/system/run_job/local_analysis', {})" in t; assert "/api/local_analysis/run" not in t
 def test_manual_run_polls_and_gives_up_eventually():
