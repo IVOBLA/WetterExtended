@@ -9358,3 +9358,30 @@ Admin-Panel. Default bleibt AUS.
 
 **Phasen-Status:** Phase A — P99 ✅ (Autonomes Tuning komplett: P96–P99, 12 Parameter).
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.
+
+### P100 — Admin-Panel-Schalter für autonomes Tuning (fehlende UI aus P96 nachgeliefert)
+
+**Anlass:** P96 hat `AUTONOMOUS_TUNING_ENABLED`/`AUTONOMOUS_TUNING_PARAMS` nur in
+`config.py` definiert — es gab keinen API-Endpunkt und keinen UI-Schalter. Der einzige
+Weg zum Aktivieren war `runtime_config.patch()` per Python-Shell auf dem Pi.
+
+**Änderung:**
+- `app.py`: `GET /api/local_analysis/tuning` (Kill-Switch-Status + Whitelist + letzte
+  10 Historie-Einträge aus `tuning_history.jsonl`) und `POST /api/local_analysis/tuning`
+  (`{"enabled": bool}` → `runtime_config.patch`). Beide erben den Admin-Schutz von
+  `/api/local_analysis` per Präfix-Match (B464) — keine Änderung an
+  `_ADMIN_WRITE_PREFIXES`/`_SENSITIVE_READ_PREFIXES` nötig.
+- `frontend/src/pages/AiSuggestions.jsx`: Toggle-Schalter „Autonomes Parameter-Tuning
+  aktiviert" in der Karte „Lokale Analyse am Pi" (Muster: bestehender
+  „Code-Analyse-Report aktiviert"-Schalter). Zeigt die letzten 5 Tuning-Aktionen
+  (accepted/rollback/rejected) mit Alt→Neu-Werten.
+
+**Tests:** `tests/test_p100_tuning_toggle_ui.py` — 9 Tests: Admin-Schutz-Vererbung +
+GET-Defaults + Runtime-Override-Reflektion + POST-Patch + POST-Validierung +
+Historie-Lesen + Frontend-Toggle + Fetch-on-Mount + Historie-Rendering.
+
+**Kein** Benutzerhandbuch-Update (P96 hat das Feature bereits beschrieben; dies liefert
+nur die Bedienoberfläche nach). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — P100 ✅ (Autonomes Tuning jetzt vollständig bedienbar:
+P96–P100). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert.

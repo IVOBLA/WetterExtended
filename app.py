@@ -3488,6 +3488,46 @@ def api_local_analysis_config_get():
     return jsonify(effective)
 
 
+@app.route("/api/local_analysis/tuning")
+def api_local_analysis_tuning_get():
+    """P100: Status des autonomen Tunings (Kill-Switch + juengste Historie)."""
+    import config as _cfg
+    enabled = runtime_config.get("AUTONOMOUS_TUNING_ENABLED", None)
+    if enabled is None:
+        enabled = bool(getattr(_cfg, "AUTONOMOUS_TUNING_ENABLED", False))
+    history_path = Path(SAVE_PATHS.get("evaluation", "train_data/evaluation")) / "tuning_history.jsonl"
+    recent = []
+    if history_path.is_file():
+        try:
+            lines = history_path.read_text(encoding="utf-8").splitlines()
+            for line in lines[-10:]:
+                try:
+                    recent.append(json.loads(line))
+                except Exception:
+                    continue
+        except Exception:
+            pass
+    return jsonify({
+        "enabled": bool(enabled),
+        "params": getattr(_cfg, "AUTONOMOUS_TUNING_PARAMS", {}),
+        "recent_history": recent,
+    })
+
+
+@app.route("/api/local_analysis/tuning", methods=["POST"])
+def api_local_analysis_tuning_save():
+    """P100: Kill-Switch fuer autonomes Tuning umschalten."""
+    try:
+        data = request.get_json(force=True)
+        if not isinstance(data, dict) or "enabled" not in data:
+            raise ValueError("Payload muss {'enabled': bool} sein")
+        enabled = bool(data["enabled"])
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    runtime_config.patch({"AUTONOMOUS_TUNING_ENABLED": enabled})
+    return jsonify({"ok": True, "enabled": enabled})
+
+
 @app.route("/api/local_analysis/config", methods=["POST"])
 def api_local_analysis_config_save():
     try:
