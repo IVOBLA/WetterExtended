@@ -1153,12 +1153,6 @@ AUTONOMOUS_TUNING_PARAMS: dict = {
         "unit": "Minuten",
         "effect": "Max. Zeitluecke fuer gueltigen OF-Vektor; darueber Fallback auf EWMA",
     },
-    # --- Verifikation (accuracy_tracker.py:_match_threshold_km) ---
-    "VERIFICATION_NN_MAX_MATCH_KM": {
-        "min": 5.0, "max": 20.0, "step": 1.0,
-        "unit": "km",
-        "effect": "Max. Zuordnungsabstand Forecast→Actual; beeinflusst Messqualitaet (missing targets)",
-    },
 }
 
 # Trainings-Schedule (Cron-Stil). Wird vom Scheduler gelesen, kann per

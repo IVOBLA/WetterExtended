@@ -1,4 +1,5 @@
-"""P96 — Autonomes Tuning: Whitelist + Config-Infrastruktur (12 Parameter)."""
+"""P96/B489 — Autonomes Tuning: Whitelist + Config-Infrastruktur (11 Parameter,
+Verifikationsparameter ausgeschlossen)."""
 import config
 
 
@@ -7,10 +8,20 @@ def test_kill_switch_exists_and_defaults_to_off():
     assert config.AUTONOMOUS_TUNING_ENABLED is False, "Kill-Switch muss default AUS sein"
 
 
-def test_whitelist_exists_and_has_12_params():
+def test_whitelist_exists_and_has_11_params():
     assert hasattr(config, "AUTONOMOUS_TUNING_PARAMS")
     assert isinstance(config.AUTONOMOUS_TUNING_PARAMS, dict)
-    assert len(config.AUTONOMOUS_TUNING_PARAMS) == 12
+    assert len(config.AUTONOMOUS_TUNING_PARAMS) == 11
+
+
+def test_no_verification_or_measurement_params_in_whitelist():
+    """B489: Verifikations-/Messparameter duerfen die eigene Erfolgsmessung des
+    Tunings nicht beeinflussen koennen."""
+    forbidden_substrings = ("VERIFICATION", "NN_MAX_MATCH", "MATCH_THRESHOLD")
+    for name in config.AUTONOMOUS_TUNING_PARAMS:
+        for frag in forbidden_substrings:
+            assert frag not in name.upper(), \
+                f"Verifikations-/Messparameter in Whitelist: {name} (enthaelt {frag})"
 
 
 def test_every_param_has_required_fields():
@@ -66,7 +77,7 @@ def test_expected_params_present():
         "FORECAST_CROSS_HORIZON_MAX_BEARING_JUMP_DEG",
         "STEERING_BLEND_WEIGHT", "STEERING_BLEND_MIN_WIND_KMH",
         "STEERING_BLEND_MIN_ANGLE_DEG", "STEERING_NEW_CELL_SPEED_FRAC",
-        "OF_MAX_FRAME_INTERVAL_MIN", "VERIFICATION_NN_MAX_MATCH_KM",
+        "OF_MAX_FRAME_INTERVAL_MIN",
     }
     actual = set(config.AUTONOMOUS_TUNING_PARAMS.keys())
     missing = expected - actual
