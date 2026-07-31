@@ -62,7 +62,7 @@ def _last_accepted_ts() -> str | None:
                 entry = json.loads(line)
             except Exception:
                 continue
-            if entry.get("action") == "improved":  # B494: neue Aktion seit Experiment-Umbau
+            if entry.get("action") in ("improved", "accepted"):  # B495: "accepted" = Legacy-Aktion vor P104/P105
                 last = entry.get("ts") or last
     except Exception:
         return None
@@ -386,6 +386,11 @@ def _finish_experiment(state: dict, outcome: str, result: dict, reason: str) -> 
             state["escalation_needed"] = True
     elif outcome not in ("insufficient_samples", "insufficient_samples_collecting"):
         state["plateau_streak"] = 0
+    if outcome == "improved":
+        # B495: nicht erst beim naechsten --verify loeschen — der gerade erst
+        # akzeptierte Erfolg soll den Stall-Alarm sofort beenden, nicht erst
+        # eine Nacht spaeter.
+        state.pop("quality_improvement_stalled", None)
     if outcome not in ("insufficient_samples", "insufficient_samples_collecting"):
         state["pending"] = {}
     state["last_experiment_result"] = {"experiment_id": pending.get("experiment_id"),
