@@ -21,12 +21,22 @@ PYEOF
 )"
 if [ "$MODE" = "local" ]; then
     # P98: Tuning-Verify (Ergebnis des vorherigen Tunings pruefen)
-    python3 "$BASE/tools/tuning_apply.py" --verify 2>&1 | head -20 || true
+    if ! python3 "$BASE/tools/tuning_apply.py" --verify >>"$BASE/train_data/evaluation/tuning_dispatch.log" 2>&1; then
+        echo "[DISPATCH] Verify fehlgeschlagen; Analyse/Apply abgebrochen" >&2
+        exit 1
+    fi
 
     systemctl start wetterprojekt-local-analysis.service
+    STATUS="$BASE/train_data/evaluation/local_analysis_status.json"
+    python3 - "$STATUS" <<'PYEOF'
+import json, sys
+status = json.load(open(sys.argv[1], encoding="utf-8"))
+if status.get("state") != "ok" or not status.get("analysis_run_id"):
+    raise SystemExit("aktueller Analyse-Lauf ist nicht erfolgreich gebunden")
+PYEOF
 
     # P98: Tuning-Apply (neue Vorschlaege aus dem gerade abgeschlossenen Lauf anwenden)
-    python3 "$BASE/tools/tuning_apply.py" --apply 2>&1 | head -20 || true
+    python3 "$BASE/tools/tuning_apply.py" --apply >>"$BASE/train_data/evaluation/tuning_dispatch.log" 2>&1
 else
     exec systemctl start --no-block wetterprojekt-debug-export-branch.service
 fi

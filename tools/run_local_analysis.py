@@ -11,6 +11,8 @@ import shutil
 import subprocess
 import sys
 import time
+import hashlib
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -26,7 +28,7 @@ ALLOWED_PLAIN_TOOLS = frozenset({"Read", "Grep", "Glob"})
 ALLOWED_BASH_RULES = frozenset({"Bash(python3 tools/ro_query.py *)"})
 
 REQUIRED_LIST_FIELDS = ("fehler", "loesungen", "verbesserungen", "prompts")
-OPTIONAL_DICT_FIELDS = ("tuning_proposals",)  # P99: von tuning_apply.py verarbeitet
+OPTIONAL_LIST_FIELDS = ("tuning_proposals",)
 SECRET_ENV_TOKENS = ("TOKEN", "SECRET", "PASSWORD", "PASSWD", "APIKEY", "API_KEY", "PRIVATE_KEY", "CREDENTIAL", "ANTHROPIC_API")
 ENV_PASSTHROUGH = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TZ", "TERM", "SHELL", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "DISABLE_AUTOUPDATER")
 
@@ -206,7 +208,41 @@ def validate_payload(obj):
         if val is None: val = []
         if not isinstance(val, list): raise ValueError(f"Feld {field!r} muss eine Liste sein")
         clean[field] = [str(x) for x in val]
+    proposals = obj.get("tuning_proposals", [])
+    if proposals is None:
+        proposals = []
+    if not isinstance(proposals, list):
+        raise ValueError("Feld 'tuning_proposals' muss eine Liste sein")
+    clean["tuning_proposals"] = proposals
+    if proposals:
+        # Die fachliche Parameter-/Runtime-Prüfung erfolgt nochmals unmittelbar
+        # vor dem Controller. Hier wird verhindert, dass Laufbindung verloren geht.
+        from experiment_contract import LOCAL_ANALYSIS_SCHEMA
+        if obj.get("schema") != LOCAL_ANALYSIS_SCHEMA:
+            raise ValueError("tuning_proposals erfordern das aktuelle Analyse-Schema")
+        for field in ("schema", "analysis_run_id", "source_snapshot_id", "git_commit",
+                      "result_id", "generated_at_utc"):
+            value = obj.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"Feld {field!r} fehlt")
+            clean[field] = value.strip()
     return clean
+
+
+def _git_commit(repo: Path) -> str:
+    return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+
+
+def _source_snapshot_id(repo: Path) -> str:
+    """Bindet den Lauf an Commit und relevante Diagnoseeingaben."""
+    digest = hashlib.sha256(_git_commit(repo).encode())
+    evaluation = repo / "train_data" / "evaluation"
+    for path in sorted(evaluation.glob("*.json")):
+        if path.name in {"analysis_result.json", "local_analysis_status.json", "tuning_state.json"}:
+            continue
+        digest.update(path.name.encode())
+        digest.update(path.read_bytes())
+    return "sha256:" + digest.hexdigest()
 
 
 def extract_payload(stdout_text):
@@ -391,6 +427,10 @@ def run_deterministic_ai_checks(repo: Path):
 
 def main(argv=None):
     args = parse_args(argv); repo = Path(args.repo_dir).resolve(); cfg = load_config(repo); mode, changed = load_mode(repo); now = datetime.now(TZ)
+    analysis_run_id = str(uuid.uuid4())
+    source_snapshot_id = _source_snapshot_id(repo)
+    git_commit = _git_commit(repo)
+    run_started_at_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     status_path = repo / str(cfg.get("status_path", "train_data/evaluation/local_analysis_status.json")); prev = read_json_quiet(status_path)
     log_path = repo / str(cfg.get("log_path", "train_data/evaluation/local_analysis_last_run.log"))
     if not (args.force or args.check_only or args.dry_run):
@@ -402,11 +442,15 @@ def main(argv=None):
     except PreconditionError as exc:
         write_status(status_path, make_status("precondition_failed", now, prev, mode=mode, error=str(exc))); print(f"[LOCAL-ANALYSIS] Vorbedingung fehlt: {exc}", file=sys.stderr); return 1
     if args.check_only: print(f"[LOCAL-ANALYSIS] Vorbedingungen OK (claude={claude}, Betriebsart={mode})"); return 0
+    prompt += ("\n\nVerbindliche Laufbindung für das Ausgabe-JSON:\n"
+               f"analysis_run_id={analysis_run_id}\nsource_snapshot_id={source_snapshot_id}\n"
+               f"git_commit={git_commit}\n")
     cmd = build_command(cfg, claude, prompt, settings)
     if args.dry_run:
         shown = list(cmd); shown[2] = f"<Prompt: {len(prompt)} Zeichen>"; print("[LOCAL-ANALYSIS] " + " ".join(shlex.quote(c) for c in shown)); return 0
     run_deterministic_ai_checks(repo)
-    today = now.strftime("%Y-%m-%d"); attempts = int(prev.get("attempts_today", 0) or 0)+1 if prev.get("last_attempt_date") == today else 1; base = {"last_attempt_date": today, "attempts_today": attempts, "claude_bin": claude}; t0=time.monotonic()
+    today = now.strftime("%Y-%m-%d"); attempts = int(prev.get("attempts_today", 0) or 0)+1 if prev.get("last_attempt_date") == today else 1; base = {"last_attempt_date": today, "attempts_today": attempts, "claude_bin": claude, "analysis_run_id": analysis_run_id, "source_snapshot_id": source_snapshot_id, "git_commit": git_commit, "run_started_at_utc": run_started_at_utc}; t0=time.monotonic()
+    write_status(status_path, make_status("running", now, prev, mode=mode, **base))
     try: proc = subprocess.run(cmd, cwd=str(repo), env=build_subprocess_env(), stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=int(cfg.get("timeout_s", 900)))
     except subprocess.TimeoutExpired as exc:
         dur = round(time.monotonic()-t0, 1)
@@ -439,7 +483,18 @@ def main(argv=None):
         write_status(status_path, make_status("failed", now, prev, mode=mode, duration_s=dur, rc=0, error=meldung, log_path=str(log_path), **base))
         print(f"[LOCAL-ANALYSIS] {meldung}", file=sys.stderr)
         print(f"[LOCAL-ANALYSIS] Vollstaendige Spur: {log_path}", file=sys.stderr); return 2
-    result = repo / str(cfg.get("result_path", "train_data/evaluation/analysis_result.json")); write_json_atomic(result, payload); base["last_success_date"] = today
+    from experiment_contract import LOCAL_ANALYSIS_SCHEMA
+    payload.setdefault("schema", LOCAL_ANALYSIS_SCHEMA)
+    payload.setdefault("analysis_run_id", analysis_run_id)
+    payload.setdefault("source_snapshot_id", source_snapshot_id)
+    payload.setdefault("git_commit", git_commit)
+    payload.setdefault("generated_at_utc", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    payload.setdefault("result_id", str(uuid.uuid4()))
+    for field, expected in (("analysis_run_id", analysis_run_id), ("source_snapshot_id", source_snapshot_id), ("git_commit", git_commit)):
+        if payload[field] != expected:
+            write_status(status_path, make_status("failed", now, prev, mode=mode, error=f"Laufbindung falsch: {field}", **base))
+            return 2
+    result = repo / str(cfg.get("result_path", "train_data/evaluation/analysis_result.json")); write_json_atomic(result, payload); base["last_success_date"] = today; base["result_id"] = payload["result_id"]
     write_run_log(log_path, cmd=cmd, claude_bin=claude, mode=mode, rc=0,
                   duration_s=dur, stdout=proc.stdout, stderr=proc.stderr,
                   note=f"{len(payload['fehler'])} Fehler gemeldet")

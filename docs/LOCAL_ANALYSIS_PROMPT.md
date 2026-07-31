@@ -154,8 +154,7 @@ separates Modul (`tuning_apply.py`) — du schreibst NUR den Vorschlag.
 - NUR Parameter aus `AUTONOMOUS_TUNING_PARAMS` vorschlagen — alles andere wird
   von `tuning_apply.py` abgelehnt.
 - Nur EIN Aenderungsvorschlag pro Parameter pro Lauf (kein Stueck-fuer-Stueck).
-- Maximal 2 Parameter gleichzeitig aendern (isolierte Aenderungen sind besser
-  messbar als viele gleichzeitige).
+- Genau ein Parameter in höchstens einem Standardexperiment pro Lauf.
 - Der `reason`-String muss den `code_ref` aus dem zugehoerigen Verbesserungsvorschlag
   enthalten — kein Tuning ohne code-belegte Begruendung.
 - Wenn `AUTONOMOUS_TUNING_ENABLED` nicht aktiv ist: kein `tuning_proposals`-Feld
@@ -190,7 +189,7 @@ Datenquelle ab — so viele, wie das Restbudget nach der Mission erlaubt. ACs mi
 Gib als allerletzte Ausgabe ausschließlich ein einziges JSON-Objekt aus. Kein Markdown.
 
 ```
-{"zusammenfassung":"Ein bis fünf Sätze Gesamtlage.","fehler":[],"loesungen":[],"verbesserungen":[],"prompts":[],"tuning_proposals":{}}
+{"schema":"wetterextended.local-analysis.v2","analysis_run_id":"<Runner-Wert>","source_snapshot_id":"<Runner-Wert>","git_commit":"<Runner-Wert>","result_id":"<UUID>","generated_at_utc":"<ISO-8601>","zusammenfassung":"Ein bis fünf Sätze Gesamtlage.","fehler":[],"loesungen":[],"verbesserungen":[],"prompts":[],"tuning_proposals":[]}
 ```
 
 - `zusammenfassung`: Pflichtfeld, nicht leer; nennt Anzahl geprüfter Anweisungen, Fehlerzahl und Gesamtlage.
@@ -202,6 +201,28 @@ Gib als allerletzte Ausgabe ausschließlich ein einziges JSON-Objekt aus. Kein M
   Zwischenlösung (siehe Abschnitt C). Ein Fehler ohne saubere Endlösung
   erhält keinen `prompts`-Eintrag.
 - Alle Listen dürfen leer sein; kein Befund ist besser als ein erfundener Befund.
-- `tuning_proposals`: optionales Dict (nur wenn `AUTONOMOUS_TUNING_ENABLED`).
-  Key = Parametername aus `AUTONOMOUS_TUNING_PARAMS`, Value = `{"value": <float>, "reason": "<code_ref + Begruendung>"}`.
-  Maximal 2 Eintraege. Leeres Dict `{}` wenn kein Tuning vorgeschlagen wird.
+- `tuning_proposals`: Liste mit maximal einem vollständigen v2-Experiment (nur
+  wenn beide Schutzschalter aktiv und die Datenqualität gültig sind). Leere Liste
+  `[]`, wenn kein Tuning vorgeschlagen wird.
+
+## P104: verbindlicher v2-Experimentvertrag
+
+Die Antwort verwendet `schema: wetterextended.local-analysis.v2` sowie die vom Runner
+vorgegebenen `analysis_run_id`, `source_snapshot_id` und `git_commit`. `tuning_proposals`
+ist eine Liste mit **höchstens einem** Standardexperiment: genau ein `target_system`, ein
+`parameter` und ein Candidate. Pflichtfelder sind `experiment_id` (UUID),
+`target_horizons`, `old_value`, `new_value`, `code_ref`, `evidence_refs`, eine
+falsifizierbare `expected_effect`, `minimum_paired_samples` je Horizont und
+`maximum_runtime_hours`. Der kausale Codepfad ist konkret zu belegen; Freitext ist nie
+Runtime-Konfiguration.
+
+Vor einem Vorschlag sind Fehler als `forecast_error`, `verification_error`,
+`tracking_identity_error`, `radar_ingest_error`, `target_not_due` oder
+`data_schema_error` zu klassifizieren. Nur finale, gepaarte Actuals mit
+`exact|lineage_confirmed`, gültiger Datenqualität, erreichbarer Mindeststichprobe und
+wirksamem Aktuator erlauben Forecast-Tuning. Bei pending, ambiguous_nearest,
+multiple_active_results, target_object_unresolved, frame_lineage_missing oder
+schema_mismatch gilt `eligible_for_model_tuning=false` und die Liste bleibt leer.
+Verifikations-/Trackingbefunde sind manuelle Codevorschläge, keine Forecast-Parameter.
+Nach einem Plateau ist die Ursachenklasse zu wechseln; derselbe Wert darf nicht erneut
+vorgeschlagen werden.

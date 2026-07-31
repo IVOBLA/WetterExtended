@@ -1086,6 +1086,13 @@ LOCAL_ANALYSIS_CONFIG: dict = {
 
 # Runtime-overridable: runtime_config.patch({"AUTONOMOUS_TUNING_ENABLED": True})
 AUTONOMOUS_TUNING_ENABLED: bool = False  # Default AUS — erst nach Validierung einschalten
+# Zweiter, unabhängiger Schutz: selbst bei aktiviertem Analysten startet ohne
+# bewusste Freigabe keine Shadow-Sammlung und keine Promotion.
+FORECAST_EXPERIMENTS_ENABLED: bool = False
+FORECAST_MIN_ABSOLUTE_IMPROVEMENT_KM: float = 0.05
+FORECAST_MIN_RELATIVE_IMPROVEMENT: float = 0.02
+FORECAST_MAX_ABSOLUTE_HORIZON_REGRESSION_KM: float = 0.03
+FORECAST_MAX_RELATIVE_HORIZON_REGRESSION: float = 0.01
 
 # Jeder Eintrag: Key = Name in runtime_overrides.json (wie prediction.py ihn liest)
 #                min/max = harte, nie ueberschreitbare Bounds

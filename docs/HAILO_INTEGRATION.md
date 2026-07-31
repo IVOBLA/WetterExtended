@@ -9739,3 +9739,14 @@ Plateau-Eskalation ergänzt.
 **Phasen-Status:** Phase A — P103 ✅ (Plateau-Eskalationslogik: 3-Plateau-Stopp +
 14-Tage-Stall-Alarm). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie
 wartet auf ausreichende Trainingsdaten.
+
+## P104: sicherer Forecast-Experimentbetrieb
+
+Forecast-Experimente sind unabhängig vom Hailo-Pfad und doppelt Default-Off geschützt
+(`AUTONOMOUS_TUNING_ENABLED=False`, `FORECAST_EXPERIMENTS_ENABLED=False`). Ein Proposal
+erzeugt nur einen Shadow-Candidate; ausgeliefert bleibt der horizonspezifische Incumbent.
+Promotion setzt identische finale Case-Keys, unveränderten Verifier-Hash, ausreichende
+Samples, eine Mindestverbesserung von `max(0,05 km, 2 %)` und ein einseitiges
+95-%-Block-Bootstrap-Konfidenzintervall unter null voraus. Plateau und Regression werden
+nie aktiviert. Rollback bedeutet das Verwerfen des Candidates; erst eine erfolgreiche
+Entscheidung ändert die Runtime-Konfiguration atomar.

@@ -1036,7 +1036,7 @@ def retrain_all():
     _mae_new     = float(new_eval.get("mae_km_total", float("inf")))  # B492/F-ML-001: km statt Pixel-/Zielraum
     _mae_old     = float(old_eval.get("mae_km_total", float("inf")))  # B492/F-ML-001: km statt Pixel-/Zielraum
     _kin_baseline_mae = float(new_eval.get("kin_mae_total", float("inf")))  # B243/B277
-    _promotion_decision = "promoted" if _kin_baseline_mae > 0 and new_eval.get("mae_total", float("inf")) < _kin_baseline_mae else "rejected"
+    _promotion_decision = "promoted" if _kin_baseline_mae > 0 and _mae_new < _kin_baseline_mae else "rejected"
     _promotion_reject_reason = None if _promotion_decision == "promoted" else "ml_mae_worse_than_runtime_kinematic_baseline"
 
     # P30: Zentrale Compat-Prüfung vor jeder Promotion (Cold-Start + regulär).
@@ -1052,8 +1052,8 @@ def retrain_all():
         trained_ok = bool(meta.get("lstm", {}).get("trained") or meta.get("lgbm", {}).get("trained"))
         dataset_ok = int(meta.get("dataset", {}).get("total_samples", meta.get("num_samples", 0)) or 0) >= int(MIN_SEQUENCES_LSTM)
         holdout = meta.get("holdout", {})
-        holdout_mae = holdout.get("mae_px")
-        holdout_ok = holdout.get("samples", 0) == 0 or (isinstance(holdout_mae, (int, float)) and holdout_mae < float("inf"))
+        holdout_mae = holdout.get("mae_km")
+        holdout_ok = holdout.get("samples", 0) > 0 and isinstance(holdout_mae, (int, float)) and math.isfinite(holdout_mae)
         artifacts_ok = _has_required_model_artifacts(version_dir)
         if trained_ok and dataset_ok and artifacts_ok and holdout_ok:
             status = "cold_start_promoted_low_confidence" if promotion_samples < MIN_SAMPLES_FOR_PROMOTION else "promoted"
@@ -1076,6 +1076,9 @@ def retrain_all():
             f"{new_eval.get('eval_window_hours', 24)}h von max. {MODEL_PROMOTION_EVAL_MAX_HOURS}h — "
             f"keine Promotion ohne ausreichende Validierung)"
         )
+    elif set(map(str, ML_FORECAST_HORIZONS_MIN)) - set(new_eval.get("mae_km_by_horizon", {})):
+        status = "rejected_missing_configured_horizon"
+        debug_log(f"[TRAINING] REJECTED {timestamp}: nicht alle konfigurierten Horizonte besitzen km-Holdout-Metriken")
     elif (
         lambda _paired={
             h: n for h, n in new_eval.get("paired_samples_by_horizon", {}).items()
@@ -1106,18 +1109,10 @@ def retrain_all():
             f"kinematische Baseline={_kin_baseline_mae:.4f} — kein ML-Vorteil, "
             f"kinematischer Fallback bleibt aktiv."
         )
-    elif promotion_samples >= LARGE_SAMPLE_THRESHOLD and _mae_new < _mae_old * TOLERANCE_LARGE:
-        status = "promoted"
-        _atomic_switch_current(timestamp)
-        debug_log(
-            f"[TRAINING] PROMOTED {timestamp} (large-sample tolerance: "
-            f"mae_new={_mae_new:.4f} vs mae_old={_mae_old:.4f}, "
-            f"samples={promotion_samples})"
-        )
     elif _mae_new < _mae_old:
         # P30: Holdout-MAE prüfen — muss endlich sein (Training ohne Fehler abgeschlossen)
         _holdout = meta.get("holdout", {})
-        _holdout_mae = _holdout.get("mae_px")
+        _holdout_mae = _holdout.get("mae_km")
         _holdout_ok = (
             _holdout_mae is not None
             and isinstance(_holdout_mae, (int, float))

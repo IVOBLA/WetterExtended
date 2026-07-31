@@ -3035,3 +3035,21 @@ gegen den zugehörigen Quellcode, bevor er in den Bericht aufgenommen wird. Jede
 enthält eine Referenz auf die untersuchte Codestelle (`code_ref`) und eine konkrete Empfehlung,
 was dort geändert werden müsste. Vorschläge, deren Ursache im verfügbaren Schrittbudget nicht
 im Code lokalisiert werden konnte, sind im Bericht als „unbelegt" gekennzeichnet.
+
+## P104: Closed Loop und Experimente
+
+Ein Forecast-Ziel durchläuft `pending → provisional → final`. Noch nicht fällige Ziele
+sind kein Radar-Ausfall und gehen weder in Coverage noch Fehlerkennzahlen ein. Nur
+Exact-ID beziehungsweise zum Zielzeitpunkt belegte Lineage darf als Gold-Actual dienen;
+ein unbelegter Nearest-Neighbor ist `ambiguous_nearest` und für Training und Promotion
+gesperrt. Diagnosefenster beziehen sich auf Forecast-/Zielzeit, nicht auf eine späte
+Verarbeitungszeit.
+
+Die manuelle Inbetriebnahme verlangt beide Runtime-Schalter. Die Lernansicht trennt
+Offline-Training, Runtime-Champion je Horizont, Challenger/Routing und Experimente.
+Experimentzustände sind `improved`, `plateau`, `rejected`, `invalid_experiment`,
+`insufficient_samples` oder `invalid_measurement`. Nur `improved` kann promoten. Alte
+Metadaten ohne km-, Pairing- und Schemafelder gelten als `legacy_incomparable`; Rohdaten
+werden bei Migration nicht überschrieben. Bei Plateau-Eskalation ist eine auditierte
+Ursachenbegründung erforderlich. Sicherer Rollback verwirft den Shadow-Candidate und
+belässt den Incumbent unverändert.

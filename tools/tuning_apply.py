@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +24,8 @@ sys.path.insert(0, str(REPO_DIR))
 
 import config  # noqa: E402
 import runtime_config  # noqa: E402
+from experiment_contract import (EXPERIMENT_SCHEMA, evaluate_paired_cases,
+                                 stable_hash, validate_tuning_proposals)  # noqa: E402
 
 # ─── Pfade ────────────────────────────────────────────────────────────
 EVAL_DIR = REPO_DIR / "train_data" / "evaluation"
@@ -31,6 +34,7 @@ HISTORY_FILE = EVAL_DIR / "tuning_history.jsonl"
 RESULT_FILE = EVAL_DIR / "analysis_result.json"
 DRIFT_FILE = EVAL_DIR / "drift_status.json"
 STATUS_FILE = EVAL_DIR / "local_analysis_status.json"  # B488: Freshness-Pruefung
+EXPERIMENT_RESULT_FILE = EVAL_DIR / "paired_experiment_result.json"
 
 
 PLATEAU_ESCALATION_THRESHOLD = 3   # P103: nach so vielen Plateaus in Folge stoppen
@@ -123,8 +127,16 @@ def _current_mae_by_horizon() -> dict:
     if not ds:
         return {}
     qt = ds.get("quality_target_by_horizon", {})
-    return {str(h): float(v.get("actual_mae_km", 999))
-            for h, v in qt.items() if isinstance(v, dict)}
+    result = {}
+    for horizon, value in qt.items():
+        raw = value.get("actual_mae_km") if isinstance(value, dict) else None
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            return {}
+        number = float(raw)
+        if not math.isfinite(number):
+            return {}
+        result[str(horizon)] = number
+    return result
 
 
 def _whitelist() -> dict:
@@ -138,13 +150,24 @@ def _enabled() -> bool:
     return bool(getattr(config, "AUTONOMOUS_TUNING_ENABLED", False))
 
 
+def _experiments_enabled() -> bool:
+    return bool(runtime_config.get("FORECAST_EXPERIMENTS_ENABLED",
+                                   getattr(config, "FORECAST_EXPERIMENTS_ENABLED", False)))
+
+
+def _verification_config_hash() -> str:
+    names = ("VERIFICATION_NN_MAX_MATCH_KM", "VERIFICATION_TIME_TOLERANCE_S",
+             "VERIFICATION_MAX_SEARCH_RADIUS_KM", "VERIFICATION_INTERPOLATION_MAX_GAP_S")
+    return stable_hash({name: runtime_config.get(name, getattr(config, name, None)) for name in names})
+
+
 def validate_proposal(name: str, value: float) -> str | None:
     """Prueft einen Vorschlag gegen die Whitelist. None = ok, sonst Fehlertext."""
     wl = _whitelist()
     if name not in wl:
         return f"{name} nicht in AUTONOMOUS_TUNING_PARAMS"
     spec = wl[name]
-    if not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         return f"{name}: Wert {value!r} ist nicht numerisch"
     if value < spec["min"] or value > spec["max"]:
         return f"{name}: {value} ausserhalb [{spec['min']}, {spec['max']}]"
@@ -154,158 +177,142 @@ def validate_proposal(name: str, value: float) -> str | None:
     return None
 
 
+def _actuator_error(proposal: dict) -> str | None:
+    name = proposal["parameter"]
+    if proposal["target_system"] == "kinematic" and not name.startswith("KINEMATIC_"):
+        return "parameter_does_not_affect_target_system"
+    if proposal["target_system"] == "ml" and not (name.startswith("ML_") or name.startswith("FORECAST_")):
+        return "parameter_does_not_affect_target_system"
+    if name == "KINEMATIC_ACCEL_MAX_FRACTION" and not bool(runtime_config.get(
+            "KINEMATIC_ACCELERATION_ENABLED", getattr(config, "KINEMATIC_ACCELERATION_ENABLED", False))):
+        return "actuator_not_effective"
+    return None
+
+
 def cmd_apply() -> int:
-    """Nacht 1: Vorschlaege aus analysis_result.json lesen und anwenden."""
-    if not _enabled():
-        _log("AUTONOMOUS_TUNING_ENABLED=False — uebersprungen.")
+    """Erzeugt ausschliesslich eine Shadow-Candidate-Konfiguration."""
+    if not _enabled() or not _experiments_enabled():
+        _log("Autonomes Tuning oder Forecast-Experimente sind deaktiviert.")
         return 0
     status = _read_json(STATUS_FILE)
-    if not status or status.get("state") != "ok":
-        _log(f"Kein erfolgreicher lokaler Analyse-Lauf (state={status.get('state') if status else None}) — kein Apply.")
-        return 0
-    last_success_date = status.get("last_success_date")
-    if not last_success_date:
-        _log("Kein last_success_date im Status — kein Apply.")
-        return 0
-    prior_state = _read_json(STATE_FILE) or {}
-    if prior_state.get("last_applied_success_date") == last_success_date:
-        _log(f"Ergebnis vom {last_success_date} bereits angewandt — kein erneutes Apply.")
-        return 0
-    if prior_state.get("escalation_needed"):
-        # P103: 3+ Plateaus in Folge — automatisches Tuning pausiert, bis im
-        # Admin-Panel bestaetigt/zurueckgesetzt (POST /api/local_analysis/tuning/clear_escalation).
-        _log("Eskalation aktiv (zu viele Plateaus in Folge) — Apply pausiert bis Bestaetigung im Admin-Panel.")
-        return 0
-
     result = _read_json(RESULT_FILE)
-    if not result:
-        _log("Keine analysis_result.json vorhanden.")
-        return 0
-    proposals = result.get("tuning_proposals")
-    if not proposals or not isinstance(proposals, dict):
-        _log("Keine tuning_proposals in analysis_result.json.")
-        return 0
-
-    wl = _whitelist()
     state = _read_json(STATE_FILE) or {"baselines": {}, "pending": {}}
-    applied = {}
-    mae_before = _current_mae_by_horizon()
-
-    for name, entry in proposals.items():
-        if not isinstance(entry, dict):
-            _log(f"SKIP {name}: kein dict")
-            continue
-        new_val = entry.get("value")
-        reason = entry.get("reason", "")
-        err = validate_proposal(name, new_val)
-        if err:
-            _log(f"ABGELEHNT: {err}")
-            _append_history({"ts": _now_iso(), "action": "rejected",
-                             "param": name, "value": new_val, "reason": err})
-            continue
-        current = float(runtime_config.get(name, getattr(config, name, wl[name]["min"])))
-        state["baselines"].setdefault(name, current)
-        state["pending"][name] = {"new": new_val, "old": current, "reason": reason}
-        applied[name] = new_val
-        _log(f"APPLY {name}: {current} -> {new_val} ({reason})")
-
-    if not applied:
-        _log("Keine gueltigen Vorschlaege.")
+    if not status or status.get("state") != "ok" or not result:
+        _log("Kein erfolgreicher aktueller Analyse-Lauf — kein Apply.")
         return 0
-
-    runtime_config.patch(applied)
-
-    state["mae_before"] = mae_before
-    state["applied_at"] = _now_iso()
-    state["last_applied_success_date"] = last_success_date
+    for field in ("analysis_run_id", "source_snapshot_id", "git_commit", "result_id"):
+        if not status.get(field) or status.get(field) != result.get(field):
+            _log(f"Laufbindung stimmt nicht: {field}")
+            return 0
+    try:
+        generated = datetime.fromisoformat(result["generated_at_utc"].replace("Z", "+00:00"))
+        started = datetime.fromisoformat(status["run_started_at_utc"].replace("Z", "+00:00"))
+    except (KeyError, TypeError, ValueError):
+        _log("Laufzeitstempel fehlen oder sind ungültig.")
+        return 0
+    if generated < started or state.get("last_consumed_result_id") == result["result_id"]:
+        _log("Ergebnis ist veraltet oder bereits konsumiert.")
+        return 0
+    if state.get("pending") or state.get("escalation_needed"):
+        _log("Pending-Experiment oder Eskalationssperre aktiv.")
+        return 0
+    try:
+        proposals = validate_tuning_proposals(
+            result, _whitelist(),
+            lambda name: runtime_config.get(name, getattr(config, name)),
+            set(getattr(config, "ML_FORECAST_HORIZONS_MIN", [10, 20, 30, 40, 60])),
+        )
+    except (ValueError, TypeError, AttributeError) as exc:
+        _append_history({"ts": _now_iso(), "action": "invalid_experiment", "reason": str(exc),
+                         "result_id": result.get("result_id")})
+        _log(f"Proposal abgelehnt: {exc}")
+        return 0
+    if not proposals:
+        _log("Kein Tuning-Vorschlag.")
+        return 0
+    proposal = proposals[0]
+    actuator_error = _actuator_error(proposal)
+    if actuator_error:
+        _append_history({"ts": _now_iso(), "action": "invalid_experiment", "reason": actuator_error,
+                         "experiment_id": proposal["experiment_id"]})
+        return 0
+    name = proposal["parameter"]
+    candidate = {name: proposal["new_value"]}
+    state.update({
+        "schema": "wetterextended.tuning-state.v2",
+        "analysis_run_id": result["analysis_run_id"], "source_snapshot_id": result["source_snapshot_id"],
+        "git_commit": result["git_commit"], "last_consumed_result_id": result["result_id"],
+        "last_consumed_analysis_run_id": result["analysis_run_id"],
+        "pending": {"experiment_id": proposal["experiment_id"], "state": "shadow_collecting",
+                    "target_system": proposal["target_system"], "target_horizons": proposal["target_horizons"],
+                    "parameter": name, "incumbent_value": proposal["old_value"],
+                    "candidate_value": proposal["new_value"], "candidate_parameter_set": candidate,
+                    "parameter_set_hash": stable_hash(candidate),
+                    "verification_config_hash": _verification_config_hash(),
+                    "forecast_variant_id": f"{proposal['target_system']}_candidate:{proposal['experiment_id']}",
+                    "minimum_paired_samples": proposal["minimum_paired_samples"],
+                    "started_at_utc": _now_iso()},
+    })
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    for name, new_val in applied.items():
-        old_val = state["pending"][name]["old"]
-        _append_history({"ts": _now_iso(), "action": "applied",
-                         "param": name, "old": old_val, "new": new_val,
-                         "reason": state["pending"][name]["reason"],
-                         "mae_before": mae_before})
-    _log(f"{len(applied)} Parameter angewandt.")
+    _append_history({"ts": _now_iso(), "action": "shadow_candidate_created",
+                     "experiment_id": proposal["experiment_id"], "param": name,
+                     "old": proposal["old_value"], "new": proposal["new_value"],
+                     "result_id": result["result_id"]})
+    _log("Shadow-Candidate erzeugt; produktive Runtime-Konfiguration unverändert.")
     return 0
-
 
 def cmd_verify() -> int:
-    """Nacht 2: Ergebnis pruefen, ggf. Rollback."""
-    if not _enabled():
-        _log("AUTONOMOUS_TUNING_ENABLED=False — uebersprungen.")
+    """Entscheidet ausschliesslich anhand gepaarter finaler Shadow-Fälle."""
+    if not _enabled() or not _experiments_enabled():
+        _log("Autonomes Tuning oder Forecast-Experimente sind deaktiviert.")
         return 0
-    state = _read_json(STATE_FILE)
-    if not state or not state.get("pending"):
-        _log("Kein pending-Tuning zum Verifizieren.")
+    state = _read_json(STATE_FILE) or {}
+    pending = state.get("pending")
+    if not isinstance(pending, dict) or not pending.get("experiment_id"):
+        _log("Kein pending Shadow-Experiment.")
         return 0
-
-    mae_after = _current_mae_by_horizon()
-    mae_before = state.get("mae_before", {})
-
-    common = set(mae_before.keys()) & set(mae_after.keys())
-    if not common:
-        _log("WARNUNG: Keine gemeinsamen Horizonte — Rollback als Vorsichtsmassnahme.")
-        return _rollback(state, mae_after, "no_common_horizons")
-
-    avg_before = sum(mae_before[h] for h in common) / len(common)
-    avg_after = sum(mae_after[h] for h in common) / len(common)
-    delta_km = round(avg_after - avg_before, 3)
-
-    if delta_km < 0:
-        _log(f"AKZEPTIERT: MAE-Delta={delta_km} km. Baseline aktualisiert.")
-        for name, info in state["pending"].items():
-            state["baselines"][name] = info["new"]
-            _append_history({"ts": _now_iso(), "action": "accepted",
-                             "param": name, "value": info["new"],
-                             "mae_before": avg_before, "mae_after": avg_after,
-                             "delta_km": delta_km})
-        state["pending"] = {}
-        state.pop("mae_before", None)
-        state.pop("applied_at", None)
-        state["plateau_streak"] = 0  # P103: echte Verbesserung unterbricht die Plateau-Serie
-        state.pop("escalation_needed", None)
-        _check_stall(state)
-        STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    result = _read_json(EXPERIMENT_RESULT_FILE)
+    if not result or result.get("schema") != EXPERIMENT_SCHEMA:
+        _log("Kein gepaartes Experimentergebnis; Candidate bleibt im Shadow.")
         return 0
-    elif delta_km == 0:
-        # B490: Gleichstand ist kein nachgewiesener Erfolg (Plateau) und wird NICHT
-        # in die Baseline uebernommen — Rollback auf den alten Wert, eigener Grund
-        # fuer spaetere Auswertung.
-        _log(f"PLATEAU: MAE-Delta=0.0 km — kein nachgewiesener Nutzen, Rollback.")
-        state["plateau_streak"] = int(state.get("plateau_streak", 0)) + 1  # P103
-        if state["plateau_streak"] >= PLATEAU_ESCALATION_THRESHOLD and not state.get("escalation_needed"):
+    if result.get("experiment_id") != pending["experiment_id"]:
+        _log("Experiment-ID des Ergebnisses stimmt nicht.")
+        return 0
+    if result.get("verification_config_hash") != pending.get("verification_config_hash"):
+        return _finish_experiment(state, "invalid_experiment", result, "verification_config_changed")
+    cases = result.get("paired_cases")
+    if not isinstance(cases, list):
+        return _finish_experiment(state, "invalid_measurement", result, "paired_cases_missing")
+    decision = evaluate_paired_cases(cases, pending["minimum_paired_samples"])
+    outcome = decision["state"]
+    if outcome != "improved":
+        return _finish_experiment(state, outcome, decision, "acceptance_criteria_not_met")
+    # Erst jetzt atomare Promotion des genau einen Parameters.
+    runtime_config.patch({pending["parameter"]: pending["candidate_value"]})
+    state.setdefault("baselines", {})[pending["parameter"]] = pending["candidate_value"]
+    state["last_improvement_at_utc"] = _now_iso()
+    state["plateau_streak"] = 0
+    state.pop("escalation_needed", None)
+    return _finish_experiment(state, "improved", decision, "statistically_significant_improvement")
+
+
+def _finish_experiment(state: dict, outcome: str, result: dict, reason: str) -> int:
+    pending = state.get("pending", {})
+    if outcome == "plateau":
+        state["plateau_streak"] = int(state.get("plateau_streak", 0)) + 1
+        if state["plateau_streak"] >= PLATEAU_ESCALATION_THRESHOLD:
             state["escalation_needed"] = True
-            _append_history({"ts": _now_iso(), "action": "escalation_triggered",
-                             "reason": f"{state['plateau_streak']} Plateaus in Folge — "
-                                       f"automatisches Tuning pausiert, Ursachenklasse pruefen"})
-            _log(f"ESKALATION: {state['plateau_streak']} Plateaus in Folge — Tuning pausiert.")
-        _check_stall(state)
-        return _rollback(state, mae_after, "plateau_no_measurable_improvement")
-    else:
-        _log(f"VERSCHLECHTERT: MAE-Delta=+{delta_km} km — Rollback.")
-        state["plateau_streak"] = 0  # P103: Verschlechterung ist kein Plateau, zaehlt nicht mit
-        _check_stall(state)
-        return _rollback(state, mae_after, f"mae_worse_by_{delta_km}km")
-
-
-def _rollback(state: dict, mae_after: dict, reason: str) -> int:
-    rollback_values = {}
-    for name, info in state["pending"].items():
-        rollback_values[name] = info["old"]
-        _append_history({"ts": _now_iso(), "action": "rollback",
-                         "param": name, "old": info["new"], "new": info["old"],
-                         "reason": reason, "mae_after": mae_after})
-        _log(f"ROLLBACK {name}: {info['new']} -> {info['old']}")
-
-    runtime_config.patch(rollback_values)
-    state["pending"] = {}
-    state.pop("mae_before", None)
-    state.pop("applied_at", None)
+    elif outcome != "insufficient_samples":
+        state["plateau_streak"] = 0
+    if outcome != "insufficient_samples":
+        state["pending"] = {}
+    state["last_experiment_result"] = {"experiment_id": pending.get("experiment_id"),
+                                       "state": outcome, "reason": reason, **result}
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    _append_history({"ts": _now_iso(), "action": outcome, "reason": reason,
+                     "experiment_id": pending.get("experiment_id"), "metrics": result})
     return 0
-
 
 def main(argv: list | None = None) -> int:
     parser = argparse.ArgumentParser(description="P97 — Autonomes Tuning Apply/Verify")
