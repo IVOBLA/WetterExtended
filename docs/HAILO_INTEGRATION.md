@@ -9554,3 +9554,23 @@ wird zurückgerollt, eigener History-Grund, echte Verbesserung bleibt akzeptiert
 **Phasen-Status:** Phase A — B490 ✅ (Gleichstand wird nicht mehr promotet).
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
 Trainingsdaten.
+
+### B491 — forecast_mode/match_type/lineage_status im Outlier-Export ergänzt
+
+**Anlass:** Der KI-Befund vom 31.07.2026 konnte einen Positions-Bias bei
+WX-20260729-0002/0328 nicht dem kinematischen oder dem ML-Pfad zuordnen, weil der
+Diagnose-Export `forecast_outliers` das bereits in `forecast_error_details.jsonl`
+vorhandene Feld `forecast_mode` (sowie `match_type`, `lineage_status`) nicht
+weitergab.
+
+**Änderung:** `tools/diagnose_forecast_quality.py`: `forecast_outliers`-Export um
+`forecast_mode`, `match_type`, `lineage_status` ergänzt — reine Feldergänzung aus
+bereits vorhandenen Quelldaten, keine neue Berechnung.
+
+**Tests:** Neu `tests/test_b491_outlier_diagnosis_fields.py` — 1 Test.
+
+**Kein** Benutzerhandbuch-Update (interner Diagnose-Export). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B491 ✅ (Diagnosefelder im Outlier-Export ergänzt;
+Grundlage für künftige Root-Cause-Analyse des Richtungs-/Positions-Bias).
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
