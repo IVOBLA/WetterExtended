@@ -21,7 +21,7 @@ PrivateTmp=yes
 # Werkzeug-Positivliste vorbeikaeme, ist kein Schreibzugriff auf Quellcode,
 # Modelle oder Rohdaten moeglich.
 ProtectSystem=strict
-ReadWritePaths=/home/ki-pi/wetterprojekt/train_data
+ReadWritePaths=/home/ki-pi/wetterprojekt/train_data/evaluation
 ReadWritePaths=-/home/ki-pi/.claude
 ReadWritePaths=-/home/ki-pi/.cache
 ReadWritePaths=-/home/ki-pi/.config

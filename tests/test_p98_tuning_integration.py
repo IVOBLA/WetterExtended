@@ -4,10 +4,13 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 
 
-def test_service_has_train_data_write_access():
+def test_service_scopes_write_access_to_the_result_directory():
+    """B485: P98 hat faelschlich das komplette train_data freigegeben — tuning_apply.py
+    laeuft laut nightly_analysis_dispatch.sh ausserhalb des Sandboxes und braucht diese
+    Freigabe nicht. B466-Grenze gilt unveraendert."""
     t = (REPO / "wetterprojekt-local-analysis.service").read_text(encoding="utf-8")
-    assert "ReadWritePaths=/home/ki-pi/wetterprojekt/train_data" in t
-    assert "ReadWritePaths=/home/ki-pi/wetterprojekt/train_data/evaluation" not in t
+    assert "ReadWritePaths=/home/ki-pi/wetterprojekt/train_data/evaluation" in t
+    assert "ReadWritePaths=/home/ki-pi/wetterprojekt/train_data\n" not in t
 
 
 def test_service_still_has_env_protection():
