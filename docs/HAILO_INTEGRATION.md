@@ -9809,3 +9809,31 @@ verloren, jede alte Prüfung hat eine inhaltlich gleichwertige neue Entsprechung
 **Phasen-Status:** Phase A — B494 ✅ (Stall-Alarm repariert, Tuning-Testsuite an
 die P104/P105-Experiment-Architektur angepasst). Phase B (Hailo-8 U-Net) bleibt
 unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B495 — Zwei Codex-Review-Kommentare zu B494 behoben (Legacy-Historie, Stall-Flag-Clearing)
+
+**Anlass:** Codex-Inline-Review zu PR #1167 (B494) fand zwei Randfälle:
+
+1. `_last_accepted_ts()` erkannte nur `action == "improved"` — Historieneinträge aus
+   der Zeit vor dem P104/P105-Experiment-Umbau (`action == "accepted"`) wurden
+   ignoriert. Bei einem Upgrade mit kurz zuvor erfolgter echter Verbesserung hätte
+   das sofort nach dem Deployment einen falschen 14-Tage-Stall-Alarm ausgelöst.
+2. Ein von `_check_stall()` zu Beginn eines `--verify`-Laufs gesetztes
+   `quality_improvement_stalled` wurde nicht sofort gelöscht, wenn dasselbe
+   Experiment im selben Lauf noch erfolgreich abgeschlossen wurde
+   (`outcome == "improved"`) — der Stall-Alarm blieb bis zum nächsten `--verify`
+   (normalerweise die folgende Nacht) fälschlich sichtbar.
+
+**Änderung:**
+- `tools/tuning_apply.py::_last_accepted_ts()`: erkennt jetzt sowohl `"improved"`
+  als auch die Legacy-Aktion `"accepted"` als echte Verbesserung.
+- `tools/tuning_apply.py::_finish_experiment()`: löscht `quality_improvement_stalled`
+  sofort bei `outcome == "improved"`, unabhängig vom vorherigen Zustand.
+
+**Tests:** Neu `tests/test_b495_stall_alarm_edge_cases.py` — 4 Tests.
+
+**Kein** Benutzerhandbuch-Update (Bugfix). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B495 ✅ (zwei Randfälle im Stall-Alarm aus dem
+B494-Review behoben). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie
+wartet auf ausreichende Trainingsdaten.
