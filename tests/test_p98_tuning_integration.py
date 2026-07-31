@@ -32,9 +32,12 @@ def test_dispatch_calls_apply_after_analysis():
     assert a > s
 
 
-def test_dispatch_tuning_calls_are_non_fatal():
+def test_dispatch_verify_failure_aborts_before_the_analysis_service_starts():
+    """B494: Verify ist inzwischen bewusst eine fatale Vorbedingung (nicht mehr
+    '|| true') — ein fehlgeschlagenes Verify darf den Analyse-Lauf nicht mit
+    inkonsistentem Tuning-Zustand starten lassen."""
     t = (REPO / "tools/nightly_analysis_dispatch.sh").read_text(encoding="utf-8")
-    for call in ("--verify", "--apply"):
-        idx = t.index(f'tuning_apply.py" {call}')
-        line_end = t.index("\n", idx)
-        assert "|| true" in t[idx:line_end]
+    v_idx = t.index('tuning_apply.py" --verify')
+    s_idx = t.index("systemctl start wetterprojekt-local-analysis.service")
+    assert v_idx < s_idx
+    assert "exit 1" in t[v_idx:s_idx]

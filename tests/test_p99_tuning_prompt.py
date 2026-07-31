@@ -13,8 +13,8 @@ def test_section_t_exists():
 def test_tuning_proposals_in_output_format():
     assert "tuning_proposals" in _prompt()
 
-def test_max_two_params_rule():
-    assert "Maximal 2 Parameter" in _prompt()
+def test_max_one_experiment_rule():
+    assert "höchstens einem Standardexperiment" in _prompt()
 
 def test_requires_code_ref_in_reason():
     assert "code_ref" in _prompt().split("## T.")[1].split("## B.")[0]

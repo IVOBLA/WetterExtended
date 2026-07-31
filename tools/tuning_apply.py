@@ -35,7 +35,6 @@ EVAL_DIR = REPO_DIR / "train_data" / "evaluation"
 STATE_FILE = EVAL_DIR / "tuning_state.json"
 HISTORY_FILE = EVAL_DIR / "tuning_history.jsonl"
 RESULT_FILE = EVAL_DIR / "analysis_result.json"
-DRIFT_FILE = EVAL_DIR / "drift_status.json"
 STATUS_FILE = EVAL_DIR / "local_analysis_status.json"  # B488: Freshness-Pruefung
 EXPERIMENTS_DIR = EVAL_DIR / "experiments"
 LOCK_FILE = EVAL_DIR / ".tuning.lock"
@@ -63,7 +62,7 @@ def _last_accepted_ts() -> str | None:
                 entry = json.loads(line)
             except Exception:
                 continue
-            if entry.get("action") == "accepted":
+            if entry.get("action") == "improved":  # B494: neue Aktion seit Experiment-Umbau
                 last = entry.get("ts") or last
     except Exception:
         return None
@@ -138,23 +137,6 @@ def _read_json(path: Path) -> dict | None:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
-
-
-def _current_mae_by_horizon() -> dict:
-    ds = _read_json(DRIFT_FILE)
-    if not ds:
-        return {}
-    qt = ds.get("quality_target_by_horizon", {})
-    result = {}
-    for horizon, value in qt.items():
-        raw = value.get("actual_mae_km") if isinstance(value, dict) else None
-        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-            return {}
-        number = float(raw)
-        if not math.isfinite(number):
-            return {}
-        result[str(horizon)] = number
-    return result
 
 
 def _whitelist() -> dict:
@@ -323,6 +305,9 @@ def _cmd_verify_unlocked() -> int:
         _log("Autonomes Tuning oder Forecast-Experimente sind deaktiviert.")
         return 0
     state = _read_json(STATE_FILE) or {}
+    _check_stall(state)  # B494: unabhaengig von einem laufenden Experiment pruefen —
+                          # sonst faellt der Stall-Alarm genau in ruhigen Phasen aus.
+    _atomic_json(STATE_FILE, state)
     pending = state.get("pending")
     if not isinstance(pending, dict) or not pending.get("experiment_id"):
         _log("Kein pending Shadow-Experiment.")
