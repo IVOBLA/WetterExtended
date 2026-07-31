@@ -9622,3 +9622,23 @@ gemeinsamer Transform-Pfad nachgewiesen, Pixel-/km-Fehler können divergieren).
 **Phasen-Status:** Phase A — B492 ✅ (F-ML-001: Modell-Promotion vergleicht jetzt
 konsistent km statt Radar-Pixel-Raum). Phase B (Hailo-8 U-Net) bleibt unverändert
 blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B493 — Persistierte Promotion-Metadaten um km-Felder ergänzt (Folgefehler zu B492)
+
+**Anlass:** B492 stellte die interne Promotion-Entscheidung auf `mae_km_total` um,
+ließ aber das separat persistierte `meta["validation"]`-Dict (Quelle für
+`/api/progress` und die Lernfortschrittsseite) unverändert bei `mae_total`
+(Pixel-/Zielraum) — die Anzeige hätte also weiterhin Pixel- neben km-Werten gezeigt.
+
+**Änderung:** `model_training.py`: `meta["validation"]` um `mae_km_old`, `mae_km_new`,
+`mae_by_horizon_old_km`, `mae_by_horizon_new_km`, `paired_samples_by_horizon` und
+`legacy_incomparable` (True für vor B492 erzeugte Einträge ohne gültiges
+`mae_km_total`) ergänzt. Bestehende Pixel-Felder bleiben als Diagnosefeld erhalten.
+
+**Tests:** Neu `tests/test_b493_validation_km_fields.py` — 3 Tests.
+
+**Kein** Benutzerhandbuch-Update (interne Datenkorrektur). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B493 ✅ (Promotion-Metadaten um km-Felder ergänzt,
+Grundlage für die km-basierte Lernfortschrittsseite). Phase B (Hailo-8 U-Net) bleibt
+unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.

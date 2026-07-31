@@ -1148,10 +1148,23 @@ def retrain_all():
     meta["promotion_decision"] = _promotion_decision                          # B277
     meta["promotion_reject_reason"] = _promotion_reject_reason                # B277
     meta["validation"] = {
-        "mae_old": old_eval.get("mae_total"),
-        "mae_new": new_eval.get("mae_total"),
-        "mae_by_horizon_old": old_eval.get("mae_by_horizon", {}),
-        "mae_by_horizon_new": new_eval.get("mae_by_horizon", {}),
+        "mae_old": old_eval.get("mae_total"),                               # B493: Diagnosefeld, Pixel-/Zielraum (legacy)
+        "mae_new": new_eval.get("mae_total"),                                # B493: Diagnosefeld, Pixel-/Zielraum (legacy)
+        "mae_by_horizon_old": old_eval.get("mae_by_horizon", {}),            # B493: Diagnosefeld, Pixel-/Zielraum (legacy)
+        "mae_by_horizon_new": new_eval.get("mae_by_horizon", {}),            # B493: Diagnosefeld, Pixel-/Zielraum (legacy)
+        "mae_km_old": old_eval.get("mae_km_total"),                         # B493/F-ML-001: fuer Promotion tatsaechlich genutzter Wert
+        "mae_km_new": new_eval.get("mae_km_total"),                         # B493/F-ML-001: fuer Promotion tatsaechlich genutzter Wert
+        "mae_by_horizon_old_km": old_eval.get("mae_km_by_horizon", {}),
+        "mae_by_horizon_new_km": new_eval.get("mae_km_by_horizon", {}),
+        "paired_samples_by_horizon": new_eval.get("paired_samples_by_horizon", {}),
+        # B493: True, wenn diese Version vor B492 evaluiert wurde (kein mae_km_total
+        # verfuegbar) — mae_old/mae_new sind dann NICHT mit neueren, km-basierten
+        # Versionen vergleichbar und duerfen in Differenz-/Zeitreihen-Darstellungen
+        # nicht direkt gegenuebergestellt werden.
+        "legacy_incomparable": not (
+            isinstance(new_eval.get("mae_km_total"), (int, float))
+            and new_eval.get("mae_km_total") != float("inf")
+        ),
         "kin_baseline_mae": new_eval.get("kin_mae_total"),                 # B243
         "kin_baseline_by_horizon": new_eval.get("kin_mae_by_horizon", {}),  # B243
         "promotion_baseline_source": new_eval.get("promotion_baseline_source", {}),  # B277
