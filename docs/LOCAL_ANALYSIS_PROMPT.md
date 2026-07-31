@@ -226,3 +226,16 @@ schema_mismatch gilt `eligible_for_model_tuning=false` und die Liste bleibt leer
 Verifikations-/Trackingbefunde sind manuelle Codevorschläge, keine Forecast-Parameter.
 Nach einem Plateau ist die Ursachenklasse zu wechseln; derselbe Wert darf nicht erneut
 vorgeschlagen werden.
+
+## P105: fünf getrennte Verbesserungsbereiche
+
+Die JSON-Antwort führt `verification_findings`, `tracking_lineage_findings`,
+`kinematic_findings`, `ml_model_findings` und `routing_findings` getrennt. Jeder Bereich
+nennt Ist-Qualität, Zielabstand, dominante Fehlerklasse, Evidenz, letzten Versuch und
+dessen Ergebnis, eine falsifizierbare nächste Aktion sowie die autonome Eignung.
+Unveränderte Qualität heißt `plateau`, nie Verbesserung. Danach müssen
+`previous_experiment_id`, vorherige und neue Ursachenklasse belegen, dass der nächste
+Ansatz fachlich anders ist. Architektur-, Feature-, Dataset- und Trainingsänderungen
+stehen ausschließlich als detaillierte Einträge in `prompts`; der Runner bleibt
+read-only. Verifikations-, Matcher-, Radius-, Toleranz-, Lineage-, Warn-, Alarm- und
+Erkennungsschwellen sind nicht autonom freigegeben.

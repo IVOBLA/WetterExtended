@@ -9750,3 +9750,20 @@ Samples, eine Mindestverbesserung von `max(0,05 km, 2 %)` und ein einseitiges
 95-%-Block-Bootstrap-Konfidenzintervall unter null voraus. Plateau und Regression werden
 nie aktiviert. Rollback bedeutet das Verwerfen des Candidates; erst eine erfolgreiche
 Entscheidung ändert die Runtime-Konfiguration atomar.
+## P105 – gepaarte ML-Promotion und Ressourcenvertrag
+
+Die Zellbewegungs-ML wird nicht aufgrund ungepaarter Historienmittel aktiviert.
+Candidate, aktives ML und produktive Kinematik werden je Horizont auf identischen,
+finalen Gold-Fällen (`case_key`, `sample_set_id`) geprüft. Mindestmarge,
+Block-Bootstrap-Konfidenz sowie Coverage-, Hit-, Richtungs- und Speed-Guards sind harte
+Gates; Gleichstand ist Plateau. Cold-Start bleibt Shadow. Das versionierte
+`wetterextended.active-forecast-models.v1`-Manifest aktiviert LightGBM je Horizont.
+LSTM bleibt ein einmal geladenes globales Artefakt und darf nur aktiviert werden, wenn
+alle beanspruchten Horizonte bestehen. Damit entstehen weder Modellkopien noch ein
+zusätzlicher dauerhafter TensorFlow-Speicherblock; SQLite/WAL, begrenzte JSONL-Stores
+und atomare kleine Manifeste sind für den Raspberry Pi 5 mit 8 GB ausgelegt.
+
+Qualitätsartefakte tragen den gemeinsamen Herkunftsvertrag
+`wetterextended.quality-provenance.v1`. Altdateien ohne Pflichtfelder sind
+`legacy_incomparable` und werden nicht still in neue Zeitreihen eingerechnet. Beide
+Schutzschalter bleiben standardmäßig aus.

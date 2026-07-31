@@ -2223,7 +2223,19 @@ def _progress_payload():
                 active_meta = _progress_normalize_meta(json.load(fh), active_version, active_version)
         except Exception:
             active_meta = next((r for r in rows if r.get("version_id") == active_version), None)
-    return _json_finite_safe({"active_version": active_version, "active_meta": active_meta, "versions": rows})
+    eval_dir = Path(SAVE_PATHS.get("evaluation", "train_data/evaluation"))
+    from ml_promotion import load_active_manifest
+    manifest = load_active_manifest(Path(models_dir) / "active_forecast_models.json")
+    champions = manifest.get("by_horizon", {})
+    experiments = []
+    for path in sorted((eval_dir / "experiments").glob("*/result.json"), reverse=True)[:20]:
+        try: experiments.append(json.loads(path.read_text(encoding="utf-8")))
+        except Exception: continue
+    active_shadow = next((e for e in experiments if e.get("state") in {"shadow_collecting", "collected", "pending"}), None)
+    return _json_finite_safe({"active_version": active_version, "active_meta": active_meta, "versions": rows,
+        "runtime_champion_by_horizon": champions, "runtime_routing": champions,
+        "active_shadow_experiment": active_shadow, "experiment_results": experiments,
+        "improvement_history": {"days_7": [], "days_30": [], "days_90": [], "plateau_status": None}})
 
 
 @app.route("/api/progress")
@@ -3549,18 +3561,33 @@ def api_local_analysis_tuning_save():
 def api_local_analysis_tuning_clear_escalation():
     """P103: Setzt plateau_streak/escalation_needed/quality_improvement_stalled
     in tuning_state.json zurueck, nachdem die Ursachenklasse manuell geprueft wurde."""
-    state_path = Path(SAVE_PATHS.get("evaluation", "train_data/evaluation")) / "tuning_state.json"
+    data = request.get_json(silent=True) or {}
+    reason = str(data.get("reason") or "").strip()
+    cause = str(data.get("new_cause_class") or "").strip()
+    reference = str(data.get("reference") or "").strip()
+    if len(reason) < 20 or not cause or not reference:
+        return jsonify({"ok": False, "error": "reason muss mindestens 20 Zeichen sowie new_cause_class und reference enthalten"}), 400
+    eval_dir = Path(SAVE_PATHS.get("evaluation", "train_data/evaluation"))
+    state_path = eval_dir / "tuning_state.json"
     state = {}
     if state_path.is_file():
         try:
             state = json.loads(state_path.read_text(encoding="utf-8"))
         except Exception:
             state = {}
+    previous = dict(state)
     state["plateau_streak"] = 0
     state.pop("escalation_needed", None)
     state.pop("quality_improvement_stalled", None)
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    from quality_contract import atomic_write_json
+    atomic_write_json(state_path, state)
+    audit = {"timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+             "admin_user": request.headers.get("X-Auth-User") or request.remote_addr or "unknown",
+             "previous_state": previous, "reason": reason, "new_cause_class": cause, "reference": reference}
+    audit_path = eval_dir / "escalation_reset_audit.jsonl"; audit_path.parent.mkdir(parents=True, exist_ok=True)
+    import fcntl
+    with audit_path.open("a", encoding="utf-8") as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX); stream.write(json.dumps(audit, ensure_ascii=False, sort_keys=True) + "\n"); stream.flush(); os.fsync(stream.fileno())
     return jsonify({"ok": True})
 
 

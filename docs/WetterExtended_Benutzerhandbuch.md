@@ -3053,3 +3053,29 @@ Metadaten ohne km-, Pairing- und Schemafelder gelten als `legacy_incomparable`; 
 werden bei Migration nicht überschrieben. Bei Plateau-Eskalation ist eine auditierte
 Ursachenbegründung erforderlich. Sicherer Rollback verwirft den Shadow-Candidate und
 belässt den Incumbent unverändert.
+
+## P105: Training, Champion und Shadow korrekt unterscheiden
+
+Offline-Training erzeugt einen **Candidate**, aber aktiviert ihn nicht allein wegen
+guter Holdout-Werte. Die Promotion vergleicht je Horizont Candidate, aktives ML
+(Incumbent) und produktive Kinematik auf exakt denselben finalen Gold-Fällen und mit
+derselben `sample_set_id`. Nur ein durch Mindestmarge und Bootstrap-Konfidenz belegter
+Vorteil gegen beide Baselines darf Champion werden. Gleichstand, minimale unbestätigte
+Verbesserung und Verschlechterung sind Plateau beziehungsweise Reject. Coverage,
+Hit-Rate, Richtungs- und Speed-Regressionen blockieren ebenfalls. Ohne aktives ML bleibt
+der Cold-Start Shadow, bis er Kinematik belastbar schlägt.
+
+`active_forecast_models.json` routet LightGBM horizonspezifisch. Nicht bestandene
+Horizonte bleiben kinematisch. Gemeinsam geladene LSTM-Artefakte werden nur global
+aktiviert, wenn alle beanspruchten Horizonte bestehen; dadurch entstehen auf dem Pi 5
+keine mehrfachen TensorFlow-Modelle im RAM. Die Lernseite trennt Offline-Training,
+Runtime-Champions, Shadow-Experiment, Ergebnis und 7/30/90-Tage-Verlauf. Ein
+Feature-Schemafehler zeigt erwarteten/tatsächlichen Hash, fehlende/zusätzliche oder
+anders sortierte Features, Dtype-Abweichungen, betroffene Modelle/Horizonte und den
+Fallback-Grund.
+
+Beide Schutzschalter `AUTONOMOUS_TUNING_ENABLED` und
+`FORECAST_EXPERIMENTS_ENABLED` sind standardmäßig aus. Zum sicheren Test werden sie
+bewusst gemeinsam aktiviert; Deaktivieren stoppt neue Experimente, ohne Rohdaten zu
+löschen. Ein Eskalationsreset benötigt eine mindestens 20 Zeichen lange Begründung,
+neue Ursachenklasse und Referenz und wird append-only auditiert.
