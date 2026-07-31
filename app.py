@@ -3513,10 +3513,21 @@ def api_local_analysis_tuning_get():
                     continue
         except Exception:
             pass
+    # P103: Eskalations-/Stall-Status aus tuning_state.json fuer das Admin-Panel.
+    state_path = Path(SAVE_PATHS.get("evaluation", "train_data/evaluation")) / "tuning_state.json"
+    _tuning_state = {}
+    if state_path.is_file():
+        try:
+            _tuning_state = json.loads(state_path.read_text(encoding="utf-8"))
+        except Exception:
+            _tuning_state = {}
     return jsonify({
         "enabled": bool(enabled),
         "params": getattr(_cfg, "AUTONOMOUS_TUNING_PARAMS", {}),
         "recent_history": recent,
+        "plateau_streak": int(_tuning_state.get("plateau_streak", 0) or 0),
+        "escalation_needed": bool(_tuning_state.get("escalation_needed", False)),
+        "quality_improvement_stalled": bool(_tuning_state.get("quality_improvement_stalled", False)),
     })
 
 
@@ -3532,6 +3543,25 @@ def api_local_analysis_tuning_save():
         return jsonify({"ok": False, "error": str(e)}), 400
     runtime_config.patch({"AUTONOMOUS_TUNING_ENABLED": enabled})
     return jsonify({"ok": True, "enabled": enabled})
+
+
+@app.route("/api/local_analysis/tuning/clear_escalation", methods=["POST"])
+def api_local_analysis_tuning_clear_escalation():
+    """P103: Setzt plateau_streak/escalation_needed/quality_improvement_stalled
+    in tuning_state.json zurueck, nachdem die Ursachenklasse manuell geprueft wurde."""
+    state_path = Path(SAVE_PATHS.get("evaluation", "train_data/evaluation")) / "tuning_state.json"
+    state = {}
+    if state_path.is_file():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except Exception:
+            state = {}
+    state["plateau_streak"] = 0
+    state.pop("escalation_needed", None)
+    state.pop("quality_improvement_stalled", None)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    return jsonify({"ok": True})
 
 
 @app.route("/api/local_analysis/config", methods=["POST"])

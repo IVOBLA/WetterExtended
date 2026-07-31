@@ -3005,6 +3005,10 @@ Verifikations-Matching) innerhalb harter Bounds. Warnschwellen, Benachrichtigung
 Erkennungsschwellwerte und Dienst-Konfiguration sind explizit ausgeschlossen.
 Jede Änderung wird in `tuning_history.jsonl` protokolliert und automatisch
 zurückgenommen, wenn die Vorhersagequalität sich verschlechtert.
+Nach drei Plateaus in Folge ohne messbaren Nutzen pausiert das automatische Tuning,
+bis die Ursache geprüft wurde. Im Admin-Panel bestätigt „Eskalation zurücksetzen“ die
+manuelle Prüfung und gibt das Tuning wieder frei. Nach 14 Tagen ohne eine akzeptierte
+Verbesserung erscheint zusätzlich ein Stall-Alarm.
 
 #### Horizontspezifische Mindest-Samples (P101)
 

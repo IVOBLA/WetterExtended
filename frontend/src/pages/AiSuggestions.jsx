@@ -132,6 +132,17 @@ export default function AiSuggestions() {
     }
   }
 
+  async function clearTuningEscalation() {
+    setTuningMsg('')
+    try {
+      await api.post('/api/local_analysis/tuning/clear_escalation', {})
+      const updated = await api.get('/api/local_analysis/tuning')
+      setTuning(updated)
+    } catch (e) {
+      setTuningMsg('Fehler: ' + (e?.message || e))
+    }
+  }
+
   async function downloadLaResult() {
     setLaMsg('')
     try {
@@ -1010,6 +1021,25 @@ export default function AiSuggestions() {
           </label>
           {tuningMsg && (
             <p className="text-xs text-red-600 mt-2">{tuningMsg}</p>
+          )}
+          {tuning && tuning.escalation_needed && (
+            <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+              <strong>⚠️ Tuning pausiert:</strong> {tuning.plateau_streak} Plateaus in Folge ohne
+              messbaren Nutzen. Automatisches Anwenden neuer Vorschläge ist gestoppt, bis die
+              Ursachenklasse geprüft und hier bestätigt wurde.
+              <button
+                onClick={clearTuningEscalation}
+                className="ml-2 px-2 py-0.5 rounded bg-amber-600 text-white hover:bg-amber-700"
+              >
+                Eskalation zurücksetzen
+              </button>
+            </div>
+          )}
+          {tuning && tuning.quality_improvement_stalled && (
+            <div className="mt-3 rounded border border-red-300 bg-red-50 p-2 text-xs text-red-900">
+              <strong>⚠️ Stall-Alarm:</strong> seit mindestens 14 Tagen keine akzeptierte
+              Verbesserung. Kein Grund für eine „stabil"-Meldung — Ursache prüfen.
+            </div>
           )}
           {tuning && tuning.recent_history && tuning.recent_history.length > 0 && (
             <div className="mt-3 text-xs text-gray-600">
