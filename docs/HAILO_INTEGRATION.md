@@ -9504,3 +9504,30 @@ Status ergänzt).
 **Phasen-Status:** Phase A — B488 ✅ (Stale-Result-Schutz im autonomen Tuning).
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
 Trainingsdaten.
+
+### B489 — VERIFICATION_NN_MAX_MATCH_KM aus Tuning-Whitelist entfernt
+
+**Anlass (aus externer Code-Analyse vom 2026-07-30, nicht aus Testlauf):**
+`VERIFICATION_NN_MAX_MATCH_KM` stand in `AUTONOMOUS_TUNING_PARAMS`, obwohl der Parameter
+laut eigenem Code-Kommentar die Verifikation (Zuordnungsabstand Forecast→Actual) und
+damit die Messqualität selbst beeinflusst — nicht die Vorhersage. Ein autonomes Tuning
+hätte damit theoretisch seine eigene Erfolgsmessung verändern können, statt die reale
+Vorhersagegenauigkeit zu verbessern.
+
+**Änderung:**
+- `config.py`: Eintrag `VERIFICATION_NN_MAX_MATCH_KM` aus `AUTONOMOUS_TUNING_PARAMS`
+  entfernt (12 → 11 Parameter). Die Konfigurationskonstante selbst
+  (`VERIFICATION_NN_MAX_MATCH_KM = 10.0`) bleibt unverändert bestehen, ist aber nicht
+  mehr über das autonome Tuning veränderbar.
+- `tests/test_p96_autonomous_tuning_config.py`: Erwartete Parameterzahl auf 11
+  korrigiert, `VERIFICATION_NN_MAX_MATCH_KM` aus `test_expected_params_present`
+  entfernt, neuer Test `test_no_verification_or_measurement_params_in_whitelist`
+  verhindert künftig erneute Aufnahme von Verifikations-/Messparametern.
+
+**Tests:** `tests/test_p96_autonomous_tuning_config.py` — 10 Tests, alle grün.
+
+**Kein** Benutzerhandbuch-Update (Bugfix an deaktivierter interner Logik). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B489 ✅ (Verifikationsparameter aus Tuning-Whitelist
+entfernt). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
+ausreichende Trainingsdaten.
