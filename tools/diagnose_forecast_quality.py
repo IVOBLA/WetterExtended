@@ -64,7 +64,8 @@ def _resolve_save_path(base_dir: Path, key: str, default: str) -> Path:
     return raw if raw.is_absolute() else base_dir / raw
 
 
-def _read_jsonl(path: Path, hours: int) -> list[dict]:
+def _read_jsonl(path: Path, hours: int, window: str = "forecast_quality") -> list[dict]:
+    """Read a fachliches time window; verification runs never refresh forecasts."""
     if not path.exists():
         return []
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
@@ -76,7 +77,14 @@ def _read_jsonl(path: Path, hours: int) -> list[dict]:
             continue
         if not isinstance(rec, dict):
             continue
-        ts = next((_parse_ts(rec.get(k)) for k in ("verified_at_utc", "target_timestamp_utc", "forecast_created_at_utc", "timestamp_utc", "created_at_utc", "ir_first_seen", "radar_first_confirmed") if _parse_ts(rec.get(k))), None)
+        fields = {
+            "forecast_quality": ("forecast_created_at_utc", "target_timestamp_utc", "timestamp_utc", "created_at_utc"),
+            "verification_run": ("verified_at_utc",),
+            "sensor": ("ir_first_seen", "radar_first_confirmed", "timestamp_utc", "created_at_utc"),
+        }.get(window)
+        if fields is None:
+            raise ValueError(f"unknown window: {window}")
+        ts = next((_parse_ts(rec.get(k)) for k in fields if _parse_ts(rec.get(k))), None)
         if ts is None or ts >= cutoff:
             rows.append(rec)
     return rows
