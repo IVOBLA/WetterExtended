@@ -2184,6 +2184,12 @@ def _progress_normalize_meta(meta: dict, active_version: str | None, fallback_ve
         "mae_by_horizon_old": validation.get("mae_by_horizon_old", {}),
         "mae_by_horizon_new": validation.get("mae_by_horizon_new", {}),
         "kin_baseline_by_horizon": validation.get("kin_baseline_by_horizon", {}),
+        "mae_km_old": validation.get("mae_km_old"),                                   # P102/B493
+        "mae_km_new": validation.get("mae_km_new"),                                   # P102/B493
+        "mae_by_horizon_old_km": validation.get("mae_by_horizon_old_km", {}),          # P102/B493
+        "mae_by_horizon_new_km": validation.get("mae_by_horizon_new_km", {}),          # P102/B493
+        "paired_samples_by_horizon": validation.get("paired_samples_by_horizon", {}),  # P102/B492
+        "legacy_incomparable": bool(validation.get("legacy_incomparable", True)),      # P102/B493
         "samples_recent": validation.get("samples_recent"),
         "samples_required": validation.get("samples_required"),
         "samples_missing": validation.get("samples_missing"),

@@ -9674,3 +9674,30 @@ Samples hatte.
 **Phasen-Status:** Phase A — P101 ✅ (horizontspezifische Mindest-Samples-Prüfung vor
 Promotion). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
 ausreichende Trainingsdaten.
+
+### P102 — Lernfortschrittsseite auf km-basierte gepaarte Metriken umgestellt
+
+**Anlass (ChatGPT-Findings-Report 2026-07-30, P2):** Die Lernfortschrittsseite zeigte
+ausschließlich die alte Pixel-/Zielraum-MAE (fälschlich mit „(px)“ neben einer echten
+km-Kinematik-Baseline beschriftet) und unterschied nicht zwischen km-vergleichbaren
+und alten, nicht vergleichbaren Versionen.
+
+**Änderung:**
+- `app.py::_progress_normalize_meta()`: leitet die seit B492/B493 verfügbaren Felder
+  (`mae_km_old`, `mae_km_new`, `mae_by_horizon_old_km`, `mae_by_horizon_new_km`,
+  `paired_samples_by_horizon`, `legacy_incomparable`) jetzt an die UI durch (wurden
+  zuvor von der Feld-Whitelist verworfen).
+- `frontend/src/pages/Progress.jsx`: alle Diagramme und die aktive-Version-Karte
+  nutzen jetzt km-Felder; Versionen mit `legacy_incomparable=true` werden aus
+  Differenz-/Zeitreihendiagrammen ausgeschlossen (Hinweisbanner) und in der
+  Versionstabelle klar als „nicht vergleichbar“ markiert statt ihre Pixel-Werte als
+  km auszugeben. Gepaarte Samples je Horizont werden zusätzlich angezeigt.
+
+**Tests:** Neu `tests/test_p102_progress_km_fields.py` — 5 Tests.
+
+**Kein** zusätzliches Benutzerhandbuch-Kapitel (bestehende Seite, nur Einheit/Kennzeichnung
+korrigiert). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — P102 ✅ (Lernfortschrittsseite auf km-basierte,
+gepaarte Metriken umgestellt, Alt-Versionen klar gekennzeichnet). Phase B (Hailo-8
+U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
