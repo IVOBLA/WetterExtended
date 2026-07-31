@@ -9531,3 +9531,26 @@ Vorhersagegenauigkeit zu verbessern.
 **Phasen-Status:** Phase A — B489 ✅ (Verifikationsparameter aus Tuning-Whitelist
 entfernt). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
 ausreichende Trainingsdaten.
+
+### B490 — Gleichstand wird nicht mehr als Erfolg gewertet (delta_km == 0 → Plateau-Rollback)
+
+**Anlass (aus externer Code-Analyse vom 2026-07-30, nicht aus Testlauf):** `cmd_verify()`
+akzeptierte jede Parameteränderung mit `delta_km <= 0` — auch einen exakten
+Gleichstand — als Erfolg und übernahm sie dauerhaft in die Baseline. Eine
+unveränderte Genauigkeit ist aber kein nachgewiesener Nutzen.
+
+**Änderung:** `tools/tuning_apply.py::cmd_verify()`: Promotion jetzt nur noch bei
+`delta_km < 0` (echte Verbesserung). `delta_km == 0` führt zu einem Rollback mit
+eigenem Grund `plateau_no_measurable_improvement` (unterscheidbar von echter
+Verschlechterung `mae_worse_by_...`).
+
+**Tests:** Neu `tests/test_b490_tuning_tie_not_accepted.py` — 3 Tests (Gleichstand
+wird zurückgerollt, eigener History-Grund, echte Verbesserung bleibt akzeptiert).
+`tests/test_p97_tuning_apply.py` unverändert grün.
+
+**Kein** Benutzerhandbuch-Update (Policy-Fix an deaktivierter interner Logik).
+**Keine** Binaries.
+
+**Phasen-Status:** Phase A — B490 ✅ (Gleichstand wird nicht mehr promotet).
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
+Trainingsdaten.

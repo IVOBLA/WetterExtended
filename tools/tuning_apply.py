@@ -184,7 +184,7 @@ def cmd_verify() -> int:
     avg_after = sum(mae_after[h] for h in common) / len(common)
     delta_km = round(avg_after - avg_before, 3)
 
-    if delta_km <= 0:
+    if delta_km < 0:
         _log(f"AKZEPTIERT: MAE-Delta={delta_km} km. Baseline aktualisiert.")
         for name, info in state["pending"].items():
             state["baselines"][name] = info["new"]
@@ -197,6 +197,12 @@ def cmd_verify() -> int:
         state.pop("applied_at", None)
         STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
         return 0
+    elif delta_km == 0:
+        # B490: Gleichstand ist kein nachgewiesener Erfolg (Plateau) und wird NICHT
+        # in die Baseline uebernommen — Rollback auf den alten Wert, eigener Grund
+        # fuer spaetere Auswertung.
+        _log(f"PLATEAU: MAE-Delta=0.0 km — kein nachgewiesener Nutzen, Rollback.")
+        return _rollback(state, mae_after, "plateau_no_measurable_improvement")
     else:
         _log(f"VERSCHLECHTERT: MAE-Delta=+{delta_km} km — Rollback.")
         return _rollback(state, mae_after, f"mae_worse_by_{delta_km}km")
