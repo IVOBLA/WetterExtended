@@ -33,8 +33,72 @@ DRIFT_FILE = EVAL_DIR / "drift_status.json"
 STATUS_FILE = EVAL_DIR / "local_analysis_status.json"  # B488: Freshness-Pruefung
 
 
+PLATEAU_ESCALATION_THRESHOLD = 3   # P103: nach so vielen Plateaus in Folge stoppen
+STALL_ALARM_DAYS = 14              # P103: ohne akzeptierte Verbesserung seit so vielen Tagen
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _last_accepted_ts() -> str | None:
+    """P103: Zeitstempel der letzten wirklich akzeptierten (echten) Verbesserung
+    aus der Tuning-Historie, oder None falls es nie eine gab."""
+    if not HISTORY_FILE.exists():
+        return None
+    last = None
+    try:
+        for line in HISTORY_FILE.read_text(encoding="utf-8").splitlines():
+            try:
+                entry = json.loads(line)
+            except Exception:
+                continue
+            if entry.get("action") == "accepted":
+                last = entry.get("ts") or last
+    except Exception:
+        return None
+    return last
+
+
+def _first_history_ts() -> str | None:
+    """P103: Referenzpunkt fuer den Stall-Alarm, falls es noch NIE eine
+    akzeptierte Verbesserung gab — das Beobachtungsfenster beginnt dann mit dem
+    ersten je aufgezeichneten Tuning-Ereignis, nicht erst mit einer (fehlenden)
+    Verbesserung."""
+    if not HISTORY_FILE.exists():
+        return None
+    try:
+        lines = HISTORY_FILE.read_text(encoding="utf-8").splitlines()
+        for line in lines:
+            try:
+                return json.loads(line).get("ts")
+            except Exception:
+                continue
+    except Exception:
+        return None
+    return None
+
+
+def _check_stall(state: dict) -> bool:
+    """P103: Setzt/loescht state['quality_improvement_stalled'] und protokolliert
+    einmalig einen stall_alarm-Eintrag, wenn seit STALL_ALARM_DAYS Tagen keine
+    akzeptierte Verbesserung stattfand. Mutiert state in-place, schreibt selbst
+    nicht auf Platte (Aufrufer ist dafuer verantwortlich)."""
+    ref_ts = _last_accepted_ts() or _first_history_ts()
+    if not ref_ts:
+        return False
+    try:
+        ref_dt = datetime.strptime(ref_ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except Exception:
+        return False
+    stalled = (datetime.now(timezone.utc) - ref_dt).days >= STALL_ALARM_DAYS
+    if stalled and not state.get("quality_improvement_stalled"):
+        state["quality_improvement_stalled"] = True
+        _append_history({"ts": _now_iso(), "action": "stall_alarm",
+                         "reason": f"keine akzeptierte Verbesserung seit >= {STALL_ALARM_DAYS} Tagen"})
+    elif not stalled:
+        state.pop("quality_improvement_stalled", None)
+    return stalled
 
 
 def _log(msg: str) -> None:
@@ -106,6 +170,11 @@ def cmd_apply() -> int:
     prior_state = _read_json(STATE_FILE) or {}
     if prior_state.get("last_applied_success_date") == last_success_date:
         _log(f"Ergebnis vom {last_success_date} bereits angewandt — kein erneutes Apply.")
+        return 0
+    if prior_state.get("escalation_needed"):
+        # P103: 3+ Plateaus in Folge — automatisches Tuning pausiert, bis im
+        # Admin-Panel bestaetigt/zurueckgesetzt (POST /api/local_analysis/tuning/clear_escalation).
+        _log("Eskalation aktiv (zu viele Plateaus in Folge) — Apply pausiert bis Bestaetigung im Admin-Panel.")
         return 0
 
     result = _read_json(RESULT_FILE)
@@ -195,6 +264,9 @@ def cmd_verify() -> int:
         state["pending"] = {}
         state.pop("mae_before", None)
         state.pop("applied_at", None)
+        state["plateau_streak"] = 0  # P103: echte Verbesserung unterbricht die Plateau-Serie
+        state.pop("escalation_needed", None)
+        _check_stall(state)
         STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
         return 0
     elif delta_km == 0:
@@ -202,9 +274,19 @@ def cmd_verify() -> int:
         # in die Baseline uebernommen — Rollback auf den alten Wert, eigener Grund
         # fuer spaetere Auswertung.
         _log(f"PLATEAU: MAE-Delta=0.0 km — kein nachgewiesener Nutzen, Rollback.")
+        state["plateau_streak"] = int(state.get("plateau_streak", 0)) + 1  # P103
+        if state["plateau_streak"] >= PLATEAU_ESCALATION_THRESHOLD and not state.get("escalation_needed"):
+            state["escalation_needed"] = True
+            _append_history({"ts": _now_iso(), "action": "escalation_triggered",
+                             "reason": f"{state['plateau_streak']} Plateaus in Folge — "
+                                       f"automatisches Tuning pausiert, Ursachenklasse pruefen"})
+            _log(f"ESKALATION: {state['plateau_streak']} Plateaus in Folge — Tuning pausiert.")
+        _check_stall(state)
         return _rollback(state, mae_after, "plateau_no_measurable_improvement")
     else:
         _log(f"VERSCHLECHTERT: MAE-Delta=+{delta_km} km — Rollback.")
+        state["plateau_streak"] = 0  # P103: Verschlechterung ist kein Plateau, zaehlt nicht mit
+        _check_stall(state)
         return _rollback(state, mae_after, f"mae_worse_by_{delta_km}km")
 
 

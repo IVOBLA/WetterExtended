@@ -9701,3 +9701,41 @@ korrigiert). **Keine** Binaries.
 **Phasen-Status:** Phase A — P102 ✅ (Lernfortschrittsseite auf km-basierte,
 gepaarte Metriken umgestellt, Alt-Versionen klar gekennzeichnet). Phase B (Hailo-8
 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### P103 — Plateau-Eskalationslogik für autonomes Tuning
+
+**Anlass (ChatGPT-Findings-Report 2026-07-30, P1, Plateau-Policy):** Wiederholte
+Plateaus (B490: Gleichstand wird zurückgerollt) lösten keine Reaktion aus — das
+Tuning hätte beliebig oft dieselbe wirkungslose Änderung erneut vorschlagen können,
+und eine dauerhaft stagnierende Qualität wäre nie explizit alarmiert worden.
+
+**Änderung:**
+- `tools/tuning_apply.py`: neue Konstanten `PLATEAU_ESCALATION_THRESHOLD=3`,
+  `STALL_ALARM_DAYS=14`. `cmd_verify()` zählt `plateau_streak` bei jedem Plateau
+  hoch (zurückgesetzt bei echter Verbesserung), setzt ab 3 in Folge
+  `escalation_needed=True` (History-Eintrag `escalation_triggered`) und prüft bei
+  jedem Verify zusätzlich `_check_stall()` (14 Tage ohne `accepted`-Eintrag →
+  `quality_improvement_stalled=True`, History-Eintrag `stall_alarm`). `cmd_apply()`
+  pausiert das automatische Anwenden neuer Vorschläge, solange `escalation_needed`
+  aktiv ist.
+- `app.py`: `GET /api/local_analysis/tuning` liefert jetzt zusätzlich
+  `plateau_streak`/`escalation_needed`/`quality_improvement_stalled`. Neuer
+  `POST /api/local_analysis/tuning/clear_escalation` setzt diese nach manueller
+  Prüfung zurück (Admin-Schutz per B464-Präfix-Match geerbt).
+- `frontend/src/pages/AiSuggestions.jsx`: Eskalations-Banner mit
+  „Eskalation zurücksetzen"-Button sowie separater Stall-Alarm-Hinweis in der
+  Tuning-Karte.
+
+**Bewusst nicht automatisiert:** das im Findings-Report vorgeschlagene automatische
+„Wechseln der Ursachenklasse" — das bleibt eine manuelle Prüfung.
+
+**Tests:** Neu `tests/test_p103_plateau_escalation.py` — 5 Tests.
+
+**Benutzerhandbuch:** Abschnitt „Autonomes Parameter-Tuning (P96–P99)" um
+Plateau-Eskalation ergänzt.
+
+**Keine** Binaries.
+
+**Phasen-Status:** Phase A — P103 ✅ (Plateau-Eskalationslogik: 3-Plateau-Stopp +
+14-Tage-Stall-Alarm). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie
+wartet auf ausreichende Trainingsdaten.
