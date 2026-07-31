@@ -744,6 +744,13 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         "frame_empty": 0,
         "id_lost": 0,
         "nn_rejected": 0,
+        "pending_target_not_due": 0,
+        "missing_due_to_ingest_gap": 0,
+        "missing_due_to_tolerance": 0,
+        "target_frame_empty": 0,
+        "target_object_missing": 0,
+        "target_match_rejected": 0,
+        "ambiguous_nearest": 0,
         "hit_rate": None,
         "mae_km": None,
         "rmse_km": None,
@@ -767,6 +774,8 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
     by_ts: Dict[datetime, str] = {t: f for f, t in fts}
 
     n_total = hits = verified = missed = no_target_frame = frame_empty = id_lost = nn_rejected = 0
+    pending_target_not_due = 0
+    missing_reasons = {"missing_due_to_ingest_gap": 0, "missing_due_to_tolerance": 0}
     _nn_threshold = _nn_max_match_km(horizon_min)
     sum_km = sum_km2 = sum_abs_px = sum_sx2 = sum_sy2 = 0.0
     km_values: list = []  # B296: für robuste Median-Kennzahl neben der MAE
@@ -777,6 +786,18 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         if not objs:
             continue
         target_ts = ts + timedelta(minutes=horizon_min)
+        # Ein noch nicht fälliges Ziel ist weder Fehler noch Coverage-Verlust und
+        # wird insbesondere nicht als finaler Detaildatensatz persistiert.
+        maturity_grace = timedelta(seconds=max(0, VERIFICATION_TIME_TOLERANCE_S))
+        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        if target_ts > now_utc - maturity_grace:
+            pending_target_not_due += sum(
+                1 for o in objs
+                if o.get(f"forecast_lat_{horizon_min}") is not None
+                and o.get(f"forecast_lon_{horizon_min}") is not None
+                and _is_real_forecast_object(o, horizon_min)
+            )
+            continue
         target_path, target_frame_delta_min, missing_target_frame_reason = _find_target_frame(by_ts, target_ts, VERIFICATION_TIME_TOLERANCE_S)
 
         # Anzahl Forecasts in diesem Quell-Frame (für no_target_frame-Buchhaltung)
@@ -792,6 +813,8 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
             interpolated_objs = _interpolate_target_objects(by_ts, target_ts, VERIFICATION_INTERPOLATION_MAX_GAP_S)
 
         if target_path is None and interpolated_objs is None:
+            if missing_target_frame_reason in missing_reasons:
+                missing_reasons[missing_target_frame_reason] += forecast_count_this_frame
             no_target_frame += forecast_count_this_frame
             n_total += forecast_count_this_frame
             for _o in objs:
@@ -939,6 +962,13 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         "frame_empty": frame_empty,
         "id_lost": id_lost,
         "nn_rejected": nn_rejected,
+        "pending_target_not_due": pending_target_not_due,
+        "missing_due_to_ingest_gap": missing_reasons["missing_due_to_ingest_gap"],
+        "missing_due_to_tolerance": missing_reasons["missing_due_to_tolerance"],
+        "target_frame_empty": frame_empty,
+        "target_object_missing": missed,
+        "target_match_rejected": nn_rejected,
+        "ambiguous_nearest": 0,
         "hit_rate": round(hits / verified, 4) if verified else None,
         "coverage_rate": _coverage,          # verified / n_total
         "mae_km": round(sum_km / verified, 3) if verified else None,
