@@ -9864,3 +9864,26 @@ Fehlalarm bei frischem Lauf, API-Felder `service_state`/`run_stale`).
 **Phasen-Status:** Phase A — B496 ✅ (haengende Laeufe der lokalen Analyse werden
 jetzt automatisch erkannt, abgeschlossen und im Admin-Panel sichtbar gemacht).
 Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B497 — ro_query.py pruefte nach B476 eine geloeschte Unit und uebersah den neuen Dispatcher
+
+**Anlass:** B476 loeschte `wetterprojekt-local-analysis.timer` und fuehrte
+`wetterprojekt-nightly-analysis.service` als neuen 23:59-Dispatcher ein.
+`tools/ro_query.py::ALLOWED_UNITS` wurde dabei nicht angepasst: der geloeschte
+Timer wurde jede Nacht dauerhaft als `inactive` und damit als Fehler gemeldet
+(reines Rauschen), waehrend der tatsaechlich massgebliche Dispatcher-Dienst nie
+geprueft wurde.
+
+**Aenderung:**
+- `tools/ro_query.py::ALLOWED_UNITS`: `wetterprojekt-local-analysis.timer` entfernt,
+  `wetterprojekt-nightly-analysis.service` ergaenzt.
+
+**Tests:** `tests/test_b497_ro_query_allowed_units.py` (4 Faelle: neue Unit enthalten,
+geloeschte Unit entfernt, bestehende Units unveraendert, `check_unit` lehnt die
+geloeschte Timer-Unit ab).
+
+**Kein** Benutzerhandbuch-Update (Bugfix). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B497 ✅ (Dienstpruefliste der naechtlichen Analyse an
+den B476-Dispatcher angepasst, Dauer-Fehlalarm fuer geloeschten Timer behoben).
+Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
