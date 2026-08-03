@@ -995,6 +995,21 @@ export default function AiSuggestions() {
                   Ergebnisdatei: {laStatus.result_age_h != null
                     ? laStatus.result_age_h + ' h alt' : 'nicht vorhanden'}
                 </li>
+                {laStatus.service_state && (
+                  <li>
+                    Systemd-Dienst:{' '}
+                    <strong className={laStatus.service_state === 'active' || laStatus.service_state === 'inactive'
+                      ? 'text-gray-600' : 'text-red-600'}>
+                      {laStatus.service_state}
+                    </strong>
+                  </li>
+                )}
+                {laStatus.run_stale && (
+                  <li className="text-red-600 font-medium">
+                    Achtung: Lauf haengt seit ueber dem doppelten Zeitlimit im Zustand "running" —
+                    vermutlich abgestuerzt. Wird beim naechsten Lauf automatisch bereinigt.
+                  </li>
+                )}
               </ul>
             ) : (
               <p className="text-xs text-gray-500">Noch kein Lauf aufgezeichnet.</p>

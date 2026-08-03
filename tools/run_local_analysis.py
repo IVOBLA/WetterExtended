@@ -468,6 +468,23 @@ def main(argv=None):
     run_started_at_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     status_path = repo / str(cfg.get("status_path", "train_data/evaluation/local_analysis_status.json")); prev = read_json_quiet(status_path)
     log_path = repo / str(cfg.get("log_path", "train_data/evaluation/local_analysis_last_run.log"))
+    if str(prev.get("state")) == "running" and prev.get("run_started_at_utc"):
+        try:
+            stuck_since = datetime.strptime(str(prev["run_started_at_utc"]), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            stuck_age_s = (datetime.now(timezone.utc) - stuck_since).total_seconds()
+        except Exception:
+            stuck_age_s = None
+        stale_after_s = 2 * int(cfg.get("timeout_s", 900))
+        if stuck_age_s is not None and stuck_age_s > stale_after_s:
+            write_status(status_path, make_status(
+                "failed", now, prev, mode=prev.get("mode", mode),
+                error=f"Vorheriger Lauf (gestartet {prev['run_started_at_utc']}) hat nach "
+                      f"{round(stuck_age_s)}s keinen Endzustand geschrieben — vermutlich hart "
+                      f"beendet (OOM-Killer oder B466-Sandbox). Automatisch als abgebrochen markiert "
+                      f"beim naechsten Start.",
+                rc=None, duration_s=round(stuck_age_s, 1),
+            ))
+            prev = read_json_quiet(status_path)
     if not (args.force or args.check_only or args.dry_run):
         due, reason = is_due(mode, changed, cfg, prev, now)
         if not due:
