@@ -13,7 +13,7 @@ REPO = Path(__file__).resolve().parents[1]
 ALLOWED_UNITS = (
     "wetterprojekt.service", "wetterprojekt-scheduler.service",
     "wetterprojekt-admin.service", "wetterprojekt-local-analysis.service",
-    "wetterprojekt-local-analysis.timer",
+    "wetterprojekt-nightly-analysis.service",
     "wetterprojekt-debug-export-branch.service",
     "wetterprojekt-debug-export-branch.timer",
 )
