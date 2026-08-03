@@ -9837,3 +9837,30 @@ unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
 **Phasen-Status:** Phase A — B495 ✅ (zwei Randfälle im Stall-Alarm aus dem
 B494-Review behoben). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie
 wartet auf ausreichende Trainingsdaten.
+
+### B496 — Haengende/abgestuerzte lokale Analyse-Laeufe waren unsichtbar
+
+**Anlass:** `wetterprojekt-local-analysis.service` stand nach einem harten Abbruch
+(OOM-Killer/B466-Sandbox) auf `failed`, waehrend `local_analysis_status.json` fuer
+den betroffenen Lauf dauerhaft bei `state=running` verharrte. Das Admin-Panel zeigte
+dadurch weiterhin die Kennzahlen des letzten erfolgreich abgeschlossenen Laufs an,
+ohne jeden Hinweis auf den Absturz.
+
+**Aenderung:**
+- `tools/run_local_analysis.py::main()`: erkennt beim Start einen seit mehr als
+  `2 * timeout_s` haengenden `"running"`-Eintrag der Vorlaufs und schliesst ihn
+  automatisch als `"failed"` ab, bevor der neue Lauf beginnt.
+- `app.py::api_local_analysis_status()`: liefert zusaetzlich `service_state`
+  (`systemctl is-active wetterprojekt-local-analysis.service`, reiner Lesezugriff)
+  und `run_stale` (Alterspruefung fuer einen aktuell als `"running"` markierten Lauf).
+- `frontend/src/pages/AiSuggestions.jsx`: zeigt Systemd-Zustand und eine
+  Stale-Warnung im "Letzter Lauf"-Block.
+
+**Tests:** `tests/test_b496_stale_running_recovery.py` (Selbstheilung, kein
+Fehlalarm bei frischem Lauf, API-Felder `service_state`/`run_stale`).
+
+**Kein** Benutzerhandbuch-Update (Bugfix). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B496 ✅ (haengende Laeufe der lokalen Analyse werden
+jetzt automatisch erkannt, abgeschlossen und im Admin-Panel sichtbar gemacht).
+Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.

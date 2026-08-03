@@ -3623,6 +3623,7 @@ def api_local_analysis_config_save():
 
 @app.route("/api/local_analysis/status")
 def api_local_analysis_status():
+    import datetime as _dt
     import json as _json
     import time as _time
     from pathlib import Path as _P
@@ -3643,10 +3644,29 @@ def api_local_analysis_status():
     result_file = base / str(cfg.get("result_path", ""))
     if result_file.is_file():
         result_age_h = round((_time.time() - result_file.stat().st_mtime) / 3600, 1)
+    import subprocess as _subprocess
+    try:
+        _svc_proc = _subprocess.run(
+            ["systemctl", "is-active", "wetterprojekt-local-analysis.service"],
+            shell=False, stdin=_subprocess.DEVNULL, capture_output=True, text=True, timeout=5,
+        )
+        service_state = (_svc_proc.stdout or _svc_proc.stderr or "unbekannt").strip()
+    except Exception:
+        service_state = "unbekannt"
+    run_stale = False
+    if str(status.get("state")) == "running" and status.get("run_started_at_utc"):
+        try:
+            _stuck_since = _dt.datetime.strptime(
+                str(status["run_started_at_utc"]), "%Y-%m-%dT%H:%M:%SZ"
+            ).replace(tzinfo=_dt.timezone.utc)
+            run_stale = (_dt.datetime.now(_dt.timezone.utc) - _stuck_since).total_seconds() > 2 * int(cfg.get("timeout_s", 900))
+        except Exception:
+            run_stale = False
     return jsonify({"mode": mode, "mode_changed": changed,
                     "cron_hour": cfg.get("cron_hour"), "cron_minute": cfg.get("cron_minute"),
                     "claude_cli": cli, "cli_available": bool(cli),
-                    "result_age_h": result_age_h, "status": status})
+                    "result_age_h": result_age_h, "status": status,
+                    "service_state": service_state, "run_stale": run_stale})
 
 
 @app.route("/api/local_analysis/result")
