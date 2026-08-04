@@ -10029,3 +10029,30 @@ praeparierte Datei, sondern eine nicht existierende Datei relativ zum
 **Phasen-Status:** Phase A — B501 ✅ (eigener Testbug aus B496 behoben, betraf nur
 die Testsuite, keine Produktionslogik). Phase B (Hailo-8 U-Net) bleibt unveraendert
 blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B502 — git_commit/source_snapshot_id zu frueh berechnet, main() stuerzte vor jeder Fehlerbehandlung ab
+
+**Anlass:** Fuenf Tests scheiterten auf dem Produktivsystem mit
+`subprocess.CalledProcessError` bei `git rev-parse HEAD`. Ursache:
+`_source_snapshot_id(repo)`/`_git_commit(repo)` wurden als zweite/dritte Anweisung
+von `main()` aufgerufen — noch vor der Betriebsart-Weiche und vor
+`check_preconditions()` — und liefen dadurch unbehandelt gegen ein
+Test-`tmp_path` ohne `.git`. Auch in Produktion war das unnoetig fruehe,
+ungeschuetzte Arbeit vor jeder Weiche.
+
+**Aenderung:**
+- `tools/run_local_analysis.py::main()`: `source_snapshot_id`/`git_commit` werden
+  jetzt erst nach erfolgreicher `check_preconditions()`-Pruefung berechnet, mit
+  eigener Fehlerbehandlung (`precondition_failed` statt unbehandeltem Absturz).
+- `tests/test_b470_run_diagnostics.py`: die zwei Tests, die einen vollstaendigen
+  Lauf bis zum CLI-Aufruf simulieren, initialisieren ihr `tmp_path` jetzt als
+  echtes (minimales) Git-Repository — analog zur echten Produktionsumgebung.
+
+**Tests:** Keine neue Datei; macht fuenf zuvor fehlschlagende Bestandstests korrekt
+(siehe oben).
+
+**Kein** Benutzerhandbuch-Update (Bugfix). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B502 ✅ (git_commit/source_snapshot_id werden nur noch bei tatsaechlichem Bedarf berechnet,
+Fehler dabei werden sauber als precondition_failed behandelt statt unbehandelt abzustuerzen). Phase B (Hailo-8 U-Net)
+bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
