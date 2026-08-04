@@ -532,6 +532,17 @@ fcntl.flock(f, fcntl.LOCK_EX)
 Zusätzlich `threading.RLock` für Intra-Prozess-Safety.
 
 #### A10 — ConvLSTM MODEL_PATH ✅
+**Hinweis (B498, dormant seit Einfuehrung):** `predict_radar_convlstm()` hat keinen
+Aufrufer in der Live-Vorhersage-Pipeline. Das woechentliche Training
+(`scheduler.py::convlstm_weekly`) laeuft weiter und erzeugt Modelldateien und
+Diagnoseartefakte (`convlstm_training_diagnosis_*.json`,
+`convlstm_training_runs.jsonl`), deren Ergebnis aktuell von keiner Komponente
+konsumiert wird. Trainingsfehler dieser Komponente (z. B. `MemoryError` bei
+`RLIMIT_AS`-Grenzen) sind dokumentierter Normalbetrieb und werden von der
+naechtlichen lokalen Analyse (Abschnitt A der `docs/LOCAL_ANALYSIS_PROMPT.md`)
+bewusst nicht gemeldet — siehe dortige Ausschlussregel. Reaktivierung nur nach
+expliziter Entscheidung von Horst; bis dahin keine Codeaenderungen an
+`radar_convlstm.py` aufgrund von Trainingsfehlern vorschlagen.
 **Datei:** `radar_convlstm.py`
 ```python
 def _get_model_path() -> str:
@@ -9887,3 +9898,26 @@ geloeschte Timer-Unit ab).
 **Phasen-Status:** Phase A — B497 ✅ (Dienstpruefliste der naechtlichen Analyse an
 den B476-Dispatcher angepasst, Dauer-Fehlalarm fuer geloeschten Timer behoben).
 Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B498 — ConvLSTM-Trainingsfehler nicht mehr in der lokalen Analyse melden
+
+**Anlass:** `predict_radar_convlstm()` hat keinen Aufrufer in der Live-Pipeline,
+das woechentliche Training laeuft dennoch weiter und produzierte jede Nacht neue
+Fehlermeldungen (z. B. `MemoryError`) in der lokalen Analyse, obwohl niemand das
+Trainingsergebnis konsumiert. Der Dormant-Status war nirgends im Repo dokumentiert,
+weshalb die Analyse ihn nicht als bekannten Normalbetrieb einstufen konnte.
+
+**Aenderung:**
+- `docs/HAILO_INTEGRATION.md`, Abschnitt A10: Dormant-Status mit Beleg dokumentiert.
+- `docs/LOCAL_ANALYSIS_PROMPT.md`, Abschnitt A: explizite Ausschlussregel fuer
+  ConvLSTM-Trainingsfehler und -verbesserungsvorschlaege ergaenzt.
+
+**Tests:** `tests/test_b498_convlstm_report_exclusion.py` (Dokumentationsanker
+vorhanden, Dormant-Zustand weiterhin gueltig).
+
+**Kein** Benutzerhandbuch-Update (Bugfix/Analyseverhalten, kein Fach-Feature).
+**Keine** Binaries.
+
+**Phasen-Status:** Phase A — B498 ✅ (ConvLSTM-Trainingsfehler aus der naechtlichen
+lokalen Analyse ausgeschlossen, Dormant-Status dokumentiert). Phase B (Hailo-8
+U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
