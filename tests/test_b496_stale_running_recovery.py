@@ -79,6 +79,10 @@ def test_status_api_reports_service_and_staleness(tmp_path, monkeypatch, age_s, 
         "state": "running", "run_started_at_utc": _started_ago(age_s),
     }), encoding="utf-8")
     cfg = _runner_config(tmp_path)
+    # B501: api_local_analysis_status() loest status_path relativ zum app.py-
+    # Verzeichnis auf, nicht relativ zu tmp_path — als absoluter Pfad angegeben,
+    # ersetzt pathlib den base-Anteil vollstaendig (Path(x) / "/abs/y" == "/abs/y").
+    cfg["status_path"] = str(status_path)
     monkeypatch.setattr(
         app_module.runtime_config, "get",
         lambda key, default=None: cfg if key == "LOCAL_ANALYSIS_CONFIG" else default,
