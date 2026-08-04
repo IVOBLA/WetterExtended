@@ -9981,3 +9981,31 @@ im Frontend).
 korrekter Vorher-Wert in der Tuning-Historie, keine doppelte Anzeige mehr im
 Admin-Panel). Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf
 ausreichende Trainingsdaten.
+
+### B500 — test_b355 scannte das echte Produktions-Objektarchiv statt einer isolierten Fixture
+
+**Anlass:** `test_history_respects_narrow_window_without_7day_floor` blieb bei
+Testlaeufen auf dem produktiv laufenden Raspberry Pi immer an derselben Stelle
+haengen. Ursache: `_write_history_fixture()` isolierte nur `HISTORY_FILE`, nicht
+`SAVE_PATHS["objects"]` und `DETAILS_FILE`. `/api/accuracy` ruft ueber
+`evaluate_all()`/`evaluate_for_horizon()` einen `glob`-Scan des echten
+`train_data/objects/`-Verzeichnisses auf — auf einem Geraet mit monatelang
+akkumulierter Produktionshistorie macht das den Test beliebig langsam, obwohl er
+inhaltlich nur mit drei praeparierten History-Punkten rechnen sollte.
+
+**Aenderung:**
+- `tests/test_b355_accuracy_zeitraum_filter.py::_write_history_fixture()`:
+  isoliert zusaetzlich `accuracy_tracker.SAVE_PATHS["objects"]` (per
+  `monkeypatch.setitem`, leeres tmp-Verzeichnis) und `accuracy_tracker.DETAILS_FILE`
+  (per `monkeypatch.setattr`, nicht existierender tmp-Pfad).
+
+**Tests:** `tests/test_b500_accuracy_test_isolation.py` (Isolation wirksam, kein
+Zustandsleck nach Testende, Laufzeit dokumentiert im Millisekundenbereich).
+
+**Kein** Benutzerhandbuch-Update (Test-Infrastruktur, kein Fach-Feature). **Keine**
+Binaries.
+
+**Phasen-Status:** Phase A — B500 ✅ (Testisolation fuer `/api/accuracy`-Tests
+hergestellt, produktives Objektarchiv wird beim Testlauf nicht mehr gescannt).
+Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende
+Trainingsdaten.
