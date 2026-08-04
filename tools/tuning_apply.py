@@ -396,17 +396,10 @@ def _finish_experiment(state: dict, outcome: str, result: dict, reason: str) -> 
     state["last_experiment_result"] = {"experiment_id": pending.get("experiment_id"),
                                        "state": outcome, "reason": reason, **result}
     _atomic_json(STATE_FILE, state)
-    _tuning_parameter = pending.get("parameter")
-    _tuning_old_value = None
-    if _tuning_parameter:
-        try:
-            _tuning_old_value = runtime_config.get(_tuning_parameter, getattr(config, _tuning_parameter, None))
-        except Exception:
-            _tuning_old_value = None
     _append_history({"ts": _now_iso(), "action": outcome, "reason": reason,
                      "experiment_id": pending.get("experiment_id"), "metrics": result,
-                     "parameter": _tuning_parameter,
-                     "old_value": _tuning_old_value,
+                     "parameter": pending.get("parameter"),
+                     "old_value": pending.get("incumbent_value"),
                      "candidate_value": pending.get("candidate_value"),
                      "applied": outcome == "improved"})
     return 0

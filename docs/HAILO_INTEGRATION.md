@@ -9949,3 +9949,35 @@ Aenderung, nicht uebernommener Vorschlag, leeres `pending` ohne Exception).
 **Phasen-Status:** Phase A — P106 ✅ (Admin-Panel zeigt jetzt Parameter, Wert und
 Ergebnis der letzten automatischen Tuning-Aenderungen). Phase B (Hailo-8 U-Net)
 bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B499 — Zwei Codex-Review-Funde zu P106 behoben (falscher old_value, doppelte Historie)
+
+**Anlass:** Codex-Inline-Review zu PR #1172 (P106) fand zwei Randfaelle:
+
+1. `_finish_experiment()` las `old_value` per `runtime_config.get()` NACH der
+   bereits erfolgten Promotion — bei `outcome=="improved"` wurde dadurch faelschlich
+   der neue statt der ersetzte Wert protokolliert.
+2. Die P106-Aenderung fuegte einen neuen Historie-Block VOR dem bereits bestehenden,
+   seit der P104/P105-Umstellung veralteten Block ein (Legacy-Felder `param`/`old`/
+   `new`, Legacy-Aktionsnamen `accepted`/`rollback`) — dadurch erschien jeder
+   Tuning-Eintrag doppelt im Admin-Panel.
+
+**Aenderung:**
+- `tools/tuning_apply.py::_finish_experiment()`: `old_value` wird jetzt aus
+  `pending["incumbent_value"]` gelesen (zeitlich vor jeder Promotion fixiert),
+  kein erneuter `runtime_config`-Read mehr noetig.
+- `frontend/src/pages/AiSuggestions.jsx`: die zwei Historie-Bloecke wurden zu einem
+  einzigen, aktuellen Block ("Letzte Tuning-Aktionen") zusammengefuehrt; der
+  veraltete Legacy-Block (Felder/Aktionsnamen aus der Zeit vor P104/P105) entfaellt.
+
+**Tests:** `tests/test_b499_p106_review_fixes.py` — 3 Faelle (korrekter Incumbent-Wert,
+fehlendes `incumbent_value` ohne Exception, kein doppelter/veralteter Historie-Text
+im Frontend).
+
+**Kein** Benutzerhandbuch-Update (Bugfix zu P106, keine neue Fach-Funktion).
+**Keine** Binaries.
+
+**Phasen-Status:** Phase A — B499 ✅ (zwei Randfaelle aus dem P106-Review behoben:
+korrekter Vorher-Wert in der Tuning-Historie, keine doppelte Anzeige mehr im
+Admin-Panel). Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf
+ausreichende Trainingsdaten.
