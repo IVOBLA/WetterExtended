@@ -3010,6 +3010,13 @@ bis die Ursache geprüft wurde. Im Admin-Panel bestätigt „Eskalation zurücks
 manuelle Prüfung und gibt das Tuning wieder frei. Nach 14 Tagen ohne eine akzeptierte
 Verbesserung erscheint zusätzlich ein Stall-Alarm.
 
+Ab P106 zeigt die Karte „Lokale Analyse am Pi“ zusätzlich die letzten fünf
+automatischen Tuning-Ereignisse an: den betroffenen Parameter, den vorgeschlagenen
+bzw. übernommenen Wert sowie das Ergebnis („übernommen“ bei einer bestätigten
+Verbesserung, sonst den technischen Ausgang wie „plateau“ oder „rejected“). Damit
+lässt sich ohne Blick in `tuning_history.jsonl` nachvollziehen, welche Stellschraube
+zuletzt automatisch verändert wurde.
+
 #### Horizontspezifische Mindest-Samples (P101)
 
 Der Ablehnungsgrund `rejected_low_samples_per_horizon` bedeutet, dass mindestens ein in die Bewertung einfließender Vorhersagehorizont weniger als zehn gepaarte km-Vergleichssamples aufweist. Ein Modell kann deshalb trotz ausreichender Gesamtsumme abgelehnt werden, weil jeder bewertete Horizont für eine statistisch belastbare Promotion genügend eigene Samples benötigt.

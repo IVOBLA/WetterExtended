@@ -9921,3 +9921,31 @@ vorhanden, Dormant-Zustand weiterhin gueltig).
 **Phasen-Status:** Phase A — B498 ✅ (ConvLSTM-Trainingsfehler aus der naechtlichen
 lokalen Analyse ausgeschlossen, Dormant-Status dokumentiert). Phase B (Hailo-8
 U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### P106 — Anzeige des zuletzt automatisch geaenderten Parameters im Admin-Panel
+
+**Anlass:** Das Admin-Panel zeigte beim autonomen Parameter-Tuning nur die Anzahl
+erlaubter Parameter und den Eskalationsstatus — nicht, WELCHER Parameter zuletzt
+automatisch veraendert wurde. Die API lieferte `recent_history` zwar bereits, das
+Frontend rendert es aber nicht, und die History-Eintraege selbst enthielten weder
+Parametername noch Werte.
+
+**Aenderung:**
+- `tools/tuning_apply.py::_finish_experiment()`: History-Eintraege enthalten jetzt
+  `parameter`, `candidate_value` und `applied` (ob die Aenderung tatsaechlich
+  uebernommen wurde).
+- `frontend/src/pages/AiSuggestions.jsx`: neue Anzeige "Letzte automatische
+  Aenderungen" mit den letzten fuenf Historieneintraegen (Parameter, Wert, Ergebnis,
+  Zeitpunkt) im Bereich "Autonomes Parameter-Tuning".
+
+**Benutzerhandbuch:** Abschnitt "Autonomes Parameter-Tuning" um die neue Anzeige
+ergaenzt.
+
+**Tests:** `tests/test_p106_tuning_history_parameter.py` (3 Faelle: uebernommene
+Aenderung, nicht uebernommener Vorschlag, leeres `pending` ohne Exception).
+
+**Keine** Binaries.
+
+**Phasen-Status:** Phase A — P106 ✅ (Admin-Panel zeigt jetzt Parameter, Wert und
+Ergebnis der letzten automatischen Tuning-Aenderungen). Phase B (Hailo-8 U-Net)
+bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.

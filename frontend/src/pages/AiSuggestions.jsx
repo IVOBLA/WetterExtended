@@ -1042,6 +1042,32 @@ export default function AiSuggestions() {
           {tuningMsg && (
             <p className="text-xs text-red-600 mt-2">{tuningMsg}</p>
           )}
+          {tuning && Array.isArray(tuning.recent_history) && tuning.recent_history.length > 0 && (
+            <div className="mt-3 text-xs text-gray-600">
+              <div className="font-medium mb-1">Letzte automatische Aenderungen</div>
+              <ul className="space-y-1">
+                {[...tuning.recent_history].reverse().slice(0, 5).map((h, i) => (
+                  <li key={i}>
+                    {h.parameter ? (
+                      <>
+                        <span className="font-mono">{h.parameter}</span>
+                        {h.candidate_value != null && (
+                          <> → <span className="font-mono">{String(h.candidate_value)}</span></>
+                        )}
+                        {' — '}
+                        <span className={h.applied ? 'text-emerald-700' : 'text-gray-500'}>
+                          {h.applied ? 'uebernommen' : h.action}
+                        </span>
+                        {' '}({h.ts})
+                      </>
+                    ) : (
+                      <span className="text-gray-400">{h.action} ({h.ts})</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {tuning && tuning.escalation_needed && (
             <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
               <strong>⚠️ Tuning pausiert:</strong> {tuning.plateau_streak} Plateaus in Folge ohne
