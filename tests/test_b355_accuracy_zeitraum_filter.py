@@ -19,12 +19,23 @@ def client(monkeypatch):
 def _write_history_fixture(tmp_path, monkeypatch):
     """Schreibt accuracy_history.jsonl mit Punkten bei 2h, 3 Tagen und 10 Tagen
     Alter, damit ein enges vs. weites Zeitfenster nachweisbar unterschiedliche
-    Ergebnisse liefern muss."""
+    Ergebnisse liefern muss.
+
+    B500: isoliert zusaetzlich SAVE_PATHS["objects"] und DETAILS_FILE auf leere
+    tmp-Verzeichnisse. evaluate_for_horizon() (aufgerufen ueber /api/accuracy)
+    scannt sonst das echte, produktive train_data/objects/-Verzeichnis des
+    Geraets, auf dem pytest laeuft — auf einem laufenden Produktivsystem mit
+    monatelang akkumulierten Objekt-Dateien macht das den Test beliebig langsam,
+    unabhaengig von den hier bewusst gesetzten drei History-Punkten.
+    """
     import accuracy_tracker
 
     eval_dir = tmp_path / "evaluation"
     eval_dir.mkdir(parents=True, exist_ok=True)
     history_path = eval_dir / "accuracy_history.jsonl"
+    objects_dir = tmp_path / "objects"
+    objects_dir.mkdir(parents=True, exist_ok=True)
+    details_path = eval_dir / "forecast_error_details.jsonl"
 
     now = datetime.now(timezone.utc)
     ages_hours = [2, 72, 240]  # 2h, 3 Tage, 10 Tage
@@ -35,6 +46,8 @@ def _write_history_fixture(tmp_path, monkeypatch):
             f.write(json.dumps(rec) + "\n")
 
     monkeypatch.setattr(accuracy_tracker, "HISTORY_FILE", str(history_path))
+    monkeypatch.setitem(accuracy_tracker.SAVE_PATHS, "objects", str(objects_dir))
+    monkeypatch.setattr(accuracy_tracker, "DETAILS_FILE", str(details_path))
     return ages_hours
 
 
