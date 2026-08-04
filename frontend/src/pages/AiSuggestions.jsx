@@ -1044,24 +1044,25 @@ export default function AiSuggestions() {
           )}
           {tuning && Array.isArray(tuning.recent_history) && tuning.recent_history.length > 0 && (
             <div className="mt-3 text-xs text-gray-600">
-              <div className="font-medium mb-1">Letzte automatische Aenderungen</div>
+              <div className="font-medium mb-1">Letzte Tuning-Aktionen</div>
               <ul className="space-y-1">
                 {[...tuning.recent_history].reverse().slice(0, 5).map((h, i) => (
                   <li key={i}>
-                    {h.parameter ? (
+                    {h.ts}{' — '}
+                    <strong className={
+                      h.action === 'improved' ? 'text-emerald-700'
+                        : h.action === 'plateau' ? 'text-amber-700'
+                        : h.action === 'rejected' ? 'text-red-600'
+                        : 'text-gray-700'}>
+                      {h.action}
+                    </strong>
+                    {h.parameter && (
                       <>
-                        <span className="font-mono">{h.parameter}</span>
-                        {h.candidate_value != null && (
-                          <> → <span className="font-mono">{String(h.candidate_value)}</span></>
+                        {' '}<span className="font-mono">{h.parameter}</span>
+                        {h.old_value != null && h.candidate_value != null && (
+                          <> ({String(h.old_value)} → {String(h.candidate_value)})</>
                         )}
-                        {' — '}
-                        <span className={h.applied ? 'text-emerald-700' : 'text-gray-500'}>
-                          {h.applied ? 'uebernommen' : h.action}
-                        </span>
-                        {' '}({h.ts})
                       </>
-                    ) : (
-                      <span className="text-gray-400">{h.action} ({h.ts})</span>
                     )}
                   </li>
                 ))}
@@ -1085,29 +1086,6 @@ export default function AiSuggestions() {
             <div className="mt-3 rounded border border-red-300 bg-red-50 p-2 text-xs text-red-900">
               <strong>⚠️ Stall-Alarm:</strong> seit mindestens 14 Tagen keine akzeptierte
               Verbesserung. Kein Grund für eine „stabil"-Meldung — Ursache prüfen.
-            </div>
-          )}
-          {tuning && tuning.recent_history && tuning.recent_history.length > 0 && (
-            <div className="mt-3 text-xs text-gray-600">
-              <div className="font-medium mb-1">Letzte Tuning-Aktionen</div>
-              <ul className="space-y-0.5">
-                {tuning.recent_history.slice(-5).reverse().map((h, i) => (
-                  <li key={i}>
-                    {h.ts}{' — '}
-                    <strong className={
-                      h.action === 'accepted' ? 'text-green-700'
-                        : h.action === 'rollback' ? 'text-amber-700'
-                        : h.action === 'rejected' ? 'text-red-600'
-                        : 'text-gray-700'}>
-                      {h.action}
-                    </strong>
-                    {' '}{h.param}
-                    {h.old !== undefined && h.new !== undefined && (
-                      <> ({h.old} → {h.new})</>
-                    )}
-                  </li>
-                ))}
-              </ul>
             </div>
           )}
         </div>
