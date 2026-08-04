@@ -10009,3 +10009,23 @@ Binaries.
 hergestellt, produktives Objektarchiv wird beim Testlauf nicht mehr gescannt).
 Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende
 Trainingsdaten.
+
+### B501 — Testbug aus B496 behoben (status_path im API-Test zeigte ins falsche Verzeichnis)
+
+**Anlass:** `test_status_api_reports_service_and_staleness[30-True]` schlug auf dem
+Produktivsystem fehl (`assert False is True`). Ursache: der Test schrieb die
+praeparierte Statusdatei nach `tmp_path`, `cfg["status_path"]` blieb aber ein
+relativer String — `api_local_analysis_status()` las dadurch niemals die
+praeparierte Datei, sondern eine nicht existierende Datei relativ zum
+`app.py`-Verzeichnis. `run_stale` blieb dadurch immer `False`.
+
+**Aenderung:**
+- `tests/test_b496_stale_running_recovery.py::test_status_api_reports_service_and_staleness()`:
+  setzt `cfg["status_path"]` jetzt auf den absoluten Pfad der praeparierten
+  Testdatei.
+
+**Kein** Benutzerhandbuch-Update (Testbugfix). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B501 ✅ (eigener Testbug aus B496 behoben, betraf nur
+die Testsuite, keine Produktionslogik). Phase B (Hailo-8 U-Net) bleibt unveraendert
+blockiert; sie wartet auf ausreichende Trainingsdaten.
