@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -64,7 +65,17 @@ def _config(binary):
     return {"cron_hour": 0, "cron_minute": 0, "timeout_s": 60, "max_turns": 5, "claude_bin": str(binary), "allowed_tools": "Read,Grep,Glob,Bash(python3 tools/ro_query.py *)", "prompt_path": "docs/p.md", "settings_path": "tools/s.json", "status_path": "status.json", "result_path": "result.json", "log_path": "run.log"}
 
 
+def _git_init(tmp_path):
+    """B502: main() ermittelt seit B502 git_commit/source_snapshot_id erst nach
+    erfolgreicher Vorbedingungspruefung, braucht dafuer aber ein echtes Git-Repository —
+    genau wie in der Produktionsumgebung, in der --repo-dir immer ein echtes Checkout ist."""
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "-c", "user.email=test@example.invalid", "-c", "user.name=Test",
+                     "commit", "--allow-empty", "-q", "-m", "init"], cwd=tmp_path, check=True)
+
+
 def test_silent_failure_leaves_a_readable_trace(runner, tmp_path, silent_cli, monkeypatch):
+    _git_init(tmp_path)
     monkeypatch.setattr(runner, "load_mode", lambda repo_dir: ("local", "")); monkeypatch.setattr(runner, "load_config", lambda repo_dir: _config(silent_cli))
     assert runner.main(["--repo-dir", str(tmp_path), "--force"]) == 2
     status = json.loads((tmp_path / "status.json").read_text()); assert status["state"] == "failed"; assert status["rc"] == 2; assert "keine Ausgabe" in status["error"]; assert status["log_path"].endswith("run.log")
@@ -72,6 +83,7 @@ def test_silent_failure_leaves_a_readable_trace(runner, tmp_path, silent_cli, mo
 
 
 def test_successful_run_is_logged_too(runner, tmp_path, monkeypatch):
+    _git_init(tmp_path)
     binary = tmp_path / "claude"; payload = {"zusammenfassung": "ok", "fehler": [], "loesungen": [], "verbesserungen": [], "prompts": []}
     binary.write_text('#!/bin/sh\n[ "$1" = "--version" ] && { echo "2.1.206"; exit 0; }\n' + "cat <<'J'\n" + json.dumps({"is_error": False, "result": json.dumps(payload)}) + "\nJ\n", encoding="utf-8"); binary.chmod(0o755)
     (tmp_path / "docs").mkdir(); (tmp_path / "docs" / "p.md").write_text("Auftrag"); (tmp_path / "tools").mkdir(); (tmp_path / "tools" / "s.json").write_text(json.dumps({"permissions": {"deny": ["Read(**/.env*)"]}}))

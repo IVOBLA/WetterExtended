@@ -463,8 +463,6 @@ def main(argv=None):
     args = parse_args(argv); repo = Path(args.repo_dir).resolve(); cfg = load_config(repo); mode, changed = load_mode(repo); now = datetime.now(TZ)
     analysis_run_id = str(uuid.uuid4())
     run_deterministic_ai_checks(repo)
-    source_snapshot_id = _source_snapshot_id(repo)
-    git_commit = _git_commit(repo)
     run_started_at_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     status_path = repo / str(cfg.get("status_path", "train_data/evaluation/local_analysis_status.json")); prev = read_json_quiet(status_path)
     log_path = repo / str(cfg.get("log_path", "train_data/evaluation/local_analysis_last_run.log"))
@@ -494,6 +492,13 @@ def main(argv=None):
     except PreconditionError as exc:
         write_status(status_path, make_status("precondition_failed", now, prev, mode=mode, error=str(exc))); print(f"[LOCAL-ANALYSIS] Vorbedingung fehlt: {exc}", file=sys.stderr); return 1
     if args.check_only: print(f"[LOCAL-ANALYSIS] Vorbedingungen OK (claude={claude}, Betriebsart={mode})"); return 0
+    try:
+        source_snapshot_id = _source_snapshot_id(repo)
+        git_commit = _git_commit(repo)
+    except Exception as exc:
+        meldung = f"Quell-Snapshot/Git-Commit nicht ermittelbar: {exc}"
+        write_status(status_path, make_status("precondition_failed", now, prev, mode=mode, error=meldung))
+        print(f"[LOCAL-ANALYSIS] Vorbedingung fehlt: {meldung}", file=sys.stderr); return 1
     prompt += ("\n\nVerbindliche Laufbindung für das Ausgabe-JSON:\n"
                f"analysis_run_id={analysis_run_id}\nsource_snapshot_id={source_snapshot_id}\n"
                f"git_commit={git_commit}\n")
