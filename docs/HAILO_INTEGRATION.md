@@ -10370,3 +10370,30 @@ vorhanden, kein doppelter Abschnittstitel).
 **Phasen-Status:** Phase A — P111 ✅ ("Aktuell getunte Werte" zeigt nur noch
 tatsaechlich vom Default abweichende Parameter). Phase B (Hailo-8 U-Net) bleibt
 unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B512 — test_p110 vergiftete sys.modules['app'] dauerhaft mit einer Fake-Flask-Instanz
+
+**Anlass:** 22 unabhaengige Tests in 6 Dateien scheiterten mit
+`AttributeError: '_FakeFlask' object has no attribute 'test_client'`. Ursache:
+`tests/test_p110_manual_run_sends_report_email.py::_load_app()` entfernte
+`sys.modules["app"]` per rohem `pop()` statt per `monkeypatch.delitem()` und
+importierte `app.py` anschliessend neu — unter einem bereits gefakten
+`flask`-Modul. Die dadurch kaputte "app"-Instanz (Flask-Klasse durch `_FakeFlask`
+ersetzt) blieb nach Testende dauerhaft in `sys.modules` haengen und vergiftete
+jede spaetere Testdatei mit `import app as app_module`.
+
+**Aenderung:**
+- `tests/test_p110_manual_run_sends_report_email.py::_load_app()`: verwendet jetzt
+  `monkeypatch.delitem(sys.modules, "app", raising=False)` statt
+  `sys.modules.pop("app", None)`, damit der urspruengliche Zustand nach Testende
+  zuverlaessig wiederhergestellt wird.
+
+**Tests:** `tests/test_b512_app_module_isolation.py` (2 Faelle: `app_module.app`
+nach einem `_load_app()`-Aufruf in einer FRUEHEREN Testfunktion bleibt in einer
+SPAETEREN Testfunktion derselben Datei unverfaelscht).
+
+**Kein** Benutzerhandbuch-Update (Testbugfix). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B512 ✅ (Testisolation fuer das app-Modul wiederhergestellt,
+22 zuvor faelschlich fehlschlagende Tests wieder gruen). Phase B (Hailo-8 U-Net) bleibt
+unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
