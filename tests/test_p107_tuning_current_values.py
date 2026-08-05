@@ -15,6 +15,14 @@ JSX = REPO / "frontend" / "src" / "pages" / "AiSuggestions.jsx"
 
 
 def _get_tuning_payload(monkeypatch, tmp_path, runtime_overrides=None, history_lines=None):
+    # B508: /api/local_analysis/tuning erfordert eine authentifizierte Session
+    # (app.py::before_request prueft auth.get_current_user()). Beide Modul-
+    # Referenzen patchen, exakt wie in tests/test_b351_config_save_value_error.py.
+    import auth as auth_module
+    user = {"role": "admin", "sub": "1"}
+    monkeypatch.setattr(app_module, "get_current_user", lambda: user)
+    monkeypatch.setattr(auth_module, "get_current_user", lambda: user)
+
     eval_dir = tmp_path / "evaluation"
     eval_dir.mkdir()
     if history_lines is not None:

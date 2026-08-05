@@ -35,7 +35,12 @@ def test_finish_experiment_without_incumbent_value(monkeypatch):
 
 
 def test_ai_suggestions_has_single_current_history_block():
+    """B508: P107 ersetzte die Historienliste durch 'Aktuell getunte Werte' /
+    'Letztes Ergebnis' — der urspruengliche Pruefzweck (keine Duplizierung der
+    Tuning-Anzeige) gilt jetzt fuer die neuen Bezeichner."""
     source = Path("frontend/src/pages/AiSuggestions.jsx").read_text(encoding="utf-8")
 
-    assert source.count("Letzte Tuning-Aktionen") == 1
+    assert source.count("Aktuell getunte Werte") == 1
+    assert source.count("Letztes Ergebnis") == 1
+    assert "Letzte Tuning-Aktionen" not in source
     assert "Letzte automatische Aenderungen" not in source
