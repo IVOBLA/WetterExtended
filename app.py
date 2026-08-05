@@ -3537,16 +3537,20 @@ def api_local_analysis_tuning_get():
     # sonst der Konfigurationsdefault. Ersetzt die bisherige Historienliste im
     # Admin-Panel durch eine Momentaufnahme der tatsaechlich aktiven Werte.
     current_values = {}
+    default_values = {}
     for _param_name in getattr(_cfg, "AUTONOMOUS_TUNING_PARAMS", {}).keys():
+        _default = getattr(_cfg, _param_name, None)
+        default_values[_param_name] = _default
         try:
-            current_values[_param_name] = runtime_config.get(_param_name, getattr(_cfg, _param_name, None))
+            current_values[_param_name] = runtime_config.get(_param_name, _default)
         except Exception:
-            current_values[_param_name] = None
+            current_values[_param_name] = _default
     last_result = recent[-1] if recent else None
     return jsonify({
         "enabled": bool(enabled),
         "params": getattr(_cfg, "AUTONOMOUS_TUNING_PARAMS", {}),
         "current_values": current_values,
+        "default_values": default_values,
         "last_result": last_result,
         "plateau_streak": int(_tuning_state.get("plateau_streak", 0) or 0),
         "escalation_needed": bool(_tuning_state.get("escalation_needed", False)),

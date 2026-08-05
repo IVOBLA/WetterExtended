@@ -10215,3 +10215,27 @@ statt 200).
 **Phasen-Status:** Phase A — B508 ✅ (zwei eigene Testfehler aus P107-Nachfolge
 behoben, keine Produktionslogik betroffen). Phase B (Hailo-8 U-Net) bleibt
 unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### P109 — Default-Wert zum Vergleich bei den aktuell getunten Werten
+
+**Anlass:** Bei "Aktuell getunte Werte" fehlte der Vergleich zum Ausgangswert —
+ohne Blick in `config.py` war nicht erkennbar, ob und wie stark ein Parameter vom
+Default abweicht.
+
+**Aenderung:**
+- `app.py::api_local_analysis_tuning_get()`: liefert zusaetzlich `default_values`
+  (Konfigurationsdefault je Parameter, unabhaengig von `runtime_config`-Overrides).
+- `frontend/src/pages/AiSuggestions.jsx`: zeigt den Default-Wert in Klammern hinter
+  jedem aktuellen Wert, gelb hervorgehoben bei Abweichung.
+
+**Benutzerhandbuch:** Abschnitt "Autonomes Parameter-Tuning" um den
+Default-Wert-Vergleich ergaenzt.
+
+**Tests:** `tests/test_p109_tuning_default_values.py` (3 Faelle: vollstaendige
+Default-Werte, Unterscheidung bei Override, Frontend zeigt Default-Hinweis).
+
+**Keine** Binaries.
+
+**Phasen-Status:** Phase A — P109 ✅ (Admin-Panel zeigt bei jedem getunten
+Parameter zusaetzlich den Default-Wert zum Vergleich). Phase B (Hailo-8 U-Net)
+bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
