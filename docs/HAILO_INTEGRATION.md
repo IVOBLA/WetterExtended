@@ -10138,3 +10138,32 @@ des spaeter folgenden, unabhaengigen P105-Kapitels mit dem Wort
 **Phasen-Status:** Phase A — B506 ✅ (Testhelfer grenzt den gepruften
 Handbuch-Abschnitt jetzt korrekt ein). Phase B (Hailo-8 U-Net) bleibt unveraendert
 blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B507 — test_b495 schrieb ohne Isolation in die echten Produktionsdateien
+
+**Anlass:** Im Admin-Panel zeigte "Letzte Tuning-Aktionen" wiederholt identische
+Test-Fixture-Werte (`experiment_id: "e1"`, `parameter: null`) und ein permanent
+aktiver Stall-Alarm, obwohl keine echten Tuning-Experimente liefen. Ursache: zwei
+Testfunktionen in `tests/test_b495_stall_alarm_edge_cases.py` riefen
+`_finish_experiment()` auf, ohne `HISTORY_FILE`/`STATE_FILE` auf `tmp_path`
+umzubiegen — jeder `pytest`-Lauf auf dem Produktivsystem schrieb dadurch direkt in
+die echten `tuning_state.json`/`tuning_history.jsonl`. Da die zweite Testfunktion
+zuletzt laeuft und `quality_improvement_stalled: true` als Ausgangszustand setzt,
+blieb dieser Wert nach jedem Testlauf faelschlich in der Produktionsdatei stehen.
+
+**Aenderung:**
+- `tests/test_b495_stall_alarm_edge_cases.py`: beide betroffenen Testfunktionen
+  isolieren `HISTORY_FILE`/`STATE_FILE` jetzt per `monkeypatch` auf `tmp_path`,
+  analog zu den zwei bereits korrekten Tests derselben Datei.
+- Einmalige manuelle Bereinigung der bereits kontaminierten
+  `tuning_state.json`/`tuning_history.jsonl` auf dem Produktivsystem (siehe
+  Anleitung im Prompt, nicht Teil der automatisierten Aenderung).
+
+**Tests:** bestehende zwei Testfunktionen bleiben inhaltlich unveraendert (gleiche
+Assertions), zusaetzlich per `md5sum`-Vergleich abgesichert, dass ein Testlauf die
+echten Produktionsdateien nicht mehr veraendert.
+
+**Kein** Benutzerhandbuch-Update (Testbugfix + Datenbereinigung). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B507 ✅ (Testisolation fuer tuning_apply.py-Tests hergestellt, keine Kontamination echter Produktionsdaten mehr durch pytest-Laeufe).
+Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
