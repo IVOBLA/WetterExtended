@@ -10119,3 +10119,22 @@ betroffen (per Live-Reproduktion gegen den aktuellen Code bestaetigt).
 Zeitstempel umgestellt, bleibt dauerhaft unabhaengig vom Ausfuehrungsdatum korrekt).
 Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende
 Trainingsdaten.
+
+### B506 — _chapter()-Testhelfer in test_p81 grenzte den Abschnitt nicht ein
+
+**Anlass:** `test_handbuch_has_no_bugfix_wording` scheiterte, weil der
+Testhelfer `_chapter()` nach dem Aufteilen am Kapitelanfang keinen Endpunkt
+setzte und dadurch den gesamten Rest der Handbuch-Datei erfasste — inklusive
+des spaeter folgenden, unabhaengigen P105-Kapitels mit dem Wort
+"Speed-Regressionen" im statistischen Sinn.
+
+**Aenderung:**
+- `tests/test_p81_analysis_mode_ui.py::_chapter()`: schneidet jetzt zusaetzlich
+  an der naechsten Ueberschrift der uebergeordneten Ebene (`\n## `) ab, statt bis
+  zum Dateiende zu reichen.
+
+**Kein** Benutzerhandbuch-Update (Testbugfix). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B506 ✅ (Testhelfer grenzt den gepruften
+Handbuch-Abschnitt jetzt korrekt ein). Phase B (Hailo-8 U-Net) bleibt unveraendert
+blockiert; sie wartet auf ausreichende Trainingsdaten.
