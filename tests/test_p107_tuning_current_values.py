@@ -24,7 +24,7 @@ def _get_tuning_payload(monkeypatch, tmp_path, runtime_overrides=None, history_l
     monkeypatch.setattr(auth_module, "get_current_user", lambda: user)
 
     eval_dir = tmp_path / "evaluation"
-    eval_dir.mkdir()
+    eval_dir.mkdir(parents=True, exist_ok=True)
     if history_lines is not None:
         (eval_dir / "tuning_history.jsonl").write_text(
             "\n".join(json.dumps(item) for item in history_lines) + ("\n" if history_lines else ""),
