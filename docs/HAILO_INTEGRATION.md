@@ -10301,3 +10301,30 @@ vollstaendig in der Doku vorhanden).
 Nutzer-Fach-Feature). **Keine** Binaries.
 
 **Phasen-Status:** Phase A — B510 ✅ (Pflichtfeld-Schema der fuenf P105-Verbesserungsbereiche im Analyse-Prompt explizit dokumentiert). Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### P110 — Manuelle lokale Analyse versendet den Report sofort per Mail
+
+**Anlass:** Der Report-Mailversand lief bisher ausschliesslich ueber einen
+einmal taeglichen Cron-Job in scheduler.py. Ein ausserhalb dieses Zeitfensters
+manuell ueber "Jetzt ausführen" gestarteter Lauf wurde dadurch erst am Folgetag
+(oder gar nicht, falls zwischenzeitlich ueberschrieben) per Mail gemeldet.
+
+**Aenderung:**
+- `app.py::_p47_run()`: ruft nach einem erfolgreichen `local_analysis`-Job jetzt
+  `_p47_send_local_analysis_report_email()` auf.
+- `app.py::_p47_send_local_analysis_report_email()` (neu): liest die frische
+  Ergebnisdatei und versendet den Report ueber `email_notifier.send_claude_code_report_email()`,
+  unter denselben Konfigurationsbedingungen (`CLAUDE_CODE_REPORT_CONFIG`) wie der
+  taegliche Cron-Job.
+
+**Benutzerhandbuch:** Abschnitt zum Report-Mailversand um den Sofort-Versand bei
+manuellem Lauf ergaenzt.
+
+**Tests:** `tests/test_p110_manual_run_sends_report_email.py` (6 Faelle: Versand
+bei Erfolg, kein Versand bei deaktiviertem Report, kein Versand ohne
+Empfängeradresse, kein Versand ohne Ergebnisdatei, Aufruf nur bei state=="ok",
+kein Aufruf bei Fehler).
+
+**Keine** Binaries.
+
+**Phasen-Status:** Phase A — P110 ✅ (manuell ausgeloeste lokale Analyse versendet den Report jetzt sofort nach Abschluss, nicht erst zum naechsten taeglichen Cron-Zeitpunkt). Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.

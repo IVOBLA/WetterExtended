@@ -1356,6 +1356,12 @@ von der KI-Analyse-Pipeline und hat eine eigene Konfiguration.
 | Versand-Stunde/Minute | Uhrzeit (Europe/Vienna), Standard: 04:00 |
 | Report-E-Mail | Empfänger (unabhängig von der KI-Analyse-E-Mail) |
 
+Wird die lokale Analyse manuell über „Jetzt ausführen“ im Admin-Panel gestartet,
+verschickt WetterExtended den Report ab P110 zusätzlich sofort nach erfolgreichem
+Abschluss per Mail — unabhängig vom täglichen Versandzeitpunkt. Ist der
+Report-Mailversand deaktiviert oder keine Empfängeradresse hinterlegt, bleibt auch
+der manuelle Lauf stumm.
+
 **Inhalt:** Zusammenfassung, gefundene Fehler, Lösungsvorschläge,
 Verbesserungsempfehlungen und generierte Codex-Prompts.
 
