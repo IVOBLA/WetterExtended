@@ -33,7 +33,23 @@ def _outer(result_text):
 def test_extract_from_wrapped_result(rla, result_text):
     payload = rla.extract_payload(_outer(result_text))
     assert payload["zusammenfassung"] == "ok"
-    assert set(payload) == {"zusammenfassung", "fehler", "loesungen", "verbesserungen", "prompts"}
+    assert payload["fehler"] == [] and payload["loesungen"] == []
+    assert payload["verbesserungen"] == [] and payload["prompts"] == []
+    # B503: seit P105 reichert validate_payload() jede Antwort verbindlich um die
+    # fuenf getrennten Verbesserungsbereiche (FINDING_FIELDS), tuning_proposals und
+    # die Plateau-/Ursachenklassen-Felder an — auch wenn das Modell sie nicht
+    # geliefert hat (Default-Werte). Das vollstaendige Schema wird hier aus den
+    # Quell-Konstanten des Moduls abgeleitet statt hartcodiert, damit dieser Test
+    # nicht erneut veraltet, sobald P105 oder ein Nachfolger weitere Pflichtfelder
+    # mit eigenen Defaults ergaenzt.
+    expected_keys = (
+        {"zusammenfassung"}
+        | set(rla.REQUIRED_LIST_FIELDS)
+        | {"tuning_proposals"}
+        | set(rla.FINDING_FIELDS)
+        | {"quality_state", "previous_experiment_id", "previous_cause_class", "next_cause_class"}
+    )
+    assert set(payload) == expected_keys
 
 
 def test_reject_result_without_object(rla):
