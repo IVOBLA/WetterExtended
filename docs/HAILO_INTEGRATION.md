@@ -10056,3 +10056,23 @@ ungeschuetzte Arbeit vor jeder Weiche.
 **Phasen-Status:** Phase A — B502 ✅ (git_commit/source_snapshot_id werden nur noch bei tatsaechlichem Bedarf berechnet,
 Fehler dabei werden sauber als precondition_failed behandelt statt unbehandelt abzustuerzen). Phase B (Hailo-8 U-Net)
 bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B503 — test_b473 pruefte ein seit P105 veraltetes, zu enges Schema
+
+**Anlass:** `test_extract_from_wrapped_result` scheiterte, weil `validate_payload()`
+seit der P105-Einfuehrung jede Antwort verbindlich um `tuning_proposals`, die fuenf
+`FINDING_FIELDS`-Bereiche und die Plateau-/Ursachenklassen-Felder anreichert — der
+Test wurde bei P105 nicht angepasst und prüfte weiterhin ein geschlossenes
+Fuenf-Felder-Schema.
+
+**Aenderung:**
+- `tests/test_b473_result_parser.py::test_extract_from_wrapped_result()`: erwartetes
+  Schema wird jetzt aus `rla.REQUIRED_LIST_FIELDS`/`rla.FINDING_FIELDS` plus den
+  explizit benannten P105-Zusatzfeldern abgeleitet statt hartcodiert auf fuenf
+  Felder beschraenkt.
+
+**Kein** Benutzerhandbuch-Update (Testbugfix). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B503 ✅ (Testschema an das seit P105 gueltige
+Antwortformat von validate_payload() angepasst). Phase B (Hailo-8 U-Net) bleibt
+unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
