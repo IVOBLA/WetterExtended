@@ -2913,6 +2913,37 @@ _P47_RUNS: dict = {}
 _P47_LOCK = _p47_threading.Lock()
 
 
+def _p47_send_local_analysis_report_email() -> None:
+    """P110: liest das frisch geschriebene analysis_result.json und versendet den
+    Report sofort — unabhaengig vom taeglichen Cron-Zeitpunkt in scheduler.py.
+    Respektiert dieselbe Konfiguration (enabled/report_email) wie der geplante
+    Job, damit ein deaktivierter Report auch beim manuellen Lauf stumm bleibt."""
+    try:
+        from config import CLAUDE_CODE_REPORT_CONFIG as _cc_default
+        _cc_cfg = dict(_cc_default)
+        _cc_cfg.update(runtime_config.get("CLAUDE_CODE_REPORT_CONFIG", {}) or {})
+        if not _cc_cfg.get("enabled", True):
+            debug_log("[P47] local_analysis: Report-Mail deaktiviert (enabled=False)")
+            return
+        report_email = str(_cc_cfg.get("report_email", "")).strip()
+        if not report_email:
+            debug_log("[P47] local_analysis: report_email leer — Mail übersprungen")
+            return
+        from config import LOCAL_ANALYSIS_CONFIG as _la_default
+        _la_cfg = dict(_la_default)
+        _la_cfg.update(runtime_config.get("LOCAL_ANALYSIS_CONFIG", {}) or {})
+        result_path = Path(_la_cfg.get("result_path", "train_data/evaluation/analysis_result.json"))
+        if not result_path.is_file():
+            debug_log(f"[P47] local_analysis: Ergebnisdatei fehlt ({result_path}) — Mail übersprungen")
+            return
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+        from email_notifier import send_claude_code_report_email
+        ok = send_claude_code_report_email(result, report_email)
+        debug_log(f"[P47] local_analysis: Report-Mail {'gesendet' if ok else 'FEHLER'} → {report_email}")
+    except Exception as exc:
+        debug_log(f"[P47] local_analysis: Report-Mail-Versand fehlgeschlagen: {exc}")
+
+
 def _p47_run(job_id, label, fn):
     import time as _t
     started = datetime.utcnow().isoformat(timespec="seconds") + "Z"
@@ -2942,6 +2973,12 @@ def _p47_run(job_id, label, fn):
             duration_s=dur,
         )
     debug_log(f"[P47] Job '{job_id}' beendet ({state}, {dur}s)")
+    # P110: nach einer erfolgreichen MANUELLEN lokalen Analyse sofort den Report
+    # per Mail versenden, statt auf den naechsten taeglichen Cron-Zeitpunkt von
+    # run_claude_code_report_job() zu warten (der haette einen ausserhalb des
+    # Cron-Fensters manuell ausgeloesten Lauf sonst erst am Folgetag gemeldet).
+    if job_id == "local_analysis" and state == "ok":
+        _p47_send_local_analysis_report_email()
 
 
 @app.route("/api/system/run_job/<job_id>", methods=["POST"])
