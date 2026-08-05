@@ -3024,10 +3024,10 @@ betroffenen Parameter, den vorgeschlagenen bzw. übernommenen Wert und das Ergeb
 „plateau“ oder „rejected“). Eine längere Verlaufsliste zeigt die Karte bewusst nicht
 mehr; der vollständige Verlauf steht weiterhin in `tuning_history.jsonl`.
 
-Ab P109 steht hinter jedem aktuellen Wert zusätzlich der Ausgangswert aus der
-Konfiguration in Klammern („Default: …“). Weicht ein Parameter vom Default ab, ist
-der Hinweis gelb hervorgehoben — so ist ohne Blick in `config.py` erkennbar, welche
-Stellschrauben das autonome Tuning bereits verändert hat.
+Ab P111 zeigt „Aktuell getunte Werte“ ausschließlich Parameter, die tatsächlich vom
+Konfigurations-Default abweichen — also wirklich vom autonomen Tuning verändert
+wurden, jeweils mit dem Default-Wert zum Vergleich in Klammern. Solange kein
+Parameter abweicht, bleibt der Abschnitt leer und wird nicht angezeigt.
 
 #### Horizontspezifische Mindest-Samples (P101)
 
