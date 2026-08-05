@@ -1042,28 +1042,30 @@ export default function AiSuggestions() {
           {tuningMsg && (
             <p className="text-xs text-red-600 mt-2">{tuningMsg}</p>
           )}
-          {tuning && tuning.current_values && Object.keys(tuning.current_values).length > 0 && (
-            <div className="mt-3 text-xs text-gray-600">
-              <div className="font-medium mb-1">Aktuell getunte Werte</div>
-              <ul className="space-y-0.5">
-                {Object.entries(tuning.current_values).sort(([a], [b]) => a.localeCompare(b)).map(([name, value]) => {
-                  const defaultValue = tuning.default_values ? tuning.default_values[name] : undefined
-                  const hasDefault = defaultValue !== undefined && defaultValue !== null
-                  const changed = hasDefault && String(defaultValue) !== String(value)
-                  return (
+          {(() => {
+            if (!tuning || !tuning.current_values) return null
+            const tunedEntries = Object.entries(tuning.current_values)
+              .filter(([name, value]) => {
+                const defaultValue = tuning.default_values ? tuning.default_values[name] : undefined
+                return defaultValue !== undefined && String(defaultValue) !== String(value)
+              })
+              .sort(([a], [b]) => a.localeCompare(b))
+            if (tunedEntries.length === 0) return null
+            return (
+              <div className="mt-3 text-xs text-gray-600">
+                <div className="font-medium mb-1">Aktuell getunte Werte</div>
+                <ul className="space-y-0.5">
+                  {tunedEntries.map(([name, value]) => (
                     <li key={name}>
-                      <span className="font-mono">{name}</span>: {value == null ? '—' : String(value)}
-                      {hasDefault && (
-                        <span className={changed ? 'text-amber-700' : 'text-gray-400'}>
-                          {' '}(Default: {String(defaultValue)})
-                        </span>
-                      )}
+                      <span className="font-mono">{name}</span>: {String(value)}
+                      {' '}
+                      <span className="text-amber-700">(Default: {String(tuning.default_values[name])})</span>
                     </li>
-                  )
-                })}
-              </ul>
-            </div>
-          )}
+                  ))}
+                </ul>
+              </div>
+            )
+          })()}
           {tuning && tuning.last_result && (
             <div className="mt-3 text-xs text-gray-600">
               <div className="font-medium mb-1">Letztes Ergebnis</div>

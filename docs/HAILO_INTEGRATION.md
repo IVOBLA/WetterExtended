@@ -10345,3 +10345,28 @@ existierenden `tmp_path`-Unterordner (`tmp_path / "empty"`) `eval_dir.mkdir()` o
 **Phasen-Status:** Phase A — B511 ✅ (eigener Testbug in test_p107 behoben, keine
 Produktionslogik betroffen). Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert;
 sie wartet auf ausreichende Trainingsdaten.
+
+### P111 — "Aktuell getunte Werte" zeigt nur tatsaechlich abweichende Parameter
+
+**Anlass:** P107/P109 zeigten alle 11 tunbaren Parameter, unabhaengig davon, ob
+das autonome Tuning sie je veraendert hat. Solange (wie aktuell) kein einziger
+Parameter vom Default abweicht, war die Liste dadurch trotzdem voll — irrefuehrend,
+da "getunte Werte" tatsaechlich veraenderte Werte meint, nicht alle tunbaren
+Parameter.
+
+**Aenderung:**
+- `frontend/src/pages/AiSuggestions.jsx`: "Aktuell getunte Werte" filtert jetzt auf
+  Parameter mit `current_values[name] != default_values[name]`; ohne Abweichung
+  wird der Block nicht angezeigt.
+
+**Benutzerhandbuch:** Abschnitt "Autonomes Parameter-Tuning" entsprechend
+korrigiert.
+
+**Tests:** `tests/test_p111_tuning_only_deviating_values.py` (2 Faelle: Filterlogik
+vorhanden, kein doppelter Abschnittstitel).
+
+**Keine** Binaries.
+
+**Phasen-Status:** Phase A — P111 ✅ ("Aktuell getunte Werte" zeigt nur noch
+tatsaechlich vom Default abweichende Parameter). Phase B (Hailo-8 U-Net) bleibt
+unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
