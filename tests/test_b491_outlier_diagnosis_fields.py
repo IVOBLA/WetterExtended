@@ -4,6 +4,7 @@ Ohne sie war nicht feststellbar, ob ein Positions-Bias am kinematischen Fallback
 am ML-Pfad liegt (KI-Befund 31.07.2026)."""
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -13,12 +14,19 @@ from tools.diagnose_forecast_quality import build_diagnosis  # noqa: E402
 def test_forecast_outliers_expose_mode_and_lineage(tmp_path):
     eval_dir = tmp_path / "train_data" / "evaluation"
     eval_dir.mkdir(parents=True)
+    # B505: _read_jsonl() filtert dieses Fenster ueber forecast_created_at_utc
+    # relativ zu datetime.now(timezone.utc) (hours=24 im Aufruf unten). Ein
+    # hartcodiertes absolutes Datum faellt zwangslaeufig irgendwann aus diesem
+    # Fenster — deshalb hier relativ zu "jetzt" berechnet, damit der Test dauerhaft
+    # unabhaengig vom tatsaechlichen Ausfuehrungsdatum gruen bleibt.
+    forecast_created = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    verified_at = (datetime.now(timezone.utc) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     row = {
         "cell_id": "WX-TEST-0001", "forecast_error_km": 25.0,
         "forecast_lat": 46.6, "forecast_lon": 14.5,
         "actual_lat": 46.4, "actual_lon": 14.3,
-        "horizon_min": 60, "forecast_created_at_utc": "2026-07-29T15:05:00Z",
-        "verified_at_utc": "2099-07-29T16:05:00Z",
+        "horizon_min": 60, "forecast_created_at_utc": forecast_created,
+        "verified_at_utc": verified_at,
         "forecast_mode": "kinematic", "match_type": "lineage",
         "lineage_status": "continued",
     }

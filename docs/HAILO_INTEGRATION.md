@@ -10097,3 +10097,25 @@ bestehendes Verhalten). **Keine** Binaries.
 
 **Phasen-Status:** Phase A — B504 ✅ (Testerwartung an die seit P105 gueltige Ambiguous-Nearest-Policy angepasst, bislang fehlende Testabdeckung dafuer ergaenzt).
 Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B505 — test_b491 nutzte ein hartcodiertes, mittlerweile abgelaufenes Datum
+
+**Anlass:** `test_forecast_outliers_expose_mode_and_lineage` scheiterte, weil
+`_read_jsonl()` das "forecast_quality"-Zeitfenster ueber `forecast_created_at_utc`
+relativ zu `datetime.now(timezone.utc)` filtert. Der Test setzte dafuer ein
+hartcodiertes, festes Datum ("2026-07-29"), das zum Zeitpunkt der Testerstellung
+noch innerhalb von 24 Stunden lag, auf dem Produktivsystem zum Testzeitpunkt aber
+laengst ausserhalb des Fensters. Reine Testalterung, keine Produktionslogik
+betroffen (per Live-Reproduktion gegen den aktuellen Code bestaetigt).
+
+**Aenderung:**
+- `tests/test_b491_outlier_diagnosis_fields.py::test_forecast_outliers_expose_mode_and_lineage()`:
+  `forecast_created_at_utc`/`verified_at_utc` werden jetzt relativ zu
+  `datetime.now(timezone.utc)` berechnet statt hartcodiert.
+
+**Kein** Benutzerhandbuch-Update (Testbugfix). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B505 ✅ (zeitabhaengiger Testfall auf relative
+Zeitstempel umgestellt, bleibt dauerhaft unabhaengig vom Ausfuehrungsdatum korrekt).
+Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende
+Trainingsdaten.
