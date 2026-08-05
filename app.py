@@ -3533,10 +3533,21 @@ def api_local_analysis_tuning_get():
             _tuning_state = json.loads(state_path.read_text(encoding="utf-8"))
         except Exception:
             _tuning_state = {}
+    # P107: aktuell wirksamer Wert je tunbarem Parameter — runtime_config-Override,
+    # sonst der Konfigurationsdefault. Ersetzt die bisherige Historienliste im
+    # Admin-Panel durch eine Momentaufnahme der tatsaechlich aktiven Werte.
+    current_values = {}
+    for _param_name in getattr(_cfg, "AUTONOMOUS_TUNING_PARAMS", {}).keys():
+        try:
+            current_values[_param_name] = runtime_config.get(_param_name, getattr(_cfg, _param_name, None))
+        except Exception:
+            current_values[_param_name] = None
+    last_result = recent[-1] if recent else None
     return jsonify({
         "enabled": bool(enabled),
         "params": getattr(_cfg, "AUTONOMOUS_TUNING_PARAMS", {}),
-        "recent_history": recent,
+        "current_values": current_values,
+        "last_result": last_result,
         "plateau_streak": int(_tuning_state.get("plateau_streak", 0) or 0),
         "escalation_needed": bool(_tuning_state.get("escalation_needed", False)),
         "quality_improvement_stalled": bool(_tuning_state.get("quality_improvement_stalled", False)),

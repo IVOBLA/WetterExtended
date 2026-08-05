@@ -1042,31 +1042,39 @@ export default function AiSuggestions() {
           {tuningMsg && (
             <p className="text-xs text-red-600 mt-2">{tuningMsg}</p>
           )}
-          {tuning && Array.isArray(tuning.recent_history) && tuning.recent_history.length > 0 && (
+          {tuning && tuning.current_values && Object.keys(tuning.current_values).length > 0 && (
             <div className="mt-3 text-xs text-gray-600">
-              <div className="font-medium mb-1">Letzte Tuning-Aktionen</div>
-              <ul className="space-y-1">
-                {[...tuning.recent_history].reverse().slice(0, 5).map((h, i) => (
-                  <li key={i}>
-                    {h.ts}{' — '}
-                    <strong className={
-                      h.action === 'improved' ? 'text-emerald-700'
-                        : h.action === 'plateau' ? 'text-amber-700'
-                        : h.action === 'rejected' ? 'text-red-600'
-                        : 'text-gray-700'}>
-                      {h.action}
-                    </strong>
-                    {h.parameter && (
-                      <>
-                        {' '}<span className="font-mono">{h.parameter}</span>
-                        {h.old_value != null && h.candidate_value != null && (
-                          <> ({String(h.old_value)} → {String(h.candidate_value)})</>
-                        )}
-                      </>
-                    )}
+              <div className="font-medium mb-1">Aktuell getunte Werte</div>
+              <ul className="space-y-0.5">
+                {Object.entries(tuning.current_values).sort(([a], [b]) => a.localeCompare(b)).map(([name, value]) => (
+                  <li key={name}>
+                    <span className="font-mono">{name}</span>: {value == null ? '—' : String(value)}
                   </li>
                 ))}
               </ul>
+            </div>
+          )}
+          {tuning && tuning.last_result && (
+            <div className="mt-3 text-xs text-gray-600">
+              <div className="font-medium mb-1">Letztes Ergebnis</div>
+              <div>
+                {tuning.last_result.ts}{' — '}
+                <strong className={
+                  tuning.last_result.action === 'improved' ? 'text-emerald-700'
+                    : tuning.last_result.action === 'plateau' ? 'text-amber-700'
+                    : tuning.last_result.action === 'rejected' ? 'text-red-600'
+                    : 'text-gray-700'}>
+                  {tuning.last_result.action}
+                </strong>
+                {tuning.last_result.parameter && (
+                  <>
+                    {' '}<span className="font-mono">{tuning.last_result.parameter}</span>
+                    {tuning.last_result.old_value != null && tuning.last_result.candidate_value != null && (
+                      <> ({String(tuning.last_result.old_value)} → {String(tuning.last_result.candidate_value)})</>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           )}
           {tuning && tuning.escalation_needed && (

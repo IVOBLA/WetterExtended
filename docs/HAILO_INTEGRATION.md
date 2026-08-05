@@ -10167,3 +10167,30 @@ echten Produktionsdateien nicht mehr veraendert.
 
 **Phasen-Status:** Phase A — B507 ✅ (Testisolation fuer tuning_apply.py-Tests hergestellt, keine Kontamination echter Produktionsdaten mehr durch pytest-Laeufe).
 Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### P107 — Admin-Panel zeigt nur noch aktuell getunte Werte und das letzte Ergebnis
+
+**Anlass:** Die bisherige 5-Eintrags-Historienliste im Admin-Panel sollte durch eine
+kompaktere Anzeige ersetzt werden: nur die aktuell wirksamen Parameterwerte und das
+letzte Tuning-Ergebnis.
+
+**Aenderung:**
+- `app.py::api_local_analysis_tuning_get()`: liefert jetzt `current_values` (aktuell
+  wirksamer Wert je der 11 tunbaren Parameter) und `last_result` (juengster
+  Historieneintrag) statt `recent_history` (Liste von bis zu 10 Eintraegen).
+- `frontend/src/pages/AiSuggestions.jsx`: zeigt "Aktuell getunte Werte" (alle 11
+  Parameter, alphabetisch) und "Letztes Ergebnis" (ein Eintrag) statt der
+  bisherigen "Letzte Tuning-Aktionen"-Liste.
+
+**Benutzerhandbuch:** Abschnitt "Autonomes Parameter-Tuning" an die neue Anzeige
+angepasst.
+
+**Tests:** `tests/test_p107_tuning_current_values.py` (4 Faelle: current_values
+vollstaendig, Default-Fallback ohne runtime_config-Override, leere Historie ohne
+Fehler, Frontend zeigt neue statt alte Bezeichner).
+
+**Keine** Binaries.
+
+**Phasen-Status:** Phase A — P107 ✅ (Admin-Panel zeigt kompakt nur noch aktuell
+getunte Werte und das letzte Ergebnis statt einer Verlaufsliste). Phase B (Hailo-8
+U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.

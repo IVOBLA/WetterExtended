@@ -76,8 +76,8 @@ def test_history_endpoint_reads_jsonl(monkeypatch, tmp_path):
     with app_module.app.test_request_context("/api/local_analysis/tuning"):
         resp = app_module.api_local_analysis_tuning_get()
     data = resp.get_json() if hasattr(resp, "get_json") else json.loads(resp.data)
-    assert len(data["recent_history"]) == 1
-    assert data["recent_history"][0]["param"] == "KINEMATIC_EWMA_ALPHA"
+    assert data["last_result"]["param"] == "KINEMATIC_EWMA_ALPHA"
+    assert "recent_history" not in data
 
 
 def test_toggle_present_in_local_analysis_card():
@@ -90,6 +90,8 @@ def test_tuning_status_fetched_on_mount():
     assert "/api/local_analysis/tuning" in _jsx()
 
 
-def test_recent_history_rendered():
+def test_current_values_and_last_result_rendered():
     la_section = _jsx().split("Lokale Analyse am Pi", 1)[1].split("HitL", 1)[0]
-    assert "recent_history" in la_section
+    assert "current_values" in la_section
+    assert "last_result" in la_section
+    assert "recent_history" not in la_section
