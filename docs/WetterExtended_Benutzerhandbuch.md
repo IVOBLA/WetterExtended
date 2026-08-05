@@ -3018,6 +3018,11 @@ betroffenen Parameter, den vorgeschlagenen bzw. übernommenen Wert und das Ergeb
 „plateau“ oder „rejected“). Eine längere Verlaufsliste zeigt die Karte bewusst nicht
 mehr; der vollständige Verlauf steht weiterhin in `tuning_history.jsonl`.
 
+Ab P109 steht hinter jedem aktuellen Wert zusätzlich der Ausgangswert aus der
+Konfiguration in Klammern („Default: …“). Weicht ein Parameter vom Default ab, ist
+der Hinweis gelb hervorgehoben — so ist ohne Blick in `config.py` erkennbar, welche
+Stellschrauben das autonome Tuning bereits verändert hat.
+
 #### Horizontspezifische Mindest-Samples (P101)
 
 Der Ablehnungsgrund `rejected_low_samples_per_horizon` bedeutet, dass mindestens ein in die Bewertung einfließender Vorhersagehorizont weniger als zehn gepaarte km-Vergleichssamples aufweist. Ein Modell kann deshalb trotz ausreichender Gesamtsumme abgelehnt werden, weil jeder bewertete Horizont für eine statistisch belastbare Promotion genügend eigene Samples benötigt.

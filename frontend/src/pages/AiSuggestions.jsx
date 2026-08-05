@@ -1046,11 +1046,21 @@ export default function AiSuggestions() {
             <div className="mt-3 text-xs text-gray-600">
               <div className="font-medium mb-1">Aktuell getunte Werte</div>
               <ul className="space-y-0.5">
-                {Object.entries(tuning.current_values).sort(([a], [b]) => a.localeCompare(b)).map(([name, value]) => (
-                  <li key={name}>
-                    <span className="font-mono">{name}</span>: {value == null ? '—' : String(value)}
-                  </li>
-                ))}
+                {Object.entries(tuning.current_values).sort(([a], [b]) => a.localeCompare(b)).map(([name, value]) => {
+                  const defaultValue = tuning.default_values ? tuning.default_values[name] : undefined
+                  const hasDefault = defaultValue !== undefined && defaultValue !== null
+                  const changed = hasDefault && String(defaultValue) !== String(value)
+                  return (
+                    <li key={name}>
+                      <span className="font-mono">{name}</span>: {value == null ? '—' : String(value)}
+                      {hasDefault && (
+                        <span className={changed ? 'text-amber-700' : 'text-gray-400'}>
+                          {' '}(Default: {String(defaultValue)})
+                        </span>
+                      )}
+                    </li>
+                  )
+                })}
               </ul>
             </div>
           )}
