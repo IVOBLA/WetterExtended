@@ -52,7 +52,14 @@ def _load_app(monkeypatch):
         "debug_export": debug_export,
     }.items():
         monkeypatch.setitem(sys.modules, name, module)
-    sys.modules.pop("app", None)
+    # B512: roher sys.modules.pop() wird von monkeypatch NICHT ueberwacht — die
+    # frisch importierte, auf dem gefakten flask-Modul basierende "app"-Instanz
+    # blieb dadurch nach Testende dauerhaft in sys.modules["app"] haengen und
+    # vergiftete jede spaetere Testdatei, die "import app as app_module" nutzt.
+    # monkeypatch.delitem() merkt sich den urspruenglichen Eintrag (bzw. dessen
+    # Fehlen) und stellt ihn nach dem Test zuverlaessig wieder her, unabhaengig
+    # davon, was importlib.import_module() danach in sys.modules schreibt.
+    monkeypatch.delitem(sys.modules, "app", raising=False)
     return importlib.import_module("app")
 
 
