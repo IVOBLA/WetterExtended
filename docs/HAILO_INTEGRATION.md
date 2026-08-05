@@ -10328,3 +10328,20 @@ kein Aufruf bei Fehler).
 **Keine** Binaries.
 
 **Phasen-Status:** Phase A — P110 ✅ (manuell ausgeloeste lokale Analyse versendet den Report jetzt sofort nach Abschluss, nicht erst zum naechsten taeglichen Cron-Zeitpunkt). Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B511 — Eigener Testbug in test_p107 behoben (mkdir ohne parents=True)
+
+**Anlass:** `test_last_result_is_none_for_empty_or_missing_history` scheiterte mit
+`FileNotFoundError`, weil `_get_tuning_payload()` fuer einen noch nicht
+existierenden `tmp_path`-Unterordner (`tmp_path / "empty"`) `eval_dir.mkdir()` ohne
+`parents=True` aufrief.
+
+**Aenderung:**
+- `tests/test_p107_tuning_current_values.py::_get_tuning_payload()`: `eval_dir.mkdir()`
+  → `eval_dir.mkdir(parents=True, exist_ok=True)`.
+
+**Kein** Benutzerhandbuch-Update (Testbugfix). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B511 ✅ (eigener Testbug in test_p107 behoben, keine
+Produktionslogik betroffen). Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert;
+sie wartet auf ausreichende Trainingsdaten.
