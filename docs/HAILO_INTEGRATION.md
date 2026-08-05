@@ -10277,3 +10277,27 @@ unbedingt `install.sh --mode upgrade` erneut ausfuehren und danach mit
 als ACTIVATES-Ziel zeigt.
 
 **Phasen-Status:** Phase A — B509 ✅ (Deployment-Luecke behoben: Dispatcher-Timer-Vorlage wird jetzt bei jedem install.sh-Lauf aktualisiert, nicht nur bei Neuinstallation). Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B510 — Prompt nannte die Pflichtfelder der fuenf Finding-Objekte nur in Prosa
+
+**Anlass:** Ein Lauf scheiterte an `validate_payload()` mit "Feld
+'verification_findings' ist unvollständig: ['next_falsifiable_action',
+'eligible_for_autonomous_experiment']". `docs/LOCAL_ANALYSIS_PROMPT.md` beschrieb
+die acht Pflichtfelder jedes Finding-Objekts (siehe `FINDING_CONTRACT`) nur in
+zusammenhaengender Prosa, ohne die exakten JSON-Schluesselnamen zu nennen — die
+letzten zwei Konzepte ("falsifizierbare nächste Aktion", "autonome Eignung") liessen
+sich daraus nicht eindeutig auf Feldnamen abbilden.
+
+**Aenderung:**
+- `docs/LOCAL_ANALYSIS_PROMPT.md`, Abschnitt "P105: fünf getrennte
+  Verbesserungsbereiche": explizite Liste aller acht Pflichtfelder mit Typangabe
+  ergaenzt, deckungsgleich mit `FINDING_CONTRACT`.
+
+**Tests:** `tests/test_b510_finding_field_names_documented.py` (2 Faelle: beide
+zuvor fehlenden Feldnamen dokumentiert, alle acht `FINDING_CONTRACT`-Namen
+vollstaendig in der Doku vorhanden).
+
+**Kein** Benutzerhandbuch-Update (interne KI-Arbeitsanweisung, kein
+Nutzer-Fach-Feature). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B510 ✅ (Pflichtfeld-Schema der fuenf P105-Verbesserungsbereiche im Analyse-Prompt explizit dokumentiert). Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
