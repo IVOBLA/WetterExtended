@@ -10239,3 +10239,41 @@ Default-Werte, Unterscheidung bei Override, Frontend zeigt Default-Hinweis).
 **Phasen-Status:** Phase A — P109 ✅ (Admin-Panel zeigt bei jedem getunten
 Parameter zusaetzlich den Default-Wert zum Vergleich). Phase B (Hailo-8 U-Net)
 bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B509 — install.sh deployte die Dispatcher-Timer-Vorlage nur bei --mode=full
+
+**Anlass:** Seit B476 loest `wetterprojekt-debug-export-branch.timer` ueber
+`Unit=wetterprojekt-nightly-analysis.service` den taeglichen Analyse-Dispatcher
+aus. `install.sh` kopierte diese aktualisierte Timer-Datei aber nur innerhalb eines
+`"$MODE" == "full"`-Blocks (Phase 7f) — bei `--mode=upgrade` (dem ueblichen
+Ablauf fuer laufende Prompts) blieb die auf dem Geraet installierte Timer-Datei
+auf dem alten, vor-B476-Stand stehen und loeste weiterhin nur ihren eigenen,
+unveraenderten `wetterprojekt-debug-export-branch.service` aus.
+Live-Bestaetigung: `wetterprojekt-nightly-analysis.service` hatte laut
+`journalctl` seit mindestens vier Tagen keinen einzigen Start — seit B476 fand auf
+per Upgrade aktualisierten Systemen kein automatischer naechtlicher Analyselauf
+mehr statt, nur manuelle Direktaufrufe funktionierten.
+
+**Aenderung:**
+- `install.sh`, Phase 7f: Torbedingung von
+  `"$MODE" == "full" && "$ENABLE_DEBUG_EXPORT_GIT" == true` auf
+  `"$ENABLE_DEBUG_EXPORT_GIT" == true` gelockert — Service-/Timer-Vorlagen werden
+  jetzt bei jedem Deploy (voll oder Upgrade) aktualisiert, nicht nur bei einer
+  Neuinstallation.
+
+**Tests:** `tests/test_b509_install_sh_timer_deploy_gate.py` (4 Faelle: alte
+Bedingung entfernt, neue Bedingung vorhanden, Kopierzeile unveraendert vorhanden,
+Timer-Vorlage weiterhin korrekt).
+
+**Kein** Benutzerhandbuch-Update (Deployment-Bugfix, kein Fach-Feature). **Keine**
+Binaries.
+
+**WICHTIG — einmalige manuelle Aktion auf dem Produktivsystem erforderlich:**
+Dieser Fix wirkt erst nach dem naechsten `install.sh`-Lauf. Bis dahin bleibt die
+veraltete Timer-Datei auf dem Geraet aktiv. Nach dem Einspielen dieses Prompts
+unbedingt `install.sh --mode upgrade` erneut ausfuehren und danach mit
+`systemctl list-timers | grep wetterprojekt` bestaetigen, dass
+`wetterprojekt-debug-export-branch.timer` jetzt `wetterprojekt-nightly-analysis.service`
+als ACTIVATES-Ziel zeigt.
+
+**Phasen-Status:** Phase A — B509 ✅ (Deployment-Luecke behoben: Dispatcher-Timer-Vorlage wird jetzt bei jedem install.sh-Lauf aktualisiert, nicht nur bei Neuinstallation). Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.

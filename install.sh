@@ -2021,7 +2021,14 @@ DEBUG_EXPORT_TIMER="wetterprojekt-debug-export-branch.timer"
 DEBUG_EXPORT_SERVICE="wetterprojekt-debug-export-branch.service"
 DEBUG_EXPORT_STATUS="deaktiviert"
 
-if [[ "$MODE" == "full" && "$ENABLE_DEBUG_EXPORT_GIT" == true ]]; then
+# B509: Diese Phase kopiert u. a. wetterprojekt-debug-export-branch.timer, das seit
+# B476 per "Unit=wetterprojekt-nightly-analysis.service" den taeglichen Analyse-
+# Dispatcher ausloest. Bei "$MODE"=="full" beschraenkt zu deployen hiess: jede
+# Aktualisierung dieser Vorlage (wie B476 selbst) wurde bei --mode=upgrade nie auf
+# das laufende System uebertragen — der Timer feuerte weiter gegen sein altes,
+# eigenes Ziel, der Dispatcher wurde nie gestartet. Templates muessen bei jedem
+# Deploy (voll oder Upgrade) aktualisiert werden, nicht nur bei einer Neuinstallation.
+if [[ "$ENABLE_DEBUG_EXPORT_GIT" == true ]]; then
     DEBUG_EXPORT_SCRIPT="$TARGET/tools/publish_latest_debug_export_branch.py"
     if [[ ! -f "$DEBUG_EXPORT_SCRIPT" ]]; then
         check_warn "Debug-Export-Publisher fehlt: $DEBUG_EXPORT_SCRIPT"
