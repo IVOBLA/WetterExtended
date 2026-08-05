@@ -10194,3 +10194,24 @@ Fehler, Frontend zeigt neue statt alte Bezeichner).
 **Phasen-Status:** Phase A — P107 ✅ (Admin-Panel zeigt kompakt nur noch aktuell
 getunte Werte und das letzte Ergebnis statt einer Verlaufsliste). Phase B (Hailo-8
 U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B508 — Zwei eigene Testfehler behoben (veraltete B499-Pruefung nach P107, fehlende Auth in P107-Tests)
+
+**Anlass:** Nach P107 scheiterten vier Tests: `test_b499` pruefte einen durch P107
+entfernten Anzeige-Text; drei neue `test_p107`-Tests riefen die authentifizierte
+Route `/api/local_analysis/tuning` ohne den projektueblichen Auth-Mock auf (401
+statt 200).
+
+**Aenderung:**
+- `tests/test_b499_p106_review_fixes.py::test_ai_suggestions_has_single_current_history_block()`:
+  prueft jetzt die aktuellen Bezeichner ("Aktuell getunte Werte"/"Letztes Ergebnis")
+  statt des durch P107 entfernten "Letzte Tuning-Aktionen".
+- `tests/test_p107_tuning_current_values.py::_get_tuning_payload()`: patcht jetzt
+  `app.get_current_user`/`auth.get_current_user` vor dem Request, analog zu
+  `tests/test_b351_config_save_value_error.py`.
+
+**Kein** Benutzerhandbuch-Update (Testbugfix). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B508 ✅ (zwei eigene Testfehler aus P107-Nachfolge
+behoben, keine Produktionslogik betroffen). Phase B (Hailo-8 U-Net) bleibt
+unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
