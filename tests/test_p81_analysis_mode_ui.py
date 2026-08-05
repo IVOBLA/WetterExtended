@@ -35,7 +35,16 @@ def test_run_button_is_disabled_while_running(): assert "disabled={laRunning}" i
 def test_missing_cli_is_surfaced_to_the_user():
  t=_page(); assert "cli_available" in t; assert "claude.ai/install.sh" in t
 def test_handbuch_documents_the_mode(): assert "Betriebsart der täglichen Analyse" in _handbuch()
-def _chapter(): return _handbuch().split("### Betriebsart der täglichen Analyse",1)[1]
+def _chapter():
+    rest = _handbuch().split("### Betriebsart der täglichen Analyse", 1)[1]
+    # B506: ohne diese Begrenzung reicht der "Kapitel"-Ausschnitt bis zum Ende der
+    # Datei und erfasst spaeter folgende, unabhaengige Kapitel (z. B. die P105-ML-
+    # Champion/Challenger-Beschreibung mit "Speed-Regressionen" im statistischen
+    # Sinn). Schneidet vor der naechsten Ueberschrift der uebergeordneten Ebene
+    # ("## ") ab; alle "###"/"####"-Unterabschnitte desselben Kapitels (u. a.
+    # "Lokale Analyse am Gerät einstellen", "Autonomes Parameter-Tuning") bleiben
+    # dadurch weiterhin Teil des geprueften Bereichs.
+    return rest.split("\n## ", 1)[0]
 def test_handbuch_states_the_once_per_day_rule(): assert "genau einmal pro Tag" in _chapter()
 def test_handbuch_tells_the_user_to_disable_the_external_run(): assert "von Hand abzuschalten" in _chapter()
 def test_handbuch_explains_the_switch_day(): assert "Folgetag" in _chapter()
