@@ -10076,3 +10076,24 @@ Fuenf-Felder-Schema.
 **Phasen-Status:** Phase A — B503 ✅ (Testschema an das seit P105 gueltige
 Antwortformat von validate_payload() angepasst). Phase B (Hailo-8 U-Net) bleibt
 unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B504 — test_b211 pruefte eine seit P105 veraltete Erwartung; neue Policy hatte keine Testabdeckung
+
+**Anlass:** `test_breakdowns_and_missing_target` scheiterte, weil P105 reine
+Nearest-Matches (ohne ID-Bestaetigung) bewusst aus allen "verified"-Zaehlern
+herausnimmt (`accuracy_tracker.py`, Kommentar "a merely geometric neighbour is
+useful trace evidence, not an Actual"). Der Test ging noch von der alten
+Erwartung aus, dass ein Nearest-Match als verified zaehlt. Eine Pruefung ergab
+zudem, dass die neue Policy selbst an keiner Stelle im Testbestand abgedeckt war.
+
+**Aenderung:**
+- `tests/test_b211_accuracy_attribution.py::test_breakdowns_and_missing_target()`:
+  das kalman_only-Testobjekt bekommt jetzt einen echten ID-Treffer (urspruenglicher
+  Pruefzweck bleibt erhalten); ein neues Objekt `amb` deckt erstmals explizit ab,
+  dass ein reiner Nearest-Match nirgends als verified zaehlt.
+
+**Kein** Benutzerhandbuch-Update (Testbugfix + zusaetzliche Testabdeckung fuer
+bestehendes Verhalten). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B504 ✅ (Testerwartung an die seit P105 gueltige Ambiguous-Nearest-Policy angepasst, bislang fehlende Testabdeckung dafuer ergaenzt).
+Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.

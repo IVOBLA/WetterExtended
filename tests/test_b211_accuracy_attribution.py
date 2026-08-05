@@ -47,20 +47,34 @@ def test_forecast_error_details_written(monkeypatch, tmp_path):
 
 
 def test_breakdowns_and_missing_target(monkeypatch, tmp_path):
+    """B504: seit P105 zaehlt ein reiner Nearest-Match (ohne ID-Bestaetigung) nirgends
+    mehr als verified — er ist nur noch 'ambiguous_nearest'/missed (siehe Kommentar in
+    accuracy_tracker.py::evaluate_for_horizon). 'ki' bekommt daher jetzt einen echten
+    ID-Treffer ('ki' im Zielframe), damit die kalman_only-Attribution weiterhin geprueft
+    wird; 'amb' bleibt bewusst ohne ID-Treffer, um die P105-Policy selbst abzudecken —
+    das war zuvor an keiner Stelle im Testbestand geprueft."""
     obj_dir, ev = _setup(monkeypatch, tmp_path)
     _write_obj(obj_dir / "2026-01-01_00-00-00.json", [
         {"id":"ml","lat":46.0,"lon":14.0,"forecast_lat_10":46.0,"forecast_lon_10":14.0,"forecast_x_10":0,"forecast_y_10":0,"forecast_mode":"ml","kinematic_source":"optflow_fm5.0"},
         {"id":"ki","lat":46.0,"lon":14.0,"forecast_lat_10":46.01,"forecast_lon_10":14.01,"forecast_x_10":0,"forecast_y_10":0,"forecast_mode":"kinematic","kinematic_source":"kalman_only"},
+        {"id":"amb","lat":46.0,"lon":14.0,"forecast_lat_10":46.03,"forecast_lon_10":14.03,"forecast_x_10":0,"forecast_y_10":0,"forecast_mode":"kinematic","kinematic_source":"kalman_only"},
         {"id":"nt","lat":46.0,"lon":14.0,"forecast_lat_20":46.01,"forecast_lon_20":14.01,"forecast_x_20":0,"forecast_y_20":0,"forecast_mode":"kinematic","kinematic_source":"kalman_only"},
     ])
     _write_obj(obj_dir / "2026-01-01_00-10-00.json", [
         {"id":"ml","lat":46.02,"lon":14.02,"x":0,"y":0},
-        {"id":"other","lat":46.0101,"lon":14.0101,"x":0,"y":0},
+        {"id":"ki","lat":46.0101,"lon":14.0101,"x":0,"y":0},
+        {"id":"other","lat":46.0301,"lon":14.0301,"x":0,"y":0},
     ])
     res = evaluate_all([10,20], 24)
     assert res["breakdown_by_forecast_mode"]["10"]["ml"]["verified"] == 1
+    # "ki" ist jetzt ein echter ID-Treffer -> zaehlt weiterhin als verified.
     assert res["breakdown_by_kinematic_source"]["10"]["kalman_only"]["verified"] == 1
-    assert res["breakdown_by_match_type"]["10"]["nearest"]["verified"] == 1
+    # "amb" ist ein reiner Nearest-Match ("other" hat eine andere ID) -> seit P105
+    # bewusst NICHT verified, sondern missed (ambiguous_nearest).
+    assert res["breakdown_by_kinematic_source"]["10"]["kalman_only"]["missed"] == 1
+    assert res["breakdown_by_match_type"]["10"]["id"]["verified"] == 2
+    assert res["breakdown_by_match_type"]["10"]["nearest"]["verified"] == 0
+    assert res["breakdown_by_match_type"]["10"]["nearest"]["missed"] == 1
     rows = [json.loads(l) for l in (ev / "forecast_error_details.jsonl").read_text().splitlines()]
     assert any(r["no_target_frame"] is True for r in rows)
 
