@@ -237,10 +237,22 @@ vorgeschlagen werden.
 ## P105: fünf getrennte Verbesserungsbereiche
 
 Die JSON-Antwort führt `verification_findings`, `tracking_lineage_findings`,
-`kinematic_findings`, `ml_model_findings` und `routing_findings` getrennt. Jeder Bereich
-nennt Ist-Qualität, Zielabstand, dominante Fehlerklasse, Evidenz, letzten Versuch und
-dessen Ergebnis, eine falsifizierbare nächste Aktion sowie die autonome Eignung.
-Unveränderte Qualität heißt `plateau`, nie Verbesserung. Danach müssen
+`kinematic_findings`, `ml_model_findings` und `routing_findings` getrennt. Jedes
+dieser fünf Felder ist ein JSON-Objekt mit GENAU diesen acht Schlüsseln — keiner
+darf fehlen, auch nicht mit `null`-Wert weggelassen:
+
+- `current_quality` (String): Ist-Qualität in Worten oder Kennzahl.
+- `distance_to_target` (Zahl oder String): Abstand zum Zielwert.
+- `dominant_error_class` (String): dominante Fehlerklasse.
+- `evidence` (Liste): code-belegte Nachweise (Dateien/Zeilen/Messwerte).
+- `last_attempted_improvement` (String oder `null`): zuletzt versuchte Änderung.
+- `result` (String): Ergebnis dieses letzten Versuchs, z. B. `"plateau"`.
+- `next_falsifiable_action` (String): eine konkrete, falsifizierbare nächste
+  Prüfhandlung — kein vager Vorsatz.
+- `eligible_for_autonomous_experiment` (Boolean, `true`/`false`): ob dieser Bereich
+  aktuell für ein automatisches Tuning-Experiment (Abschnitt T) infrage kommt.
+
+Unveränderte Qualität heißt `result: "plateau"`, nie Verbesserung. Danach müssen
 `previous_experiment_id`, vorherige und neue Ursachenklasse belegen, dass der nächste
 Ansatz fachlich anders ist. Architektur-, Feature-, Dataset- und Trainingsänderungen
 stehen ausschließlich als detaillierte Einträge in `prompts`; der Runner bleibt
