@@ -16,8 +16,20 @@ def rla():
     return mod
 
 
+# B514: alle fuenf Finding-Objekte sind Pflicht und tragen die neuen Messfelder.
+_VALID_FINDING = {
+    "current_quality": "unklar", "distance_to_target": None,
+    "dominant_error_class": "unknown", "evidence": [],
+    "last_attempted_improvement": None, "result": "plateau",
+    "next_falsifiable_action": "Naechsten Export gegen denselben Gold-Snapshot messen",
+    "eligible_for_autonomous_experiment": False,
+    "affected_horizons": [],
+    "expected_metric_change": {"metric": "mae_km", "direction": "unchanged", "minimum_change": 0.0},
+}
+
 _GOOD = {"zusammenfassung": "ok", "fehler": [], "loesungen": [],
-         "verbesserungen": [], "prompts": []}
+         "verbesserungen": [], "prompts": [],
+         **{name: dict(_VALID_FINDING) for name in ("verification_findings", "tracking_lineage_findings", "kinematic_findings", "ml_model_findings", "routing_findings")}}
 
 
 def _outer(result_text):

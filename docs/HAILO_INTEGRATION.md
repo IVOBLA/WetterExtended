@@ -10679,3 +10679,47 @@ fehlschlagend.
 den Erstimport-Fall zuverlaessig, B512 vollstaendig statt teilweise behoben).
 Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf
 ausreichende Trainingsdaten.
+
+### B514 — P105-Diagnosevertrag verschärft: Pflichtfelder hart statt mit Platzhalter, plus affected_horizons/expected_metric_change
+
+**Anlass:** Analyse von "Feld 2" (strukturierter Root-Cause-/Diagnosevertrag)
+zeigte zwei Lücken im bestehenden P104/P105-Vertrag: (1) `validate_payload()`
+ersetzt ein komplett fehlendes P105-Finding-Objekt stillschweigend durch einen
+Platzhalter (`"not_reported"`/`"unknown"`) statt den Lauf abzulehnen — die KI
+kann die strukturierte Diagnose faktisch vollständig auslassen, ohne dass der
+Lauf als ungültig gilt. (2) Der 8-Schlüssel-Vertrag verlangt keine betroffenen
+Horizonte und keine messbare Falsifikationsbedingung mit Richtung/Schwelle —
+`next_falsifiable_action` beschreibt nur eine Handlung, kein prüfbares Kriterium.
+
+**Änderung:**
+- `tools/run_local_analysis.py`:
+  - `FINDING_CONTRACT` um `affected_horizons` und `expected_metric_change`
+    auf zehn Pflichtschlüssel erweitert.
+  - `validate_payload()`: fehlt eines der fünf P105-Felder komplett, wird das
+    jetzt mit `ValueError` abgelehnt statt durch einen Platzhalter ersetzt.
+    Zusätzlich werden `affected_horizons` (muss Liste sein, leer erlaubt) und
+    `expected_metric_change` (Objekt mit `metric`/`direction`/`minimum_change`,
+    `direction` nur `increase`/`decrease`/`unchanged`, `minimum_change`
+    numerisch) strukturell geprüft.
+- `docs/LOCAL_ANALYSIS_PROMPT.md`, Abschnitt "P105": explizit dokumentiert,
+  dass alle fünf Felder in JEDER Antwort Pflicht sind (kein Platzhalter-
+  Fallback mehr), und die beiden neuen Schlüssel mit Typangabe ergänzt —
+  deckungsgleich mit `FINDING_CONTRACT`.
+- Vier Testdateien an den verschärften Vertrag angepasst und drei neue
+  Negativtests für fehlende bzw. ungültige Pflichtangaben ergänzt.
+
+**Benutzerhandbuch:** keine Änderung (interne KI-Arbeitsanweisung, kein
+Nutzer-Fach-Feature).
+
+**Betriebsrisiko (wichtig):** Ab Einspielung dieses Prompts schlägt JEDER
+lokale Analyse-Lauf mit `state=failed` fehl, dessen Modell die fünf
+P105-Felder nicht vollständig mit den zehn Schlüsseln liefert — bis das Modell
+sich an den geschärften Vertrag hält. Das ist beabsichtigt, sollte aber nach
+dem nächsten nächtlichen Lauf aktiv beobachtet werden.
+
+**Keine** Binaries.
+
+**Phasen-Status:** Phase A — B514 ✅ (P105-Diagnosevertrag verschärft: alle
+fünf Bereiche hart Pflicht, affected_horizons + expected_metric_change als
+neue Pflichtfelder). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie
+wartet auf ausreichende Trainingsdaten.

@@ -48,8 +48,10 @@ def test_env(runner):
 @pytest.mark.parametrize('mode,changed,status,hour,expected',[('repo','',{},3,'mode_repo'),('x','',{},3,'mode_repo'),('local','2026-07-24',{},3,'mode_changed_today'),('local','',{},0,'not_due_yet'),('local','',{'last_success_date':'2026-07-24'},3,'already_ran_today'),('local','',{'last_attempt_date':'2026-07-24','attempts_today':3},3,'max_attempts_reached'),('local','',{},3,'due')])
 def test_due(runner,mode,changed,status,hour,expected):
  due,reason=runner.is_due(mode,changed,{'cron_hour':0,'cron_minute':10},status,datetime(2026,7,24,hour,5,tzinfo=TZ)); assert reason==expected and due==(expected=='due')
+_B514_FINDING={'current_quality':'unklar','distance_to_target':None,'dominant_error_class':'unknown','evidence':[],'last_attempted_improvement':None,'result':'plateau','next_falsifiable_action':'Naechsten Export gegen denselben Gold-Snapshot messen','eligible_for_autonomous_experiment':False,'affected_horizons':[],'expected_metric_change':{'metric':'mae_km','direction':'unchanged','minimum_change':0.0}}
 def answer(inner,**kw):
- body=json.dumps(inner); body='```json\n'+body+'\n```' if kw.pop('fenced',False) else body; return json.dumps({'is_error':False,'result':body,**kw})
+ full={**{n:dict(_B514_FINDING) for n in ('verification_findings','tracking_lineage_findings','kinematic_findings','ml_model_findings','routing_findings')},**inner}
+ body=json.dumps(full); body='```json\n'+body+'\n```' if kw.pop('fenced',False) else body; return json.dumps({'is_error':False,'result':body,**kw})
 def test_extract(runner): assert runner.extract_payload(answer({'zusammenfassung':' ok '}))['zusammenfassung']=='ok'
 def test_fenced(runner): assert runner.extract_payload(answer({'zusammenfassung':'ok','fehler':['x']},fenced=True))['fehler']==['x']
 @pytest.mark.parametrize('raw',[json.dumps({'is_error':True,'result':'x'}),answer({'fehler':[]}),answer({'zusammenfassung':'x','fehler':'no'}),'garbage'])
@@ -72,4 +74,6 @@ def test_environment_defaults(runner):
  env=runner.build_subprocess_env({}); assert env['PATH'] and env['HOME'] and env['DISABLE_AUTOUPDATER']=='1'
 
 def test_null_lists_are_normalized(runner):
- out=runner.validate_payload({'zusammenfassung':'ok','fehler':None}); assert out['fehler']==[] and out['prompts']==[]
+ payload={'zusammenfassung':'ok','fehler':None}
+ for name in runner.FINDING_FIELDS: payload[name]=dict(_B514_FINDING)
+ out=runner.validate_payload(payload); assert out['fehler']==[] and out['prompts']==[]

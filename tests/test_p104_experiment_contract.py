@@ -11,6 +11,18 @@ from tools.run_local_analysis import extract_payload, validate_payload
 import tools.tuning_apply as ta
 
 
+# B514: alle fuenf Finding-Objekte sind Pflicht.
+_VALID_FINDING = {
+    "current_quality": "unklar", "distance_to_target": None,
+    "dominant_error_class": "unknown", "evidence": [],
+    "last_attempted_improvement": None, "result": "plateau",
+    "next_falsifiable_action": "Naechsten Export gegen denselben Gold-Snapshot messen",
+    "eligible_for_autonomous_experiment": False,
+    "affected_horizons": [10],
+    "expected_metric_change": {"metric": "mae_km", "direction": "decrease", "minimum_change": 0.05},
+}
+
+
 def _payload(**proposal_changes):
     proposal = {
         "experiment_id": str(uuid.uuid4()), "target_system": "kinematic",
@@ -23,7 +35,8 @@ def _payload(**proposal_changes):
     return {"schema": LOCAL_ANALYSIS_SCHEMA, "analysis_run_id": str(uuid.uuid4()),
             "source_snapshot_id": "sha256:a", "git_commit": "abc", "result_id": str(uuid.uuid4()),
             "generated_at_utc": "2026-07-31T12:00:00Z", "zusammenfassung": "x", "fehler": [],
-            "loesungen": [], "verbesserungen": [], "prompts": [], "tuning_proposals": [proposal]}
+            "loesungen": [], "verbesserungen": [], "prompts": [], "tuning_proposals": [proposal],
+            **{name: dict(_VALID_FINDING) for name in ("verification_findings", "tracking_lineage_findings", "kinematic_findings", "ml_model_findings", "routing_findings")}}
 
 
 def test_tuning_proposals_survive_validate_and_extract_payload():
