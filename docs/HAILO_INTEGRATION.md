@@ -10637,3 +10637,45 @@ Kriterium oder aktuell nicht persistierte Daten benötigen:
   lokaler KI, kein Rückstand.
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
 ausreichende Trainingsdaten.
+
+### B513 — B512 loeste sys.modules["app"]-Kontamination nur fuer den Fall, dass "app" bereits vorher existierte
+
+**Anlass:** Verifikation der Welle P112-P115 (frischer Clone `613178e`) zeigte,
+dass `test_b512_app_module_isolation.py` deterministisch fehlschlaegt, wenn
+beide Tests der Datei zusammen laufen (in Isolation ohne vorherigen Import von
+`app` in diesem Prozess). Root Cause: `monkeypatch.delitem(sys.modules, "app",
+raising=False)` registriert bei einem NICHT vorhandenen Key ueberhaupt KEINE
+Undo-Aktion — pytest-Quellcode: bei `name not in dic` und `raising=False`
+passiert schlicht nichts (kein Eintrag in `self._setitem`). Genau das ist der
+Normalfall, wenn `app` im gesamten Testlauf noch nie importiert wurde (z. B.
+beim allerersten Test, der `_load_app()` aufruft). B512 loeste das Problem
+dadurch nur fuer den (selteneren) Fall, dass `sys.modules["app"]` bereits
+einen Vorwert hatte. Reproduziert: nach `_load_app(monkeypatch)` +
+`monkeypatch.undo()` blieb `sys.modules["app"]` mit der gefakten `_FakeFlask`-
+Instanz belegt, obwohl `"app" not in sys.modules` unmittelbar vor dem Aufruf
+galt.
+
+**Aenderung:**
+- `tests/test_p110_manual_run_sends_report_email.py::_load_app()`: ersetzt
+  `monkeypatch.delitem(sys.modules, "app", raising=False)` durch
+  `monkeypatch.setitem(sys.modules, "app", "b513_sentinel_forces_undo_tracking")`
+  gefolgt von einem sofortigen `del sys.modules["app"]`. `setitem` registriert
+  dadurch garantiert eine Undo-Aktion (Wiederherstellung auf NOTSET → Loeschen
+  bei Testende), unabhaengig vom Vorzustand. Der Platzhalter wird sofort
+  wieder entfernt, damit `importlib.import_module("app")` garantiert einen
+  echten Neuimport ausfuehrt statt einen Cache-Treffer zurueckzugeben. Bewusst
+  KEIN `None` als Platzhalter: `sys.modules[name] = None` ist in Python ein
+  spezieller Sentinel, der den naechsten Import mit `ModuleNotFoundError:
+  import of app halted; None in sys.modules` blockiert hatte (im Zuge der
+  Analyse verifiziert).
+
+**Tests:** `tests/test_b512_app_module_isolation.py` (unveraendert, 2 Faelle) —
+5 aufeinanderfolgende Laeufe bestaetigt stabil gruen statt deterministisch
+fehlschlagend.
+
+**Kein** Benutzerhandbuch-Update (Testbugfix). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B513 ✅ (sys.modules["app"]-Testisolation auch fuer
+den Erstimport-Fall zuverlaessig, B512 vollstaendig statt teilweise behoben).
+Phase B (Hailo-8 U-Net) bleibt unveraendert blockiert; sie wartet auf
+ausreichende Trainingsdaten.

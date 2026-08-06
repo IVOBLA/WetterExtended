@@ -56,10 +56,20 @@ def _load_app(monkeypatch):
     # frisch importierte, auf dem gefakten flask-Modul basierende "app"-Instanz
     # blieb dadurch nach Testende dauerhaft in sys.modules["app"] haengen und
     # vergiftete jede spaetere Testdatei, die "import app as app_module" nutzt.
-    # monkeypatch.delitem() merkt sich den urspruenglichen Eintrag (bzw. dessen
-    # Fehlen) und stellt ihn nach dem Test zuverlaessig wieder her, unabhaengig
-    # davon, was importlib.import_module() danach in sys.modules schreibt.
-    monkeypatch.delitem(sys.modules, "app", raising=False)
+    # B513: monkeypatch.delitem(..., raising=False) registriert bei einem NICHT
+    # vorhandenen Key ueberhaupt KEINE Undo-Aktion (pytest-Quellcode: bei
+    # "name not in dic" und raising=False passiert schlicht nichts). Genau das
+    # ist der Normalfall, wenn "app" im gesamten Testlauf noch nie importiert
+    # wurde — B512 loeste das Problem dadurch nur fuer den Fall, dass "app"
+    # bereits vorher existierte. monkeypatch.setitem() mit einem Platzhalter
+    # VOR dem Import erzwingt eine Undo-Aktion (restore=NOTSET -> Loeschen bei
+    # Testende), unabhaengig vom Vorzustand. Der Platzhalter wird sofort wieder
+    # entfernt (nicht auf None setzen — sys.modules[name]=None blockiert den
+    # naechsten Import mit ModuleNotFoundError), damit import_module() unten
+    # garantiert einen echten Neuimport ausfuehrt statt einen Cache-Treffer
+    # zurueckzugeben.
+    monkeypatch.setitem(sys.modules, "app", "b513_sentinel_forces_undo_tracking")
+    del sys.modules["app"]
     return importlib.import_module("app")
 
 
