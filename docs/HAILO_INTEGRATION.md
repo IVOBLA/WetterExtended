@@ -10566,3 +10566,74 @@ deterministisch). Von 56 ACs sind jetzt 19 deterministisch entschieden, 37
 verbleiben im LLM-Fallback (AC-018/033/044 sowie AC-068/076 [Geometrie]
 bewusst zurückgestellt, siehe oben). Phase B (Hailo-8 U-Net) bleibt
 unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### P115 — Welle B (Teil 2): AC-068 und AC-076 deterministisch migriert — AIChecks-Migrationswelle abgeschlossen
+
+**Anlass:** Abschluss der mit P112 begonnenen AIChecks-Migrationswelle. AC-068
+und AC-076 waren bisher zurückgestellt, weil die Geometrie-Felder
+(`forecast_lat_<h>`/`forecast_lon_<h>`, `forecast_mode_<h>`,
+`forecast_consistency_adjusted_<h>`) noch nicht byte-exakt verifiziert waren.
+Nach Verifikation gegen `prediction.py`/`object_tracking.py`/`config.py` sind
+beide vollständig deterministisch entscheidbar und werden hier gemeinsam
+geliefert, da sie dieselbe Bearing-Geometrie-Grundlage teilen.
+
+**Änderung:**
+- `tools/ai_checks/checks_local.py`: gemeinsame Geometrie-Helfer
+  (`_bearing_deg`, `_bearing_change_deg`, `_forecast_chain`,
+  `_max_bearing_jump`, `_ac068_076_frames`) plus zwei neue `@register`-Checks.
+  Beide ACs bleiben unverändert unter `## Offen` in `AIChecks.md` stehen.
+  - `check_ac076_bearing_jumps_mixed_mode`: prüft je Objekt-Frame
+    (Namensmuster wie AC-074) die Kette `lat/lon` →
+    `forecast_lat_10/lon_10` → … → `forecast_lat_60/lon_60`
+    (`config.py:820` `ML_FORECAST_HORIZONS_MIN=[10,20,30,40,60]`) auf
+    Bearing-Sprünge >45° zwischen aufeinanderfolgenden Segmenten —
+    ausschließlich bei GEMISCHTER `forecast_mode_<h>`-Folge (mindestens zwei
+    unterschiedliche Modi über die Horizonte, wie von der AC gefordert).
+    Wertet zusätzlich die Quote der `forecast_consistency_adjusted_<h>`-Flags
+    über alle gemischten Fälle aus.
+  - `check_ac068_speed_and_zigzag_plausibility`: `speed_kmh>60`
+    (`object_tracking.py:2590`), Bearing-Sprung >45° OHNE Modus-Einschränkung
+    (Punkt 3 der AC nennt keine), Nähe zum Geschwindigkeits-Deckel (≥95% von
+    `MAX_CELL_SPEED_KMH`, Default 150.0, `config.py:509`, per
+    `effective_runtime_config.json` overridebar). `real_dt` aus
+    `history[-2].timestamp`/`history[-1].timestamp`
+    (`object_tracking.py:2774-2788`) wird als Kontext mitgeliefert; die
+    dt-Skalierungs-Korrelation (<3 min) wird nur als Hypothese benannt, nicht
+    als bestätigter Fehler (Punkt 2 der AC verlangt genau das). Die
+    Kausalitätsfrage aus Punkt 4 wird durch Überschneidung der Fundlisten
+    Overspeed×Zickzack pro Frame+`cell_id` ermittelt.
+- `tests/test_p115_aichecks_welle_b2.py` (neu): 17 Tests, inkl. Sanity-Checks
+  für die Bearing-Grundfunktionen (Nord=0°, Ost=90°, zirkulärer Wrap-Around)
+  und Abgrenzung gemischt/rein sowie Overspeed×Zickzack-Korrelation.
+
+**Benutzerhandbuch:** keine Änderung (interne QA-Infrastruktur, kein
+Fach-Feature).
+
+**Tests:** `tests/test_p115_aichecks_welle_b2.py` (17 Fälle, neu). Bestehende
+Suite inkl. P112–P114 (128 Fälle gesamt) unverändert grün — keine Regression.
+
+**Keine** Binaries.
+
+**Phasen-Status:** Phase A — P115 ✅ (Welle B Teil 2: AC-068, AC-076
+deterministisch). **AIChecks-Migrationswelle P112–P115 damit abgeschlossen:**
+21 von 56 ACs sind jetzt deterministisch entschieden (P83–P93: 9, P112: 5,
+P113: 3, P114: 2, P115: 2). Die verbleibenden 35 ACs bleiben bewusst im
+LLM-Fallback — nicht weil sie noch nicht migriert wurden, sondern weil sie
+entweder mehrtägige/mehrquellige Korrelation, Interpretation ohne festes
+Kriterium oder aktuell nicht persistierte Daten benötigen:
+- **AC-018** (Modellintegritätsfehler): `model_rejection_reason` wird im
+  aktuellen Code nie auf Platte geschrieben — Voraussetzung wäre eine
+  Code-Änderung an `hydro_flood_ml.py`, kein reiner Check-Prompt.
+- **AC-033** (Deferred-Zustand über Erholung hinweg): benötigt eine
+  Snapshot-Historie von `hydro_flood_risk`-Zuständen, die aktuell nicht
+  persistiert wird.
+- **AC-044** (Drift-Mail gegen Ausliefermodus): benötigt eine
+  Zeitstempel-Korrelation zwischen Journal-Zeilen und `accuracy_history.jsonl`,
+  die nicht ohne echte Journal-Exportzeilen sicher verifizierbar war.
+- Alle übrigen offenen ACs benötigen laut eigenem Wortlaut explizit
+  Mehrtages-Historie, Ursachenkorrelation über mehrere Quellen oder
+  Ermessensentscheidungen (z. B. "als Hypothese, nicht als bestätigt melden") —
+  das ist beabsichtigte Arbeitsteilung zwischen deterministischem Code und
+  lokaler KI, kein Rückstand.
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
+ausreichende Trainingsdaten.
