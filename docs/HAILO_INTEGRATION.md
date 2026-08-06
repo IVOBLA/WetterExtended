@@ -10397,3 +10397,59 @@ SPAETEREN Testfunktion derselben Datei unverfaelscht).
 **Phasen-Status:** Phase A — B512 ✅ (Testisolation fuer das app-Modul wiederhergestellt,
 22 zuvor faelschlich fehlschlagende Tests wieder gruen). Phase B (Hailo-8 U-Net) bleibt
 unveraendert blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### P112 — Welle A: fünf AIChecks deterministisch migriert (AC-030, AC-031, AC-050, AC-074, AC-079)
+
+**Anlass:** 43 der 56 in `AIChecks.md` gelisteten Arbeitsanweisungen hingen bislang
+vollständig von der Freitext-KI ab (`tools/ai_checks/checks_local.py` deckte nur
+neun ACs deterministisch ab: AC-007, 014, 042, 043, 046-049, 080). Fällt der
+KI-Lauf aus oder läuft ins Zeitbudget, bleiben diese Prüfungen für den Tag
+unbeantwortet. Unabhängige Analysen (Claude-Findings 2026-07-30, lokale
+KI-Analyse 2026-08-05) kamen übereinstimmend zum selben Ergebnis und zur
+selben ersten Migrationswelle ("Welle A — Sicherheit und Datenintegrität").
+
+**Änderung:**
+- `tools/ai_checks/checks_local.py`: fünf neue `@register`-Checks angehängt.
+  Alle fünf ACs bleiben unverändert unter `## Offen` in `AIChecks.md` stehen
+  (Registrierung schaltet lediglich von `not_implemented` auf eine echte
+  Auswertung um — dieselbe Konvention wie bei den neun bereits migrierten ACs).
+  - `check_ac030_public_payload_leak`: `latest_hydro_flood_risk.json` gegen
+    `payload_scope="public"` und sieben verbotene interne Felder geprüft.
+  - `check_ac031_sqlite_snapshot_consistency`: `PRAGMA integrity_check` auf
+    `hydro_flood_samples_snapshot.sqlite3` + Ausschluss unkoordinierter
+    `hydro_flood_samples.sqlite3`(-wal/-shm)-Kopien im Export.
+  - `check_ac050_dataset_export_vs_sqlite`: Zeilenzahl `hydro_flood_dataset.jsonl`
+    gegen `COUNT(*) FROM labeled_samples` im Snapshot. **Eigene Korrektur
+    gegenüber dem AC-Text:** `export_labeled_samples_jsonl()` schreibt über
+    `load_trainable_labeled_samples(False)` trotz Funktionsname ALLE Zeilen der
+    Tabelle, nicht nur eine schema-/target-gefilterte "trainierbare" Teilmenge
+    (hydro_flood_ml.py:1700-1707, 2313-2328) — der Check vergleicht deshalb
+    gegen die ungefilterte Gesamtzahl.
+  - `check_ac074_cell_id_uniqueness_per_frame`: gruppiert je Objekt-Frame
+    (`f"{timestamp}.json"`, main.py:996) aktive Zellen nach `cell_id`.
+  - `check_ac079_exposed_credential_copies`: delegiert an
+    `tools/ro_query.py:is_secret_name()` (B469) für die Namensmuster-Erkennung,
+    prüft Funde zusätzlich per `git ls-files` auf versehentliches Tracking.
+  - Alle fünf sind robust gegen die uneinheitliche Sektions-Pfadverschachtelung
+    des Debug-Exports (generischer Wurzel-Scan vs. Sonderkopien wie
+    `_prepare_hydro_ml_snapshot()`): Suche per `rglob` nach Dateiname statt
+    fest codiertem Pfad-Präfix, mit Ausnahme von AC-030 (nutzt denselben,
+    bereits bei AC-014 bewährten festen Pfad `train_data/hydro/impact/`).
+- `tests/test_p112_aichecks_welle_a.py` (neu): 22 Tests, je Check mindestens
+  ein positiver und zwei negative Fälle mit strukturell realen Fixtures.
+
+**Benutzerhandbuch:** keine Änderung (interne QA-Infrastruktur, kein
+Fach-Feature).
+
+**Tests:** `tests/test_p112_aichecks_welle_a.py` (22 Fälle, neu). Bestehende
+Suite `test_p83_ai_checks_harness.py` bis `test_p93_ac080_all_states.py`
+(66 Fälle) unverändert grün — keine Regression an der Registry oder den neun
+bereits migrierten Checks.
+
+**Keine** Binaries.
+
+**Phasen-Status:** Phase A — P112 ✅ (Welle A der AIChecks-Migration: AC-030,
+AC-031, AC-050, AC-074, AC-079 deterministisch). Von 56 ACs sind jetzt 14
+deterministisch entschieden, 42 verbleiben im LLM-Fallback (Wellen B/C folgen).
+Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
+ausreichende Trainingsdaten.
