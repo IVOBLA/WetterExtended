@@ -237,8 +237,14 @@ vorgeschlagen werden.
 ## P105: fünf getrennte Verbesserungsbereiche
 
 Die JSON-Antwort führt `verification_findings`, `tracking_lineage_findings`,
-`kinematic_findings`, `ml_model_findings` und `routing_findings` getrennt. Jedes
-dieser fünf Felder ist ein JSON-Objekt mit GENAU diesen acht Schlüsseln — keiner
+`kinematic_findings`, `ml_model_findings` und `routing_findings` getrennt. **Alle
+fünf Felder sind in JEDER Antwort Pflicht** — fehlt eines komplett, scheitert der
+Lauf hart (`validate_payload()` wirft einen Fehler, es gibt seit B514 KEINEN
+Platzhalter-Fallback mehr). Lautet der Befund für einen Bereich „keine
+Auffälligkeit", trägt das Objekt trotzdem alle Schlüssel — mit entsprechend
+neutralen Werten (z. B. `result: "ok"`, `dominant_error_class: "none"`).
+
+Jedes der fünf Felder ist ein JSON-Objekt mit GENAU diesen zehn Schlüsseln — keiner
 darf fehlen, auch nicht mit `null`-Wert weggelassen:
 
 - `current_quality` (String): Ist-Qualität in Worten oder Kennzahl.
@@ -251,6 +257,16 @@ darf fehlen, auch nicht mit `null`-Wert weggelassen:
   Prüfhandlung — kein vager Vorsatz.
 - `eligible_for_autonomous_experiment` (Boolean, `true`/`false`): ob dieser Bereich
   aktuell für ein automatisches Tuning-Experiment (Abschnitt T) infrage kommt.
+- `affected_horizons` (Liste von Zahlen, ggf. leer `[]`): welche Prognosehorizonte
+  (10/20/30/40/60) von `dominant_error_class` konkret betroffen sind. Eine leere
+  Liste heißt ausdrücklich „nicht horizontspezifisch", nicht „nicht geprüft".
+- `expected_metric_change` (Objekt mit GENAU drei Schlüsseln): die messbare
+  Erwartung, die `next_falsifiable_action` falsifizierbar macht.
+  - `metric` (String): Name der Kennzahl, z. B. `"mae_km"` oder `"direction_error_p90_deg"`.
+  - `direction` (String, GENAU einer von `"increase"`, `"decrease"`, `"unchanged"`):
+    erwartete Richtung dieser Kennzahl NACH `next_falsifiable_action`.
+  - `minimum_change` (Zahl): Mindestbetrag der Änderung, unterhalb dessen die
+    Hypothese als widerlegt gilt. Bei `direction: "unchanged"` `0.0` setzen.
 
 Unveränderte Qualität heißt `result: "plateau"`, nie Verbesserung. Danach müssen
 `previous_experiment_id`, vorherige und neue Ursachenklasse belegen, dass der nächste
