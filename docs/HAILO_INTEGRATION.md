@@ -10507,3 +10507,62 @@ AC-077, AC-078 [Punkt 7] deterministisch). Von 56 ACs sind jetzt 17
 deterministisch entschieden, 39 verbleiben im LLM-Fallback (AC-068/076
 [Geometrie] und Welle C folgen). Phase B (Hailo-8 U-Net) bleibt unverändert
 blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### P114 — Welle C (Teil 1): zwei weitere AIChecks deterministisch migriert (AC-073, AC-045)
+
+**Anlass:** Fortsetzung der AIChecks-Migration nach P112/P113 mit den "Welle C —
+Fehlerzustände und Persistenz"-Kandidaten. Von den fünf vorgeschlagenen ACs
+(AC-018, AC-033, AC-044, AC-045, AC-073) sind nur AC-073 und AC-045 mit der
+aktuell verfügbaren Datengrundlage sauber deterministisch entscheidbar.
+
+**Bewusst zurückgestellt (keine spekulativen Prompts):**
+- **AC-018** (Modellintegritätsfehler): `model_rejection_reason`/`model_cache_status`
+  existieren nur im `include_debug=True`-Zweig von `evaluate_live_flood_risk()`
+  (hydro_flood_ml.py), der laut Code NICHT auf Platte geschrieben wird
+  (`write` gilt nur für den public-Zweig). Ohne Persistenz kein Export-Beleg.
+- **AC-033** (Deferred-Zustand überlebt Erholung): benötigt eine chronologische
+  Sequenz mehrerer `hydro_flood_risk`-Snapshots über den genauen Übergangs-
+  moment hinweg; der Export enthält nur den `latest_hydro_flood_risk.json`-
+  Endstand, keine Historie dieses Feldes.
+- **AC-044** (Drift-Mail gegen Ausliefermodus): erfordert eine Zeitkorrelation
+  zwischen `[DRIFT-MAIL]`-Journalzeilen (journalctl-Zeitstempelformat) und
+  `accuracy_history.jsonl`-Einträgen zum selben Zeitpunkt — diese Zuordnung ist
+  noch nicht gegen echte Journal-Exportzeilen verifiziert.
+
+**Änderung:**
+- `tools/ai_checks/checks_local.py`: zwei neue `@register`-Checks angehängt.
+  Beide ACs bleiben unverändert unter `## Offen` in `AIChecks.md` stehen.
+  - `check_ac073_lineage_state_corruption`: durchsucht alle exportierten
+    `*.service.log`-Dateien (statt einen festen Dienstnamen anzunehmen — sowohl
+    `main.py` als auch `app.py` können die beiden Logzeilen schreiben,
+    `cell_lineage.py:208/267`) nach den State-Lade-/Speicherfehlern, und
+    `train_data/cell_lineage/` (über den Pfadanteil `"cell_lineage"` erkannt,
+    robust gegen Export-Umverschachtelung) auf `*.corrupt.*`-Quarantäne-Dateien
+    (B453) und liegen gebliebene `*.tmp`-Dateien. Die Ursachenkorrelation
+    (Punkt 2 der AC) bleibt LLM-Aufgabe.
+  - `check_ac045_rejected_training_versions`: liest
+    `diagnostics/progress_snapshot.json` (`debug_export.py:1050-1057`,
+    `_build_progress_snapshot()` sammelt alle `v_*/training_meta.json`). Jede
+    `training_meta.json` trägt `status="promoted"|"rejected"`
+    (`model_training.py:1128-1144`); ist die aktive Version nicht
+    `status="promoted"`, hat eine verworfene Version den Guard ausgehebelt —
+    Befund. `[TRAINING] REJECTED`-Zeilen werden zusätzlich über alle
+    Service-Logs gezählt und als Kontext mitgeliefert; Häufung/Retention
+    (letzter Satz der AC) bleibt Mehrtages-LLM-Aufgabe.
+- `tests/test_p114_aichecks_welle_c1.py` (neu): 11 Tests, inkl. eines
+  Abgrenzungstests, dass `*.tmp`-Dateien außerhalb von `cell_lineage/` nicht
+  fälschlich mitzählen.
+
+**Benutzerhandbuch:** keine Änderung (interne QA-Infrastruktur, kein
+Fach-Feature).
+
+**Tests:** `tests/test_p114_aichecks_welle_c1.py` (11 Fälle, neu). Bestehende
+Suite inkl. P112/P113 (100 Fälle gesamt) unverändert grün — keine Regression.
+
+**Keine** Binaries.
+
+**Phasen-Status:** Phase A — P114 ✅ (Welle C Teil 1: AC-073, AC-045
+deterministisch). Von 56 ACs sind jetzt 19 deterministisch entschieden, 37
+verbleiben im LLM-Fallback (AC-018/033/044 sowie AC-068/076 [Geometrie]
+bewusst zurückgestellt, siehe oben). Phase B (Hailo-8 U-Net) bleibt
+unverändert blockiert; sie wartet auf ausreichende Trainingsdaten.
