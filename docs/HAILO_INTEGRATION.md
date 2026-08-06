@@ -10773,3 +10773,39 @@ dasselbe strukturierte {metric,direction,minimum_change}-Schema wie P105
 gehoben; Feld-2-Vertrag jetzt an beiden Stellen — Diagnose und Tuning-
 Vorschlag — einheitlich streng). Phase B (Hailo-8 U-Net) bleibt unverändert
 blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B516 — test_b470 (B470) uebersehen bei der B514-Verschaerfung: Antwort ohne P105-Findings schlaegt jetzt fehl
+
+**Anlass:** Voller Testlauf auf dem Pi (2948 Tests) nach Einspielung von B515
+zeigte einen echten Regressionsfehler, den die stichprobenartige Suche bei
+B514 nicht erfasst hatte: `test_b470_run_diagnostics.py::test_successful_run_is_logged_too`
+simuliert eine erfolgreiche Claude-Code-Antwort ohne die fuenf P105-Felder und
+erwartet `runner.main(...) == 0`. Seit B514 lehnt `validate_payload()` eine
+Antwort ohne alle fuenf Finding-Objekte hart ab — der simulierte Lauf endet
+dadurch mit `state=failed` statt `ok`.
+
+**Fehlende Systematik bei B514:** Die Suche beschraenkte sich auf direkte
+Aufrufer von `validate_payload()`/`extract_payload()`; `test_b470` ruft
+`runner.main()` ueber einen simulierten `claude`-Binary-Wrapper auf, was
+`extract_payload()` erst indirekt ueber den Subprozess-Pfad erreicht und beim
+Grep nach den Funktionsnamen nicht auffiel. Nachtraeglich alle Testdateien mit
+`runner.main(`/`.main([` durchsucht: `test_b465_ro_query.py` (anderes Modul,
+nicht betroffen), `test_b468_deny_rules_scoped.py` und
+`test_b496_stale_running_recovery.py` (beide scheitern vor bzw. umgehen den
+CLI-Aufruf per `--dry-run`, erreichen `validate_payload()` nie) sind bestaetigt
+nicht betroffen.
+
+**Änderung:**
+- `tests/test_b470_run_diagnostics.py::test_successful_run_is_logged_too`:
+  simulierte Erfolgsantwort um alle fuenf P105-Finding-Objekte (mit
+  `affected_horizons`/`expected_metric_change`) ergaenzt.
+
+**Benutzerhandbuch:** keine Änderung (Testbugfix). **Keine** Binaries.
+
+**Tests:** `tests/test_b470_run_diagnostics.py` (18 Fälle, unverändert bis auf
+die eine Fixture-Erweiterung) wieder vollständig grün.
+
+**Phasen-Status:** Phase A — B516 ✅ (B470-Testfixture an den B514-Vertrag
+angepasst; kein weiterer betroffener Aufrufer gefunden). Phase B (Hailo-8
+U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
+Trainingsdaten.

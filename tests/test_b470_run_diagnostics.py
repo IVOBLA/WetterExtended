@@ -82,9 +82,26 @@ def test_silent_failure_leaves_a_readable_trace(runner, tmp_path, silent_cli, mo
     log = (tmp_path / "run.log").read_text(); assert "Rueckgabewert 2" in log; assert "2.1.206" in log
 
 
+# B516: alle fuenf P105-Bereiche sind seit B514 in jeder Antwort Pflicht
+# (kein Default-Ausfuellen mehr) und tragen affected_horizons/expected_metric_change.
+_B516_VALID_FINDING = {
+    "current_quality": "unklar", "distance_to_target": None,
+    "dominant_error_class": "unknown", "evidence": [],
+    "last_attempted_improvement": None, "result": "plateau",
+    "next_falsifiable_action": "Naechsten Export gegen denselben Gold-Snapshot messen",
+    "eligible_for_autonomous_experiment": False,
+    "affected_horizons": [],
+    "expected_metric_change": {"metric": "mae_km", "direction": "unchanged", "minimum_change": 0.0},
+}
+_B516_FINDING_NAMES = ("verification_findings", "tracking_lineage_findings", "kinematic_findings",
+                       "ml_model_findings", "routing_findings")
+
+
 def test_successful_run_is_logged_too(runner, tmp_path, monkeypatch):
     _git_init(tmp_path)
-    binary = tmp_path / "claude"; payload = {"zusammenfassung": "ok", "fehler": [], "loesungen": [], "verbesserungen": [], "prompts": []}
+    binary = tmp_path / "claude"
+    payload = {"zusammenfassung": "ok", "fehler": [], "loesungen": [], "verbesserungen": [], "prompts": [],
+               **{name: dict(_B516_VALID_FINDING) for name in _B516_FINDING_NAMES}}
     binary.write_text('#!/bin/sh\n[ "$1" = "--version" ] && { echo "2.1.206"; exit 0; }\n' + "cat <<'J'\n" + json.dumps({"is_error": False, "result": json.dumps(payload)}) + "\nJ\n", encoding="utf-8"); binary.chmod(0o755)
     (tmp_path / "docs").mkdir(); (tmp_path / "docs" / "p.md").write_text("Auftrag"); (tmp_path / "tools").mkdir(); (tmp_path / "tools" / "s.json").write_text(json.dumps({"permissions": {"deny": ["Read(**/.env*)"]}}))
     monkeypatch.setattr(runner, "load_mode", lambda repo_dir: ("local", "")); monkeypatch.setattr(runner, "load_config", lambda repo_dir: _config(binary))
