@@ -408,3 +408,268 @@ def check_ac007_lineage_event_uniqueness(base) -> dict:
     return {"status": "ok",
             "beleg": f"{len(events or [])} Lineage-Events, Signaturen eindeutig, write_status ok",
             "detail": {}}
+
+def _rglob_first(base: Path, name: str) -> Path | None:
+    """Sucht eine Datei per Name irgendwo unter base — robust gegen die je nach
+    Debug-Export-Variante unterschiedliche Sektions-Pfadverschachtelung
+    (z. B. hydro_ml/hydro_flood_samples_snapshot.sqlite3 vs. mit train_data/-Praefix).
+    """
+    try:
+        return next(iter(sorted(Path(base).rglob(name))), None)
+    except Exception:
+        return None
+
+
+_AC030_FORBIDDEN_FIELDS = (
+    "cell_diagnostics", "station_runoff_series", "model_signature",
+    "model_source", "ml_predicted_q_delta_m3s", "flood_probability",
+    "hydro_flood_risk_score",
+)
+
+
+@register("AC-030")
+def check_ac030_public_payload_leak(base) -> dict:
+    """AC-030 — Interne Felder im oeffentlichen Hydro-Flood-Payload.
+
+    Deterministisch: liest train_data/hydro/impact/latest_hydro_flood_risk.json
+    (derselbe Pfad wie AC-014). Der Cache wird ausschliesslich mit
+    include_debug=False geschrieben (evaluate_live_flood_risk(), write=True,
+    hydro_flood_ml.py:1036), payload_scope muss daher stets "public" sein. Jede
+    Stationszeile durchlaeuft _public_flood_row() (hydro_flood_ml.py:969-971),
+    deren Whitelist die sieben verbotenen Felder nicht enthaelt. Ein Treffer
+    bedeutet, dass eine andere Schreibstelle den Whitelist-Filter umgeht.
+    """
+    doc = _read_json(Path(base) / "train_data/hydro/impact/latest_hydro_flood_risk.json")
+    if doc is None:
+        return {"status": "ok", "beleg": "kein latest_hydro_flood_risk.json vorhanden",
+                "detail": {}}
+    problems = []
+    scope = doc.get("payload_scope")
+    if scope != "public":
+        problems.append(f"payload_scope={scope!r} (erwartet 'public')")
+    top_hits = [f for f in _AC030_FORBIDDEN_FIELDS if f in doc]
+    if top_hits:
+        problems.append(f"verbotene Felder auf Dokumentebene: {top_hits}")
+    for row in doc.get("stations") or []:
+        if not isinstance(row, dict):
+            continue
+        hits = [f for f in _AC030_FORBIDDEN_FIELDS if f in row]
+        if hits:
+            problems.append(f"station={row.get('station_id')!r}: verbotene Felder {hits}")
+    if problems:
+        return {"status": "finding", "beleg": "; ".join(problems),
+                "detail": {"probleme": problems}}
+    return {"status": "ok",
+            "beleg": f"payload_scope=public, {len(doc.get('stations') or [])} Stationen ohne verbotene Felder",
+            "detail": {}}
+
+
+@register("AC-031")
+def check_ac031_sqlite_snapshot_consistency(base) -> dict:
+    """AC-031 — SQLite-Snapshot-Integritaet und Ausschluss unkoordinierter Kopien.
+
+    Sucht hydro_flood_samples_snapshot.sqlite3 per rglob (_prepare_hydro_ml_snapshot()
+    legt die Datei immer unter diesem Namen an, debug_export.py:516-568, unabhaengig
+    von der Sektions-Pfadverschachtelung). PRAGMA integrity_check muss "ok" liefern.
+    Zusaetzlich darf hydro_flood_samples.sqlite3 (ohne "_snapshot") inkl. -wal/-shm
+    NICHT im Export liegen — debug_export.py:322-326 schliesst die unkoordinierte
+    Live-Kopie beim generischen Wurzel-Scan explizit aus.
+    """
+    base = Path(base)
+    snapshot = _rglob_first(base, "hydro_flood_samples_snapshot.sqlite3")
+    problems = []
+    if snapshot is None:
+        return {"status": "ok", "beleg": "kein hydro_flood_samples_snapshot.sqlite3 im Export",
+                "detail": {}}
+    import sqlite3
+    try:
+        con = sqlite3.connect(f"file:{snapshot}?mode=ro", uri=True)
+        try:
+            rows = con.execute("PRAGMA integrity_check").fetchall()
+        finally:
+            con.close()
+        result = rows[0][0] if rows else None
+        if result != "ok":
+            problems.append(f"integrity_check={result!r} an {snapshot} (erwartet 'ok')")
+    except sqlite3.Error as exc:
+        problems.append(f"integrity_check fehlgeschlagen an {snapshot}: {type(exc).__name__}: {exc}")
+    stray = sorted(
+        str(p) for pattern in ("hydro_flood_samples.sqlite3", "hydro_flood_samples.sqlite3-wal",
+                                "hydro_flood_samples.sqlite3-shm")
+        for p in base.rglob(pattern)
+    )
+    if stray:
+        problems.append(f"unkoordinierte Kopie im Export: {stray}")
+    if problems:
+        return {"status": "finding", "beleg": "; ".join(problems), "detail": {"probleme": problems}}
+    return {"status": "ok", "beleg": f"integrity_check=ok ({snapshot}), keine unkoordinierte Kopie",
+            "detail": {}}
+
+
+@register("AC-050")
+def check_ac050_dataset_export_vs_sqlite(base) -> dict:
+    """AC-050 — hydro_flood_dataset.jsonl gegen den SQLite-Snapshot.
+
+    export_labeled_samples_jsonl() (hydro_flood_ml.py:2313-2328) schreibt ALLE
+    Zeilen aus load_trainable_labeled_samples(False) — bei trainable_only=False
+    ist das trotz des Funktionsnamens die komplette labeled_samples-Tabelle, nicht
+    nur eine gefilterte "trainierbare" Teilmenge (hydro_flood_ml.py:1700-1707). Der
+    korrekte Vergleich ist daher Zeilenzahl der JSONL gegen COUNT(*) FROM
+    labeled_samples im Snapshot. Eine leere JSONL bei gefuellter DB ist immer ein
+    eigener, dringlicher Befund (zweiter Schreiber hat sie geleert).
+    """
+    base = Path(base)
+    jsonl = _rglob_first(base, "hydro_flood_dataset.jsonl")
+    snapshot = _rglob_first(base, "hydro_flood_samples_snapshot.sqlite3")
+    if jsonl is None or snapshot is None:
+        return {"status": "ok",
+                "beleg": f"jsonl={'vorhanden' if jsonl else 'fehlt'}, snapshot={'vorhanden' if snapshot else 'fehlt'}",
+                "detail": {}}
+    jsonl_rows = 0
+    with open(jsonl, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                jsonl_rows += 1
+    import sqlite3
+    try:
+        con = sqlite3.connect(f"file:{snapshot}?mode=ro", uri=True)
+        try:
+            db_rows = con.execute("SELECT COUNT(*) FROM labeled_samples").fetchone()[0]
+        finally:
+            con.close()
+    except sqlite3.Error as exc:
+        return {"status": "error", "beleg": f"Snapshot nicht lesbar: {type(exc).__name__}: {exc}",
+                "detail": {}}
+    if jsonl_rows == 0 and db_rows > 0:
+        return {"status": "finding",
+                "beleg": (f"hydro_flood_dataset.jsonl ist leer, aber Snapshot enthaelt "
+                          f"{db_rows} labeled_samples — vermutlich von einem zweiten "
+                          f"Schreiber geleert"),
+                "detail": {"jsonl_rows": jsonl_rows, "db_rows": db_rows}}
+    if jsonl_rows != db_rows:
+        return {"status": "finding",
+                "beleg": (f"jsonl_rows={jsonl_rows} != db_rows={db_rows} (labeled_samples) "
+                          f"— Export nicht aktuell oder ueberschrieben"),
+                "detail": {"jsonl_rows": jsonl_rows, "db_rows": db_rows}}
+    return {"status": "ok", "beleg": f"jsonl_rows=db_rows={jsonl_rows}",
+            "detail": {"jsonl_rows": jsonl_rows}}
+
+
+_AC074_TS_PATTERN_SRC = r"^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.json$"
+
+
+@register("AC-074")
+def check_ac074_cell_id_uniqueness_per_frame(base) -> dict:
+    """AC-074 — cell_id-Eindeutigkeit pro Frame.
+
+    Sucht Objekt-Frame-Dateien per rglob nach dem main.py-Namensmuster
+    f"{timestamp}.json" (main.py:996, Timestamp-Format %Y-%m-%d_%H-%M-%S) — robust
+    gegen die je nach Debug-Export-Variante unterschiedliche Sektions-Pfad-
+    verschachtelung von "objects". Andere gleichnamig gemusterte Dateien (z. B.
+    Wetter-Snapshots) werden automatisch verworfen, da sie kein JSON-Array mit
+    is_active_cell/cell_id sind. Gruppiert je Frame alle Objekte mit
+    is_active_cell=true nach cell_id; mehr als ein aktives Objekt je cell_id im
+    selben Frame ist ein Befund (Doku: cell_lineage.py _dedupe_frame_cell_ids /
+    update_split_merge_lineage).
+    """
+    import re
+    base = Path(base)
+    ts_pattern = re.compile(_AC074_TS_PATTERN_SRC)
+    frames = sorted(p for p in base.rglob("*.json") if ts_pattern.match(p.name))
+    dup_findings = []
+    checked = 0
+    for frame in frames:
+        try:
+            objs = json.loads(frame.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(objs, list):
+            continue
+        checked += 1
+        by_id: dict[str, int] = {}
+        for o in objs:
+            if not isinstance(o, dict) or o.get("is_active_cell") is not True:
+                continue
+            cid = o.get("cell_id")
+            if cid is None:
+                continue
+            by_id[str(cid)] = by_id.get(str(cid), 0) + 1
+        dups = {cid: n for cid, n in by_id.items() if n > 1}
+        if dups:
+            dup_findings.append({"frame": frame.name, "duplicates": dups})
+    if dup_findings:
+        return {"status": "finding",
+                "beleg": (f"{len(dup_findings)} Frame(s) mit doppelter aktiver cell_id: "
+                          + "; ".join(f"{d['frame']}: {d['duplicates']}" for d in dup_findings[:5])),
+                "detail": {"frames": dup_findings}}
+    return {"status": "ok", "beleg": f"{checked} Frame(s) geprueft, cell_id je Frame eindeutig",
+            "detail": {"frames_checked": checked}}
+
+
+def _ac079_is_secret_name(base: Path, name: str) -> bool:
+    """Delegiert an tools.ro_query.is_secret_name() (B469), wenn importierbar;
+    sonst identische Fallback-Logik, damit die Erkennung nie auseinanderlaeuft."""
+    import sys
+    if (base / "tools" / "ro_query.py").is_file():
+        try:
+            if str(base) not in sys.path:
+                sys.path.insert(0, str(base))
+            from tools.ro_query import is_secret_name
+            return is_secret_name(name)
+        except Exception:
+            pass
+    low = name.lower()
+    if low.startswith(".env"):
+        return True
+    if low.endswith((".pem", ".key")):
+        return True
+    if "id_rsa" in low:
+        return True
+    return False
+
+
+_AC079_ALLOWED = frozenset({".env", ".env.example"})
+
+
+@register("AC-079")
+def check_ac079_exposed_credential_copies(base) -> dict:
+    """AC-079 — ungeschuetzte Zugangsdaten-Kopien im Datenwurzel-Verzeichnis.
+
+    Verwendet dieselbe Erkennung wie tools/ro_query.py is_secret_name() (B469): jede
+    .env-Variante (auch Kopien wie .env_Copy/.env.bak/.env~), *.pem, *.key und
+    Dateien mit "id_rsa" im Namen. .env und .env.example sind erlaubt (.gitignore
+    Zeile 38-41). Ist base ein Git-Checkout, wird zusaetzlich per `git ls-files`
+    geprueft, ob ein Fund trotzdem versioniert ist (dann waere .gitignore
+    unwirksam). Der Live-rsync-Zielabgleich (Punkt 3 der AC-Anweisung) liegt
+    ausserhalb dieses Datenwurzel-Verzeichnisses und bleibt beim naechsten
+    Livezugriff durch die KI zu pruefen.
+    """
+    base = Path(base)
+    hits = []
+    for p in base.rglob("*"):
+        if not p.is_file() or p.name in _AC079_ALLOWED:
+            continue
+        if _ac079_is_secret_name(base, p.name):
+            hits.append(str(p.relative_to(base)))
+    if not hits:
+        return {"status": "ok", "beleg": "keine ungeschuetzten Zugangsdaten-Kopien gefunden",
+                "detail": {}}
+    tracked = []
+    if (base / ".git").is_dir():
+        try:
+            import subprocess
+            out = subprocess.run(["git", "ls-files"], cwd=str(base), capture_output=True,
+                                  text=True, timeout=30)
+            tracked_files = set(out.stdout.splitlines()) if out.returncode == 0 else set()
+            tracked = [h for h in hits if h in tracked_files]
+        except Exception:
+            tracked = []
+    detail = {"gefunden": hits}
+    if tracked:
+        detail["git_getrackt"] = tracked
+        return {"status": "finding",
+                "beleg": f"{len(hits)} Zugangsdaten-Kopie(n) gefunden, davon {len(tracked)} im Git-Tree: {tracked}",
+                "detail": detail}
+    return {"status": "finding",
+            "beleg": f"{len(hits)} Zugangsdaten-Kopie(n) im Datenwurzel-Verzeichnis: {hits}",
+            "detail": detail}
