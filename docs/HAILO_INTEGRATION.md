@@ -10723,3 +10723,53 @@ dem nächsten nächtlichen Lauf aktiv beobachtet werden.
 fünf Bereiche hart Pflicht, affected_horizons + expected_metric_change als
 neue Pflichtfelder). Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie
 wartet auf ausreichende Trainingsdaten.
+
+### B515 — expected_effect ist ein strukturiertes Objekt statt Freitext
+
+**Anlass:** Feld-2-Fortsetzung nach B514. `validate_tuning_proposals()` prüfte
+`expected_effect` bislang nur als nicht-leeren String — ein Freitext wie
+`"MAE sinkt"` ohne messbare Richtung oder Schwelle wurde akzeptiert. Damit war
+`tuning_proposals` (P104) weniger streng als die fünf P105-Bereiche, die seit
+B514 ein strukturiertes `expected_metric_change`-Objekt verlangen.
+
+**Änderung:**
+- `experiment_contract.py::validate_tuning_proposals()`: `expected_effect`
+  muss jetzt ein Objekt mit GENAU `metric` (nicht-leerer String), `direction`
+  (nur `increase`/`decrease`/`unchanged`) und `minimum_change` (endliche Zahl,
+  über `_number()`) sein — derselbe Aufbau wie `expected_metric_change` in
+  P105.
+- `docs/LOCAL_ANALYSIS_PROMPT.md`, Abschnitt "P104": Struktur von
+  `expected_effect` explizit mit den drei Schlüsseln dokumentiert.
+- Fünf Testdateien mit dem alten Freitext-Fixture (`"expected_effect": "MAE
+  sinkt"` bzw. eine Variante davon) auf das strukturierte Objekt umgestellt:
+  `tests/test_b488_tuning_stale_result_guard.py`,
+  `tests/test_b490_tuning_tie_not_accepted.py`,
+  `tests/test_p103_plateau_escalation.py`, `tests/test_p97_tuning_apply.py`,
+  `tests/test_p104_experiment_contract.py`.
+- `tests/test_b515_expected_effect_structured.py` (neu): analog zu B510 ein
+  Sync-Test, dass alle `PROPOSAL_FIELDS`-Namen in der Doku vorkommen, plus
+  sechs Verhaltensfälle für das neue `expected_effect`-Objekt (gültig,
+  String statt Objekt, fehlender Unterschlüssel, ungültige `direction`,
+  nicht-numerisches `minimum_change`, leeres `metric`).
+
+**Benutzerhandbuch:** keine Änderung (interne KI-Arbeitsanweisung, kein
+Nutzer-Fach-Feature).
+
+**Betriebsrisiko:** wie B514 — ein `tuning_proposals`-Eintrag mit
+Freitext-`expected_effect` wird ab jetzt hart abgelehnt. Da
+`AUTONOMOUS_TUNING_ENABLED`/`FORECAST_EXPERIMENTS_ENABLED` weiterhin `False`
+sind, hat das aktuell keine Live-Auswirkung — relevant erst nach einer
+künftigen Aktivierung.
+
+**Tests:** `tests/test_b515_expected_effect_structured.py` (7 Fälle, neu).
+Fünf bestehende Testdateien angepasst (Fixture-Wert geändert, keine
+Testabdeckung verloren). Gesamtlauf inkl. P112-P115, B512-B514 (235 Fälle)
+unverändert grün.
+
+**Keine** Binaries.
+
+**Phasen-Status:** Phase A — B515 ✅ (expected_effect in tuning_proposals auf
+dasselbe strukturierte {metric,direction,minimum_change}-Schema wie P105
+gehoben; Feld-2-Vertrag jetzt an beiden Stellen — Diagnose und Tuning-
+Vorschlag — einheitlich streng). Phase B (Hailo-8 U-Net) bleibt unverändert
+blockiert; sie wartet auf ausreichende Trainingsdaten.
