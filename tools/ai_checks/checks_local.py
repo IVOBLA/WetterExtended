@@ -673,3 +673,125 @@ def check_ac079_exposed_credential_copies(base) -> dict:
     return {"status": "finding",
             "beleg": f"{len(hits)} Zugangsdaten-Kopie(n) im Datenwurzel-Verzeichnis: {hits}",
             "detail": detail}
+
+
+@register("AC-057")
+def check_ac057_export_admin_panel_persistence(base) -> dict:
+    """AC-057 — Nächtlicher Export im Admin-Panel angekommen (Datei-Teil).
+
+    Deterministisch abdeckbar ist nur der Datei-Teil: tools/publish_latest_debug_export_branch.py
+    schreibt bei Erfolg train_data/evaluation/latest_export/latest_export_meta.json
+    mit export_reason=EXPORT_REASON_SCHEDULED="scheduled_branch_publish"
+    (debug_export.py:1164-1201, publish_latest_debug_export_branch.py:29). Fehlt die
+    Datei ganz, kann kein automatischer Export je persistiert worden sein — Befund
+    (unterscheidet nicht, ob der Timer nie lief oder nur nie erfolgreich war, dafuer
+    fehlt hier die Zeitkorrelation). Ist export_reason gesetzt, aber nicht
+    "scheduled_branch_publish" (z. B. "last_24h_debug_run"), bietet das Panel nur den
+    letzten MANUELLEN Stand an.
+    Der Journal-Abgleich der urspruenglichen AC-Anweisung (systemctl status,
+    "Persistenz ... fehlgeschlagen"-Warnzeile) ist deterministisch NICHT aus dem
+    Debug-Export ableitbar: debug_export.py:701 exportiert nur die Journale von
+    wetterprojekt/-scheduler/-admin, nicht von wetterprojekt-debug-export-branch
+    selbst (das Skript kann sein eigenes Journal nicht in seinen eigenen Export
+    aufnehmen). Dieser Teil bleibt ein Livezugriff auf dem Pi (ro_query.py journal).
+    """
+    meta = _read_json(Path(base) / "train_data/evaluation/latest_export/latest_export_meta.json")
+    if meta is None:
+        return {"status": "finding",
+                "beleg": "kein latest_export_meta.json vorhanden — noch nie ein Export persistiert",
+                "detail": {"hinweis": ("Ob der Timer nie lief oder nur nie erfolgreich war, "
+                                        "klaert erst der Journal-Livezugriff auf dem Pi.")}}
+    reason = meta.get("export_reason")
+    if reason != "scheduled_branch_publish":
+        return {"status": "finding",
+                "beleg": f"export_reason={reason!r} (erwartet 'scheduled_branch_publish') — "
+                         f"Panel bietet nur den letzten manuellen Stand an",
+                "detail": {"export_reason": reason, "created_at_utc": meta.get("created_at_utc"),
+                           "hinweis": "Journal-Livezugriff noetig, um Timer-Erfolg zu bestaetigen."}}
+    return {"status": "ok",
+            "beleg": f"export_reason=scheduled_branch_publish, created_at_utc={meta.get('created_at_utc')}",
+            "detail": {"created_at_utc": meta.get("created_at_utc"),
+                       "hinweis": "Warnzeilen im Journal des Publish-Skripts bleiben Livezugriff-Aufgabe."}}
+
+
+def _effective_runtime_override(base: Path, key: str):
+    doc = _read_json(_rglob_first(Path(base), "effective_runtime_config.json") or Path("/nonexistent"))
+    if isinstance(doc, dict) and key in doc:
+        return doc[key]
+    return None
+
+
+@register("AC-077")
+def check_ac077_cycle_timing(base) -> dict:
+    """AC-077 — Zyklusdauer des Live-Loops gegen LOOP_INTERVAL_CELLS_S.
+
+    Deterministisch: liest train_data/status/cycle_timing.json (main.py:430-458,
+    Felder last_duration_s/avg_duration_s/max_duration_s/cells_active). Vergleicht
+    avg_duration_s bei cells_active=true mit LOOP_INTERVAL_CELLS_S (Default 120s,
+    config.py:1328) — per effective_runtime_config.json overridebar, da runtime-
+    veraenderlich. Erreicht oder ueberschreitet avg_duration_s das Intervall, ist der
+    Verarbeitungszyklus der Engpass. Die Korrelation mit konkreten Gewitterlagen aus
+    dem Log-Zeitfenster (Teil 3 der AC) bleibt dem LLM ueberlassen — dafuer fehlt hier
+    der Log-Text.
+    """
+    base = Path(base)
+    timing = _read_json(_rglob_first(base, "cycle_timing.json") or base / "nonexistent.json")
+    if timing is None:
+        return {"status": "ok", "beleg": "kein cycle_timing.json vorhanden", "detail": {}}
+    if not timing.get("cells_active"):
+        return {"status": "ok", "beleg": "cells_active=false, Intervall-Vergleich nicht anwendbar",
+                "detail": {"cells_active": False}}
+    avg = timing.get("avg_duration_s")
+    interval = _effective_runtime_override(base, "LOOP_INTERVAL_CELLS_S")
+    if interval is None:
+        interval = 120
+    if avg is None:
+        return {"status": "ok", "beleg": "avg_duration_s fehlt (zu wenig Zyklen fuer Mittelwert)",
+                "detail": {}}
+    if float(avg) >= float(interval):
+        return {"status": "finding",
+                "beleg": (f"avg_duration_s={avg} >= LOOP_INTERVAL_CELLS_S={interval} "
+                          f"(last={timing.get('last_duration_s')}, max={timing.get('max_duration_s')}) "
+                          f"— Verarbeitungszyklus ist der Engpass"),
+                "detail": {"avg_duration_s": avg, "last_duration_s": timing.get("last_duration_s"),
+                           "max_duration_s": timing.get("max_duration_s"), "interval_s": interval,
+                           "hinweis": "code_ref: main.py _record_cycle_timing"}}
+    return {"status": "ok",
+            "beleg": f"avg_duration_s={avg} < LOOP_INTERVAL_CELLS_S={interval}",
+            "detail": {"avg_duration_s": avg, "interval_s": interval}}
+
+
+@register("AC-078")
+def check_ac078_analysis_duration_vs_timeout(base) -> dict:
+    """AC-078 — Lokaler Analyse-Lauf nahe am Zeitlimit (Punkt 7 der AC).
+
+    Deterministisch abgedeckt ist hier ausschliesslich Punkt 7 der AC-Anweisung:
+    duration_s > 80% von timeout_s (LOCAL_ANALYSIS_CONFIG, Default 1700s,
+    config.py:1055, per effective_runtime_config.json overridebar). Die Punkte 1-5
+    (Zustandsklassifikation von state) deckt bereits check_ac080_incomplete_step_budget
+    ab; Punkt 2 (mode_repo trotz ANALYSIS_MODE=local) und Punkt 6 (Doppel-Analyse ueber
+    analysis_result.json-Zeitstempel) benoetigen eine Mehrquellen-/Mehrtageskorrelation
+    und bleiben bewusst beim LLM.
+    """
+    base = Path(base)
+    st = _read_json(base / "train_data/evaluation/local_analysis_status.json")
+    if st is None or st.get("duration_s") is None:
+        return {"status": "ok", "beleg": "kein Lauf mit duration_s vorhanden", "detail": {}}
+    duration = float(st["duration_s"])
+    timeout_cfg = _effective_runtime_override(base, "LOCAL_ANALYSIS_CONFIG")
+    timeout_s = None
+    if isinstance(timeout_cfg, dict):
+        timeout_s = timeout_cfg.get("timeout_s")
+    if timeout_s is None:
+        timeout_s = 1700
+    threshold = 0.8 * float(timeout_s)
+    if duration > threshold:
+        return {"status": "finding",
+                "beleg": (f"duration_s={duration} > 80% von timeout_s={timeout_s} "
+                          f"(Schwelle={threshold:.1f}) — Auftrag zu umfangreich fuer das Zeitlimit"),
+                "detail": {"duration_s": duration, "timeout_s": timeout_s,
+                           "hinweis": "Als Verbesserung melden (max_turns/timeout_s anheben "
+                                      "oder erledigte ACs nach '## Erledigt' verschieben), nicht als Fehler."}}
+    return {"status": "ok",
+            "beleg": f"duration_s={duration} <= 80% von timeout_s={timeout_s}",
+            "detail": {"duration_s": duration, "timeout_s": timeout_s}}

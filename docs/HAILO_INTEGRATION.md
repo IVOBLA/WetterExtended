@@ -10453,3 +10453,57 @@ AC-031, AC-050, AC-074, AC-079 deterministisch). Von 56 ACs sind jetzt 14
 deterministisch entschieden, 42 verbleiben im LLM-Fallback (Wellen B/C folgen).
 Phase B (Hailo-8 U-Net) bleibt unverändert blockiert; sie wartet auf
 ausreichende Trainingsdaten.
+
+### P113 — Welle B (Teil 1): drei weitere AIChecks deterministisch migriert (AC-057, AC-077, AC-078)
+
+**Anlass:** Fortsetzung der Welle-B-Migration ("Prognose und Laufzeit") nach P112.
+Von den fünf für Welle B vorgeschlagenen ACs (AC-057, 068, 076, 077, 078) sind
+AC-077 und AC-078 (Teil) vollständig selbstständig aus einer einzelnen JSON-Datei
+entscheidbar; AC-057 nur teilweise (siehe unten). AC-068 und AC-076 (Bearing-/
+Zickzack-Geometrie über `objects/<ts>.json`-Ketten) benötigen weitere
+Feldverifikation (`forecast_x_<h>`/`forecast_y_<h>`, `forecast_mode_<h>`,
+`history[]`-Struktur) und folgen in einer eigenen Welle, sobald das gegen einen
+echten Export bestätigt ist — kein spekulativer Prompt.
+
+**Änderung:**
+- `tools/ai_checks/checks_local.py`: drei neue `@register`-Checks angehängt.
+  Alle drei ACs bleiben unverändert unter `## Offen` in `AIChecks.md` stehen.
+  - `check_ac057_export_admin_panel_persistence`: deckt nur den Datei-Teil ab
+    (`latest_export/latest_export_meta.json`, `export_reason ==
+    "scheduled_branch_publish"`). Der Journal-Abgleich der ursprünglichen
+    AC-Anweisung ist **nicht** aus dem Debug-Export ableitbar — `debug_export.py`
+    exportiert nur die Journale von `wetterprojekt`/-`scheduler`/-`admin`, nicht
+    von `wetterprojekt-debug-export-branch` selbst (ein Dienst kann sein eigenes
+    Journal nicht in seinen eigenen Export aufnehmen). Dieser Teil bleibt
+    Livezugriff auf dem Pi.
+  - `check_ac077_cycle_timing`: `train_data/status/cycle_timing.json` gegen
+    `LOOP_INTERVAL_CELLS_S` (Default 120 s, per `effective_runtime_config.json`
+    overridebar). Die Korrelation mit konkreten Gewitterlagen (Teil 3 der AC)
+    bleibt LLM-Aufgabe.
+  - `check_ac078_analysis_duration_vs_timeout`: deckt ausschließlich Punkt 7 der
+    AC ab (`duration_s > 80% von timeout_s`, `LOCAL_ANALYSIS_CONFIG`, Default
+    1700 s, overridebar). Punkte 1-5 deckt bereits
+    `check_ac080_incomplete_step_budget` ab; Punkt 2 (Modus-Abgleich mit
+    `ANALYSIS_MODE`) und Punkt 6 (Doppel-Analyse-Erkennung über
+    `analysis_result.json`-Zeitstempel) benötigen Mehrquellen-Korrelation und
+    bleiben bewusst beim LLM.
+  - Neuer Helfer `_effective_runtime_override(base, key)`: liest
+    `config/effective_runtime_config.json` per `rglob`, damit beide Checks
+    runtime-überschriebene Werte statt nur die Code-Defaults berücksichtigen.
+- `tests/test_p113_aichecks_welle_b1.py` (neu): 12 Tests, je Check mindestens
+  ein positiver und ein negativer Fall plus Override-Fälle für AC-077/AC-078.
+
+**Benutzerhandbuch:** keine Änderung (interne QA-Infrastruktur, kein
+Fach-Feature).
+
+**Tests:** `tests/test_p113_aichecks_welle_b1.py` (12 Fälle, neu). Bestehende
+Suite inkl. P112 (88 Fälle gesamt: P83-P93 + P112 + P113) unverändert grün —
+keine Regression.
+
+**Keine** Binaries.
+
+**Phasen-Status:** Phase A — P113 ✅ (Welle B Teil 1: AC-057 [Datei-Teil],
+AC-077, AC-078 [Punkt 7] deterministisch). Von 56 ACs sind jetzt 17
+deterministisch entschieden, 39 verbleiben im LLM-Fallback (AC-068/076
+[Geometrie] und Welle C folgen). Phase B (Hailo-8 U-Net) bleibt unverändert
+blockiert; sie wartet auf ausreichende Trainingsdaten.
