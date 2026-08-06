@@ -795,3 +795,101 @@ def check_ac078_analysis_duration_vs_timeout(base) -> dict:
     return {"status": "ok",
             "beleg": f"duration_s={duration} <= 80% von timeout_s={timeout_s}",
             "detail": {"duration_s": duration, "timeout_s": timeout_s}}
+
+
+@register("AC-073")
+def check_ac073_lineage_state_corruption(base) -> dict:
+    """AC-073 — Lineage-State: Korruption, Quarantaene, liegen gebliebene Temp-Dateien.
+
+    Deterministisch: durchsucht alle exportierten *.service.log-Dateien nach den
+    zwei fixen cell_lineage.py-Logzeilen (_debug(), Zeile 208/267:
+    '[CELL-LINEAGE] State konnte nicht geladen werden' /
+    '... nicht gespeichert werden'); beide Dienste (main.py=wetterprojekt,
+    app.py=wetterprojekt-admin) koennen sie schreiben, daher wird ueber alle
+    vorhandenen Service-Logs gesucht statt einen festen Dienstnamen anzunehmen.
+    Prueft train_data/cell_lineage/ (Export-Sektion "cell_lineage", nicht
+    umverschachtelt-sicher -> Suche ueber Pfadanteile) auf *.corrupt.*-Dateien
+    (B453-Quarantaene, cell_lineage.py:230) und auf liegen gebliebene *.tmp-Dateien
+    (cell_lineage.py:250). Die Ursachenklaerung (Punkt 2 der AC: Quarantaene mit dem
+    Log korrelieren) bleibt dem LLM.
+    """
+    base = Path(base)
+    log_hits = []
+    for log_path in sorted(base.rglob("*.service.log")):
+        try:
+            text = log_path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        for marker in ("[CELL-LINEAGE] State konnte nicht geladen werden",
+                       "[CELL-LINEAGE] State konnte nicht gespeichert werden"):
+            for line in text.splitlines():
+                if marker in line:
+                    log_hits.append({"log": log_path.name, "zeile": line.strip()})
+    corrupt_files = sorted(
+        str(p.relative_to(base)) for p in base.rglob("*.corrupt.*")
+        if "cell_lineage" in p.parts
+    )
+    stray_tmp = sorted(
+        str(p.relative_to(base)) for p in base.rglob("*.tmp")
+        if "cell_lineage" in p.parts
+    )
+    problems = []
+    if log_hits:
+        problems.append(f"{len(log_hits)} Log-Treffer State laden/speichern fehlgeschlagen")
+    if corrupt_files:
+        problems.append(f"{len(corrupt_files)} quarantaenierte *.corrupt.*-Datei(en): {corrupt_files}")
+    if stray_tmp:
+        problems.append(f"{len(stray_tmp)} liegen gebliebene *.tmp-Datei(en): {stray_tmp}")
+    if problems:
+        return {"status": "finding", "beleg": "; ".join(problems),
+                "detail": {"log_hits": log_hits, "corrupt_files": corrupt_files,
+                           "stray_tmp": stray_tmp}}
+    return {"status": "ok", "beleg": "keine Lade-/Speicherfehler, keine Quarantaene, keine Temp-Reste",
+            "detail": {}}
+
+
+@register("AC-045")
+def check_ac045_rejected_training_versions(base) -> dict:
+    """AC-045 — Verworfene Trainingsversionen duerfen nicht aktiv sein.
+
+    Deterministisch: liest diagnostics/progress_snapshot.json (debug_export.py:1050-1057,
+    _build_progress_snapshot() sammelt alle v_*/training_meta.json unter train_data/models/).
+    Jede training_meta.json traegt status="promoted"|"rejected" (model_training.py:1128-1144).
+    Ist eine als "rejected" markierte Version gleichzeitig is_active=true (oder ist die
+    aktive Version ohne status="promoted"), hat eine verworfene Version Alarm/Promotion/
+    Fallback-Guard ausgehebelt — Befund. Die [TRAINING] REJECTED-Logzeilen werden zusaetzlich
+    ueber alle exportierten *.service.log-Dateien ausgezaehlt und als Kontext mitgeliefert;
+    Haeufung/Retention (letzter Satz der AC) bleibt Mehrtages-LLM-Aufgabe.
+    """
+    base = Path(base)
+    snapshot = _rglob_first(base, "progress_snapshot.json")
+    if snapshot is None:
+        return {"status": "ok", "beleg": "kein progress_snapshot.json vorhanden", "detail": {}}
+    doc = _read_json(snapshot)
+    if not isinstance(doc, dict):
+        return {"status": "ok", "beleg": "progress_snapshot.json nicht lesbar", "detail": {}}
+    versions = ((doc.get("progress") or {}).get("versions")) or []
+    active_version = (doc.get("progress") or {}).get("active_version") or doc.get("active_version")
+    rejected_active = [
+        v for v in versions
+        if isinstance(v, dict) and v.get("is_active") is True and v.get("status") != "promoted"
+    ]
+    rejected_count_log = 0
+    for log_path in base.rglob("*.service.log"):
+        try:
+            text = log_path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        rejected_count_log += text.count("[TRAINING] REJECTED")
+    if rejected_active:
+        return {"status": "finding",
+                "beleg": (f"aktive Version {active_version!r} hat status="
+                          f"{rejected_active[0].get('status')!r} statt 'promoted' — "
+                          f"verworfene Version ist aktiv"),
+                "detail": {"active_version": active_version, "rejected_active": rejected_active,
+                           "rejected_log_lines": rejected_count_log}}
+    return {"status": "ok",
+            "beleg": (f"aktive Version {active_version!r} hat status=promoted; "
+                      f"{rejected_count_log} REJECTED-Logzeile(n) im Export als Kontext"),
+            "detail": {"active_version": active_version, "rejected_log_lines": rejected_count_log,
+                       "version_count": len(versions)}}
