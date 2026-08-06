@@ -28,7 +28,7 @@ def _payload(**proposal_changes):
         "experiment_id": str(uuid.uuid4()), "target_system": "kinematic",
         "target_horizons": [10], "parameter": "KINEMATIC_EWMA_ALPHA",
         "old_value": 0.6, "new_value": 0.55, "code_ref": "prediction.py:_append_kinematic",
-        "evidence_refs": ["case:1"], "expected_effect": "MAE sinkt um mindestens 0.05 km",
+            "evidence_refs": ["case:1"], "expected_effect": {"metric": "mae_km", "direction": "decrease", "minimum_change": 0.05},
         "minimum_paired_samples": {"10": 2}, "maximum_runtime_hours": 48,
     }
     proposal.update(proposal_changes)

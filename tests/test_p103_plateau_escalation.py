@@ -27,7 +27,7 @@ def _apply_experiment(tmp_path, monkeypatch, old=0.6, new=0.55):
             "experiment_id": experiment_id, "target_system": "kinematic",
             "target_horizons": [10], "parameter": "KINEMATIC_EWMA_ALPHA",
             "old_value": old, "new_value": new, "code_ref": "prediction.py:_append_kinematic",
-            "evidence_refs": ["case:1"], "expected_effect": "MAE sinkt",
+            "evidence_refs": ["case:1"], "expected_effect": {"metric": "mae_km", "direction": "decrease", "minimum_change": 0.05},
             "minimum_paired_samples": {"10": 4}, "maximum_runtime_hours": 48,
         }],
     }

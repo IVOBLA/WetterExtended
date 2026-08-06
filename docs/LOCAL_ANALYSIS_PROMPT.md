@@ -218,10 +218,18 @@ Die Antwort verwendet `schema: wetterextended.local-analysis.v2` sowie die vom R
 vorgegebenen `analysis_run_id`, `source_snapshot_id` und `git_commit`. `tuning_proposals`
 ist eine Liste mit **höchstens einem** Standardexperiment: genau ein `target_system`, ein
 `parameter` und ein Candidate. Pflichtfelder sind `experiment_id` (UUID),
-`target_horizons`, `old_value`, `new_value`, `code_ref`, `evidence_refs`, eine
-falsifizierbare `expected_effect`, `minimum_paired_samples` je Horizont und
-`maximum_runtime_hours`. Der kausale Codepfad ist konkret zu belegen; Freitext ist nie
-Runtime-Konfiguration.
+`target_horizons`, `old_value`, `new_value`, `code_ref`, `evidence_refs`,
+`expected_effect`, `minimum_paired_samples` je Horizont und `maximum_runtime_hours`.
+Der kausale Codepfad ist konkret zu belegen; Freitext ist nie Runtime-Konfiguration.
+
+**`expected_effect` ist seit B515 ein Objekt mit GENAU diesen drei Schlüsseln** —
+derselbe messbare Aufbau wie `expected_metric_change` in Abschnitt P105, kein Freitext:
+
+- `metric` (String): Name der Kennzahl, z. B. `"mae_km"`.
+- `direction` (String, GENAU einer von `"increase"`, `"decrease"`, `"unchanged"`):
+  erwartete Richtung dieser Kennzahl, wenn `new_value` statt `old_value` gilt.
+- `minimum_change` (Zahl): Mindestbetrag der Änderung, unterhalb dessen das Experiment
+  als Plateau statt als Verbesserung gilt.
 
 Vor einem Vorschlag sind Fehler als `forecast_error`, `verification_error`,
 `tracking_identity_error`, `radar_ingest_error`, `target_not_due` oder

@@ -95,8 +95,17 @@ def validate_tuning_proposals(payload: dict, whitelist: dict, current_value,
             raise ValueError("code_ref fehlt")
         if not isinstance(proposal["evidence_refs"], list) or not proposal["evidence_refs"]:
             raise ValueError("evidence_refs fehlen")
-        if not isinstance(proposal["expected_effect"], str) or not proposal["expected_effect"].strip():
-            raise ValueError("expected_effect fehlt")
+        effect = proposal["expected_effect"]
+        if not isinstance(effect, dict):
+            raise ValueError("expected_effect muss ein Objekt sein")
+        effect_missing = [k for k in ("metric", "direction", "minimum_change") if k not in effect]
+        if effect_missing:
+            raise ValueError(f"expected_effect ist unvollstaendig: {effect_missing}")
+        if not isinstance(effect.get("metric"), str) or not effect["metric"].strip():
+            raise ValueError("expected_effect.metric fehlt")
+        if effect.get("direction") not in ("increase", "decrease", "unchanged"):
+            raise ValueError("expected_effect.direction muss 'increase', 'decrease' oder 'unchanged' sein")
+        _number(effect.get("minimum_change"), "expected_effect.minimum_change")
         hours = _number(proposal["maximum_runtime_hours"], "maximum_runtime_hours")
         if hours <= 0 or hours > 168:
             raise ValueError("maximum_runtime_hours liegt außerhalb (0, 168]")
