@@ -893,3 +893,198 @@ def check_ac045_rejected_training_versions(base) -> dict:
                       f"{rejected_count_log} REJECTED-Logzeile(n) im Export als Kontext"),
             "detail": {"active_version": active_version, "rejected_log_lines": rejected_count_log,
                        "version_count": len(versions)}}
+
+
+_AC068_076_HORIZONS = (10, 20, 30, 40, 60)
+_AC068_076_TS_FMT = "%Y-%m-%d_%H-%M-%S"
+
+
+def _bearing_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    import math
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dlon = math.radians(lon2 - lon1)
+    x = math.sin(dlon) * math.cos(phi2)
+    y = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(dlon)
+    return (math.degrees(math.atan2(x, y)) + 360.0) % 360.0
+
+
+def _bearing_change_deg(b1: float, b2: float) -> float:
+    d = abs(b2 - b1) % 360.0
+    return d if d <= 180.0 else 360.0 - d
+
+
+def _forecast_chain(obj: dict) -> "list[tuple[float, float]] | None":
+    """origin -> forecast_lat_10/lon_10 -> ... -> forecast_lat_60/lon_60, nur wenn
+    ALLE Horizonte vorhanden sind (sonst kann keine vollstaendige Kette bewertet werden)."""
+    lat0, lon0 = obj.get("lat"), obj.get("lon")
+    if lat0 is None or lon0 is None:
+        return None
+    pts = [(float(lat0), float(lon0))]
+    for h in _AC068_076_HORIZONS:
+        flat, flon = obj.get(f"forecast_lat_{h}"), obj.get(f"forecast_lon_{h}")
+        if flat is None or flon is None:
+            return None
+        pts.append((float(flat), float(flon)))
+    return pts
+
+
+def _max_bearing_jump(pts: "list[tuple[float, float]]") -> float:
+    if len(pts) < 3:
+        return 0.0
+    bearings = [_bearing_deg(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1])
+                for i in range(len(pts) - 1)]
+    changes = [_bearing_change_deg(bearings[i], bearings[i + 1]) for i in range(len(bearings) - 1)]
+    return max(changes) if changes else 0.0
+
+
+def _ac068_076_frames(base: Path):
+    import re
+    ts_pattern = re.compile(_AC074_TS_PATTERN_SRC)
+    return sorted(p for p in base.rglob("*.json") if ts_pattern.match(p.name))
+
+
+@register("AC-076")
+def check_ac076_bearing_jumps_mixed_mode(base) -> dict:
+    """AC-076 — Bearing-Spruenge >45° in GEMISCHTEN ml/kinematic-Prognosefolgen.
+
+    Deterministisch: fuer jedes Objekt in jedem Objekt-Frame (gleiches Namensmuster
+    wie AC-074) wird die Kette lat/lon -> forecast_lat_10/lon_10 -> ... ->
+    forecast_lat_60/lon_60 (prediction.py:313/941f./1814f./1891f., Horizonte aus
+    config.py:820 ML_FORECAST_HORIZONS_MIN=[10,20,30,40,60]) auf Bearing-Spruenge
+    zwischen aufeinanderfolgenden Segmenten geprueft. Nur Faelle mit GEMISCHTER
+    forecast_mode_<h>-Folge (mindestens zwei unterschiedliche Modi ueber die
+    Horizonte) zaehlen fuer diese AC. Zusaetzlich wird die Quote der
+    forecast_consistency_adjusted_<h>-Flags ueber alle gemischten Faelle
+    ausgewertet; >10% ist laut AC ein Hinweis auf systematische ML/Kinematik-
+    Divergenz (code_ref: prediction.py _enforce_cross_horizon_consistency).
+    """
+    base = Path(base)
+    frames = _ac068_076_frames(base)
+    findings = []
+    mixed_count = 0
+    adjusted_true_count = 0
+    for frame in frames:
+        try:
+            objs = json.loads(frame.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(objs, list):
+            continue
+        for o in objs:
+            if not isinstance(o, dict):
+                continue
+            modes_present = [o.get(f"forecast_mode_{h}") for h in _AC068_076_HORIZONS
+                              if o.get(f"forecast_mode_{h}")]
+            if len(set(modes_present)) < 2:
+                continue
+            mixed_count += 1
+            if any(o.get(f"forecast_consistency_adjusted_{h}") is True for h in _AC068_076_HORIZONS):
+                adjusted_true_count += 1
+            pts = _forecast_chain(o)
+            if pts is None:
+                continue
+            max_jump = _max_bearing_jump(pts)
+            if max_jump > 45:
+                findings.append({
+                    "frame": frame.name, "cell_id": o.get("cell_id"),
+                    "max_bearing_jump_deg": round(max_jump, 1),
+                    "forecast_mode_by_horizon": {str(h): o.get(f"forecast_mode_{h}")
+                                                  for h in _AC068_076_HORIZONS},
+                })
+    if findings:
+        quote = adjusted_true_count / mixed_count if mixed_count else 0.0
+        return {"status": "finding",
+                "beleg": (f"{len(findings)} gemischte ml/kinematic-Folge(n) mit Bearing-Sprung >45°; "
+                          f"forecast_consistency_adjusted-Quote={quote:.1%} ueber {mixed_count} "
+                          f"gemischte Faelle"),
+                "detail": {"findings": findings[:10], "mixed_case_count": mixed_count,
+                           "adjusted_quote": quote,
+                           "hinweis": ("Quote > 10% der gemischten Faelle deutet auf systematische "
+                                       "ML/Kinematik-Divergenz — dann forecast_gate_reason_<h> der "
+                                       "betroffenen Horizonte mit auswerten.")}}
+    return {"status": "ok",
+            "beleg": f"{mixed_count} gemischte Faelle, keine Bearing-Spruenge >45°",
+            "detail": {"mixed_case_count": mixed_count}}
+
+
+@register("AC-068")
+def check_ac068_speed_and_zigzag_plausibility(base) -> dict:
+    """AC-068 — Zuggeschwindigkeit und Prognose-Zickzack auf Plausibilitaet.
+
+    Deterministisch: speed_kmh>60 (Kärntner Gewitterzellen typisch 15-50 km/h,
+    object_tracking.py:2590 speed_kmh), Bearing-Sprung >45° in JEDER Prognosefolge
+    (nicht auf gemischte Modi beschraenkt wie AC-076 — Punkt 3 der AC nennt keine
+    Einschraenkung), sowie Naehe zum Geschwindigkeits-Deckel (>=95% von
+    MAX_CELL_SPEED_KMH, Default 150.0, config.py:509, per
+    effective_runtime_config.json overridebar). real_dt aus
+    history[-2].timestamp/history[-1].timestamp (Format %Y-%m-%d_%H-%M-%S,
+    object_tracking.py:2774-2788) wird als Kontext mitgeliefert, die
+    dt-Skalierungs-Korrelation (<3 min) wird nur als Hypothese benannt, nicht als
+    bestaetigter Fehler (so verlangt Punkt 2 der AC). Punkt 4 (Kausalitaet
+    Zickzack <-> Overspeed) wird durch Ueberschneidung der beiden Fundlisten pro
+    Frame+cell_id ermittelt.
+    """
+    base = Path(base)
+    frames = _ac068_076_frames(base)
+    max_speed_cfg = _effective_runtime_override(base, "MAX_CELL_SPEED_KMH")
+    max_speed = float(max_speed_cfg) if isinstance(max_speed_cfg, (int, float)) else 150.0
+    overspeed, zigzag, near_cap = [], [], []
+    for frame in frames:
+        try:
+            objs = json.loads(frame.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(objs, list):
+            continue
+        for o in objs:
+            if not isinstance(o, dict):
+                continue
+            speed = o.get("speed_kmh")
+            real_dt = None
+            history = o.get("history")
+            if isinstance(history, list) and len(history) >= 2:
+                try:
+                    from datetime import datetime
+                    t1 = datetime.strptime(str(history[-2].get("timestamp")), _AC068_076_TS_FMT)
+                    t2 = datetime.strptime(str(history[-1].get("timestamp")), _AC068_076_TS_FMT)
+                    real_dt = (t2 - t1).total_seconds() / 60.0
+                except Exception:
+                    real_dt = None
+            if isinstance(speed, (int, float)):
+                if speed > 60:
+                    overspeed.append({"frame": frame.name, "cell_id": o.get("cell_id"),
+                                       "speed_kmh": speed, "real_dt_min": real_dt})
+                if max_speed > 0 and speed >= 0.95 * max_speed:
+                    near_cap.append({"frame": frame.name, "cell_id": o.get("cell_id"),
+                                      "speed_kmh": speed})
+            pts = _forecast_chain(o)
+            if pts is not None:
+                max_jump = _max_bearing_jump(pts)
+                if max_jump > 45:
+                    zigzag.append({"frame": frame.name, "cell_id": o.get("cell_id"),
+                                   "max_bearing_jump_deg": round(max_jump, 1), "speed_kmh": speed})
+    problems = []
+    if overspeed:
+        low_dt = [x for x in overspeed if x["real_dt_min"] is not None and x["real_dt_min"] < 3]
+        msg = f"{len(overspeed)} Zelle(n) mit speed_kmh>60"
+        if low_dt:
+            msg += (f", davon {len(low_dt)} bei real_dt<3min "
+                    f"(dt-Skalierungs-Hypothese, code nicht eingesehen — nicht als bestaetigt melden)")
+        problems.append(msg)
+    if zigzag:
+        overlap_keys = {(z["frame"], z["cell_id"]) for z in zigzag} & \
+                       {(x["frame"], x["cell_id"]) for x in overspeed}
+        msg = f"{len(zigzag)} Zelle(n) mit Bearing-Sprung >45°"
+        if overlap_keys:
+            msg += f", davon {len(overlap_keys)} zusammen mit speed_kmh>60 (zusammenhaengender Befund)"
+        else:
+            msg += " (eigenstaendiges Prognose-Problem, keine ueberhoehte Geschwindigkeit dabei)"
+        problems.append(msg)
+    if near_cap:
+        problems.append(f"{len(near_cap)} Zelle(n) nahe MAX_CELL_SPEED_KMH={max_speed} — Clamping-Verdacht")
+    if problems:
+        return {"status": "finding", "beleg": "; ".join(problems),
+                "detail": {"overspeed": overspeed[:10], "zigzag": zigzag[:10], "near_cap": near_cap[:10]}}
+    return {"status": "ok",
+            "beleg": f"{len(frames)} Frame(s) geprueft, keine Geschwindigkeits-/Sektor-Auffaelligkeit",
+            "detail": {"frames_checked": len(frames)}}
