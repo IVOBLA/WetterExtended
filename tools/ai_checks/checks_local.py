@@ -1271,3 +1271,187 @@ def check_ac075_hydro_ml_pytest_contamination(base) -> dict:
         return {"status": "finding", "beleg": "; ".join(problems), "detail": detail}
     return {"status": "ok", "beleg": "keine Pytest-Kontamination in den Hydro-ML-Statusdateien",
             "detail": {}}
+
+
+@register("AC-013")
+def check_ac013_flood_warning_without_cell_frame(base) -> dict:
+    """AC-013 — Warnungen ohne gueltigen Zellframe."""
+    doc = _read_json(Path(base) / "train_data/hydro/impact/latest_hydro_flood_risk.json")
+    if doc is None:
+        return {"status": "ok", "beleg": "kein latest_hydro_flood_risk.json vorhanden", "detail": {}}
+    hits = []
+    for row in doc.get("stations") or []:
+        if not isinstance(row, dict):
+            continue
+        if row.get("current_q_above_threshold") is True and row.get("flood_expected") is False:
+            hits.append(row.get("station_id"))
+    if hits:
+        return {"status": "finding",
+                "beleg": (f"{len(hits)} Station(en) mit current_q_above_threshold=true aber "
+                          f"flood_expected=false (cell_frame_status={doc.get('cell_frame_status')!r}): "
+                          f"{hits}"),
+                "detail": {"stations": hits, "cell_frame_status": doc.get("cell_frame_status")}}
+    return {"status": "ok",
+            "beleg": f"keine Station mit current_q_above_threshold=true/flood_expected=false "
+                     f"(cell_frame_status={doc.get('cell_frame_status')!r})",
+            "detail": {}}
+
+
+@register("AC-017")
+def check_ac017_cell_catchment_assignment(base) -> dict:
+    """AC-017 — Zell-Catchment-Zuordnung wird ausgewertet."""
+    doc = _read_json(Path(base) / "train_data/hydro/impact/latest_hydro_flood_risk.json")
+    if doc is None:
+        return {"status": "ok", "beleg": "kein latest_hydro_flood_risk.json vorhanden", "detail": {}}
+    stations = [s for s in (doc.get("stations") or []) if isinstance(s, dict)]
+    with_input = [s for s in stations if int(s.get("input_cell_count") or 0) > 0]
+    if not with_input:
+        return {"status": "ok", "beleg": "keine Station mit input_cell_count > 0 (keine Zellen im Einzugsgebiet)",
+                "detail": {}}
+    with_contribution = [s for s in with_input if int(s.get("contributing_cell_count") or 0) > 0]
+    if not with_contribution:
+        return {"status": "finding",
+                "beleg": (f"{len(with_input)} Station(en) mit input_cell_count > 0, aber "
+                          f"contributing_cell_count durchgehend 0 — Zell-Catchment-Zuordnung "
+                          f"wird nicht ausgewertet"),
+                "detail": {"stations": [s.get("station_id") for s in with_input]}}
+    return {"status": "ok",
+            "beleg": f"{len(with_contribution)}/{len(with_input)} Station(en) mit "
+                     f"contributing_cell_count > 0",
+            "detail": {}}
+
+
+def _ac_hydro_sqlite_or_none(base: Path):
+    snapshot = _rglob_first(base, "hydro_flood_samples_snapshot.sqlite3")
+    if snapshot is None:
+        return None
+    try:
+        return sqlite3.connect(f"file:{snapshot}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return None
+
+
+@register("AC-022")
+def check_ac022_sample_exclusion_reasons(base) -> dict:
+    """AC-022 — Ausschlussgruende im Datensatz."""
+    base = Path(base)
+    con = _ac_hydro_sqlite_or_none(base)
+    if con is None:
+        return {"status": "ok", "beleg": "kein hydro_flood_samples_snapshot.sqlite3 im Export", "detail": {}}
+    try:
+        try:
+            failure_rows = con.execute("SELECT reason, COUNT(*) FROM sample_failures GROUP BY reason").fetchall()
+        except sqlite3.Error:
+            return {"status": "ok", "beleg": "keine sample_failures-Tabelle im Snapshot", "detail": {}}
+        total_failures = sum(n for _, n in failure_rows)
+        try:
+            total_live = con.execute(
+                "SELECT COUNT(*) FROM labeled_samples WHERE sample_kind='live_catchment_snapshot'"
+            ).fetchone()[0]
+        except sqlite3.Error:
+            total_live = 0
+        total = total_failures + total_live
+        if total == 0 or not failure_rows:
+            return {"status": "ok", "beleg": "keine sample_failures im Snapshot", "detail": {}}
+        offenders = [(reason, n) for reason, n in failure_rows if n / total > 0.05]
+        if offenders:
+            return {"status": "finding",
+                    "beleg": ("Ausschlussgrund(e) ueber 5% der Gesamtsamples: "
+                              + ", ".join(f"{r!r}={n} ({n/total:.1%})" for r, n in offenders)),
+                    "detail": {"offenders": offenders, "total_samples": total}}
+        return {"status": "ok",
+                "beleg": f"{total_failures} Ausschluesse von {total} Samples, keiner ueber 5%",
+                "detail": {"total_failures": total_failures, "total_samples": total}}
+    finally:
+        con.close()
+
+
+@register("AC-027")
+def check_ac027_target_distribution(base) -> dict:
+    """AC-027 — Targetverteilung von target_q_delta_m3s."""
+    base = Path(base)
+    con = _ac_hydro_sqlite_or_none(base)
+    if con is None:
+        return {"status": "ok", "beleg": "kein hydro_flood_samples_snapshot.sqlite3 im Export", "detail": {}}
+    try:
+        try:
+            rows = con.execute(
+                "SELECT target_q_delta_m3s FROM labeled_samples WHERE target_missing=0"
+            ).fetchall()
+        except sqlite3.Error:
+            return {"status": "ok", "beleg": "labeled_samples nicht lesbar", "detail": {}}
+        values = [r[0] for r in rows if r[0] is not None]
+        if not values:
+            return {"status": "ok", "beleg": "keine Zeilen mit target_missing=0", "detail": {}}
+        negatives = [v for v in values if v < 0]
+        zero_count = sum(1 for v in values if v == 0)
+        zero_ratio = zero_count / len(values)
+        problems = []
+        if negatives:
+            problems.append(f"{len(negatives)} negative(r) target_q_delta_m3s-Wert(e) "
+                             f"(min={min(negatives):.4f})")
+        if zero_ratio > 0.90:
+            problems.append(f"Nullanteil={zero_ratio:.1%} > 90% — fast nur Ruhelagen gesammelt, "
+                             f"Sampling-Parameter (B416) pruefen")
+        if problems:
+            return {"status": "finding", "beleg": "; ".join(problems),
+                    "detail": {"n": len(values), "negatives": len(negatives), "zero_ratio": zero_ratio}}
+        return {"status": "ok",
+                "beleg": f"{len(values)} Werte, keine negativen, Nullanteil={zero_ratio:.1%}",
+                "detail": {"n": len(values), "zero_ratio": zero_ratio}}
+    finally:
+        con.close()
+
+
+@register("AC-036")
+def check_ac036_event_id_not_null(base) -> dict:
+    """AC-036 — event_id wird im Produktivpfad gesetzt."""
+    base = Path(base)
+    con = _ac_hydro_sqlite_or_none(base)
+    if con is None:
+        return {"status": "ok", "beleg": "kein hydro_flood_samples_snapshot.sqlite3 im Export", "detail": {}}
+    try:
+        try:
+            n = con.execute("SELECT COUNT(*) FROM labeled_samples WHERE event_id IS NULL").fetchone()[0]
+        except sqlite3.Error:
+            return {"status": "ok", "beleg": "labeled_samples nicht lesbar", "detail": {}}
+        if n > 0:
+            return {"status": "finding",
+                    "beleg": f"{n} labeled_samples-Zeile(n) mit event_id IS NULL",
+                    "detail": {"null_event_id_count": n}}
+        return {"status": "ok", "beleg": "keine Zeile mit event_id IS NULL", "detail": {}}
+    finally:
+        con.close()
+
+
+@register("AC-037")
+def check_ac037_event_distribution_plausibility(base) -> dict:
+    """AC-037 — Eventverteilung auf Plausibilitaet."""
+    base = Path(base)
+    con = _ac_hydro_sqlite_or_none(base)
+    if con is None:
+        return {"status": "ok", "beleg": "kein hydro_flood_samples_snapshot.sqlite3 im Export", "detail": {}}
+    try:
+        try:
+            rows = con.execute(
+                "SELECT event_id, COUNT(*) FROM labeled_samples WHERE event_id IS NOT NULL "
+                "GROUP BY event_id"
+            ).fetchall()
+        except sqlite3.Error:
+            return {"status": "ok", "beleg": "labeled_samples nicht lesbar", "detail": {}}
+        total = sum(n for _, n in rows)
+        if total == 0:
+            return {"status": "ok", "beleg": "keine Zeile mit gesetzter event_id", "detail": {}}
+        dominant = max(rows, key=lambda r: r[1])
+        ratio = dominant[1] / total
+        if ratio > 0.5:
+            return {"status": "finding",
+                    "beleg": (f"Event {dominant[0]!r} enthaelt {dominant[1]}/{total} Samples "
+                              f"({ratio:.1%}) — Trennung greift nicht, HYDRO_EVENT_DRY_GAP_MIN "
+                              f"und No-cell-Gruppierung pruefen"),
+                    "detail": {"dominant_event": dominant[0], "ratio": ratio, "event_count": len(rows)}}
+        return {"status": "ok",
+                "beleg": f"{len(rows)} Events, groesster Anteil {ratio:.1%}",
+                "detail": {"event_count": len(rows), "max_ratio": ratio}}
+    finally:
+        con.close()
