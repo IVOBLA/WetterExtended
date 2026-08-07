@@ -76,6 +76,8 @@ export default function AiSuggestions() {
   const [laRunning, setLaRunning] = useState(false)
   const [tuning,    setTuning]    = useState(null)
   const [tuningMsg, setTuningMsg] = useState('')
+  const [forecastExp,    setForecastExp]    = useState(null)
+  const [forecastExpMsg, setForecastExpMsg] = useState('')
 
   const [testEmailStatus, setTestEmailStatus] = useState(null)  // null | 'sending' | 'ok' | 'error'
   const [testEmailMsg,    setTestEmailMsg]    = useState('')
@@ -114,11 +116,13 @@ export default function AiSuggestions() {
       .catch(() => {})
     api.get('/api/local_analysis/status').then(setLaStatus).catch(() => {})
     api.get('/api/local_analysis/tuning').then(setTuning).catch(() => {})
+    api.get('/api/local_analysis/forecast_experiments').then(setForecastExp).catch(() => {})
   }, [])
 
   function refreshLaStatus() {
     api.get('/api/local_analysis/status').then(setLaStatus).catch(() => {})
     api.get('/api/local_analysis/tuning').then(setTuning).catch(() => {})
+    api.get('/api/local_analysis/forecast_experiments').then(setForecastExp).catch(() => {})
   }
 
   async function toggleTuning() {
@@ -129,6 +133,26 @@ export default function AiSuggestions() {
       setTuning(prev => ({ ...(prev || {}), enabled: next }))
     } catch (e) {
       setTuningMsg('Fehler: ' + (e?.message || e))
+    }
+  }
+
+  async function toggleForecastExperiments() {
+    setForecastExpMsg('')
+    try {
+      const next = !(forecastExp && forecastExp.enabled)
+      const ready = forecastExp && forecastExp.readiness && forecastExp.readiness.overall_ready
+      if (next && !ready) {
+        const failing = (forecastExp?.readiness?.criteria || []).filter(c => !c.ok).map(c => c.label)
+        const proceed = window.confirm(
+          'Reifegrad-Bericht ist NICHT gruen (' + failing.join('; ') + '). ' +
+          'Trotzdem aktivieren?'
+        )
+        if (!proceed) return
+      }
+      await api.post('/api/local_analysis/forecast_experiments', { enabled: next })
+      setForecastExp(prev => ({ ...(prev || {}), enabled: next }))
+    } catch (e) {
+      setForecastExpMsg('Fehler: ' + (e?.message || e))
     }
   }
 
@@ -1106,6 +1130,58 @@ export default function AiSuggestions() {
             <div className="mt-3 rounded border border-red-300 bg-red-50 p-2 text-xs text-red-900">
               <strong>⚠️ Stall-Alarm:</strong> seit mindestens 14 Tagen keine akzeptierte
               Verbesserung. Kein Grund für eine „stabil"-Meldung — Ursache prüfen.
+            </div>
+          )}
+        </div>
+
+        {/* P116: Reifegrad-Bericht + Kill-Switch fuer Kinematik-Shadow-Experimente */}
+        <div className="mt-4 rounded border border-gray-200 p-3">
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <div
+              onClick={toggleForecastExperiments}
+              className={`w-11 h-6 rounded-full transition-colors flex items-center px-0.5
+                ${forecastExp && forecastExp.enabled ? 'bg-emerald-600' : 'bg-gray-300'}`}
+            >
+              <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform
+                ${forecastExp && forecastExp.enabled ? 'translate-x-5' : 'translate-x-0'}`} />
+            </div>
+            <div>
+              <span className="font-medium text-sm">
+                Kinematik-Shadow-Experimente aktiviert
+              </span>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Sammelt Incumbent-/Candidate-Vergleiche fuer Kinematik-Parameter parallel
+                zum Live-Betrieb, ohne den ausgelieferten Forecast zu veraendern.
+                Voraussetzung fuer autonomes Tuning ueber reine Werteanpassung hinaus.
+                Default: aus.
+              </p>
+            </div>
+          </label>
+          {forecastExpMsg && (
+            <p className="text-xs text-red-600 mt-2">{forecastExpMsg}</p>
+          )}
+          {forecastExp && forecastExp.readiness && (
+            <div className={`mt-3 rounded p-2 text-xs ${
+              forecastExp.readiness.overall_ready
+                ? 'border border-emerald-300 bg-emerald-50 text-emerald-900'
+                : 'border border-amber-300 bg-amber-50 text-amber-900'}`}
+            >
+              <div className="font-medium mb-1">
+                Reifegrad-Bericht:{' '}
+                {forecastExp.readiness.overall_ready ? '✓ bereit' : '⚠ noch nicht bereit'}
+              </div>
+              <ul className="space-y-0.5">
+                {forecastExp.readiness.criteria.map(c => (
+                  <li key={c.id}>
+                    <span className={c.ok ? 'text-emerald-700' : 'text-red-600'}>
+                      {c.ok ? '✓' : '✗'}
+                    </span>{' '}
+                    <span className="font-medium">{c.label}</span>
+                    {' — '}
+                    <span className="text-gray-600">{c.detail}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>

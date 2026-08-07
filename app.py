@@ -3609,6 +3609,37 @@ def api_local_analysis_tuning_save():
     return jsonify({"ok": True, "enabled": enabled})
 
 
+@app.route("/api/local_analysis/forecast_experiments")
+def api_local_analysis_forecast_experiments_get():
+    """P116: Reifegrad-Bericht + Kill-Switch fuer FORECAST_EXPERIMENTS_ENABLED.
+
+    Der Bericht ist rein informativ -- der Switch bleibt jederzeit manuell
+    bedienbar (auch bei overall_ready=False), die Entscheidung liegt beim
+    Menschen, nicht bei der Automatik (siehe HAILO_INTEGRATION.md P116)."""
+    import config as _cfg
+    from forecast_experiments_readiness import compute_readiness
+    enabled = runtime_config.get("FORECAST_EXPERIMENTS_ENABLED", None)
+    if enabled is None:
+        enabled = bool(getattr(_cfg, "FORECAST_EXPERIMENTS_ENABLED", False))
+    eval_dir = Path(SAVE_PATHS.get("evaluation", "train_data/evaluation"))
+    readiness = compute_readiness(eval_dir)
+    return jsonify({"enabled": bool(enabled), "readiness": readiness})
+
+
+@app.route("/api/local_analysis/forecast_experiments", methods=["POST"])
+def api_local_analysis_forecast_experiments_save():
+    """P116: Kill-Switch fuer FORECAST_EXPERIMENTS_ENABLED umschalten."""
+    try:
+        data = request.get_json(force=True)
+        if not isinstance(data, dict) or "enabled" not in data:
+            raise ValueError("Payload muss {'enabled': bool} sein")
+        enabled = bool(data["enabled"])
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    runtime_config.patch({"FORECAST_EXPERIMENTS_ENABLED": enabled})
+    return jsonify({"ok": True, "enabled": enabled})
+
+
 @app.route("/api/local_analysis/tuning/clear_escalation", methods=["POST"])
 def api_local_analysis_tuning_clear_escalation():
     """P103: Setzt plateau_streak/escalation_needed/quality_improvement_stalled
