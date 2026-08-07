@@ -10898,3 +10898,13 @@ AC-058 und AC-075 wurden als tragfähig verifiziert.
 
 **Phasen-Status:** Phase A — P117 ✅. Von 56 ACs sind jetzt 24 deterministisch
 entschieden, 32 verbleiben im LLM-Fallback.
+
+### P118 — Welle E: sechs weitere AIChecks deterministisch migriert (AC-013, AC-017, AC-022, AC-027, AC-036, AC-037) — AC-Migration abgeschlossen
+
+**Anlass:** Abschluss der AC-Migration (Feld 1). Die benötigten Risikofelder liegen bereits in der Public-Whitelist von `latest_hydro_flood_risk.json`; `event_id`, `target_q_delta_m3s` und `target_missing` sind eigene Spalten in `labeled_samples`, und `sample_failures` besitzt ein dediziertes `reason`-Feld.
+
+**Änderung:** Sechs neue deterministische `@register`-Checks prüfen unterdrückte Hochwasserwarnungen, Zell-Catchment-Zuordnung, Ausschlussgründe, Targetverteilung, fehlende Event-IDs und dominante Events. `tests/test_p118_aichecks_welle_e.py` deckt die positiven, negativen und Abgrenzungsfälle mit 21 Tests ab.
+
+**Benutzerhandbuch:** keine Änderung (interne QA-Infrastruktur, kein Fach-Feature). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — P118 ✅. Die AC-Migration ist im aktuell sinnvoll automatisierbaren Umfang abgeschlossen: 30 von 56 ACs sind deterministisch entschieden. Die verbleibenden 26 bleiben bewusst im LLM-Fallback, weil entweder Daten nicht persistiert werden (AC-018/019/028/029), Historien bzw. Zeitreihen nötig sind (AC-024/026/033/038) oder Ermessen/Governance statt einer Zustandsprüfung gefragt ist (unter anderem AC-004/020/023/025/044). Dies ist die vorgesehene Arbeitsteilung und kein technischer Rückstand. Phase B (Hailo-8 U-Net) bleibt blockiert, bis ausreichend Trainingsdaten vorliegen.
