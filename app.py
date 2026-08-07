@@ -3681,8 +3681,26 @@ def api_local_analysis_config_save():
         if not isinstance(data, dict):
             raise ValueError("Payload muss JSON-Objekt sein")
         data.pop("enabled", None)
+        # B517: Vorfall 2026-08-06/07 — timeout_s war per Admin-Panel auf 3000
+        # gesetzt (API erlaubte bis 3600), wetterprojekt-local-analysis.service
+        # hatte aber TimeoutStartSec=1800 fest in der Unit-Datei. systemd killte
+        # den Prozess nach 1800s per SIGTERM, BEVOR Pythons eigener
+        # subprocess.run(timeout=3000)-Handler je greifen konnte; ohne
+        # Signal-Handler blieb local_analysis_status.json auf state=running
+        # eingefroren, bis der naechste geplante Lauf (bis zu 24h spaeter) die
+        # Stale-Erkennung ausloeste — keine Report-Mail in der Zwischenzeit.
+        # B471s detect_incomplete() empfiehlt bei zu knappem Budget explizit
+        # "max_turns/timeout_s erhoehen" -- das ist vermutlich der Grund, warum
+        # timeout_s ueberhaupt auf 3000 gesetzt wurde (Abschnitt B/offene ACs
+        # ist umfangreich). Deshalb hier NICHT auf den alten Default 1700
+        # zurueckgekappt, sondern TimeoutStartSec in der Unit-Datei auf 3600
+        # angehoben (siehe wetterprojekt-local-analysis.service) und die
+        # Validierungsobergrenze hier auf 3300 gesetzt -- 300s Marge, damit
+        # der Runner seinen eigenen Timeout-Handler noch sauber abschliessen
+        # kann, bevor systemd eingreift. Muss zusammen mit TimeoutStartSec
+        # geaendert werden, siehe tests/test_b517_sigterm_and_timeout_ceiling.py.
         for key, lo, hi in (("cron_hour", 0, 23), ("cron_minute", 0, 59),
-                            ("max_turns", 1, 500), ("timeout_s", 60, 3600)):
+                            ("max_turns", 1, 500), ("timeout_s", 60, 3300)):
             if key in data:
                 v = int(data[key])
                 if not (lo <= v <= hi):

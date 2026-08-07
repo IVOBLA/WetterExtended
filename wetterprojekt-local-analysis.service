@@ -30,5 +30,12 @@ ProtectControlGroups=yes
 InaccessiblePaths=-/home/ki-pi/wetterprojekt/.env
 # Zeitlimit oberhalb von LOCAL_ANALYSIS_CONFIG["timeout_s"] — der Runner beendet
 # sich normalerweise selbst; das hier ist nur der Notausgang.
-TimeoutStartSec=1800
+# B517: von 1800 auf 3600 angehoben, mit 300s Marge ueber der neuen
+# timeout_s-Obergrenze (3300, app.py). Vorfall 2026-08-06/07: timeout_s war per
+# Admin-Panel auf 3000 gesetzt, ueberschritt damit das alte TimeoutStartSec=1800
+# bereits deutlich -- systemd killte den Prozess per SIGTERM, lange bevor
+# Pythons eigener subprocess.run(timeout=...)-Handler je greifen konnte. Wird
+# dieser Wert nochmal geaendert, MUSS die Validierungsobergrenze in app.py
+# (Suche "B517") mit mindestens 300s Marge nachgezogen werden.
+TimeoutStartSec=3600
 ExecStart=/home/ki-pi/wetterprojekt/venv/bin/python3 /home/ki-pi/wetterprojekt/tools/run_local_analysis.py --repo-dir /home/ki-pi/wetterprojekt
