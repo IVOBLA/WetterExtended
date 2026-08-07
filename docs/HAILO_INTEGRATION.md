@@ -10908,3 +10908,42 @@ entschieden, 32 verbleiben im LLM-Fallback.
 **Benutzerhandbuch:** keine Änderung (interne QA-Infrastruktur, kein Fach-Feature). **Keine** Binaries.
 
 **Phasen-Status:** Phase A — P118 ✅. Die AC-Migration ist im aktuell sinnvoll automatisierbaren Umfang abgeschlossen: 30 von 56 ACs sind deterministisch entschieden. Die verbleibenden 26 bleiben bewusst im LLM-Fallback, weil entweder Daten nicht persistiert werden (AC-018/019/028/029), Historien bzw. Zeitreihen nötig sind (AC-024/026/033/038) oder Ermessen/Governance statt einer Zustandsprüfung gefragt ist (unter anderem AC-004/020/023/025/044). Dies ist die vorgesehene Arbeitsteilung und kein technischer Rückstand. Phase B (Hailo-8 U-Net) bleibt blockiert, bis ausreichend Trainingsdaten vorliegen.
+
+### B518 — precip_window_diagnostics.json: AC-028/AC-029-Daten bei jedem regulären Zyklus persistiert
+
+**Anlass:** AC-028 (Nutzung gesicherter Niederschläge) und AC-029
+(Niederschlags-Volumenbilanz) benötigen die im regulären Auswertungszyklus
+berechneten Niederschlagsfenster-Felder, die bisher nur im nicht persistierten
+`include_debug=True`-Zweig sichtbar waren.
+
+**Änderung:**
+- `hydro_flood_ml.py`: neue Konstante `HYDRO_PRECIP_WINDOW_DIAG_PATH`. Im
+  regulären Schreibzweig entsteht zusätzlich zur unveränderten öffentlichen
+  Risikodatei ein Admin-Nebendokument mit Stations-ID sowie Verfügbarkeit,
+  Verwendung, Ablehnungsgrund, Überlappung und Lücke des Niederschlagsfensters.
+  Schreibfehler des Nebendokuments beeinträchtigen die Hauptauslieferung nicht.
+- `tests/test_b518_precip_window_diagnostics.py` (neu): 6 Fälle für Scope,
+  Payload-Trennung, Fehlertoleranz und mehrere Stationen.
+
+**Benutzerhandbuch:** keine Änderung (interne Diagnosedatei). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B518 ✅. Voraussetzung für P119. Phase B
+(Hailo-8 U-Net) bleibt unverändert blockiert und wartet auf Trainingsdaten.
+
+### P119 — Welle F: AC-028 und AC-029 deterministisch migriert (nach B518)
+
+**Anlass:** Mit `precip_window_diagnostics.json` als regelmäßig gefüllter
+Datenquelle sind AC-028 und AC-029 deterministisch entscheidbar.
+
+**Änderung:**
+- `tools/ai_checks/checks_local.py`: `check_ac028_observed_precip_usage`
+  gruppiert Ablehnungsgründe gesicherter Messungen und meldet einen Anteil über
+  50 Prozent; `check_ac029_precip_window_overlap` meldet jede positive
+  Überlappung. Eine fehlende Diagnosedatei ergibt einen erklärten `ok`-Status.
+- `tests/test_p119_aichecks_welle_f.py` (neu): 11 positive und negative Fälle.
+
+**Benutzerhandbuch:** keine Änderung. **Keine** Binaries.
+
+**Phasen-Status:** Phase A — P119 ✅. Damit sind 32 von 56 ACs deterministisch
+entschieden. AC-018/AC-019 bleiben wegen ihres On-Demand-Admin-Pfads außen vor.
+Phase B bleibt unverändert blockiert und wartet auf ausreichende Trainingsdaten.

@@ -1455,3 +1455,77 @@ def check_ac037_event_distribution_plausibility(base) -> dict:
                 "detail": {"event_count": len(rows), "max_ratio": ratio}}
     finally:
         con.close()
+
+@register("AC-028")
+def check_ac028_observed_precip_usage(base) -> dict:
+    """AC-028 — Nutzung gesicherter Niederschlaege.
+
+    Deterministisch seit B518: train_data/hydro/impact/precip_window_diagnostics.json
+    wird bei jedem regulaeren Auswertungszyklus geschrieben (hydro_flood_ml.py,
+    evaluate_live_flood_risk(), write=True/include_debug=False-Zweig) und
+    enthaelt observed_precip_available/observed_precip_used_in_forecast/
+    observed_precip_rejection_reason je Station -- Felder, die zwar jeden
+    Zyklus berechnet, vorher aber nur im nicht persistierten
+    include_debug=True-Pfad sichtbar waren. Gruppiert die Ablehnungsgruende;
+    haeuft sich einer auf mehr als 50% der Zeilen mit
+    observed_precip_available=true, ist das ein Befund (Qualitaetsschwelle
+    falsch ODER Quelle liefert anders als spezifiziert -- beides melden, die
+    Schwelle nicht senken, so von der AC verlangt).
+    """
+    doc = _read_json(Path(base) / "train_data/hydro/impact/precip_window_diagnostics.json")
+    if doc is None:
+        return {"status": "ok", "beleg": "kein precip_window_diagnostics.json vorhanden "
+                                          "(B518 noch nicht eingespielt oder kein Lauf seither)",
+                "detail": {}}
+    rows = [r for r in (doc.get("stations") or []) if isinstance(r, dict)
+            and r.get("observed_precip_available") is True]
+    if not rows:
+        return {"status": "ok", "beleg": "keine Zeile mit observed_precip_available=true", "detail": {}}
+    used = sum(1 for r in rows if r.get("observed_precip_used_in_forecast") is True)
+    rejected = [r for r in rows if r.get("observed_precip_used_in_forecast") is not True]
+    reasons: dict[str, int] = {}
+    for r in rejected:
+        reason = str(r.get("observed_precip_rejection_reason") or "unbekannt")
+        reasons[reason] = reasons.get(reason, 0) + 1
+    dominant = max(reasons.items(), key=lambda kv: kv[1]) if reasons else None
+    if dominant and dominant[1] / len(rows) > 0.5:
+        return {"status": "finding",
+                "beleg": (f"Ablehnungsgrund {dominant[0]!r} bei {dominant[1]}/{len(rows)} "
+                          f"({dominant[1]/len(rows):.1%}) der Zeilen mit gesicherter Messung — "
+                          f"Qualitaetsschwelle oder Quellspezifikation pruefen"),
+                "detail": {"reasons": reasons, "used": used, "total": len(rows)}}
+    return {"status": "ok",
+            "beleg": f"{used}/{len(rows)} gesicherte Messungen verwendet, keine dominante Ablehnung",
+            "detail": {"reasons": reasons, "used": used, "total": len(rows)}}
+
+
+@register("AC-029")
+def check_ac029_precip_window_overlap(base) -> dict:
+    """AC-029 — Niederschlags-Volumenbilanz (Zeitfenster-Ueberlappung).
+
+    Deterministisch seit B518: precip_window_diagnostics.json (siehe AC-028)
+    enthaelt precip_window_overlap_min/precip_window_gap_min je Station.
+    Erwartung: overlap = 0 (kein zeitlich ueberlappendes Intervall zwischen
+    gemessenem und prognostiziertem Niederschlagsfenster). Jeder Wert > 0 ist
+    sofort ein Befund -- eine ueberlappende Messung wuerde eine ueberhoehte
+    Q-Prognose erzeugen, so von der AC verlangt.
+    """
+    doc = _read_json(Path(base) / "train_data/hydro/impact/precip_window_diagnostics.json")
+    if doc is None:
+        return {"status": "ok", "beleg": "kein precip_window_diagnostics.json vorhanden "
+                                          "(B518 noch nicht eingespielt oder kein Lauf seither)",
+                "detail": {}}
+    hits = []
+    for r in (doc.get("stations") or []):
+        if not isinstance(r, dict):
+            continue
+        overlap = r.get("precip_window_overlap_min")
+        if isinstance(overlap, (int, float)) and overlap > 0:
+            hits.append({"station_id": r.get("station_id"), "precip_window_overlap_min": overlap})
+    if hits:
+        return {"status": "finding",
+                "beleg": (f"{len(hits)} Station(en) mit precip_window_overlap_min > 0 — "
+                          f"ueberlappendes Zeitfenster, Messung haette abgelehnt werden muessen: "
+                          f"{hits}"),
+                "detail": {"hits": hits}}
+    return {"status": "ok", "beleg": "kein precip_window_overlap_min > 0", "detail": {}}

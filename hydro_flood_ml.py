@@ -23,6 +23,13 @@ HYDRO_PENDING_SAMPLES_PATH = HYDRO_ML_DIR / "hydro_flood_pending_samples.jsonl"
 HYDRO_DATASET_JSONL_PATH = HYDRO_ML_DIR / "hydro_flood_dataset.jsonl"
 HYDRO_ACCURACY_HISTORY_PATH = HYDRO_ML_DIR / "hydro_flood_accuracy_history.jsonl"
 HYDRO_RISK_PATH = Path("train_data/hydro/impact/latest_hydro_flood_risk.json")
+# B518: separates, admin-only Nebendokument -- AC-028/AC-029 brauchen
+# observed_precip_rejection_reason/precip_window_overlap_min/_gap_min, die im
+# regulaeren Zyklus zwar berechnet (_apply_observed_precip_forcing, Zeile ~910),
+# aber bisher nur im nicht persistierten include_debug=True-Zweig sichtbar waren.
+# Eigene Datei statt Erweiterung der Public-Whitelist, damit latest_hydro_flood_risk.json
+# unveraendert bleibt (AC-030-Konformitaet: keine internen Felder im oeffentlichen Payload).
+HYDRO_PRECIP_WINDOW_DIAG_PATH = Path("train_data/hydro/impact/precip_window_diagnostics.json")
 HYDRO_MODEL_CURRENT_DIR = Path("train_data/models/hydro_flood/current")
 MIN_TRAINING_SAMPLES = int(os.getenv("HYDRO_FLOOD_ML_MIN_SAMPLES", "20"))
 FEATURE_SCHEMA_VERSION = "p75_antecedent_v1"
@@ -1034,6 +1041,27 @@ def evaluate_live_flood_risk(stations: list[dict]|None=None, live: dict|None=Non
         doc["debug_stations"] = internal_rows
         doc["precip_ledger"] = ledger_meta
     if write and not include_debug: _atomic_json(HYDRO_RISK_PATH, doc)
+    if write and not include_debug:
+        # B518: siehe HYDRO_PRECIP_WINDOW_DIAG_PATH-Kommentar oben. internal_rows
+        # enthaelt die Felder bereits (kein neuer Rechenweg) -- nur das Schreiben
+        # war bisher an include_debug=True (und damit an write=False) gekoppelt.
+        # Ein Fehler hier darf die Auslieferung nie beeintraechtigen (gleiche
+        # Haltung wie beim Sample-Store, B430-Kommentar oben).
+        try:
+            precip_diag_rows = [
+                {"station_id": r.get("station_id"),
+                 "observed_precip_available": r.get("observed_precip_available"),
+                 "observed_precip_used_in_forecast": r.get("observed_precip_used_in_forecast"),
+                 "observed_precip_rejection_reason": r.get("observed_precip_rejection_reason"),
+                 "precip_window_overlap_min": r.get("precip_window_overlap_min"),
+                 "precip_window_gap_min": r.get("precip_window_gap_min")}
+                for r in internal_rows
+            ]
+            _atomic_json(HYDRO_PRECIP_WINDOW_DIAG_PATH,
+                         {"generated_at": generated, "payload_scope": "admin_diagnostics",
+                          "stations": precip_diag_rows})
+        except Exception:
+            pass  # B518: wie beim Sample-Store darf ein Schreibfehler hier nie die Auslieferung stoeren
     return doc
 
 
