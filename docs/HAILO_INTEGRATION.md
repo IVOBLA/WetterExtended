@@ -10809,3 +10809,40 @@ die eine Fixture-Erweiterung) wieder vollständig grün.
 angepasst; kein weiterer betroffener Aufrufer gefunden). Phase B (Hailo-8
 U-Net) bleibt unverändert blockiert; sie wartet auf ausreichende
 Trainingsdaten.
+
+### P116 — Reifegrad-Bericht + Admin-Panel-Schalter für FORECAST_EXPERIMENTS_ENABLED
+
+**Anlass:** Feld-2-Fortsetzung. `FORECAST_EXPERIMENTS_ENABLED` schaltet die
+Kinematik-Shadow-Experimentsammlung frei, hatte aber bislang weder einen
+Admin-Panel-Schalter noch eine automatisierte Reifegrad-Prüfung.
+
+**Entscheidung (mit Horst abgestimmt):** Automatisierter Reifegrad-Bericht,
+Freischaltung bleibt ein manueller Schalter im Admin-Panel — keine
+Selbstaktivierung durch die KI oder das System.
+
+**Änderung:**
+- `forecast_experiments_readiness.py` wertet fünf Kriterien aus:
+  1. `gold_match_coverage`: `verified`/`samples` der letzten 20 Zeilen ≥ 90 %.
+  2. `ambiguous_nearest_rate`: `ambiguous_nearest`/`samples` ≤ 5 %.
+  3. `completed_experiment_cycle`: mindestens ein terminaler Tuning-Eintrag.
+  4. `escalation_mechanism_consistent`: ab Plateau-Streak 3 muss die
+     Eskalation gesetzt sein.
+  5. `identical_actuals_guard`: strukturell durch den `actual_mismatch`-Guard
+     in `experiment_contract.py::evaluate_paired_cases()` garantiert.
+- `GET /api/local_analysis/forecast_experiments` liefert Schalterstand und
+  Bericht; `POST` ändert den Schalter per `runtime_config.patch()` auch dann,
+  wenn `overall_ready=False` ist.
+- `frontend/src/pages/AiSuggestions.jsx` zeigt den manuellen Schalter und eine
+  Ampel je Kriterium. Bei Aktivierung ohne grünen Bericht bestätigt der
+  Bediener die fehlschlagenden Kriterien ausdrücklich.
+
+**Benutzerhandbuch:** kein Update nötig — reine Admin-/Betriebsfunktion.
+
+**Tests:** Neue deterministische Readiness-, Endpoint- und UI-Tests decken die
+fünf Kriterien, Fehlerfälle, Admin-Schutz, Fetch, Rendering und Bestätigung ab.
+
+**Keine** Binaries.
+
+**Phasen-Status:** Phase A — P116 ✅. Feld 2 ist damit für den aktuellen Umfang
+abgeschlossen. Phase B (Hailo-8 U-Net) bleibt unverändert durch noch nicht
+ausreichende Trainingsdaten blockiert.
