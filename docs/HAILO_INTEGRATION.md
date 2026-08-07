@@ -10846,3 +10846,37 @@ fünf Kriterien, Fehlerfälle, Admin-Schutz, Fetch, Rendering und Bestätigung a
 **Phasen-Status:** Phase A — P116 ✅. Feld 2 ist damit für den aktuellen Umfang
 abgeschlossen. Phase B (Hailo-8 U-Net) bleibt unverändert durch noch nicht
 ausreichende Trainingsdaten blockiert.
+
+### B517 — timeout_s/TimeoutStartSec-Kollision behoben: synchron angehoben statt zurueckgekappt, plus SIGTERM-Handler und Kapazitaets-Diagnose
+
+**Anlass:** Vorfall 2026-08-06/07 — "wieder keine naechtliche Analyse-Mail".
+`timeout_s=3000` war per Admin-Panel gesetzt, waehrend die systemd-Unit den
+Runner bereits nach `TimeoutStartSec=1800` per SIGTERM beendete. Dadurch wurde
+Pythons interner `subprocess.run(timeout=...)`-Fehlerpfad nie erreicht und der
+Status blieb bis zur Stale-Erkennung des naechsten geplanten Laufs auf
+`state=running`. B466 ist als Ursache ausgeschlossen, weil dessen Sandboxfehler
+sofort als `Read-only file system` sichtbar wird.
+
+**Bewusste Entscheidung — NICHT auf den alten Default 1700 zurueckgekappt:**
+B471 empfiehlt bei einem Schritt-Limit, `max_turns/timeout_s` zu erhoehen oder
+Abschnitt B zu kuerzen. Deshalb wurden die Grenzen synchron angehoben:
+
+- `wetterprojekt-local-analysis.service`: `TimeoutStartSec=3600`.
+- `app.py`: `timeout_s` maximal 3300, also 300 Sekunden Sicherheitsmarge.
+- `config.py`: Kopplung und B517-Grenzen im Kommentar dokumentiert.
+- `tools/run_local_analysis.py`: SIGTERM schreibt sofort `state=failed`; die
+  Schritt-Limit-Diagnose nennt zudem die konkrete Zahl nicht deterministisch
+  implementierter ACs.
+- `tests/test_b517_sigterm_and_timeout_ceiling.py`: neun Tests fuer Grenzen,
+  Sicherheitsmarge, echten SIGTERM, Handler-Robustheit und AC-Diagnose.
+
+**Betriebshinweis:** Der Runtime-Override `timeout_s=3000` bleibt gueltig. Nach
+dem Aktualisieren der Unit-Datei muss auf dem Pi zusaetzlich
+`sudo systemctl daemon-reload` ausgefuehrt werden, sonst bleibt die alte
+1800-Sekunden-Grenze aktiv.
+
+**Benutzerhandbuch:** keine Änderung (Betriebs-/Infrastrukturfix, kein
+Fach-Feature). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B517 ✅. Phase B (Hailo-8 U-Net) bleibt
+unverändert blockiert und wartet auf ausreichende Trainingsdaten.

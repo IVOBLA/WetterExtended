@@ -8,6 +8,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -339,6 +340,38 @@ def write_json_atomic(path, payload):
 write_status = write_json_atomic
 
 
+# B517: SIGTERM-Handler, damit ein externer Kill (systemd TimeoutStartSec,
+# manueller Kill, o.ae.) sofort einen sauberen "failed"-Status schreibt, statt
+# local_analysis_status.json auf state=running eingefroren zu lassen, bis der
+# naechste geplante Lauf (bis zu 24h spaeter) die Stale-Erkennung ausloest.
+# Vorfall 2026-08-06/07: timeout_s war per Admin-Panel auf 3000 gesetzt,
+# systemd TimeoutStartSec=1800 killte den Prozess aber laengst vorher --
+# Pythons eigener subprocess.run(timeout=...)-Handler (siehe main()) konnte
+# nie greifen, weil der ganze Prozess bereits tot war. B517 hebt zusaetzlich
+# TimeoutStartSec/die Validierungsobergrenze synchron an (siehe app.py,
+# wetterprojekt-local-analysis.service); dieser Handler ist die zweite,
+# unabhaengige Verteidigungslinie fuer jeden aehnlichen Fall.
+_SIGTERM_CONTEXT: dict = {}
+
+
+def _handle_sigterm(signum, frame):
+    ctx = _SIGTERM_CONTEXT
+    if ctx.get("status_path") is not None:
+        try:
+            dur = round(time.monotonic() - ctx.get("t0", time.monotonic()), 1)
+            write_status(ctx["status_path"], make_status(
+                "failed", ctx["now"], ctx.get("prev"), mode=ctx.get("mode"),
+                duration_s=dur, rc=None,
+                error=("Prozess durch SIGTERM extern beendet (z. B. systemd "
+                       "TimeoutStartSec, manueller Kill) — vor internem "
+                       "subprocess-Timeout. B517."),
+                **(ctx.get("base") or {}),
+            ))
+        except Exception:
+            pass
+    raise SystemExit(143)
+
+
 def make_status(state, now_local, previous=None, mode="", **fields):
     prev = previous or {}
     st = {"state": state, "mode": mode or prev.get("mode"), "ts_local": now_local.strftime("%Y-%m-%d %H:%M:%S"), "ts_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "last_success_date": prev.get("last_success_date"), "last_attempt_date": prev.get("last_attempt_date"), "attempts_today": int(prev.get("attempts_today", 0) or 0), "duration_s": None, "rc": None, "num_fehler": None, "error": None, "claude_bin": prev.get("claude_bin"), "log_path": prev.get("log_path")}
@@ -379,10 +412,17 @@ def summarize_failure(rc: int, stdout: str, stderr: str) -> str:
     return f"{kopf}, keine Ausgabe auf stdout oder stderr"
 
 
-def detect_incomplete(stdout: str):
+def detect_incomplete(stdout: str, ai_checks_summary: dict | None = None):
     """B471 — Ein Abbruch am Schritt-Limit ist keine Stoerung, sondern ein zu grosser
     Auftrag. Die CLI-JSON traegt dann terminal_reason=max_turns. Solche Faelle bekommen
-    einen eigenen, handlungsleitenden Status statt der undurchsichtigen Fehlermeldung."""
+    einen eigenen, handlungsleitenden Status statt der undurchsichtigen Fehlermeldung.
+
+    B517: haengt bei Verfuegbarkeit die Zahl der noch offenen (nicht deterministisch
+    implementierten) ACs an -- Vorfall 2026-08-06/07 zeigte, dass "max_turns/timeout_s
+    erhoehen" ohne diese Zahl zu reinen Ratewerten fuehrt (timeout_s wurde auf 3000
+    gesetzt, weit ueber die damalige systemd-Grenze hinaus). Mit der konkreten
+    not_implemented-Zahl laesst sich der Trend ueber die AC-Migrationswellen (P112-)
+    tatsaechlich verfolgen, statt bei jedem Vorfall neu zu raten."""
     try:
         obj = json.loads(stdout or "")
     except Exception:
@@ -395,8 +435,13 @@ def detect_incomplete(stdout: str):
     errs = obj.get("errors") or []
     text = " ".join(str(e) for e in errs) if isinstance(errs, list) else str(errs)
     if reason == "max_turns" or "maximum number of turns" in text.lower():
-        return ("Schritt-Limit erreicht — Auftrag zu umfangreich fuer max_turns. "
-                "max_turns/timeout_s erhoehen oder Umfang von Abschnitt B (offene ACs) kuerzen.")
+        scope_hint = ""
+        if isinstance(ai_checks_summary, dict) and "not_implemented" in ai_checks_summary:
+            scope_hint = (f" (aktuell {ai_checks_summary['not_implemented']} ACs nicht "
+                          f"deterministisch implementiert, muessen vom LLM gepruft werden)")
+        return (f"Schritt-Limit erreicht — Auftrag zu umfangreich fuer max_turns{scope_hint}. "
+                "max_turns/timeout_s erhoehen (mit Marge unter systemd TimeoutStartSec) "
+                "oder Umfang von Abschnitt B (offene ACs) kuerzen.")
     return None
 
 
@@ -477,10 +522,13 @@ def run_deterministic_ai_checks(repo: Path):
 def main(argv=None):
     args = parse_args(argv); repo = Path(args.repo_dir).resolve(); cfg = load_config(repo); mode, changed = load_mode(repo); now = datetime.now(TZ)
     analysis_run_id = str(uuid.uuid4())
-    run_deterministic_ai_checks(repo)
+    _ai_checks_summary = run_deterministic_ai_checks(repo)
     run_started_at_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     status_path = repo / str(cfg.get("status_path", "train_data/evaluation/local_analysis_status.json")); prev = read_json_quiet(status_path)
     log_path = repo / str(cfg.get("log_path", "train_data/evaluation/local_analysis_last_run.log"))
+    # B517: ab hier ist genug Kontext fuer den SIGTERM-Handler vorhanden.
+    signal.signal(signal.SIGTERM, _handle_sigterm)
+    _SIGTERM_CONTEXT.update(status_path=status_path, now=now, prev=prev, mode=mode)
     if str(prev.get("state")) == "running" and prev.get("run_started_at_utc"):
         try:
             stuck_since = datetime.strptime(str(prev["run_started_at_utc"]), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
@@ -521,6 +569,7 @@ def main(argv=None):
     if args.dry_run:
         shown = list(cmd); shown[2] = f"<Prompt: {len(prompt)} Zeichen>"; print("[LOCAL-ANALYSIS] " + " ".join(shlex.quote(c) for c in shown)); return 0
     today = now.strftime("%Y-%m-%d"); attempts = int(prev.get("attempts_today", 0) or 0)+1 if prev.get("last_attempt_date") == today else 1; base = {"last_attempt_date": today, "attempts_today": attempts, "claude_bin": claude, "analysis_run_id": analysis_run_id, "source_snapshot_id": source_snapshot_id, "git_commit": git_commit, "run_started_at_utc": run_started_at_utc}; t0=time.monotonic()
+    _SIGTERM_CONTEXT.update(base=base, t0=t0)
     write_status(status_path, make_status("running", now, prev, mode=mode, **base))
     try: proc = subprocess.run(cmd, cwd=str(repo), env=build_subprocess_env(), stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=int(cfg.get("timeout_s", 900)))
     except subprocess.TimeoutExpired as exc:
@@ -533,7 +582,7 @@ def main(argv=None):
         print(f"[LOCAL-ANALYSIS] {meldung}", file=sys.stderr); return 2
     dur=round(time.monotonic()-t0,1)
     if proc.returncode:
-        unvollstaendig = detect_incomplete(proc.stdout)
+        unvollstaendig = detect_incomplete(proc.stdout, _ai_checks_summary)
         if unvollstaendig:
             write_run_log(log_path, cmd=cmd, claude_bin=claude, mode=mode, rc=proc.returncode,
                           duration_s=dur, stdout=proc.stdout, stderr=proc.stderr, note=unvollstaendig)
