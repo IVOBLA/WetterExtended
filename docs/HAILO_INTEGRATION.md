@@ -10880,3 +10880,21 @@ Fach-Feature). **Keine** Binaries.
 
 **Phasen-Status:** Phase A — B517 ✅. Phase B (Hailo-8 U-Net) bleibt
 unverändert blockiert und wartet auf ausreichende Trainingsdaten.
+
+### P117 — Welle D: drei weitere AIChecks deterministisch migriert (AC-010, AC-058, AC-075)
+
+**Anlass:** Fortsetzung der AIChecks-Migration (Feld 1) nach P112-P115. AC-010,
+AC-058 und AC-075 wurden als tragfähig verifiziert.
+
+**Änderung:**
+- `tools/ai_checks/checks_local.py`: drei neue `@register`-Checks für
+  verschachtelte Export-ZIPs, Hydro-Flood-Risk-Store-Defekte und
+  Pytest-Kontamination in Hydro-ML-Statusdateien.
+- `tests/test_p117_aichecks_welle_d.py`: 17 positive und negative Tests.
+
+**Benutzerhandbuch:** keine Änderung (interne QA-Infrastruktur, kein Fach-Feature).
+
+**Keine** Binaries.
+
+**Phasen-Status:** Phase A — P117 ✅. Von 56 ACs sind jetzt 24 deterministisch
+entschieden, 32 verbleiben im LLM-Fallback.

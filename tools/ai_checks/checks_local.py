@@ -7,6 +7,8 @@ Analyse-Prompt uebernimmt ihn.
 from __future__ import annotations
 
 import json
+import re
+import sqlite3
 from pathlib import Path
 
 from tools.ai_checks import register
@@ -1088,3 +1090,184 @@ def check_ac068_speed_and_zigzag_plausibility(base) -> dict:
     return {"status": "ok",
             "beleg": f"{len(frames)} Frame(s) geprueft, keine Geschwindigkeits-/Sektor-Auffaelligkeit",
             "detail": {"frames_checked": len(frames)}}
+
+
+@register("AC-010")
+def check_ac010_nested_archives_in_export(base) -> dict:
+    """AC-010 — Export auf Fremdarchive (verschachtelte ZIPs) pruefen.
+
+    Da ``base`` bereits entpackt ist, bildet die rekursive Suche nach ZIPs
+    die Prüfung des ursprünglichen Export-Archivs äquivalent ab. Treffer in
+    ``latest_export`` sind ein Rekursionsverdacht; andere Treffer bleiben zur
+    Einordnung als möglicherweise legitime Nutzdaten ein Finding.
+    """
+    base = Path(base)
+    hits = sorted(str(p.relative_to(base)) for p in base.rglob("*.zip"))
+    if not hits:
+        return {"status": "ok", "beleg": "keine *.zip-Dateien im Baum gefunden", "detail": {}}
+    recursive = [h for h in hits if "latest_export" in h]
+    if recursive:
+        return {"status": "finding",
+                "beleg": f"{len(recursive)} ZIP(s) unter latest_export/ — Export-Rekursion "
+                         f"vermutet (B406/B407 nicht wirksam): {recursive}",
+                "detail": {"recursive": recursive, "other": [h for h in hits if h not in recursive]}}
+    return {"status": "finding",
+            "beleg": f"{len(hits)} ZIP-Datei(en) im Export, ausserhalb von latest_export/ — "
+                     f"pruefen ob legitime Nutzdaten: {hits}",
+            "detail": {"hits": hits,
+                       "hinweis": "Kein Rekursionsverdacht (nicht unter latest_export/), "
+                                  "Einordnung als legitime Nutzdaten bleibt LLM-Aufgabe."}}
+
+
+_AC058_NGINX_LINE_RE = re.compile(
+    r'^\S+ \S+ \S+ \[[^\]]+\] "(?P<method>\S+) (?P<path>\S+) \S+" '
+    r'(?P<status>\d+) (?P<bytes>\d+|-)'
+)
+
+
+@register("AC-058")
+def check_ac058_hydro_flood_risk_store_defect(base) -> dict:
+    """AC-058 — Hydro-Flood-Risk auf Store-Defekt und Antwortgroesse pruefen.
+
+    Deckt die Punkte 1-5 der AC-Anweisung ab: kleine Nginx-Antworten,
+    gehäufte strukturierte ``hydro_api``-Fehler, SQLite-Integrität, einen nie
+    geschriebenen Risk-Cache und einen degradierten Sample-Store. Punkt 6
+    ist eine Negativ-Anweisung für das LLM und keine prüfbare Zustandsaussage.
+    """
+    base = Path(base)
+    problems = []
+    detail = {}
+
+    nginx_log = base / "api_logs" / "nginx" / "nginx_access.log"
+    if nginx_log.is_file():
+        try:
+            lines = nginx_log.read_text(encoding="utf-8", errors="replace").splitlines()
+        except Exception:
+            lines = []
+        small = []
+        exact_105 = 0
+        for line in lines:
+            m = _AC058_NGINX_LINE_RE.match(line)
+            if not m or m.group("method") != "GET" or m.group("path") != "/api/hydro/flood-risk":
+                continue
+            b = m.group("bytes")
+            n = int(b) if b.isdigit() else None
+            if n is not None and n < 2000:
+                small.append(n)
+                if n == 105:
+                    exact_105 += 1
+        if small:
+            msg = f"{len(small)} /api/hydro/flood-risk-Antwort(en) < 2000 Bytes"
+            if exact_105:
+                msg += (f", davon {exact_105}x exakt 105 Bytes "
+                        f"(DatabaseError: database disk image is malformed vermutet)")
+            problems.append(msg)
+            detail["small_nginx_responses"] = {"count": len(small), "exact_105": exact_105}
+
+    api_health = base / "train_data" / "evaluation" / "api_health.jsonl"
+    if api_health.is_file():
+        hydro_fails = []
+        try:
+            for line in api_health.read_text(encoding="utf-8", errors="replace").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(rec, dict) and rec.get("service") == "hydro_api":
+                    hydro_fails.append(rec)
+        except Exception:
+            pass
+        if len(hydro_fails) > 5:
+            problems.append(
+                f"{len(hydro_fails)} hydro_api-Fehler in api_health.jsonl "
+                f"({hydro_fails[0].get('ts_utc')} bis {hydro_fails[-1].get('ts_utc')})"
+            )
+            detail["hydro_api_failures"] = len(hydro_fails)
+
+    snapshot = _rglob_first(base, "hydro_flood_samples_snapshot.sqlite3")
+    if snapshot is not None:
+        try:
+            con = sqlite3.connect(f"file:{snapshot}?mode=ro", uri=True)
+            try:
+                rows = con.execute("PRAGMA integrity_check").fetchall()
+                result = rows[0][0] if rows else None
+                if result != "ok":
+                    tables = []
+                    for row in rows:
+                        msg = str(row[0])
+                        m2 = re.search(r"rootpage (\d+)", msg)
+                        if m2:
+                            rp = int(m2.group(1))
+                            tname = con.execute(
+                                "SELECT name FROM sqlite_master WHERE rootpage=?", (rp,)
+                            ).fetchone()
+                            tables.append(tname[0] if tname else f"rootpage={rp}")
+                    problems.append(f"integrity_check={result!r}"
+                                     + (f", betroffene Tabelle(n): {tables}" if tables else ""))
+                    detail["sqlite_integrity"] = result
+            finally:
+                con.close()
+        except sqlite3.Error as exc:
+            problems.append(f"integrity_check fehlgeschlagen: {type(exc).__name__}: {exc}")
+
+    manifest = _read_json(base / "manifest.json")
+    risk_doc_path = base / "train_data" / "hydro" / "impact" / "latest_hydro_flood_risk.json"
+    scanned_roots = (manifest or {}).get("scanned_roots") or []
+    impact_scanned = any(str(r).rstrip("/").endswith("train_data/hydro/impact") for r in scanned_roots)
+    if not risk_doc_path.is_file():
+        if impact_scanned:
+            problems.append("latest_hydro_flood_risk.json fehlt, obwohl train_data/hydro/impact "
+                            "laut manifest.json gescannt wurde — Risk-Cache nie geschrieben")
+    else:
+        doc = _read_json(risk_doc_path)
+        if isinstance(doc, dict):
+            store_status = doc.get("sample_store_status")
+            if store_status == "degraded":
+                faults = doc.get("sample_store_faults") or []
+                stages = [f.get("stage") for f in faults if isinstance(f, dict)]
+                problems.append(f"sample_store_status=degraded, stages={stages}")
+                detail["sample_store_faults"] = stages
+
+    if problems:
+        return {"status": "finding", "beleg": "; ".join(problems), "detail": detail}
+    return {"status": "ok", "beleg": "keine Store-Defekte/Antwortgroessen-Auffaelligkeiten gefunden",
+            "detail": detail}
+
+
+@register("AC-075")
+def check_ac075_hydro_ml_pytest_contamination(base) -> dict:
+    """AC-075 — Hydro-ML-Statusdateien auf Pytest-Kontamination pruefen.
+
+    Deckt Punkte 1-2 ab: Pytest-Temporärpfade und unplausibel kleine
+    Datenbanken. Punkt 3 (Zeitkorrelation mit ``install_pytest.log``) bleibt
+    mangels byte-exakt verifiziertem Logformat bewusst LLM-Aufgabe.
+    """
+    base = Path(base)
+    problems = []
+    detail = {}
+
+    integrity = _rglob_first(base, "hydro_sample_db_integrity.json")
+    if integrity is not None:
+        doc = _read_json(integrity)
+        db_path = str((doc or {}).get("db_path") or "")
+        if db_path.startswith("/tmp/pytest"):
+            problems.append(f"hydro_sample_db_integrity.json: db_path={db_path!r} "
+                            f"zeigt auf eine Pytest-Temp-DB (B455-Fehlerklasse)")
+            detail["integrity_db_path"] = db_path
+
+    maintenance = _rglob_first(base, "hydro_ml_maintenance_latest.json")
+    if maintenance is not None:
+        doc = _read_json(maintenance) or {}
+        for key in ("db_size_before", "db_size_after"):
+            size = doc.get(key)
+            if isinstance(size, (int, float)) and 0 < size < 100_000:
+                problems.append(f"hydro_ml_maintenance_latest.json: {key}={size} Bytes "
+                                f"(<100 KB) — vermutlich Test-DB statt realer Sample-DB")
+                detail[key] = size
+
+    if problems:
+        return {"status": "finding", "beleg": "; ".join(problems), "detail": detail}
+    return {"status": "ok", "beleg": "keine Pytest-Kontamination in den Hydro-ML-Statusdateien",
+            "detail": {}}
