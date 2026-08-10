@@ -5,6 +5,16 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+# B522: WorkingDirectory ist zwingend erforderlich, NICHT nur Stilkonvention.
+# runtime_config.RUNTIME_OVERRIDES_PATH ("train_data/runtime_overrides.json") ist ein
+# RELATIVER Pfad. Ohne WorkingDirectory setzt systemd cwd=/ fuer diesen root-Dienst;
+# der eingebettete Python-Aufruf in nightly_analysis_dispatch.sh sucht dann unter
+# /train_data/runtime_overrides.json (existiert nicht), findet den ANALYSIS_MODE-Override
+# NIE und faellt IMMER auf den Hardcoded-Default "repo" zurueck — unabhaengig davon, was
+# im Admin-Panel als Betriebsart eingestellt ist. Belegt: 72h ohne einen einzigen
+# Journal-Eintrag fuer wetterprojekt-local-analysis.service trotz auf "local" stehender
+# Betriebsart und zwei sauber durchlaufenden Dispatcher-Naechten (2026-08-08/09).
+WorkingDirectory=/home/ki-pi/wetterprojekt
 # Laeuft als root, ausschliesslich um je nach Betriebsart genau einen der beiden
 # bereits gehaerteten Dienste zu starten. Fuehrt selbst keine Analyse/kein Push aus.
 ExecStart=/home/ki-pi/wetterprojekt/tools/nightly_analysis_dispatch.sh /home/ki-pi/wetterprojekt
