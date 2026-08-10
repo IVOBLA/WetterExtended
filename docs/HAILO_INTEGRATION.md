@@ -10947,3 +10947,27 @@ Datenquelle sind AC-028 und AC-029 deterministisch entscheidbar.
 **Phasen-Status:** Phase A — P119 ✅. Damit sind 32 von 56 ACs deterministisch
 entschieden. AC-018/AC-019 bleiben wegen ihres On-Demand-Admin-Pfads außen vor.
 Phase B bleibt unverändert blockiert und wartet auf ausreichende Trainingsdaten.
+
+### B519 — accuracy_eval selbstbegrenzend (killbarer Subprozess-Timeout) (2026-08-09)
+
+**Problem (belegt, Scheduler-Journal 07.–08.08.2026):** `run_accuracy_eval_job` rief
+`evaluate_all()` ohne Zeitgrenze auf. Eine ueberlaufende Instanz kehrte nicht zurueck; wegen
+`max_instances=1` wurde jeder Folgelauf „skipped: maximum number of running instances reached (1)".
+`append_history_point` lief nie → `accuracy_history.jsonl` fror bei 2026-08-07T01:51Z ein →
+`model_usage=not_available`, veraltete Drift-/ML-Promotion-Baseline, leere
+forecast_experiments_readiness, eingefrorene Progress-Seite.
+
+**Fix (B517-Muster):** `evaluate_all_bounded()` fuehrt `evaluate_all` in einem killbaren
+fork-Kindprozess mit harter Wanduhr-Grenze `ACCURACY_EVAL_TIMEOUT_S` (Default 2400s < 3600s
+Intervall) aus. Bei Ueberlauf wird der Kindprozess terminiert, der Slot freigegeben und ein
+sichtbarer Marker `accuracy_eval_status.json` (state=overrun|failed|ok) geschrieben; im
+Ueberlauf-/Fehlerfall KEIN Append (keine Teil-/Garbage-Zeile). Der genaue Haenge-Ausloeser
+ist separat zur Laufzeit zu pinnen; dieser Fix verhindert die stille Dauer-Blockade und liefert
+das Signal dafuer.
+
+**Tests:** `tests/test_b519_accuracy_eval_timeout.py` (ok / overrun-Terminierung / Kindfehler /
+atomarer Statusmarker).
+
+**Benutzerhandbuch:** keine Aenderung (Bugfix, kein Fach-Feature). **Keine** Binaries.
+
+**Phasen-Status:** unveraendert. B519 haertet den Metrik-Pfad, aendert keine Phasen-Logik.
