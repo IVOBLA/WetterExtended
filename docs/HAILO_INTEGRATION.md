@@ -11036,3 +11036,26 @@ letzte Lauf) nicht ableitbar.
 **Phasen-Status:** Phase A — P121 ✅. AC-Migration jetzt bei **36 von 56
 deterministisch entschieden**. Phase B (Hailo-8 U-Net) bleibt unverändert
 blockiert; sie wartet auf ausreichende Trainingsdaten.
+
+### B521 — export_json_views() einmal pro Horizont-Lauf statt pro Datensatz (2026-08-10)
+
+**Problem (py-spy-belegt, Live-Dump 10.08.2026):** `_persist_verification()` rief nach JEDEM
+verifizierten Datensatz `VerificationStore.export_json_views()` auf. Diese Funktion liest die
+komplette `verification_revisions`-Tabelle und schreibt zwei JSONL-Dateien komplett neu
+(inkl. fsync, `PRAGMA synchronous=FULL`) — ein O(n^2)-Muster ueber die Laufzeit von
+`evaluate_for_horizon()`. Root Cause der ~53-Minuten-Laufzeiten von `run_accuracy_eval_job`,
+die B519 bereits per Timeout-Harness abgesichert hatte.
+
+**Fix:** `_persist_verification()`/`_append_detail_once()` erhalten ein `export: bool = True`
+Flag (Default unveraendert fuer externe Aufrufer). Alle 6 Aufrufstellen sowie der direkte
+`pending`-Aufruf innerhalb von `evaluate_for_horizon()` nutzen `export=False`; ein einzelner
+`export_json_views()`-Aufruf erfolgt gebuendelt am Ende des Horizont-Laufs. Persistiert
+denselben Endzustand, ohne den quadratischen Zwischenschritt.
+
+**Tests:** `tests/test_b521_export_batching.py` (Flag-Weitergabe, alle 6 Call-Sites,
+End-to-End max. 1 Export pro Lauf, Datenintegrität des gebuendelten Exports).
+
+**Benutzerhandbuch:** keine Aenderung (Bugfix, kein Fach-Feature). **Keine** Binaries.
+
+**Phasen-Status:** unveraendert. B521 ist eine Performance-Haertung des Metrik-Pfads,
+aendert keine Phasen-Logik. Kein fachlicher Zusammenhang zu B520/P121 (Hydro-ML).
