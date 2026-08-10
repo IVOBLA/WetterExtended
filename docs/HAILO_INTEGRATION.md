@@ -11059,3 +11059,38 @@ End-to-End max. 1 Export pro Lauf, Datenintegrität des gebuendelten Exports).
 
 **Phasen-Status:** unveraendert. B521 ist eine Performance-Haertung des Metrik-Pfads,
 aendert keine Phasen-Logik. Kein fachlicher Zusammenhang zu B520/P121 (Hydro-ML).
+
+### B522 — wetterprojekt-nightly-analysis.service: fehlende WorkingDirectory verhinderte lokale Analyse dauerhaft (2026-08-10)
+
+**Problem (Journal-belegt, 2026-08-08/09/10):** `wetterprojekt-local-analysis.service` hatte in
+72h keinen einzigen Start, obwohl die Betriebsart im Admin-Panel korrekt auf "Direkt am Pi"
+(local) stand und der naechtliche Dispatcher (`wetterprojekt-nightly-analysis.service`) beide
+Naechte sauber durchlief. Root Cause: `RUNTIME_OVERRIDES_PATH` (`config.py:933`) ist ein
+relativer Pfad ("train_data/runtime_overrides.json"). Die Dispatcher-Unit hatte KEINE
+`WorkingDirectory=`-Zeile, wodurch systemd `cwd=/` verwendete. Der eingebettete Python-Aufruf
+in `nightly_analysis_dispatch.sh` suchte dadurch nach `/train_data/runtime_overrides.json`
+(existiert nicht), fand den `ANALYSIS_MODE`-Override nie und fiel IMMER auf den
+Hardcoded-Default `"repo"` zurueck — unabhaengig von der tatsaechlichen Admin-Panel-Einstellung.
+Strukturell seit Einfuehrung des Dispatchers (B476), nicht erst seit Kurzem.
+
+**Fix:** `WorkingDirectory=/home/ki-pi/wetterprojekt` in
+`wetterprojekt-nightly-analysis.service` ergaenzt, analog zur bereits korrekten
+`wetterprojekt-local-analysis.service`. `install.sh` schreibt den Pfad bei Neuinstallation
+automatisch ueber das bestehende sed-Muster um — keine Aenderung an `install.sh` noetig.
+Kein Python-Code betroffen (`runtime_config.py`, `config.py`,
+`nightly_analysis_dispatch.sh` unveraendert).
+
+**Tests:** `tests/test_b522_nightly_dispatch_workdir.py` (WorkingDirectory vorhanden und
+konsistent mit ExecStart-Pfad, genau einmal vorhanden, RUNTIME_OVERRIDES_PATH-Praemisse
+dokumentiert, install.sh-sed-Kompatibilitaet).
+
+**Benutzerhandbuch:** keine Aenderung (Bugfix, kein Fach-Feature). **Keine** Binaries.
+
+**Wichtig fuer Deployment:** Nach dem Merge muss die Unit-Datei auf dem Pi neu installiert
+werden (`sudo cp wetterprojekt-nightly-analysis.service /etc/systemd/system/ && sudo systemctl
+daemon-reload`), oder `install.sh --mode=upgrade` erneut ausfuehren — ein reiner `git pull`
+im Repo-Checkout aktualisiert die bereits unter `/etc/systemd/system/` installierte Kopie
+NICHT automatisch.
+
+**Phasen-Status:** unveraendert. B522 ist eine Infrastruktur-Haertung, aendert keine
+Phasen-Logik.
