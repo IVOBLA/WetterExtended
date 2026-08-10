@@ -223,8 +223,8 @@ def _detail_key(rec: dict) -> tuple:
     )
 
 
-def _append_detail_once(path: str, rec: dict, seen: Set[tuple]) -> bool:
-    _persist_verification(rec)
+def _append_detail_once(path: str, rec: dict, seen: Set[tuple], export: bool = True) -> bool:
+    _persist_verification(rec, export=export)
     key = _detail_key(rec)
     if key in seen:
         return False
@@ -300,12 +300,20 @@ def _verification_contract(rec: dict, state: Optional[str] = None) -> dict:
     }
 
 
-def _persist_verification(rec: dict, state: Optional[str] = None) -> None:
+def _persist_verification(rec: dict, state: Optional[str] = None, export: bool = True) -> None:
+    """B521: `export=False` unterdrueckt den teuren `export_json_views()`-Aufruf
+    (voller Tabellen-Rescan + Neuschreiben zweier JSONL-Dateien + fsync). Wird von
+    evaluate_for_horizon() innerhalb der Verifikationsschleife genutzt, um den
+    Export EINMAL am Ende des Horizont-Laufs statt pro Datensatz auszufuehren
+    (vormals O(n^2) ueber die Laufzeit — Ursache der ~53-Minuten-Laeufe von
+    run_accuracy_eval_job, py-spy-belegt 2026-08-10). Alle Aufrufer ausserhalb
+    dieser Datei behalten unveraendertes Verhalten (Default export=True)."""
     try:
         db = os.path.join(os.path.dirname(DETAILS_FILE), "forecast_verification.sqlite")
         store = VerificationStore(db)
         store.record(_verification_contract(rec, state))
-        store.export_json_views()
+        if export:
+            store.export_json_views()
     except Exception as exc:
         debug_log(f"[ACCURACY][P105] Verifikationspersistenz fehlgeschlagen: {exc}")
 
@@ -839,7 +847,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
             for o in objs:
                 if o.get(f"forecast_lat_{horizon_min}") is not None and o.get(f"forecast_lon_{horizon_min}") is not None and _is_real_forecast_object(o, horizon_min):
                     pending_target_not_due += 1
-                    _persist_verification(_detail_record(o, ts, target_ts, horizon_min, None, None, "miss", False, False, horizon_min), "pending")
+                    _persist_verification(_detail_record(o, ts, target_ts, horizon_min, None, None, "miss", False, False, horizon_min), "pending", export=False)
             continue
         target_path, target_frame_delta_min, missing_target_frame_reason = _find_target_frame(by_ts, target_ts, VERIFICATION_TIME_TOLERANCE_S)
 
@@ -871,7 +879,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
                     # Horizont-Ende/Ingest-Luecken aus ml_usage_ratio (B284-Review).
                     delivered_mode_counts[_mode_for(_o)] = delivered_mode_counts.get(_mode_for(_o), 0) + 1
                     rec = _detail_record(_o, ts, target_ts, horizon_min, None, None, "none", True, False, horizon_min, target_frame_delta_min=target_frame_delta_min, missing_target_frame_reason=missing_target_frame_reason)
-                    details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
+                    details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen, export=False)
             continue
 
         # B295: Bei erfolgreicher Interpolation gibt es keinen einzelnen target_path;
@@ -897,7 +905,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
                     # B288: siehe Kommentar im ersten no_target_frame-Zweig oben.
                     delivered_mode_counts[_mode_for(_o)] = delivered_mode_counts.get(_mode_for(_o), 0) + 1
                     rec = _detail_record(_o, ts, target_ts, horizon_min, None, None, "frame_empty", False, False, horizon_min, target_frame_delta_min=target_frame_delta_min, missing_target_frame_reason=missing_target_frame_reason, frame_empty=True)
-                    details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
+                    details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen, export=False)
             continue
 
         for obj in objs:
@@ -930,7 +938,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
                 # B232: keine Distanz als forecast_error_km/match_distance_km schreiben,
                 # sonst zaehlt die Fehler-Diagnose die verworfene Zelle faelschlich als verifiziert.
                 rec = _detail_record(obj, ts, target_ts, horizon_min, None, None, "nn_rejected", False, False, horizon_min, target_frame_delta_min=target_frame_delta_min)
-                details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
+                details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen, export=False)
                 continue
 
             # P105: a merely geometric neighbour is useful trace evidence, not an
@@ -939,14 +947,14 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
                 ambiguous_nearest += 1
                 _bm["missed"] += 1; _bs["missed"] += 1; _bt["missed"] += 1
                 rec = _detail_record(obj, ts, target_ts, horizon_min, matched, dist_km, _match_src, False, False, horizon_min, target_frame_delta_min=target_frame_delta_min)
-                details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
+                details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen, export=False)
                 continue
 
             if matched is None:
                 missed += 1
                 _bm["missed"] += 1; _bs["missed"] += 1; _bt["missed"] += 1
                 rec = _detail_record(obj, ts, target_ts, horizon_min, None, None, _match_src, False, False, horizon_min, target_frame_delta_min=target_frame_delta_min)
-                details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
+                details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen, export=False)
                 continue
 
             try:
@@ -982,7 +990,7 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
             if not _stationary_actual:
                 if rec.get("direction_error_deg") is not None: direction_errors.append(float(rec["direction_error_deg"]))
                 if rec.get("speed_error_kmh") is not None: speed_errors.append(float(rec["speed_error_kmh"]))
-            details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen)
+            details.append(rec); _append_detail_once(DETAILS_FILE, rec, detail_keys_seen, export=False)
             if dist_km <= VERIFICATION_TOLERANCE_KM:
                 hits += 1
                 _bm["hits"] += 1; _bs["hits"] += 1; _bt["hits"] += 1
@@ -1003,6 +1011,14 @@ def evaluate_for_horizon(horizon_min: int, since_hours: int = 24) -> dict:
         f"[ACCURACY][MATCH] h=+{horizon_min}m match_types={_mt_counts} "
         f"nn_rejected={nn_rejected} (NN-Akzeptanz {_nn_threshold:.1f} km)"
     )
+
+    # B521: einmaliger Export nach Abschluss des Horizont-Laufs statt pro Datensatz
+    # (siehe _persist_verification/_append_detail_once export=False oben). Persistiert
+    # denselben Endzustand wie vorher, nur ohne den O(n^2)-Zwischenschritt.
+    try:
+        VerificationStore(os.path.join(os.path.dirname(DETAILS_FILE), "forecast_verification.sqlite")).export_json_views()
+    except Exception as exc:
+        debug_log(f"[ACCURACY][B521] Verifikations-Export (Sammel-Export) fehlgeschlagen: {exc}")
 
     return {
         "horizon": horizon_min,
