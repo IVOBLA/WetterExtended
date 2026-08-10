@@ -2,11 +2,11 @@
 import json
 
 
-def _setup_runtime_config(tmp_path, initial: dict):
+def _setup_runtime_config(tmp_path, monkeypatch, initial: dict):
     """Schreibt initial state in temporäres runtime_overrides.json."""
     import config as cfg
     path = str(tmp_path / "runtime_overrides.json")
-    cfg.RUNTIME_OVERRIDES_PATH = path
+    monkeypatch.setattr(cfg, "RUNTIME_OVERRIDES_PATH", path)
     with open(path, "w") as f:
         json.dump(initial, f)
     import runtime_config as rc
@@ -14,8 +14,8 @@ def _setup_runtime_config(tmp_path, initial: dict):
     return rc
 
 
-def test_patch_exact_key_removes_mark_q_m3s(tmp_path):
-    rc = _setup_runtime_config(tmp_path, {
+def test_patch_exact_key_removes_mark_q_m3s(tmp_path, monkeypatch):
+    rc = _setup_runtime_config(tmp_path, monkeypatch, {
         "HYDRO_STATION_OVERRIDES": {"AT_001": {"enabled": True, "mark_q_m3s": 150.0}}
     })
 
@@ -32,9 +32,9 @@ def test_patch_exact_key_removes_mark_q_m3s(tmp_path):
     assert result["AT_001"]["enabled"] is True  # anderer Wert bleibt
 
 
-def test_legacy_patch_still_reverts_mark_q_m3s(tmp_path):
+def test_legacy_patch_still_reverts_mark_q_m3s(tmp_path, monkeypatch):
     """Dokumentiert das Bug-Verhalten von patch() als Regression-Baseline."""
-    rc = _setup_runtime_config(tmp_path, {
+    rc = _setup_runtime_config(tmp_path, monkeypatch, {
         "HYDRO_STATION_OVERRIDES": {"AT_001": {"enabled": True, "mark_q_m3s": 150.0}}
     })
     overrides = dict(rc.get("HYDRO_STATION_OVERRIDES", {}))
@@ -48,8 +48,8 @@ def test_legacy_patch_still_reverts_mark_q_m3s(tmp_path):
         "patch() verhält sich anders als erwartet — Test anpassen"
 
 
-def test_patch_exact_key_preserves_other_top_level_keys(tmp_path):
-    rc = _setup_runtime_config(tmp_path, {
+def test_patch_exact_key_preserves_other_top_level_keys(tmp_path, monkeypatch):
+    rc = _setup_runtime_config(tmp_path, monkeypatch, {
         "HYDRO_STATION_OVERRIDES": {"AT_001": {"mark_q_m3s": 100.0}},
         "SOME_OTHER_KEY": "value",
     })
