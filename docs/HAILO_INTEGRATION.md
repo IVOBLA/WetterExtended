@@ -10971,3 +10971,36 @@ atomarer Statusmarker).
 **Benutzerhandbuch:** keine Aenderung (Bugfix, kein Fach-Feature). **Keine** Binaries.
 
 **Phasen-Status:** unveraendert. B519 haertet den Metrik-Pfad, aendert keine Phasen-Logik.
+
+### P120 — Welle G: AC-020 und AC-025 deterministisch migriert
+
+**Anlass:** Bei der Kategorisierung der verbliebenen ACs stellte sich heraus,
+dass AC-020 und AC-025 fälschlich als "Ermessen/Governance" eingeordnet
+waren — tatsächlich sind sie technisch machbar, brauchten nur denselben
+Payload-JSON-Parse-Aufwand, der in Welle E bewusst vermieden wurde, um sie
+klein zu halten.
+
+**Änderung:**
+- `tools/ai_checks/checks_local.py`: zwei neue `@register`-Checks angehängt.
+  Beide ACs bleiben unverändert unter `## Offen` in `AIChecks.md` stehen.
+  - `check_ac020_cell_reference_in_new_samples`: `precip_event_active` ist
+    eigene Spalte in `labeled_samples`, `contributing_lineage_ids` liegt in
+    der `payload`-JSON-Spalte. Jede Zeile mit `precip_event_active=1` und
+    leerer/fehlender `contributing_lineage_ids`-Liste ist ein Befund.
+  - `check_ac025_no_cell_sampling_rate`: repliziert exakt die Definition des
+    Produktiv-Gates in `record_pending_samples()`
+    (`hydro_flood_ml.py:1631-1636`): "no-cell" heißt
+    `precip_event_active=0` UND `contributing_cell_count=0` (beide in der
+    `payload`-Spalte von `pending_samples` — anders als `labeled_samples` hat
+    diese Tabelle keine eigenen Spalten dafür). Zählt je `station_id`+Tag; ein
+    Wert ≥ `HYDRO_ML_MAX_NO_CELL_SAMPLES_PER_DAY` (Default 24, per
+    `effective_runtime_config.json` overridebar) ist ein Befund.
+- `tests/test_p120_aichecks_welle_g.py` (neu): 12 Tests.
+
+**Benutzerhandbuch:** keine Änderung. **Keine** Binaries.
+
+**Tests:** `tests/test_p120_aichecks_welle_g.py` (12 Fälle, neu). Bestehende
+Suite inkl. P112-P119 (138 Fälle) unverändert grün.
+
+**Phasen-Status:** Phase A — P120 ✅. AC-Migration jetzt bei **34 von 56
+deterministisch entschieden**.

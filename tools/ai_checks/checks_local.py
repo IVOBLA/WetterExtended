@@ -1529,3 +1529,99 @@ def check_ac029_precip_window_overlap(base) -> dict:
                           f"{hits}"),
                 "detail": {"hits": hits}}
     return {"status": "ok", "beleg": "kein precip_window_overlap_min > 0", "detail": {}}
+
+@register("AC-020")
+def check_ac020_cell_reference_in_new_samples(base) -> dict:
+    """AC-020 — Zellbezug in neuen Samples.
+
+    Deterministisch: precip_event_active ist eine eigene Spalte in
+    labeled_samples (hydro_flood_ml.py:1145), contributing_lineage_ids liegt
+    in der payload-JSON-Spalte (row["contributing_lineage_ids"], gesetzt beim
+    Aufbau des payload-Dicts). Jede Zeile mit precip_event_active=1 und leerer
+    (oder fehlender) contributing_lineage_ids-Liste bedeutet Verlust des
+    Zellbezugs im Produktivpfad -- jeder Treffer ist ein Befund, so von der
+    AC verlangt.
+    """
+    base = Path(base)
+    con = _ac_hydro_sqlite_or_none(base)
+    if con is None:
+        return {"status": "ok", "beleg": "kein hydro_flood_samples_snapshot.sqlite3 im Export", "detail": {}}
+    try:
+        try:
+            rows = con.execute(
+                "SELECT sample_id, payload FROM labeled_samples WHERE precip_event_active=1"
+            ).fetchall()
+        except sqlite3.Error:
+            return {"status": "ok", "beleg": "labeled_samples nicht lesbar", "detail": {}}
+        hits = []
+        for sample_id, payload_text in rows:
+            try:
+                payload = json.loads(payload_text)
+            except Exception:
+                continue
+            if not (payload.get("contributing_lineage_ids") or []):
+                hits.append(sample_id)
+        if hits:
+            return {"status": "finding",
+                    "beleg": (f"{len(hits)}/{len(rows)} Sample(s) mit precip_event_active=1 aber "
+                              f"leerer contributing_lineage_ids-Liste — Zellbezug verloren"),
+                    "detail": {"sample_ids": hits[:20], "count": len(hits), "total": len(rows)}}
+        return {"status": "ok",
+                "beleg": f"{len(rows)} Sample(s) mit precip_event_active=1, alle mit Zellbezug",
+                "detail": {"total": len(rows)}}
+    finally:
+        con.close()
+
+
+@register("AC-025")
+def check_ac025_no_cell_sampling_rate(base) -> dict:
+    """AC-025 — Sampling-Rate: No-cell-Samples pro Station und Tag.
+
+    Deterministisch: repliziert exakt die Definition des Produktiv-Gates in
+    record_pending_samples() (hydro_flood_ml.py:1631-1636): "no-cell" heisst
+    precip_event_active=0 UND contributing_cell_count=0 (beide in der
+    payload-JSON-Spalte von pending_samples, hydro_flood_ml.py:1172 -- anders
+    als labeled_samples hat pending_samples keine eigenen Spalten dafuer).
+    Zaehlt je station_id+Tag (aus sample_start_time); ein Wert ueber
+    HYDRO_ML_MAX_NO_CELL_SAMPLES_PER_DAY (Default 24, per
+    effective_runtime_config.json overridebar) bedeutet, dass das
+    Produktiv-Gate an diesem Tag durchbrochen wurde -- Befund.
+    """
+    base = Path(base)
+    con = _ac_hydro_sqlite_or_none(base)
+    if con is None:
+        return {"status": "ok", "beleg": "kein hydro_flood_samples_snapshot.sqlite3 im Export", "detail": {}}
+    try:
+        try:
+            rows = con.execute("SELECT station_id, sample_start_time, payload FROM pending_samples").fetchall()
+        except sqlite3.Error:
+            return {"status": "ok", "beleg": "pending_samples nicht lesbar", "detail": {}}
+        counts: dict[tuple, int] = {}
+        for station_id, start_time, payload_text in rows:
+            try:
+                payload = json.loads(payload_text)
+            except Exception:
+                continue
+            if payload.get("precip_event_active") is True:
+                continue
+            if int(payload.get("contributing_cell_count") or 0) != 0:
+                continue
+            day = str(start_time or "")[:10]
+            key = (station_id, day)
+            counts[key] = counts.get(key, 0) + 1
+        limit = _effective_runtime_override(base, "HYDRO_ML_MAX_NO_CELL_SAMPLES_PER_DAY")
+        limit = int(limit) if isinstance(limit, (int, float)) else 24
+        offenders = [(k, n) for k, n in counts.items() if n >= limit]
+        if offenders:
+            offenders.sort(key=lambda kv: -kv[1])
+            return {"status": "finding",
+                    "beleg": (f"{len(offenders)} Station-Tag-Kombination(en) mit No-cell-Samples "
+                              f">= {limit}: "
+                              + ", ".join(f"{sid}/{day}={n}" for (sid, day), n in offenders[:5])),
+                    "detail": {"offenders": [{"station_id": sid, "day": day, "count": n}
+                                              for (sid, day), n in offenders], "limit": limit}}
+        return {"status": "ok",
+                "beleg": f"{len(counts)} Station-Tag-Kombination(en) geprueft, keine >= {limit}",
+                "detail": {"limit": limit, "max_seen": max(counts.values()) if counts else 0}}
+    finally:
+        con.close()
