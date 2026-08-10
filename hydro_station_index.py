@@ -404,7 +404,7 @@ def build_station_index(stations_geojson: str, basins_geojson: str | None, flowl
                 upstream_source_quality = "upstream_graph_confident"
             else:
                 derived, topology_source, upstream_source_quality = _derive_upstream_ids_from_basins(basin_id, basin_graph, basin_edge_count)
-                upstream_ids = derived if basin_match_quality != "nearby_unresolved" and not flowlines else []
+                upstream_ids = derived if basin_match_quality != "nearby_unresolved" else []
             if basin_match_quality == "nearby_unresolved":
                 topology_source = "none"
                 upstream_source_quality = "nearby_basin_not_hydrologically_resolved"

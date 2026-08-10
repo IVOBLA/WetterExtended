@@ -10,6 +10,12 @@ from hydro_station_index import build_station_index, SHAPELY_AVAILABLE
 def basin(bid, x0, x1):
     return {"type":"Feature","properties":{"HYDROID":bid},"geometry":{"type":"Polygon","coordinates":[[[x0,0],[x1,0],[x1,1],[x0,1],[x0,0]]]}}
 
+def basin_with_downstream(bid, x0, x1, downstream=None):
+    b = basin(bid, x0, x1)
+    if downstream:
+        b["properties"]["downstream_basin_id"] = downstream
+    return b
+
 def flow(fid, coords, direction="forward"):
     return {"type":"Feature","properties":{"HYDROID":fid,"STARTNODE_HREF":f"{fid}s","ENDNODE_HREF":f"{fid}e","FLOWDIRECTION":direction,"INNETWORK":True},"geometry":{"type":"LineString","coordinates":coords}}
 
@@ -76,6 +82,20 @@ def test_station_without_confident_graph_stays_not_eligible(tmp_path):
     row=json.loads((tmp_path/"station_network_index.json").read_text())["by_station_id"]["S"]
     assert row["impact_eligible"] is False
     assert "upstream_catchment_unavailable" in row["reason"]
+
+
+@pytest.mark.skipif(not SHAPELY_AVAILABLE, reason="Shapely fehlt")
+def test_station_uses_basin_topology_fallback_when_flowline_graph_unusable(tmp_path):
+    stations={"type":"FeatureCollection","features":[{"type":"Feature","properties":{"station_id":"S"},"geometry":{"type":"Point","coordinates":[1.5,.5]}}]}
+    sp=tmp_path/"s.geojson"; bp=tmp_path/"b.geojson"; fp=tmp_path/"f.geojson"
+    sp.write_text(json.dumps(stations))
+    bp.write_text(json.dumps({"type":"FeatureCollection","features":[basin_with_downstream("B1",0,1,"B2"),basin("B2",1,2)]}))
+    fp.write_text(json.dumps({"type":"FeatureCollection","features":[flow("F1", [[0.2,.5],[1.8,.5]], "unknown")]}))
+    build_station_index(str(sp), str(bp), str(fp), str(tmp_path))
+    row=json.loads((tmp_path/"station_network_index.json").read_text())["by_station_id"]["S"]
+    assert row["impact_eligible_auto"] is True
+    assert row["topology_source"] == "ggn_basin_downstream_topology"
+    assert set(row["upstream_catchment_ids"]) == {"B1","B2"}
 
 
 def test_no_external_requests_in_upstream_graph_build(monkeypatch):
