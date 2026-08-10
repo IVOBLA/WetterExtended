@@ -23,6 +23,7 @@ import glob
 import json
 import math
 import os
+import runtime_config
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Optional, Dict, List, Tuple, Any, Set
@@ -1131,6 +1132,70 @@ def classify_zero_sample_health(obj_dir: str, since_hours: int = 24) -> dict:
         "total_cells": total_cells,
         "cells_with_forecast": cells_with_forecast,
     }
+
+
+def _evaluate_all_to_queue(q, horizons, since_hours, fn):
+    """B519: Worker-Einstieg im Kindprozess. Legt Ergebnis oder Fehler in die Queue.
+    `fn` ist injizierbar (Default evaluate_all) — ausschliesslich fuer Tests."""
+    try:
+        result = fn(horizons, since_hours=since_hours)
+        q.put(("ok", result))
+    except Exception as exc:  # noqa: BLE001
+        import traceback
+        q.put(("failed", f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"))
+
+
+def evaluate_all_bounded(horizons, since_hours=24, timeout_s=None, fn=None):
+    """B519: Fuehrt evaluate_all() in einem KILLBAREN Kindprozess mit harter
+    Wanduhr-Grenze aus. Garantiert, dass der Aufruf zurueckkehrt und der
+    APScheduler-max_instances-Slot freigegeben wird — auch wenn der Lauf in
+    blockierendem I/O haengt (ein Thread/Signal wuerde das nicht garantieren).
+
+    Rueckgabe: (state, payload)
+      ("ok", result_dict) | ("overrun", None) | ("failed", err_str)
+    """
+    import multiprocessing as _mp
+    from config import ACCURACY_EVAL_TIMEOUT_S as _CFG_TO
+    if timeout_s is None:
+        try:
+            timeout_s = int(runtime_config.get("ACCURACY_EVAL_TIMEOUT_S", _CFG_TO))
+        except Exception:
+            timeout_s = int(_CFG_TO)
+    if fn is None:
+        fn = evaluate_all
+    ctx = _mp.get_context("fork")
+    q = ctx.Queue()
+    p = ctx.Process(target=_evaluate_all_to_queue, args=(q, horizons, since_hours, fn))
+    p.start()
+    p.join(timeout_s)
+    if p.is_alive():
+        p.terminate()
+        p.join(10)
+        if p.is_alive():
+            p.kill()
+            p.join(5)
+        return ("overrun", None)
+    try:
+        state, payload = q.get_nowait()
+    except Exception:
+        return ("failed", "kein Ergebnis vom accuracy_eval-Kindprozess")
+    return (state, payload)
+
+
+def write_accuracy_eval_status(state: str, **extra) -> str:
+    """B519: Sichtbarer Statusmarker fuer den accuracy_eval-Lauf. Verhindert, dass ein
+    Ueberlauf/Fehler still bleibt (Voraussetzung fuer den separaten Staleness-Alarm)."""
+    from config import ACCURACY_EVAL_STATUS_FILE_NAME
+    eval_dir = SAVE_PATHS.get("evaluation", "train_data/evaluation").rstrip("/")
+    os.makedirs(eval_dir, exist_ok=True)
+    path = os.path.join(eval_dir, ACCURACY_EVAL_STATUS_FILE_NAME)
+    rec = {"state": state, "written_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    rec.update(extra)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(rec, f, ensure_ascii=False)
+    os.replace(tmp, path)
+    return path
 
 
 def append_history_point(metric: dict) -> str:

@@ -327,8 +327,23 @@ def run_accuracy_eval_job():
         from config import ML_FORECAST_HORIZONS_MIN, SAVE_PATHS
 
         horizons = runtime_config.get("ML_FORECAST_HORIZONS_MIN", ML_FORECAST_HORIZONS_MIN)
-        result = evaluate_all(horizons, since_hours=24)
+        from accuracy_tracker import evaluate_all_bounded, write_accuracy_eval_status
+        import time as _t
+        _t0 = _t.monotonic()
+        _state, result = evaluate_all_bounded(horizons, since_hours=24)
+        _dur = round(_t.monotonic() - _t0, 1)
+        if _state == "overrun":
+            write_accuracy_eval_status("overrun", duration_s=_dur, horizons=horizons)
+            debug_log(f"[SCHEDULER][ACCURACY] UEBERLAUF nach {_dur}s — Lauf abgebrochen, "
+                      f"accuracy_history NICHT fortgeschrieben (max_instances-Selbstblockade verhindert)")
+            return
+        if _state != "ok" or not isinstance(result, dict):
+            write_accuracy_eval_status("failed", duration_s=_dur, error=str(result)[:500])
+            debug_log(f"[SCHEDULER][ACCURACY] Fehler im Kindprozess nach {_dur}s: {str(result)[:300]}")
+            return
         append_history_point(result)
+        write_accuracy_eval_status("ok", duration_s=_dur,
+                                   horizons=[h.get("horizon") for h in result.get("horizons", [])])
 
         try:
             from severity_verification import evaluate_severity

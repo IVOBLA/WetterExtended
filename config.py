@@ -1516,6 +1516,14 @@ SCHEDULER_MISFIRE_GRACE_S: int = 3600
 # täglichen Cleanup verworfen. Default 48 h (> 24h-Export-Fenster) → der 24h-Export
 # behält IMMER alle Daten; gestoppt wird nur unbegrenztes Wachstum. 0 = keine Rotation.
 EVAL_LOG_RETENTION_HOURS: int = 48
+
+# B519: Harte Wanduhr-Laufzeitgrenze fuer den stuendlichen accuracy_eval-Job.
+# Runtime-overridable: runtime_config.patch({"ACCURACY_EVAL_TIMEOUT_S": <sek>})
+# Ein Ueberlauf ueber das 1h-Intervall wuerde sonst via APScheduler max_instances=1
+# ALLE Folgelaeufe verwerfen und accuracy_history.jsonl still einfrieren (Vorfall 07.08.2026).
+# MUSS < 3600 bleiben, damit der Lauf garantiert vor dem naechsten Trigger endet.
+ACCURACY_EVAL_TIMEOUT_S: int = 2400
+ACCURACY_EVAL_STATUS_FILE_NAME: str = "accuracy_eval_status.json"
 # B256: Maximale Zeichenzahl für body_json/body_text in api_call_counts.jsonl.
 # Überschreitung → Eintrag gekürzt + "truncated": true.
 # 0 = keine Begrenzung (nicht empfohlen: unkontrolliertes Wachstum).
