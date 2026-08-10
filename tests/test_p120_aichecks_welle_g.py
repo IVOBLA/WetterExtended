@@ -18,14 +18,27 @@ def _make_snapshot_with_tables(tmp_path):
     d = tmp_path / "hydro_ml"
     d.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(str(d / "hydro_flood_samples_snapshot.sqlite3"))
-    con.execute("CREATE TABLE labeled_samples (sample_id TEXT, precip_event_active INTEGER, payload TEXT)")
+    con.execute("CREATE TABLE labeled_samples (sample_id TEXT, station_id TEXT, sample_start_time TEXT, "
+                "precip_event_active INTEGER, payload TEXT)")
     con.execute("CREATE TABLE pending_samples (sample_id TEXT, station_id TEXT, sample_start_time TEXT, payload TEXT)")
     con.commit()
     return con
 
 
 def _insert_labeled(con, rows):
-    con.executemany("INSERT INTO labeled_samples VALUES (?,?,?)", rows)
+    con.executemany(
+        "INSERT INTO labeled_samples VALUES (?, NULL, NULL, ?, ?)", rows
+    )
+    con.commit()
+    con.close()
+
+
+def _insert_materialized(con, rows):
+    con.executemany(
+        "INSERT INTO labeled_samples VALUES (?,?,?,?,?)",
+        [(sample_id, station_id, start_time, 0, payload)
+         for sample_id, station_id, start_time, payload in rows],
+    )
     con.commit()
     con.close()
 
@@ -109,6 +122,42 @@ def test_ac025_finding_above_default_limit(tmp_path):
     assert r["detail"]["offenders"][0]["count"] == 30
 
 
+def test_ac025_counts_materialized_and_pending_samples(tmp_path):
+    con = _make_snapshot_with_tables(tmp_path)
+    payload = json.dumps({"precip_event_active": False, "contributing_cell_count": 0})
+    con.executemany(
+        "INSERT INTO pending_samples VALUES (?,?,?,?)",
+        [(f"p{i}", "A", "2026-08-06T00:00:00", payload) for i in range(12)],
+    )
+    _insert_materialized(
+        con,
+        [(f"l{i}", "A", "2026-08-06T01:00:00", payload) for i in range(12)],
+    )
+
+    r = ac025(tmp_path)
+
+    assert r["status"] == "finding"
+    assert r["detail"]["offenders"][0]["count"] == 24
+
+
+def test_ac025_deduplicates_sample_ids_across_tables(tmp_path):
+    con = _make_snapshot_with_tables(tmp_path)
+    payload = json.dumps({"precip_event_active": False, "contributing_cell_count": 0})
+    con.executemany(
+        "INSERT INTO pending_samples VALUES (?,?,?,?)",
+        [(f"s{i}", "A", "2026-08-06T00:00:00", payload) for i in range(20)],
+    )
+    _insert_materialized(
+        con,
+        [(f"s{i}", "A", "2026-08-06T00:00:00", payload) for i in range(20)],
+    )
+
+    r = ac025(tmp_path)
+
+    assert r["status"] == "ok"
+    assert r["detail"]["max_seen"] == 20
+
+
 def test_ac025_ignores_extreme_samples(tmp_path):
     con = _make_snapshot_with_tables(tmp_path)
     rows = [(f"s{i}", "A", "2026-08-06T00:00:00",
@@ -116,6 +165,19 @@ def test_ac025_ignores_extreme_samples(tmp_path):
             for i in range(30)]
     _insert_pending(con, rows)
     r = ac025(tmp_path)
+    assert r["status"] == "ok"
+
+
+def test_ac025_ignores_samples_above_station_threshold(tmp_path):
+    con = _make_snapshot_with_tables(tmp_path)
+    rows = [(f"s{i}", "A", "2026-08-06T00:00:00",
+              json.dumps({"precip_event_active": False, "contributing_cell_count": 0,
+                          "current_q_m3s": 12.0, "station_q_threshold_m3s": 10.0}))
+            for i in range(30)]
+    _insert_pending(con, rows)
+
+    r = ac025(tmp_path)
+
     assert r["status"] == "ok"
 
 

@@ -1580,8 +1580,10 @@ def check_ac025_no_cell_sampling_rate(base) -> dict:
     Deterministisch: repliziert exakt die Definition des Produktiv-Gates in
     record_pending_samples() (hydro_flood_ml.py:1631-1636): "no-cell" heisst
     precip_event_active=0 UND contributing_cell_count=0 (beide in der
-    payload-JSON-Spalte von pending_samples, hydro_flood_ml.py:1172 -- anders
-    als labeled_samples hat pending_samples keine eigenen Spalten dafuer).
+    payload-JSON-Spalte beider Sample-Tabellen). Bereits materialisierte und
+    noch ausstehende Samples werden dabei anhand der sample_id dedupliziert.
+    Samples oberhalb des Stationsgrenzwerts sind wie Niederschlags-Extreme
+    vom Produktiv-Gate ausgenommen.
     Zaehlt je station_id+Tag (aus sample_start_time); ein Wert ueber
     HYDRO_ML_MAX_NO_CELL_SAMPLES_PER_DAY (Default 24, per
     effective_runtime_config.json overridebar) bedeutet, dass das
@@ -1593,11 +1595,19 @@ def check_ac025_no_cell_sampling_rate(base) -> dict:
         return {"status": "ok", "beleg": "kein hydro_flood_samples_snapshot.sqlite3 im Export", "detail": {}}
     try:
         try:
-            rows = con.execute("SELECT station_id, sample_start_time, payload FROM pending_samples").fetchall()
+            rows = con.execute(
+                "SELECT sample_id, station_id, sample_start_time, payload FROM pending_samples "
+                "UNION ALL "
+                "SELECT sample_id, station_id, sample_start_time, payload FROM labeled_samples"
+            ).fetchall()
         except sqlite3.Error:
-            return {"status": "ok", "beleg": "pending_samples nicht lesbar", "detail": {}}
+            return {"status": "ok", "beleg": "Sample-Tabellen nicht lesbar", "detail": {}}
         counts: dict[tuple, int] = {}
-        for station_id, start_time, payload_text in rows:
+        seen_sample_ids = set()
+        for sample_id, station_id, start_time, payload_text in rows:
+            if sample_id in seen_sample_ids:
+                continue
+            seen_sample_ids.add(sample_id)
             try:
                 payload = json.loads(payload_text)
             except Exception:
@@ -1606,6 +1616,14 @@ def check_ac025_no_cell_sampling_rate(base) -> dict:
                 continue
             if int(payload.get("contributing_cell_count") or 0) != 0:
                 continue
+            try:
+                current_q = float(payload["current_q_m3s"])
+                threshold = float(payload["station_q_threshold_m3s"])
+            except (KeyError, TypeError, ValueError):
+                pass
+            else:
+                if current_q >= threshold:
+                    continue
             day = str(start_time or "")[:10]
             key = (station_id, day)
             counts[key] = counts.get(key, 0) + 1
