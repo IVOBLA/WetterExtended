@@ -11004,3 +11004,35 @@ Suite inkl. P112-P119 (138 Fälle) unverändert grün.
 
 **Phasen-Status:** Phase A — P120 ✅. AC-Migration jetzt bei **34 von 56
 deterministisch entschieden**.
+
+### B520 — hydro_ml_maintenance_history.jsonl: Wartungshistorie für AC-024/AC-026
+
+**Anlass:** AC-024 (Q-History-Wachstum) braucht eine Wachstumsrate (Differenz
+über Zeit), AC-026 (Erhalt von Extremereignissen) braucht einen
+Vorher/Nachher-Vergleich um denselben Wartungslauf herum — beides ist aus
+einer einzelnen Momentaufnahme (`hydro_ml_maintenance_latest.json`, nur der
+letzte Lauf) nicht ableitbar.
+
+**Änderung:**
+- `hydro_flood_ml.py`, `hydro_ml_maintenance()` zählt
+  `q_history_rows_before`/`_after` und `extreme_samples_before`/`_after`
+  unmittelbar vor und nach den Löschungen innerhalb derselben Verbindung.
+- `_append_maintenance_history()` schreibt vollständige Berichte additiv nach
+  `hydro_ml_maintenance_history.jsonl`, begrenzt auf 60 Einträge. Schreibfehler
+  brechen den Wartungslauf nicht ab; Ausnahmeläufe werden nicht angehängt.
+- `tools/ai_checks/checks_local.py` wertet die Historie für AC-024 und AC-026
+  deterministisch aus.
+- `tests/test_b520_maintenance_history.py` und
+  `tests/test_p121_aichecks_welle_h.py` decken Historie und Checks ab.
+
+**Benutzerhandbuch:** keine Änderung (interne Diagnosedatei). **Keine** Binaries.
+
+**Phasen-Status:** Phase A — B520 ✅. Voraussetzung für P121.
+
+### P121 — Welle H: AC-024 und AC-026 deterministisch migriert (nach B520)
+
+**Anlass:** Direkte Fortsetzung von B520.
+
+**Phasen-Status:** Phase A — P121 ✅. AC-Migration jetzt bei **36 von 56
+deterministisch entschieden**. Phase B (Hailo-8 U-Net) bleibt unverändert
+blockiert; sie wartet auf ausreichende Trainingsdaten.

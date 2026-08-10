@@ -1625,3 +1625,57 @@ def check_ac025_no_cell_sampling_rate(base) -> dict:
                 "detail": {"limit": limit, "max_seen": max(counts.values()) if counts else 0}}
     finally:
         con.close()
+
+def _read_maintenance_history(base: Path, n: int = 60) -> list:
+    path = _rglob_first(base, "hydro_ml_maintenance_history.jsonl")
+    if path is None:
+        return []
+    entries = []
+    try:
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                parsed = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(parsed, dict):
+                entries.append(parsed)
+    except Exception:
+        return []
+    return entries[-n:]
+
+
+@register("AC-024")
+def check_ac024_q_history_growth(base) -> dict:
+    """AC-024 — Q-History-Wachstum vs. Retention."""
+    history = _read_maintenance_history(Path(base))
+    if len(history) < 2:
+        return {"status": "ok", "beleg": f"nur {len(history)} Wartungslauf/-laeufe in der Historie — noch kein Trend feststellbar", "detail": {"runs": len(history)}}
+    counts = [h.get("q_history_rows_after") for h in history if h.get("q_history_rows_after") is not None]
+    if len(counts) < 2:
+        return {"status": "ok", "beleg": "keine auswertbaren q_history_rows_after-Werte", "detail": {}}
+    first, last = counts[0], counts[-1]
+    deletions = [h.get("deleted_q_history_rows") or 0 for h in history]
+    monotonic_growth = last > first and all(d == 0 for d in deletions[-min(len(deletions), 5):])
+    if monotonic_growth:
+        return {"status": "finding", "beleg": (f"q_history_rows_after waechst ueber {len(counts)} Laeufe ({first} -> {last}) ohne dass deleted_q_history_rows je > 0 war — Retention/Maintenance-Job pruefen"), "detail": {"first": first, "last": last, "runs": len(counts)}}
+    return {"status": "ok", "beleg": f"q_history_rows_after ueber {len(counts)} Laeufe: {first} -> {last}, Retention loescht aktiv", "detail": {"first": first, "last": last, "runs": len(counts)}}
+
+
+@register("AC-026")
+def check_ac026_extreme_events_preserved(base) -> dict:
+    """AC-026 — Extremereignisse ueberleben die Wartung."""
+    history = _read_maintenance_history(Path(base))
+    if not history:
+        return {"status": "ok", "beleg": "keine hydro_ml_maintenance_history.jsonl vorhanden", "detail": {}}
+    hits = []
+    for entry in history:
+        before = entry.get("extreme_samples_before")
+        after = entry.get("extreme_samples_after")
+        if isinstance(before, int) and isinstance(after, int) and after < before:
+            hits.append({"ts_utc": entry.get("ts_utc"), "before": before, "after": after})
+    if hits:
+        return {"status": "finding", "beleg": (f"{len(hits)} Wartungslauf/-laeufe mit Rueckgang von extreme_samples (Extremereignisse entfernt): {hits}"), "detail": {"hits": hits}}
+    return {"status": "ok", "beleg": f"{len(history)} Wartungslauf/-laeufe geprueft, keine Extremereignisse verloren", "detail": {"runs": len(history)}}
