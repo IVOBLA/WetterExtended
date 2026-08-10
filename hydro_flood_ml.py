@@ -54,6 +54,48 @@ def _maintenance_status_path() -> Path:
     return Path(HYDRO_ML_DIR) / "hydro_ml_maintenance_latest.json"
 
 
+def _maintenance_history_path() -> Path:
+    """P121/AC-024/AC-026: Verlaufsdatei der taeglichen Wartung (03:35, B520:
+    q_history_rows_before/_after und extreme_samples_before/_after je Lauf).
+    _maintenance_status_path() haelt weiterhin nur den letzten Lauf (AC-075
+    liest genau diese Datei) -- die History ist additiv, kein Ersatz."""
+    return Path(HYDRO_ML_DIR) / "hydro_ml_maintenance_history.jsonl"
+
+
+MAINTENANCE_HISTORY_MAX_ENTRIES = 60  # ca. 2 Monate bei taeglichem Lauf
+
+
+def _append_maintenance_history(report: dict) -> None:
+    """Haengt den aktuellen Wartungsbericht an, getrimmt auf
+    MAINTENANCE_HISTORY_MAX_ENTRIES. Ein Schreibfehler darf die Wartung selbst
+    nie scheitern lassen (gleiche Haltung wie beim Sample-Store, B430)."""
+    path = _maintenance_history_path()
+    entries: list[dict] = []
+    if path.exists():
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except Exception:
+                    continue
+        except Exception:
+            entries = []
+    entries.append(report)
+    entries = entries[-MAINTENANCE_HISTORY_MAX_ENTRIES:]
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            for e in entries:
+                f.write(json.dumps(e, ensure_ascii=False, default=str) + "\n")
+        os.replace(str(tmp), str(path))
+    except Exception:
+        pass
+
+
 def _sample_db_integrity_path() -> Path:
     return Path(HYDRO_ML_DIR) / "hydro_sample_db_integrity.json"
 
@@ -2572,6 +2614,19 @@ def hydro_ml_maintenance() -> dict:
         _atomic_json(_maintenance_status_path(), report)
         return report
     with _sample_db() as con:
+        # B520/AC-024/AC-026: Vorher-Zaehlung, bevor irgendeine DELETE-Anweisung
+        # in diesem Block laeuft. current_q_above_threshold liegt in der
+        # payload-JSON-Spalte (keine eigene Spalte in labeled_samples).
+        try:
+            report["q_history_rows_before"] = con.execute("SELECT COUNT(*) FROM q_history").fetchone()[0]
+        except sqlite3.Error:
+            report["q_history_rows_before"] = None
+        try:
+            report["extreme_samples_before"] = con.execute(
+                "SELECT COUNT(*) FROM labeled_samples WHERE json_extract(payload,'$.current_q_above_threshold')=1"
+            ).fetchone()[0]
+        except sqlite3.Error:
+            report["extreme_samples_before"] = None
         fail_cut=(now_dt-timedelta(days=fail_days)).isoformat().replace("+00:00","Z")
         data_cut=(now_dt-timedelta(days=data_days)).isoformat().replace("+00:00","Z")
         cur=con.execute("DELETE FROM sample_failures WHERE failed_at < ?", (fail_cut,)); report["deleted_failure_rows"]=cur.rowcount
@@ -2581,6 +2636,17 @@ def hydro_ml_maintenance() -> dict:
         old=[r[0] for r in con.execute("SELECT run_id FROM training_runs ORDER BY created_at DESC LIMIT -1 OFFSET 50").fetchall()]
         for run_id in old: con.execute("DELETE FROM training_runs WHERE run_id=?", (run_id,))
         report["deleted_training_runs"]=len(old)
+        # B520: Nachher-Zaehlung, nach allen DELETEs, noch innerhalb derselben Verbindung.
+        try:
+            report["q_history_rows_after"] = con.execute("SELECT COUNT(*) FROM q_history").fetchone()[0]
+        except sqlite3.Error:
+            report["q_history_rows_after"] = None
+        try:
+            report["extreme_samples_after"] = con.execute(
+                "SELECT COUNT(*) FROM labeled_samples WHERE json_extract(payload,'$.current_q_above_threshold')=1"
+            ).fetchone()[0]
+        except sqlite3.Error:
+            report["extreme_samples_after"] = None
         con.execute("PRAGMA wal_checkpoint(TRUNCATE)"); con.execute("PRAGMA optimize")
     for directory,key,keep in ((HYDRO_MODEL_CANDIDATES_DIR,"deleted_candidates",20),(HYDRO_MODEL_HISTORY_DIR,"deleted_history_versions",10)):
         if directory.exists():
@@ -2589,7 +2655,12 @@ def hydro_ml_maintenance() -> dict:
                 shutil.rmtree(victim, ignore_errors=True); report[key]+=1
     report["db_size_after"] = HYDRO_SAMPLE_DB_PATH.stat().st_size if HYDRO_SAMPLE_DB_PATH.exists() else 0
     report["status"] = "ok"
+    report["ts_utc"] = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     _atomic_json(_maintenance_status_path(), report)
+    try:
+        _append_maintenance_history(report)
+    except Exception:
+        pass  # B520: ein Fehler beim Verlauf darf den Wartungslauf selbst nie scheitern lassen
     return report
 
 def flood_risk_status() -> dict:
