@@ -1,0 +1,457 @@
+{
+  "schema": 1,
+  "status": "ok",
+  "checked_at_utc": "2026-08-29T21:59:04Z",
+  "hours": 24,
+  "sample_counts": {
+    "forecast_error_details": 570,
+    "verified_forecasts": 483,
+    "ir_lead_time_labels": 429
+  },
+  "forecast_outliers": [
+    {
+      "cell_id": "WX-20260829-0013",
+      "error_km": 23.469526,
+      "forecast_position": {
+        "lat": 46.54512632718089,
+        "lon": 13.966749935714134
+      },
+      "actual_position": {
+        "lat": 46.417633189841894,
+        "lon": 13.722468048245615
+      },
+      "horizon_min": 10.0,
+      "forecast_created_at_utc": "2026-08-28T23:50:00Z",
+      "forecast_mode": "kinematic_fallback",
+      "match_type": "id",
+      "lineage_status": null
+    },
+    {
+      "cell_id": "WX-20260829-0239",
+      "error_km": 22.408386,
+      "forecast_position": {
+        "lat": 46.608508345670195,
+        "lon": 14.425209444985137
+      },
+      "actual_position": {
+        "lat": 46.47943171668453,
+        "lon": 14.200199877188282
+      },
+      "horizon_min": 10.0,
+      "forecast_created_at_utc": "2026-08-29T09:10:00Z",
+      "forecast_mode": "kinematic_fallback",
+      "match_type": "id",
+      "lineage_status": null
+    },
+    {
+      "cell_id": "WX-20260829-0239",
+      "error_km": 21.699943,
+      "forecast_position": {
+        "lat": 46.57519801370687,
+        "lon": 14.35504395474906
+      },
+      "actual_position": {
+        "lat": 46.44735033610123,
+        "lon": 14.140803256227759
+      },
+      "horizon_min": 10.0,
+      "forecast_created_at_utc": "2026-08-29T09:05:00Z",
+      "forecast_mode": "kinematic_fallback",
+      "match_type": "id",
+      "lineage_status": null
+    },
+    {
+      "cell_id": "WX-20260829-0012",
+      "error_km": 19.563829,
+      "forecast_position": {
+        "lat": 46.488289117812485,
+        "lon": 14.652230474181476
+      },
+      "actual_position": {
+        "lat": 46.4979998600112,
+        "lon": 14.39705459863211
+      },
+      "horizon_min": 10.0,
+      "forecast_created_at_utc": "2026-08-28T23:35:00Z",
+      "forecast_mode": "kinematic_fallback",
+      "match_type": "id",
+      "lineage_status": null
+    },
+    {
+      "cell_id": "WX-20260829-0011",
+      "error_km": 16.272486,
+      "forecast_position": {
+        "lat": 46.66560516419077,
+        "lon": 14.887919538225177
+      },
+      "actual_position": {
+        "lat": 46.69278846153846,
+        "lon": 14.678330777972029
+      },
+      "horizon_min": 10.0,
+      "forecast_created_at_utc": "2026-08-29T00:35:00Z",
+      "forecast_mode": "kinematic_fallback",
+      "match_type": "id",
+      "lineage_status": null
+    },
+    {
+      "cell_id": "WX-20260829-0005",
+      "error_km": 16.18474,
+      "forecast_position": {
+        "lat": 46.469316417997874,
+        "lon": 12.958074209902701
+      },
+      "actual_position": {
+        "lat": 46.3881804337232,
+        "lon": 12.782752960526317
+      },
+      "horizon_min": 10.0,
+      "forecast_created_at_utc": "2026-08-28T23:20:00Z",
+      "forecast_mode": "kinematic_fallback",
+      "match_type": "id",
+      "lineage_status": null
+    },
+    {
+      "cell_id": "WX-20260829-0017",
+      "error_km": 16.153132,
+      "forecast_position": {
+        "lat": 46.54838931491483,
+        "lon": 14.23815136415993
+      },
+      "actual_position": {
+        "lat": 46.53840586746705,
+        "lon": 14.02744455111229
+      },
+      "horizon_min": 10.0,
+      "forecast_created_at_utc": "2026-08-28T23:50:00Z",
+      "forecast_mode": "kinematic_fallback",
+      "match_type": "id",
+      "lineage_status": null
+    },
+    {
+      "cell_id": "WX-20260828-0248",
+      "error_km": 15.843896,
+      "forecast_position": {
+        "lat": 46.688487009645065,
+        "lon": 15.299585516562502
+      },
+      "actual_position": {
+        "lat": 46.73957224830465,
+        "lon": 15.10558414514867
+      },
+      "horizon_min": 10.0,
+      "forecast_created_at_utc": "2026-08-28T22:10:00Z",
+      "forecast_mode": "kinematic_fallback",
+      "match_type": "id",
+      "lineage_status": null
+    },
+    {
+      "cell_id": "WX-20260828-0248",
+      "error_km": 15.637028,
+      "forecast_position": {
+        "lat": 46.64185352604471,
+        "lon": 15.253931730337483
+      },
+      "actual_position": {
+        "lat": 46.70161476060812,
+        "lon": 15.068415061266169
+      },
+      "horizon_min": 10.0,
+      "forecast_created_at_utc": "2026-08-28T22:05:00Z",
+      "forecast_mode": "kinematic_fallback",
+      "match_type": "id",
+      "lineage_status": null
+    },
+    {
+      "cell_id": "WX-20260829-0017",
+      "error_km": 14.947035,
+      "forecast_position": {
+        "lat": 46.55417673642637,
+        "lon": 14.210148973062438
+      },
+      "actual_position": {
+        "lat": 46.55554493499415,
+        "lon": 14.014681680132737
+      },
+      "horizon_min": 10.0,
+      "forecast_created_at_utc": "2026-08-28T23:55:00Z",
+      "forecast_mode": "kinematic_fallback",
+      "match_type": "id",
+      "lineage_status": null
+    }
+  ],
+  "pixel_geo_consistency": {
+    "suspect_count": 1,
+    "examples": [
+      {
+        "cell_id": "WX-20260829-0042",
+        "error_km": 4.078707,
+        "pixel_error_px": 83.697,
+        "km_per_px": 0.0487
+      }
+    ]
+  },
+  "id_matching": {
+    "suspect_count": 55,
+    "affected_cell_ids": [
+      "WX-20260829-0006",
+      "WX-20260829-0007",
+      "WX-20260829-0008",
+      "WX-20260829-0009",
+      "WX-20260829-0010",
+      "WX-20260829-0012",
+      "WX-20260829-0013",
+      "WX-20260829-0014",
+      "WX-20260829-0015",
+      "WX-20260829-0016",
+      "WX-20260829-0017",
+      "WX-20260829-0018",
+      "WX-20260829-0019",
+      "WX-20260829-0023",
+      "WX-20260829-0025",
+      "WX-20260829-0030",
+      "WX-20260829-0035",
+      "WX-20260829-0037",
+      "WX-20260829-0041",
+      "WX-20260829-0065",
+      "WX-20260829-0066",
+      "WX-20260829-0232",
+      "WX-20260829-0233",
+      "WX-20260829-0234",
+      "WX-20260829-0235",
+      "WX-20260829-0239",
+      "WX-20260829-0240",
+      "WX-20260829-0247",
+      "WX-20260829-0298"
+    ],
+    "outlier_related_count": 7,
+    "example_events": [
+      {
+        "forecast_created_at_utc": "2026-08-28T23:40:00Z",
+        "target_timestamp_utc": "2026-08-28T23:50:00Z",
+        "horizon_min": 10,
+        "cell_id": "WX-20260829-0009",
+        "object_id": "S7NBT4TP",
+        "match_type": "nearest",
+        "lineage_status": null
+      },
+      {
+        "forecast_created_at_utc": "2026-08-28T23:45:00Z",
+        "target_timestamp_utc": "2026-08-28T23:55:00Z",
+        "horizon_min": 10,
+        "cell_id": "WX-20260829-0009",
+        "object_id": "S7NBT4TP",
+        "match_type": "nearest",
+        "lineage_status": null
+      },
+      {
+        "forecast_created_at_utc": "2026-08-28T23:55:00Z",
+        "target_timestamp_utc": "2026-08-29T00:05:00Z",
+        "horizon_min": 10,
+        "cell_id": "WX-20260829-0007",
+        "object_id": "EK1Q9IJ3",
+        "match_type": "nearest",
+        "lineage_status": null
+      },
+      {
+        "forecast_created_at_utc": "2026-08-29T00:00:00Z",
+        "target_timestamp_utc": "2026-08-29T00:10:00Z",
+        "horizon_min": 10,
+        "cell_id": "WX-20260829-0016",
+        "object_id": "L70U8O95",
+        "match_type": "nearest",
+        "lineage_status": null
+      },
+      {
+        "forecast_created_at_utc": "2026-08-29T00:00:00Z",
+        "target_timestamp_utc": "2026-08-29T00:10:00Z",
+        "horizon_min": 10,
+        "cell_id": "WX-20260829-0012",
+        "object_id": "8XUB0B3G",
+        "match_type": "nearest",
+        "lineage_status": null
+      },
+      {
+        "forecast_created_at_utc": "2026-08-29T00:00:00Z",
+        "target_timestamp_utc": "2026-08-29T00:10:00Z",
+        "horizon_min": 10,
+        "cell_id": "WX-20260829-0006",
+        "object_id": "NR3A6DVP",
+        "match_type": "nearest",
+        "lineage_status": null
+      },
+      {
+        "forecast_created_at_utc": "2026-08-29T00:00:00Z",
+        "target_timestamp_utc": "2026-08-29T00:10:00Z",
+        "horizon_min": 10,
+        "cell_id": "WX-20260829-0007",
+        "object_id": "EK1Q9IJ3",
+        "match_type": "nearest",
+        "lineage_status": null
+      },
+      {
+        "forecast_created_at_utc": "2026-08-29T00:05:00Z",
+        "target_timestamp_utc": "2026-08-29T00:15:00Z",
+        "horizon_min": 10,
+        "cell_id": "WX-20260829-0016",
+        "object_id": "L70U8O95",
+        "match_type": "nearest",
+        "lineage_status": null
+      },
+      {
+        "forecast_created_at_utc": "2026-08-29T00:05:00Z",
+        "target_timestamp_utc": "2026-08-29T00:15:00Z",
+        "horizon_min": 10,
+        "cell_id": "WX-20260829-0012",
+        "object_id": "8XUB0B3G",
+        "match_type": "nearest",
+        "lineage_status": null
+      },
+      {
+        "forecast_created_at_utc": "2026-08-29T00:05:00Z",
+        "target_timestamp_utc": "2026-08-29T00:15:00Z",
+        "horizon_min": 10,
+        "cell_id": "WX-20260829-0006",
+        "object_id": "NR3A6DVP",
+        "match_type": "nearest",
+        "lineage_status": null
+      }
+    ]
+  },
+  "missing_target_frames": {
+    "count": 7,
+    "ratio": 0.0123
+  },
+  "dem_orography": {
+    "dem_elevation_m": {
+      "present_samples": 570,
+      "missing_ratio": 0.0,
+      "null_ratio": 0.0,
+      "zero_ratio": 0.0,
+      "fallback_ratio": 0.0
+    },
+    "dem_slope_toward_cell": {
+      "present_samples": 570,
+      "missing_ratio": 0.0,
+      "null_ratio": 0.0,
+      "zero_ratio": 0.1018,
+      "fallback_ratio": 0.0
+    },
+    "dem_barrier_ahead": {
+      "present_samples": 570,
+      "missing_ratio": 0.0,
+      "null_ratio": 0.0,
+      "zero_ratio": 0.1018,
+      "fallback_ratio": 0.0
+    },
+    "valley_alignment": {
+      "present_samples": 570,
+      "missing_ratio": 0.0,
+      "null_ratio": 0.0,
+      "zero_ratio": 0.1,
+      "fallback_ratio": 0.0
+    },
+    "terrain_blocking_score": {
+      "present_samples": 570,
+      "missing_ratio": 0.0,
+      "null_ratio": 0.0,
+      "zero_ratio": 0.4,
+      "fallback_ratio": 0.0
+    },
+    "orographic_lift_score": {
+      "present_samples": 570,
+      "missing_ratio": 0.0,
+      "null_ratio": 0.0,
+      "zero_ratio": 0.5263,
+      "fallback_ratio": 0.0
+    }
+  },
+  "dem_slope_barrier_status_breakdown": {
+    "computed": 512,
+    "no_movement_vector": 58,
+    "dem_partial_coverage": 0,
+    "dem_unavailable": 0
+  },
+  "weather_features": {
+    "wind_speed_700hPa": {
+      "present_samples": 570,
+      "missing_ratio": 0.0,
+      "null_ratio": 0.0,
+      "zero_ratio": 0.0,
+      "fallback_ratio": 0.0
+    },
+    "wind_speed_500hPa": {
+      "present_samples": 570,
+      "missing_ratio": 0.0,
+      "null_ratio": 0.0,
+      "zero_ratio": 0.0,
+      "fallback_ratio": 0.0
+    },
+    "wind_dir_cos": {
+      "present_samples": 570,
+      "missing_ratio": 0.0,
+      "null_ratio": 0.0,
+      "zero_ratio": 0.0,
+      "fallback_ratio": 0.0
+    },
+    "wind_dir_sin": {
+      "present_samples": 570,
+      "missing_ratio": 0.0,
+      "null_ratio": 0.0,
+      "zero_ratio": 0.0,
+      "fallback_ratio": 0.0
+    },
+    "cape": {
+      "present_samples": 570,
+      "missing_ratio": 0.0,
+      "null_ratio": 0.0,
+      "zero_ratio": 0.0,
+      "fallback_ratio": 0.0
+    },
+    "arome_li": {
+      "present_samples": 570,
+      "missing_ratio": 0.0,
+      "null_ratio": 0.0,
+      "zero_ratio": 0.0053,
+      "fallback_ratio": 0.0
+    },
+    "arome_t2m": {
+      "present_samples": 570,
+      "missing_ratio": 0.0,
+      "null_ratio": 0.0,
+      "zero_ratio": 0.0,
+      "fallback_ratio": 0.0
+    },
+    "nowcast_rr_mm15": {
+      "present_samples": 570,
+      "missing_ratio": 0.0,
+      "null_ratio": 0.0,
+      "zero_ratio": 0.2632,
+      "fallback_ratio": 0.0
+    },
+    "lightning_count_10km": {
+      "present_samples": 570,
+      "missing_ratio": 0.0,
+      "null_ratio": 0.0,
+      "zero_ratio": 0.5053,
+      "fallback_ratio": 0.0
+    }
+  },
+  "ir_precursors": {
+    "median_lead_time_min": null,
+    "matched_count": 0,
+    "no_lead_count": 429
+  },
+  "model_usage": {
+    "status": "not_available"
+  },
+  "important_findings": [
+    "Größter Forecast-Ausreißer: 23.47 km.",
+    "1 Pixel-vs-Geo-Verdachtsfälle gefunden.",
+    "7 Forecasts ohne Ziel-Radarframe."
+  ],
+  "recommendations": [
+    "Pixel→Geo/BBOX/Crop-Upscale-Kette anhand der Verdachtsfälle prüfen.",
+    "Radarframe-Coverage und Verifikationstoleranz im Exportfenster prüfen."
+  ]
+}
